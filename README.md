@@ -4,6 +4,27 @@
 
 Noqeri source uses `.nqr`, project manifests use `project.nqr`, portable compiled objects use `.nqo`, and NoqeriDB uses `.nqd` / `.nqdb`.
 
+## NoqeriSQL v1.0.0 candidate
+
+NoqeriSQL can execute real SQL through SQLite3 or PostgreSQL/libpq, in an optional native adapter. The normal self-hosted Stage-2 compiler remains unchanged.
+
+Build the native adapter separately with development libraries installed:
+
+    cmake -S . -B build/sql-native -DBUILD_TESTING=OFF -DNOQERI_REQUIRE_SQL_BACKENDS=ON
+    cmake --build build/sql-native --target noqerisql
+
+Use the native executable directly:
+
+    ./build/sql-native/noqerisql sql sqlite ./app.sqlite ./schema.sql
+
+Or from the self-hosted Stage-2 launcher:
+
+    NOQERI_SQL_ADAPTER=./build/sql-native/noqerisql ./build/noqeri sql sqlite ./app.sqlite ./schema.sql
+
+The PostgreSQL adapter executes one SQL statement per file with verified TLS; SQLite permits multi-statement SQL files with transactional rollback. The old .nqd/.nqdb format is retained separately and is **not** standard SQL or SQLite-compatible. See [NoqeriSQL implementation notes](Database/NOQERISQL.md).
+
+The Noqeri v1.0.0 compiler version string already exists; **the NoqeriSQL release is still a candidate**, not a verified or tagged release. Complete self-hosted compiler, server-side PostgreSQL, crash-recovery and platform gates remain outstanding.
+
 ## Compiler architecture
 
 `main` now uses a staged self-host model. The normal build no longer invokes CMake or a C++17 compiler. Compiler rules being migrated live in `Compiler/selfhost/*.nqr`; the first stage owns lexical scanning, structural syntax checks, primitive type-width/sign policy, token counting and source fingerprinting.
