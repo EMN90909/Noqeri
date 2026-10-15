@@ -9,8 +9,15 @@ export class NoeError extends Error {
 }
 const START = /[A-Za-z_]/, REST = /[A-Za-z_0-9]/, DIGIT = /[0-9]/
 export function lex(source) {
-  const tokens = []; let i = 0, line = 1, col = 1
-  const emit = (value, kind, start, atLine, atCol) => tokens.push({ value, kind, start, end: i, line: atLine, col: atCol })
+  if (typeof source !== "string" || Buffer.byteLength(source, "utf8") > 1048576) throw new NoeError("NOE005", {line:1,col:1}, "source exceeds 1 MiB limit")
+  const tokens = []; let i = 0, line = 1, col = 1, depth = 0
+  const MAX_TOKENS = 100000, MAX_DEPTH = 64
+  const emit = (value, kind, start, atLine, atCol) => {
+    if (tokens.length >= MAX_TOKENS) throw new NoeError("NOE006", {line:atLine,col:atCol}, "too many tokens")
+    if (value === "(" || value === "{") { depth++; if (depth > MAX_DEPTH) throw new NoeError("NOE007", {line:atLine,col:atCol}, "nesting exceeds maximum") }
+    if (value === ")" || value === "}") depth = Math.max(0, depth - 1)
+    tokens.push({ value, kind, start, end: i, line: atLine, col: atCol })
+  }
   const advance = () => { const c = source[i++]; if (c === '\n') { line++; col = 1 } else col++; return c }
   while (i < source.length) {
     const start = i, atLine = line, atCol = col, ch = source[i]
