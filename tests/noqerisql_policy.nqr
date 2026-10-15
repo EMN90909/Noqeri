@@ -1,0 +1,23 @@
+import "../Database/dialect.nqr"
+import "../Database/query.nqr"
+
+function require(ok: bool): void {
+    if !ok {
+        let invalid: *u8 = 0 as *u8
+        print(invalid[0])
+    }
+}
+require(sqlDialectValid(sqlDialectEmbedded()))
+require(sqlDialectValid(sqlDialectSQLite()))
+require(sqlDialectValid(sqlDialectPostgreSQL()))
+require(!sqlDialectValid(0))
+require(sqlDialectUsesFile(sqlDialectSQLite()))
+require(sqlDialectUsesServer(sqlDialectPostgreSQL()))
+require(!sqlDialectUsesServer(sqlDialectEmbedded()))
+require(sqlDialectParameterCountValid(sqlDialectSQLite(), 999 as usize))
+require(!sqlDialectParameterCountValid(sqlDialectSQLite(), 1000 as usize))
+require(sqlDialectParameterCountValid(sqlDialectPostgreSQL(), 65535 as usize))
+require(!sqlDialectParameterCountValid(sqlDialectPostgreSQL(), 65536 as usize))
+let sql: [u8; 17] = [39 as u8, 63 as u8, 39 as u8, 32 as u8, 45 as u8, 45 as u8, 63 as u8, 10 as u8, 34 as u8, 63 as u8, 34 as u8, 32 as u8, 47 as u8, 42 as u8, 63 as u8, 42 as u8, 47 as u8]
+require(dbCountParameters(slice(sql)) == 0 as usize)
+print("NOQERISQL dialect and placeholder safety: OK")
