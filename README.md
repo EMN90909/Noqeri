@@ -57,6 +57,6 @@ Automatic GitHub Actions workflows are intentionally not required for this migra
 
 ## License
 
-Noqeri is distributed under **GNU GPL v3 only (`GPL-3.0-only`)**. See `LICENSE`.
+Noqeri's project code is distributed under the **GNU General Public License, version 3 only (`GPL-3.0-only`)**, unless a file or component carries a separate license notice. `LICENSE` contains the complete license text. See [`LICENSES.md`](LICENSES.md) for the project licensing guide and third-party component guidance.
 
 Made by [Noethric](https://noethric.xyz).
