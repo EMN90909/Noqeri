@@ -293,7 +293,7 @@ int main(int argc, char** argv) {
     if (cmd == "audit") return runSecurityAudit(argc >= 3 ? argv[2] : ".");
     if (cmd == "sql") {
         if (argc != 5) {
-            std::cerr << "usage: noqeri sql <sqlite|postgres> <database-path-or-conninfo> <script.sql>\\n";
+            std::cerr << "usage: noqeri sql <sqlite|postgres> <database-path-or-conninfo> <script.sql>\n";
             return 1;
         }
         return executeNoqeriSql(argv[2], argv[3], argv[4], std::cout, std::cerr) ? 0 : 1;
