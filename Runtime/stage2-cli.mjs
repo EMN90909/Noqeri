@@ -21,7 +21,7 @@ Usage:
   noqeri audit [--offline]
   noqeri env [--json]
   noqeri doctor [--json] [--strict]
-  noqeri sql <sqlite|postgres> <database> <script.sql> (requires NOQERI_SQL_ADAPTER)\n  noqeri selftest
+  noqeri noe <check script.noe | run script.noe data.nqd> (reference runtime)\n  noqeri sql <sqlite|postgres> <database> <script.sql> (requires NOQERI_SQL_ADAPTER)\n  noqeri selftest
 
 'check' is a Stage-2 semantic/compile-readiness check for the current host target.
 The CLI fails closed if the loaded compiler module does not expose the Stage-2 pipeline.`)
@@ -29,6 +29,18 @@ The CLI fails closed if the loaded compiler module does not expose the Stage-2 p
 
 const args = process.argv.slice(2)
 const command = args[0] || '--help'
+if (command === 'noe') {
+  // Transitional reference interpreter for .noe scripts and .nqd snapshots.
+  // No native .nqr compiler-runtime equivalence is implied.
+  const {spawnSync} = await import('node:child_process')
+  const noesqlCli = new URL('./noesql/cli.mjs', import.meta.url)
+  const child = spawnSync(process.execPath, [noesqlCli.pathname, ...args.slice(1)], {
+    stdio: 'inherit', timeout: 60000
+  })
+  if (child.error) console.error('NoeSQL reference host failed: '+child.error.message)
+  process.exit(child.status ?? 1)
+}
+
 if (command === 'sql') {
   // The main compiler remains self-hosted. Database adapters are native
   // optional host capabilities and must not be mistaken for compiler output.
