@@ -1,6 +1,6 @@
-# NoqeriSQL (NoqeriDB compatibility layer)
+# NoeSQL — new language and legacy NoqeriDB compatibility
 
-NoqeriSQL is the evolving database subsystem; the existing NoqeriDB host remains its legacy embedded compatibility path for Noqeri applications. The database core is owned by Noqeri source in this directory. The original Noqeri-owned policy modules use a narrow host capability boundary. The new optional NoqeriSQL adapters intentionally use the real SQLite3 and PostgreSQL/libpq host libraries for SQL execution.
+NoeSQL is the intended Noqeri-owned database language and engine; see [NoeSQL architecture](../Doc/NOESQL.md) for its current experimental .noe/.nqd implementation. The old NoqeriSQL native SQLite/PostgreSQL adapters are kept as an interoperability bridge, while NoqeriDB is legacy compatibility. The former NoqeriSQL subsystem was the existing NoqeriDB host remains its legacy embedded compatibility path for Noqeri applications. The database core is owned by Noqeri source in this directory. The original Noqeri-owned policy modules use a narrow host capability boundary. The new optional NoqeriSQL adapters intentionally use the real SQLite3 and PostgreSQL/libpq host libraries for SQL execution.
 
 See [NOQERISQL.md](NOQERISQL.md) for the proposed SQLite and PostgreSQL backend types and their current implementation status. Both backends have host library adapters through the new SQL CLI, but PostgreSQL server interoperability and the full build are not yet verified.
 
