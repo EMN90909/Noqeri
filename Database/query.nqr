@@ -5,11 +5,38 @@ export function dbCountParameters(sql: []u8): usize {
     let index: usize = 0 as usize
     let single: bool = false
     let double: bool = false
+    let lineComment: bool = false
+    let blockComment: bool = false
     while index < len(sql) {
         let value: u8 = sql[index]
-        if value == 39 as u8 && !double { single = !single }
-        else if value == 34 as u8 && !single { double = !double }
-        else if value == 63 as u8 && !single && !double { count = count + 1 as usize }
+        let next: u8 = 0 as u8
+        if index + 1 as usize < len(sql) { next = sql[index + 1 as usize] }
+        if lineComment {
+            if value == 10 as u8 { lineComment = false }
+        } else if blockComment {
+            if value == 42 as u8 && next == 47 as u8 {
+                blockComment = false
+                index = index + 1 as usize
+            }
+        } else if single {
+            if value == 39 as u8 {
+                if next == 39 as u8 { index = index + 1 as usize }
+                else { single = false }
+            }
+        } else if double {
+            if value == 34 as u8 {
+                if next == 34 as u8 { index = index + 1 as usize }
+                else { double = false }
+            }
+        } else if value == 45 as u8 && next == 45 as u8 {
+            lineComment = true
+            index = index + 1 as usize
+        } else if value == 47 as u8 && next == 42 as u8 {
+            blockComment = true
+            index = index + 1 as usize
+        } else if value == 39 as u8 { single = true }
+        else if value == 34 as u8 { double = true }
+        else if value == 63 as u8 { count = count + 1 as usize }
         index = index + 1 as usize
     }
     return count
