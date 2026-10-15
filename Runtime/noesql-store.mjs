@@ -1,13 +1,39 @@
 // Experimental NoeSQL reference store: append+sync WAL before checkpointing.
 // Native Noqeri engine and cross-platform power-loss semantics require further proof.
-import { open, readFile, rename, unlink, lstat } from 'node:fs/promises'
+import { open, rename, unlink, lstat } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
 import { dirname, extname, resolve } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { execute, emptyDatabase, runNamed } from './noesql-reference.mjs'
 import { newWalTransaction, replayWal } from './noesql-wal.mjs'
 const MAX_FILE = 16 * 1024 * 1024
+const MAX_WAL = MAX_FILE + 3 * 56 + 64
 const checksum = payload => createHash('sha256').update(payload).digest('hex')
 const pathCheck = path => { if(extname(path)!=='.nqd') throw Error('NoeSQL reference store path must end in .nqd') }
+// Read through one validated descriptor, avoiding a pathname re-open race.
+// Bound allocation before reading and reject non-regular and multiply-linked files.
+async function boundedRead(file, maximum) {
+  const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0)
+  let handle
+  try { handle = await open(file, flags) }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error }
+  try {
+    const st = await handle.stat()
+    if (!st.isFile() || st.nlink !== 1 || st.size > maximum || st.size < 0)
+      throw Error('NOE-SEC: invalid file kind, hard-link count or file size')
+    const bytes = Buffer.alloc(st.size)
+    let at = 0
+    while (at < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, at, bytes.length - at, at)
+      if (bytesRead === 0) throw Error('NOE-SEC: file truncated during read')
+      at += bytesRead
+    }
+    const after = await handle.stat()
+    if (after.size !== st.size || after.ino !== st.ino)
+      throw Error('NOE-SEC: file modified during read')
+    return bytes
+  } finally { await handle.close() }
+}
 async function regularOrAbsent(file) {
   try { const s=await lstat(file);if(!s.isFile()||s.isSymbolicLink())throw Error('NoeSQL path must be a regular file, never a symlink') }
   catch(e){if(e.code!=='ENOENT')throw e}
@@ -28,14 +54,13 @@ function decode(content) {
   return state
 }
 async function baseState(path) {
-  await regularOrAbsent(path)
-  try{return decode(await readFile(path))}catch(e){if(e.code==='ENOENT')return emptyDatabase();throw e}
+  const bytes = await boundedRead(path, MAX_FILE)
+  return bytes === null ? emptyDatabase() : decode(bytes)
 }
 async function walState(path) {
   const file=path+'.wal'
-  await regularOrAbsent(file)
-  let bytes
-  try{bytes=await readFile(file)}catch(e){if(e.code==='ENOENT')return null;throw e}
+  const bytes = await boundedRead(file, MAX_WAL)
+  if (bytes === null) return null
   const parsed=replayWal(bytes)
   return parsed.committed ? decode(parsed.committed) : null
 }
@@ -89,6 +114,8 @@ export async function verifyNqd(path) {
 }
 export async function runNqd(path, source, params={}, options={}) {
   pathCheck(path)
+  if (typeof source === 'string' && Buffer.byteLength(source, 'utf8') > 1024 * 1024)
+    throw Error('NOE-SEC: query source exceeds 1 MiB')
   const inject=options.inject || (async()=>{})
   let holder
   try{holder=await open(path+'.lock','wx',0o600)}catch(e){if(e.code==='EEXIST')throw Error('NoeSQL locked; inspect stale lock manually');throw e}
