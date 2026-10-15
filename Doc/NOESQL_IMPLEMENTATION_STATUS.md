@@ -36,3 +36,39 @@ The native Noqeri lexer test is `tests/noesql_lexer.nqr` and must be run using a
 5. Windows/Linux/macOS build/rebuild, language and database positive/negative conformance, reproducible binaries, fuzz tests, overflow/borrow/safety tests, performance evidence, documentation and signed release artifacts.
 
 Until the listed gates pass, **do not tag v1.0 or delete the stage-0 compiler seed**. This increment is a testable reference implementation and a native lexer start, not a production database or complete compiler migration.
+
+## 15 October 2026: native IR and reference WAL increment
+
+The follow-up adds native **source** modules `Database/noesql_ir.nqr`,
+`Database/noesql_executor.nqr`, `Database/noesql_row.nqr` and
+`Database/noesql_wal.nqr`. The IR uses catalog column IDs, typed scalar values,
+source-independent plans, version checks and explicit predicate operators. The
+native executor is a bounded, supplied-buffer kernel: primitive int/bool/text
+values, in-memory insert/scans/projections/updates/deletes, staging of mutations,
+required and unique-field validation. The native row codec defines `NROW` ROW1
+little-endian records. It does **not** yet execute parsed `.noe` scripts, resolve
+relationships, implement composite indexes, sort/group/join, or persist records
+through the native runtime. The native WAL module encodes/validates NoeSQL
+NWAL v1 frames and committed full-image recovery using a required external
+SHA-256 provider `noeHostSha256`. It does **not** itself implement host fsync,
+locks or checkpoint IO.
+
+The **JavaScript reference** now uses a binary NWAL journal before snapshots:
+BEGIN/IMAGE/COMMIT frames with SHA-256 frame and commit checks, WAL fsync,
+POSIX directory sync, snapshot tempfile fsync/rename and WAL removal. Recovery
+prefers a fully committed WAL image; it rejects complete corrupt frames, ignores
+uncommitted tails and preserves committed data if checkpoint fails. The
+experimental `.nqd` snapshot payload is still JSON, and the host implementation
+is **not** Noqeri's native database engine. Windows durable directory sync,
+real process termination/disk-error injection, isolation and storage-version
+migration need separate evidence.
+
+Locally runnable with Node.js 20+ (no Actions):
+
+```sh
+node --test tests/noesql-reference.test.mjs tests/noesql-store.test.mjs tests/noesql-wal.test.mjs tests/noesql-row.test.mjs
+```
+
+`tests/noesql_native_ir.nqr` is an unverified native fixture pending a trusted
+Noqeri compiler. The Stage-2/Stage-3 gate in `Doc/SELF_HOSTING.md` remains
+unproven. This is not sufficient for a stable 1.0 release or merging to main.
