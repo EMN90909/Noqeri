@@ -82,6 +82,6 @@ fail closed. **This does not prove power-loss durability on all operating system
 
 Added `Runtime/noesql-adapters.mjs`, supporting **experimental** SQLite execution via prepared statements and PostgreSQL SQL translation plus optional `pg`-based execution. Validation covers typed parameters, SQL identifier safety, schema and projection diagnostics, basic foreign keys, atomic SQL rollback and native SQLite boolean decoding. See `Doc/NOESQL_SQL_ADAPTERS.md`.
 
-Local Node.js 22 test run: **33 passed, 0 failed**, covering reference CRUD/WAL/row serialization and optional SQLite compatibility. This does not validate native `.nqr` modules or the complete PostgreSQL runtime (requires a live server).
+Local Node.js 22 test run: **35 passed, 0 failed**, covering reference CRUD/WAL/row serialization and optional SQLite compatibility. This does not validate native `.nqr` modules or the complete PostgreSQL runtime (requires a live server).
 
 **Still release-blocked:** the trusted stage-0 seed is not installed in this execution environment. Native `.nqr` compilation, compiled NoeSQL AST/semantic binding to NoeIR, true native storage/WAL provider and recovery, migrations, full SQL feature coverage, full Noqeri self-hosting and broad cross-platform tests have not passed. Do not merge/tag v1.0 solely on the basis of Node reference tests.

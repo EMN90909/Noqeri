@@ -2,7 +2,7 @@
 
 The authoritative NoeSQL database format remains `.nqd`. Neither SQLite nor PostgreSQL is required by the NoeSQL reference storage engine, and this compatibility code is **not** the native Noqeri execution engine.
 
-`Runtime/noesql-adapters.mjs` compiles a bounded subset of NoeSQL's parsed AST into SQL with **bound values** and **validated quoted identifiers**, rather than interpolating application-provided values. It supports `table`, ordinary composite `index`, `add`, `get`, predicate-filtered `set` and `delete`, `atomic` blocks and named `query` declarations. It rejects unsupported SQL types and expressions instead of silently changing their meaning. Statements in each `run` call use an SQL transaction and roll back on failure. SQLite enforces foreign-key references with `PRAGMA foreign_keys=ON` and returns decoded typed booleans. Prepared query parameters are type checked.
+`Runtime/noesql-adapters.mjs` compiles a bounded subset of NoeSQL's parsed AST into SQL with **bound values** and **validated quoted identifiers**, rather than interpolating application-provided values. It supports `table`, ordinary composite `index`, `add`, `get`, predicate-filtered `set` and `delete`, `atomic` blocks and named `query` declarations. It rejects unsupported SQL types and expressions instead of silently changing their meaning. Statements in each `run` call use an SQL transaction and roll back on failure. SQLite uses null-last ordering with primary-key tie-breaking for sorted results, and enforces foreign-key references with `PRAGMA foreign_keys=ON` and returns decoded typed booleans. Prepared query parameters are type checked.
 
 ### SQLite (Node.js 22+)
 

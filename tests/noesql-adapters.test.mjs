@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSqlCompiler, createSqliteAdapter, createPostgresAdapter } from '../Runtime/noesql-adapters.mjs'
-import { parse } from '../Runtime/noesql-reference.mjs'
+import { parse, execute } from '../Runtime/noesql-reference.mjs'
 
 const schema=`table users {
  id: int key auto
@@ -82,4 +82,27 @@ test('SQLite relationship restrict and boolean result type', async()=>{
   assert.equal(a.run('children where id == 1 delete')[0].affected,1)
   assert.equal(a.run('parents where id == 1 delete')[0].affected,1)
  }finally {a.close()}
+})
+
+
+test('SQLite and independent reference agree on null-last deterministic sorting',async()=>{
+ const source=`table users {id: int key auto
+ name: text required
+ age: int
+}
+users add {name:"Nil"}
+users add {name:"B",age:20}
+users add {name:"A",age:20}
+users get name,age sort age take 2`
+ const expected=execute(source).results.at(-1).rows
+ const adapter=await createSqliteAdapter()
+ try { const got=adapter.run(source).at(-1).rows;assert.deepEqual(got,expected) }
+ finally { adapter.close() }
+})
+
+test('SQL compiler refuses invalid column references without contacting database',()=>{
+ const compiler=createSqlCompiler('postgres')
+ compiler.compile(parse('table users {id: int key auto\n name: text required\n}')[0])
+ assert.throws(()=>compiler.compile(parse('users where unknown == 1 delete')[0]),/NOE402/)
+ assert.throws(()=>compiler.compile(parse('users where id == $unset delete')[0]),/NOE401/)
 })

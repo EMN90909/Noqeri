@@ -106,7 +106,12 @@ export function createSqlCompiler(dialect='sqlite',existing={}) {
       for(const c of stmt.columns)if(c!=='*'&&!fields[c])fault('NOE430',stmt,`unknown projection ${c}`)
       let sql=`SELECT ${stmt.columns.map(x=>x==='*'?'*':quote(x)).join(', ')} FROM ${quote(stmt.table)}`
       if(stmt.where){expect(stmt.where,fields,parameterTypes,'bool');sql+=' WHERE '+compileExpression(stmt.where,ctx)}
-      if(stmt.sort){if(!fields[stmt.sort])fault('NOE431',stmt,`unknown sort column ${stmt.sort}`);sql+=' ORDER BY '+quote(stmt.sort)}
+      if(stmt.sort){
+        if(!fields[stmt.sort])fault('NOE431',stmt,`unknown sort column ${stmt.sort}`)
+        const pk=table.fields.find(f=>f.flags.includes('key')).name
+        sql+=' ORDER BY ('+quote(stmt.sort)+' IS NULL), '+quote(stmt.sort)
+        if(stmt.sort!==pk)sql+=', '+quote(pk)
+      }
       if(stmt.skip||stmt.take){if(stmt.take){expect(stmt.take,{},parameterTypes,'int');sql+=' LIMIT '+compileExpression(stmt.take,ctx)}else sql+=dialect==='sqlite'?' LIMIT -1':' LIMIT ALL';if(stmt.skip){expect(stmt.skip,{},parameterTypes,'int');sql+=' OFFSET '+compileExpression(stmt.skip,ctx)}}
       return {kind:'get',table:stmt.table,sql,values:ctx.values}
     }
