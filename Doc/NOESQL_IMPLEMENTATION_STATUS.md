@@ -1,0 +1,38 @@
+# NoeSQL — implementation status and release gates
+
+## Decision for the Noqeri 1.0 request
+
+- **Compiler:** preserve the normal Noqeri-authored `Compiler/selfhost/*.nqr` path; do not reintroduce C++ into the normal build. Retain the archival C++ stage-0 seed and do NOT claim self-hosting until `Doc/SELF_HOSTING.md` Stage-2/Stage-3 proof succeeds on actual compiled artifacts. `project.nqr` currently says 1.0.0, but a manifest version is not a release-qualification certificate.
+- **Naming:** NoeSQL is the intended native Noqeri database language/engine. The existing `Database/noqeridb.nqr` implementation has primitive integer-key map behavior and does not yet implement relational storage or transactions. Renaming it today without a migration would hide incompatibilities; compatibility and migration must be explicit.
+- **Extensions:** `.nqr` Noqeri source, `.noe` NoeSQL scripts, `.nqo` compiled/web output, `.nqd` database data/embedded storage, `.nqdb` legacy database naming pending a versioned migration. Experimental reference `.nqd` data here is NOT compatible with a future native page/WAL format.
+- **Adapters:** SQLite and PostgreSQL will be optional backends via parameterized, type-checked adapters, not runtime requirements for NoeSQL. No drivers are shipped in this increment; no compatibility is claimed.
+
+## Tested experimental increment
+
+`Runtime/noesql-reference.mjs` is a standalone, dependency-free JavaScript *reference oracle* for exercising early language semantics while the Noqeri compiler is being bootstrapped. It is NOT a substitute for the required Noqeri-authored parser/executor. `Database/noesql_lexer.nqr` begins the Noqeri-native frontend with real source-spanned lexical tokenization, including `$`, comments, delimiters and operators; native binary compilation remains unverified without stage-0.
+
+Supported by the reference oracle: token spans, recursive-descent declarations and precedence parsing, schema catalog, identifier/type validation, single `int key` and `auto`, `required`/`unique` constraints, integer foreign keys and restricted deletes, index declaration validation, typed named-query parameters/defaults, `get`/`where`/`sort`/`skip`/`take`, `add`/`set`/`delete` with one executor, checked integer arithmetic, boolean short circuiting, atomic rollback on errors, and source diagnostics. Indexes are metadata; they do not yet accelerate scans.
+
+`Runtime/noesql-store.mjs` and `noesql-cli.mjs` provide **experimental** `.nqd` JSON snapshots with SHA-256 checksums, no-overwrite lock files, temporary-file writes and atomic rename. This is *not* the future NoeSQL physical page/WAL storage engine: there is no measured power-loss durability, cross-platform isolation proof, recovery journal or compatible binary format. Use temporary/test data only, not user production databases.
+
+## Reproduce local tests (no GitHub Actions)
+
+From the repository root with Node.js 20+:
+
+```sh
+node --test tests/noesql-reference.test.mjs tests/noesql-store.test.mjs
+node Runtime/noesql-cli.mjs run /tmp/school.nqd tests/school.noe
+node Runtime/noesql-cli.mjs query /tmp/school.nqd adults '{"minAge":20}'
+```
+
+The native Noqeri lexer test is `tests/noesql_lexer.nqr` and must be run using an authenticated working Noqeri compiler (`noqeri check`, `noqeri run` where available). Never report it as passing before execution.
+
+## Hard blockers before stable 1.0
+
+1. Native compiler and parser: complete `.nqr` lexer/AST/recursive-descent expression and statement parser, schema-aware semantic analysis, stable diagnostics and grammar conformance. Prove bootstrap Stage-2/Stage-3 and test actual native/web emission.
+2. Native typed NoeIR, row encoding/decoding, indexes, relational planner and shared scan/filter/project/CRUD executor, foreign-key enforcement, schema versions/migrations, grouping/joins and parameterized `.nqr` bindings.
+3. Versioned native `.nqd` page format and WAL with a measured durable commit point, exclusive-writer lock, read-only verify, replay, recovery, corruption and power-failure injection on all supported platforms.
+4. Optional SQLite and PostgreSQL interoperability adapters with prepared binds, type mapping, error semantics, transactions and integration fixtures; no silent fallback to either engine.
+5. Windows/Linux/macOS build/rebuild, language and database positive/negative conformance, reproducible binaries, fuzz tests, overflow/borrow/safety tests, performance evidence, documentation and signed release artifacts.
+
+Until the listed gates pass, **do not tag v1.0 or delete the stage-0 compiler seed**. This increment is a testable reference implementation and a native lexer start, not a production database or complete compiler migration.
