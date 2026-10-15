@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — NoqeriSQL v1.0.0 candidate (2026-10-15)
+
+- Added host-library SQLite and PostgreSQL SQL execution through a separately built native adapter and optional bootstrap CLI command.
+- Added optional native Stage-2 delegation controlled by NOQERI_SQL_ADAPTER.
+- Made SQLite scripts transactional with WAL, foreign key enforcement, defensive execution, and prohibited transaction escapes.
+- Added bounded script loading, parameter checks, stricter legacy database decoding and schema comparison, writer locking, atomic replacement and fsync protections.
+- Added dialect policy, SQL language tests and SQLite concurrency/rollback integration tests.
+- Release gates remain open: full self-hosted build, PostgreSQL server integration, cross-platform and crash-fault tests. No v1.0.0 release tag has been created.
+
+
 ## 1.4.0-general-systems — 2026-09-11
 
 - Added fixed arrays (`[T; N]`), array literals, slices (`[]T`), `slice(...)`, indexed access, and `len(...)`.
