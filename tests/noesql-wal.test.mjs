@@ -55,3 +55,23 @@ test('full WAL snapshot can recover missing checkpoint base',async()=>{
     assert.deepEqual((await readNqd(f.path)).tables.users.rows.map(x=>x.name),['A','B'])
   } finally {await f.cleanup()}
 })
+
+
+test('SIGKILL after WAL fsync retains committed image on POSIX', {skip:process.platform==='win32'}, async()=>{
+  const {spawn}=await import('node:child_process')
+  const f=await fixture()
+  try {
+    const moduleUrl=new URL('../Runtime/noesql-store.mjs',import.meta.url).href
+    const childScript=`import {runNqd} from ${JSON.stringify(moduleUrl)};\nawait runNqd(${JSON.stringify(f.path)},'users add {name:"B"}',{}, {inject:phase=>{if(phase==='afterWalDirectorySync')process.kill(process.pid,'SIGKILL')}})`
+    const result=await new Promise((resolve,reject)=>{
+      const child=spawn(process.execPath,['--input-type=module','-e',childScript],{stdio:['ignore','pipe','pipe']})
+      let errors='';child.stderr.on('data',chunk=>errors+=chunk)
+      child.once('error',reject)
+      child.once('close',(code,signal)=>resolve({code,signal,errors}))
+    })
+    assert.equal(result.signal,'SIGKILL',result.errors)
+    assert.deepEqual((await readNqd(f.path)).tables.users.rows.map(x=>x.name),['A','B'])
+    // The lock file intentionally remains after a hard kill: fail closed.
+    await assert.rejects(runNqd(f.path,'users add {name:"C"}'),/locked/)
+  } finally {await f.cleanup()}
+})
