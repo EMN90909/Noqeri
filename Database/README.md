@@ -1,28 +1,17 @@
-# NoeSQL — new language and legacy NoqeriDB compatibility
+# NoeSQL — new database language and engine
 
-NoeSQL is the intended Noqeri-owned database language and engine; see [NoeSQL architecture](../Doc/NOESQL.md) for its current experimental .noe/.nqd implementation. The old NoqeriSQL native SQLite/PostgreSQL adapters are kept as an interoperability bridge, while NoqeriDB is legacy compatibility. The former NoqeriSQL subsystem was the existing NoqeriDB host remains its legacy embedded compatibility path for Noqeri applications. The database core is owned by Noqeri source in this directory. The original Noqeri-owned policy modules use a narrow host capability boundary. The new optional NoqeriSQL adapters intentionally use the real SQLite3 and PostgreSQL/libpq host libraries for SQL execution.
+The NoeSQL v0.1 design is the forward architecture for a Noqeri-owned typed database and relational query executor. Its `.noe` scripts and `.nqd` reference database snapshots are described in [Doc/NOESQL.md](../Doc/NOESQL.md). The current reference executor is implemented in Node.js and is not yet Noqeri-native or production-ready.
 
-See [NOQERISQL.md](NOQERISQL.md) for the proposed SQLite and PostgreSQL backend types and their current implementation status. Both backends have host library adapters through the new SQL CLI, but PostgreSQL server interoperability and the full build are not yet verified.
+## Existing database components
 
-## Production model
+The original Noqeri-owned `.nqr` modules in this directory retain their storage/transaction/WAL policies and helpers. New `noesql_lexer.nqr` and `noesql_ir.nqr` provide source-token and typed relational IR groundwork. The end-to-end NoeSQL host has not yet been implemented entirely in `.nqr`.
 
-The engine is split into independently testable policy modules:
+The legacy NoqeriDB command uses `.nqd` *scripts* with a different grammar and `.nqdb` data files; it remains for backward compatibility. **Do not confuse legacy `.nqd` scripts with new NoeSQL `.nqd` database snapshots.** Future migration must resolve that extension collision; users should invoke the new `noqeri noe` path explicitly.
 
-- `index.nqr` — ordered integer indexes and unique lookup primitives.
-- `transaction.nqr` — transaction state and isolation policy.
-- `wal.nqr` / `recovery.nqr` — WAL integrity, checkpoint and recovery decisions.
-- `query.nqr` / `planner.nqr` — prepared-query validation and basic plan selection.
-- `migration.nqr` — monotonic schema-version rules.
-- `security.nqr` — constant-work secret comparison, identifier validation, role checks, encryption-size rules and authentication backoff.
-- `storage.nqr` — the narrow host capability boundary for files, locks, randomness, fsync and AEAD.
-- `engine.nqr` — safe transaction/open/commit orchestration.
+Existing optional NoqeriSQL SQLite/PostgreSQL host-library adapters remain separate, so no direct NoeSQL-on-PostgreSQL/SQLite parity is implied. The database data formats are not interchangeable.
 
-Persistent providers must use atomic replacement or WAL, fsync committed data before reporting success, reject corrupt pages, enforce exclusive writer locks, keep encryption keys outside database files, and use authenticated encryption. The reference contract requires 32-byte encryption keys, 12-byte nonces and 16-byte authentication tags.
+## Release conditions
 
-## Security rules
+Before a stable v1.0: self-hosted compiler validation, native parsing/semantics/execution, durable WAL, recovery and locking tests, foreign keys/unique-index enforcement, cross-platform fuzzing and crash injection, schema-aware migrations and verified backend adapters.
 
-Prepared statements are the default SQL interoperability path. Application values must never be concatenated into SQL. Storage providers must reject path traversal, cap page/WAL/database sizes, use cryptographically secure random nonces, and fail closed when authentication tags do not verify.
-
-## Release gate
-
-Do not describe NoqeriDB as production-ready until the current compiler can execute `tests/noqeridb_production.nqr`, crash/recovery fault injection passes on supported operating systems, corrupted WAL/page corpora are rejected, transaction atomicity tests pass, and benchmarks have published baselines. This directory implements the production architecture and safety policy; the release label is evidence-gated.
+Use `node --test tests/noesql.test.mjs` for the portable reference tests without GitHub Actions.
