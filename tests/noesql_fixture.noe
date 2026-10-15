@@ -1,0 +1,10 @@
+db demo
+table users {
+ id: int key auto
+ name: text required
+ email: text unique required
+ active: bool = true
+}
+index users(email)
+users add {name:"Amina",email:"amina@example.com"}
+users get name, email where active sort name take 10
