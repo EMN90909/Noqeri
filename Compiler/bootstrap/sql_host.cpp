@@ -33,6 +33,11 @@ std::string tabSafe(const char* data, std::size_t count) {
 #ifdef NOQERI_WITH_SQLITE
 struct SQLiteClose { void operator()(sqlite3* db) const { if (db) sqlite3_close(db); } };
 struct StmtClose { void operator()(sqlite3_stmt* s) const { if (s) sqlite3_finalize(s); } };
+int sqlAuthorizer(void*, int action, const char*, const char*, const char*, const char*) {
+    if (action == SQLITE_TRANSACTION || action == SQLITE_SAVEPOINT ||
+        action == SQLITE_ATTACH || action == SQLITE_DETACH || action == SQLITE_PRAGMA) return SQLITE_DENY;
+    return SQLITE_OK;
+}
 bool sqliteScript(const std::string& target, const std::string& source,
                   std::ostream& output, std::ostream& errors) {
     sqlite3* raw = nullptr;
@@ -57,6 +62,8 @@ bool sqliteScript(const std::string& target, const std::string& source,
         errors << "NoqeriSQL SQLite transaction begin failed: " << sqlite3_errmsg(db.get()) << '\n';
         return false;
     }
+    sqlite3_db_config(db.get(), SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr);
+    sqlite3_set_authorizer(db.get(), sqlAuthorizer, nullptr);
     bool ok = true;
     const char* cursor = source.c_str();
     const char* end = cursor + source.size();
@@ -111,6 +118,7 @@ bool sqliteScript(const std::string& target, const std::string& source,
             stagedOutput << '\n';
         }
     }
+    sqlite3_set_authorizer(db.get(), nullptr, nullptr);
     if (ok && sqlite3_exec(db.get(), "COMMIT", nullptr, nullptr, nullptr) == SQLITE_OK) {
         output << stagedOutput.str();
         return true;
@@ -138,38 +146,32 @@ bool postgresScript(const std::string& target, const std::string& source,
         errors << "NoqeriSQL PostgreSQL could not begin transaction: " << PQerrorMessage(conn.get());
         return false;
     }
-    bool ok = true;
+    // libpq extended-query protocol refuses multiple SQL statements.
+    // Each invocation is limited to one server-side command.
+    std::unique_ptr<PGresult, PGResultClose> result(
+        PQexecParams(conn.get(), source.c_str(), 0, nullptr, nullptr, nullptr, nullptr, 0));
+    bool ok = result && (PQresultStatus(result.get()) == PGRES_COMMAND_OK ||
+                         PQresultStatus(result.get()) == PGRES_TUPLES_OK);
     std::ostringstream stagedOutput;
-    if (PQsendQuery(conn.get(), source.c_str()) != 1) {
-        errors << "NoqeriSQL PostgreSQL query send failed: " << PQerrorMessage(conn.get());
-        ok = false;
-    }
-    if (ok) {
-        for (;;) {
-            std::unique_ptr<PGresult, PGResultClose> result(PQgetResult(conn.get()));
-            if (!result) break;
-            const ExecStatusType status = PQresultStatus(result.get());
-            if (status != PGRES_COMMAND_OK && status != PGRES_TUPLES_OK && status != PGRES_EMPTY_QUERY) {
-                errors << "NoqeriSQL PostgreSQL query failed: " << PQresultErrorMessage(result.get());
-                ok = false;
-                continue;
-            }
-            if (status != PGRES_TUPLES_OK || !ok) continue;
-            const int columns = PQnfields(result.get());
+    if (!ok) {
+        errors << "NoqeriSQL PostgreSQL statement failed: " <<
+            (result ? PQresultErrorMessage(result.get()) : PQerrorMessage(conn.get()));
+    } else if (PQresultStatus(result.get()) == PGRES_TUPLES_OK) {
+        const int columns = PQnfields(result.get());
+        for (int c = 0; c < columns; ++c) {
+            if (c) stagedOutput << '\t';
+            const char* name = PQfname(result.get(), c);
+            stagedOutput << tabSafe(name, std::char_traits<char>::length(name));
+        }
+        stagedOutput << '\n';
+        for (int row = 0; row < PQntuples(result.get()); ++row) {
             for (int c = 0; c < columns; ++c) {
                 if (c) stagedOutput << '\t';
-                const char* name = PQfname(result.get(), c);
-                stagedOutput << tabSafe(name, std::char_traits<char>::length(name));
+                if (PQgetisnull(result.get(), row, c)) stagedOutput << "NULL";
+                else stagedOutput << tabSafe(PQgetvalue(result.get(), row, c),
+                                              static_cast<std::size_t>(PQgetlength(result.get(), row, c)));
             }
             stagedOutput << '\n';
-            for (int row = 0; row < PQntuples(result.get()); ++row) {
-                for (int c = 0; c < columns; ++c) {
-                    if (c) stagedOutput << '\t';
-                    if (PQgetisnull(result.get(), row, c)) stagedOutput << "NULL";
-                    else stagedOutput << tabSafe(PQgetvalue(result.get(), row, c), static_cast<std::size_t>(PQgetlength(result.get(), row, c)));
-                }
-                stagedOutput << '\n';
-            }
         }
     }
     std::unique_ptr<PGresult, PGResultClose> final(PQexec(conn.get(), ok ? "COMMIT" : "ROLLBACK"));
