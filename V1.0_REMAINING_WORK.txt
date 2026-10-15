@@ -1,0 +1,275 @@
+NOQERI V1.0.0 — REMAINING WORK AND RELEASE CHECKLIST
+====================================================
+
+Purpose
+-------
+This document defines the work and evidence required before Noqeri can be
+declared a stable v1.0.0 release. It is a release checklist, not a claim that
+all listed items are currently broken or incomplete. Each item must be checked
+against the current implementation and marked complete only when supported by
+tests or other reviewable evidence.
+
+Release principle
+-----------------
+Prefer a small, reliable, documented language over a large set of partially
+implemented features. Do not advertise a capability as stable merely because
+source files for it exist. A v1.0 release must have a clear scope and pass its
+release gates.
+
+P0 — RELEASE BLOCKERS
+=====================
+
+1. Establish the actual compiler path
+-------------------------------------
+[ ] Document the exact command and stages used to compile a .nqr program.
+[ ] Verify whether the current main-branch compiler can compile a complete
+    program into a runnable executable without silently delegating language
+    semantics or compilation to the archival C++ compiler.
+[ ] Identify stubs, placeholders, unsupported stages, and historical commands
+    that are not available through the current Stage 1 interface.
+[ ] Make command availability and platform prerequisites explicit in the
+    README and CLI help.
+[ ] Ensure unsupported commands fail clearly rather than pretending to work.
+
+Acceptance evidence:
+- A clean-checkout build log.
+- A real .nqr program compiled and executed using the documented release path.
+- A record of which compiler stages and external tools were used.
+
+2. End-to-end compiler correctness
+---------------------------------
+[ ] Verify lexer behaviour, including malformed tokens, strings, comments,
+    numeric literals, escapes, and end-of-file cases.
+[ ] Verify parser behaviour and source-located syntax diagnostics.
+[ ] Verify symbol resolution, imports, type checking, generic handling, and
+    semantic validation for every feature declared stable.
+[ ] Verify the NIR representation, validation, lowering, and optimisation
+    stages that are included in the release.
+[ ] Verify generated code or portable output against expected program results.
+[ ] Verify linking, external function calls, exports, and ABI behaviour where
+    these are advertised as supported.
+[ ] Ensure compiler failures produce actionable diagnostics instead of
+    unexplained crashes, hangs, or corrupted output.
+[ ] Add regression tests for every confirmed compiler bug fixed during this
+    work.
+
+Acceptance evidence:
+- Positive tests for valid programs.
+- Negative tests for invalid programs.
+- Regression tests and reproducible results for supported targets.
+
+3. Define and freeze v1.0 language semantics
+-------------------------------------------
+[ ] Publish an authoritative language specification for the v1.0 subset.
+[ ] Define integer widths, signedness, overflow behaviour, casts, and arithmetic.
+[ ] Define arrays, slices, records, strings, imports, functions, and generics.
+[ ] Define pointer validity, ownership/lifetimes, allocation, and deallocation.
+[ ] Define error/status propagation and failure behaviour.
+[ ] Define atomics and concurrency guarantees, including supported memory orders.
+[ ] Define unsafe operations and the exact checks that remain enforced around
+    them.
+[ ] Define extern/export linkage, calling conventions, and platform ABI rules.
+[ ] Document unsupported and implementation-defined behaviour explicitly.
+[ ] Ensure the compiler rejects unsupported constructs rather than silently
+    accepting them with different semantics.
+[ ] Freeze new language features during the final stabilisation period.
+
+Acceptance evidence:
+- Specification matches compiler behaviour.
+- Conformance tests cover each documented stable feature.
+
+4. Memory safety, correctness, and security
+-------------------------------------------
+[ ] Test pointer validity, alignment, lifetime, and invalid memory access paths.
+[ ] Test integer overflow and conversion behaviour across supported targets.
+[ ] Test bounds and invalid slice/array operations wherever applicable.
+[ ] Test atomic operations and concurrency behaviour supported by the language.
+[ ] Check that unsafe features cannot bypass unrelated compiler validation.
+[ ] Add fuzz tests for the lexer, parser, semantic analysis, NIR validation, and
+    binary/object readers where applicable.
+[ ] Apply resource limits or safe failure behaviour to pathological inputs.
+[ ] Verify malformed input cannot cause uncontrolled crashes, hangs, or
+    unbounded resource consumption.
+[ ] Fix all known release-blocking security and correctness defects.
+
+Acceptance evidence:
+- Reproducible test reports, fuzz results, and tracked issue disposition.
+- No unresolved critical or high-severity release blockers.
+
+5. Bootstrap and self-hosting proof
+-----------------------------------
+[ ] Keep the archival Stage 0 compiler clearly identified as a trusted seed.
+[ ] Ensure the compiler source closure manifest includes every required module.
+[ ] Run the documented Stage 0 -> Stage 1 -> Stage 2 process using actual
+    compiler binaries.
+[ ] Verify Stage 1 compiles the complete compiler source into Stage 2.
+[ ] Verify Stage 2 rebuilds the same compiler source.
+[ ] Verify byte-for-byte reproducibility or the documented semantic-equivalence
+    check where platform metadata prevents byte identity.
+[ ] Run the required compiler conformance and hardening suites on the resulting
+    self-hosted compiler.
+[ ] Verify the release process does not require the archival C++ compiler if
+    the v1.0 release claims that it does not.
+[ ] Retain source-closure hashes, artifact hashes, commands, and test results.
+[ ] Do not describe self-hosting as proven until the actual proof passes.
+
+Acceptance evidence:
+- Successful bootstrap proof output and retained artifact/source hashes.
+- A clean explanation of the remaining trust boundary.
+
+6. Test and release gates
+-------------------------
+[ ] Establish one documented command for the complete release test suite.
+[ ] Add unit, positive, negative, regression, and integration tests.
+[ ] Add differential tests between supported execution paths where possible.
+[ ] Add fuzzing and relevant sanitizer/race checks for supported environments.
+[ ] Add clean-checkout installation and build tests.
+[ ] Test every operating system and architecture explicitly claimed as supported.
+[ ] Set release thresholds and fail the release when required checks fail.
+[ ] Keep test results as release evidence; do not treat documentation alone as
+    proof that a test passed.
+
+Acceptance evidence:
+- A release report listing each required check, its environment, and its result.
+- No failing required release checks.
+
+P1 — REQUIRED FOR A USABLE STABLE RELEASE
+=========================================
+
+7. Standard library and runtime
+-------------------------------
+[ ] Define the minimum stable standard-library scope.
+[ ] Test strings, collections, file I/O, terminal I/O, time, mathematics,
+    allocation, and error handling where included in the stable scope.
+[ ] Document API behaviour, failure cases, and platform limitations.
+[ ] Ensure library behaviour matches the language specification.
+[ ] Mark unfinished APIs experimental or exclude them from the v1.0 promise.
+
+8. Package manager and dependency safety
+----------------------------------------
+[ ] Verify deterministic dependency resolution and conflict reporting.
+[ ] Verify package integrity checks are enforced, not merely recorded.
+[ ] Enforce download-size limits while streaming data, before unbounded data is
+    buffered in memory.
+[ ] Validate package coordinates, paths, metadata, and archive entries.
+[ ] Prevent archive extraction outside the intended destination directory.
+[ ] Ensure failed installs do not leave projects in a misleading partial state.
+[ ] Define lockfile behaviour if lockfiles are supported.
+[ ] Define the security model for package scripts and untrusted packages.
+[ ] Test malicious metadata, corrupt archives, oversized downloads, and
+    interrupted network requests.
+[ ] Document registry trust, package publishing, and dependency update behaviour.
+
+9. Developer tools and CLI
+--------------------------
+[ ] Ensure --help, --version, errors, and exit codes are consistent.
+[ ] Ensure CLI commands documented as stable are actually available on the
+    release path.
+[ ] Complete and test the formatter before advertising it as stable.
+[ ] Complete and test LSP/editor integration before advertising it as stable.
+[ ] Provide useful debug information or document current debugging limitations.
+[ ] Provide examples that compile and run using the published instructions.
+
+10. Installation and platform support
+-------------------------------------
+[ ] Document prerequisites, installation, upgrades, and uninstallation.
+[ ] Test installation from a clean machine or clean environment.
+[ ] Test the supported POSIX and Windows workflows independently.
+[ ] Avoid claiming support for untested operating systems or architectures.
+[ ] Ensure failed builds provide clear recovery instructions.
+[ ] Verify release artifacts and publish checksums.
+[ ] Document whether Node.js 20+ is required for the reference portable host
+    and distinguish that host requirement from the .nqo format itself.
+
+11. Documentation and examples
+------------------------------
+[ ] Audit the README against the actual v1.0 implementation.
+[ ] Label features as stable, experimental, planned, or unsupported.
+[ ] Document the language specification, compiler pipeline, CLI, modules,
+    standard library, package workflow, and known limitations.
+[ ] Ensure every quick-start example is tested automatically or in release QA.
+[ ] Provide migration notes for any breaking changes before v1.0.
+[ ] Remove claims that cannot be supported by tests or release evidence.
+
+12. Licensing and third-party notices
+-------------------------------------
+[ ] Keep the complete GPL-3.0-only license text and licensing guide.
+[ ] Audit dependencies, vendored code, generated code, fonts, artwork, and
+    other third-party assets for their applicable licenses.
+[ ] Preserve upstream copyright and license notices.
+[ ] Add a third-party notices inventory where appropriate.
+[ ] Confirm SPDX identifiers and file-level exceptions are accurate.
+[ ] Clarify copyright attribution only where ownership is known and accurate.
+[ ] Decide whether a contributor licence agreement or other contribution policy
+    is needed.
+[ ] Review distribution implications for compiler/runtime/library components
+    if proprietary applications are an intended use case.
+
+13. Versioning, changelog, and support
+--------------------------------------
+[ ] Define version numbering and release tagging.
+[ ] Maintain a changelog with user-visible changes.
+[ ] Document breaking-change and compatibility policy.
+[ ] Define how users report bugs and security vulnerabilities.
+[ ] Define support expectations for stable releases.
+[ ] Prepare a release checklist and rollback/retraction procedure.
+
+P2 — OPTIONAL OR POST-v1.0
+==========================
+
+14. Game-development ecosystem
+------------------------------
+[ ] First prove external library integration and executable linking.
+[ ] Build a minimal example that opens a window, handles input, draws a moving
+    object, and exits cleanly.
+[ ] Add audio, asset loading, timing, and math examples only as the integration
+    path becomes reliable.
+[ ] Treat a full game engine, advanced 3D rendering, and broad game-platform
+    support as separate milestones unless explicitly included in v1.0 scope.
+
+15. NoqeriDB and other subsystems
+--------------------------------
+[ ] Decide whether NoqeriDB is part of the v1.0 product promise or a separate
+    experimental project.
+[ ] If included, define and test its transaction, crash-recovery, storage,
+    corruption-handling, and compatibility guarantees.
+[ ] Keep unfinished database, native/NIR, formatter, LSP, and other subsystems
+    clearly marked experimental or outside the stable release scope.
+
+16. Performance
+---------------
+[ ] Establish repeatable compiler and runtime benchmarks.
+[ ] Track compile time, runtime speed, memory use, and binary size.
+[ ] Optimise only after correctness tests are in place.
+[ ] Publish benchmark methodology and avoid unsupported performance claims.
+
+FINAL RELEASE GATE
+==================
+
+A v1.0.0 release is ready only when:
+
+[ ] The stable feature set is explicitly defined.
+[ ] Every advertised stable feature has tests and documented behaviour.
+[ ] A clean installation can build and run the documented examples.
+[ ] Required compiler, security, bootstrap, and platform gates pass.
+[ ] No known release-blocking correctness or security issues remain.
+[ ] The package, license, and third-party notices have been reviewed.
+[ ] Release artifacts, checksums, changelog, and installation instructions are
+    published.
+[ ] The README and release notes accurately describe limitations.
+[ ] The release candidate has been tested before the final v1.0.0 tag.
+
+Recommended order
+-----------------
+1. Verify the current compiler path and end-to-end executable generation.
+2. Fix compiler correctness and diagnostics.
+3. Specify and test the stable language semantics.
+4. Prove bootstrap/self-hosting claims.
+5. Establish security, regression, and clean-build release gates.
+6. Stabilise the standard library and package manager.
+7. Audit documentation, platform support, and licensing.
+8. Publish a release candidate, fix blockers, then tag v1.0.0.
+
+This checklist deliberately separates verified facts from work requiring
+verification. Mark an item complete only when implementation and evidence
+support it.
