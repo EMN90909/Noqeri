@@ -1,78 +1,120 @@
-NoqeriSQL audit and safety change log — 2026-10-15
+NoqeriSQL v1.0.0 CANDIDATE — AUDIT, IMPLEMENTATION & TEST RECORD
+Date: 2026-10-15
 Branch: feature/noqerisql-audit-safety-20261015
-Repository: EMN90909/Noqeri
+PR: https://github.com/EMN90909/Noqeri/pull/11
+Release status: NOT RELEASED; NO v1.0.0 TAG CREATED
 
-AUDIT SCOPE
-Reviewed the main branch file tree and key implementation files including AGENTS.md,
-Grammar/noqeri.grammar.md, Doc/LANGUAGE_REFERENCE.md, Include/noqeri/noqeri.hpp,
-Include/noqeri/database.hpp, Database/*.nqr (engine, query, security, limits,
-storage, core), Compiler/bootstrap/noqeridb_host.cpp, Compiler/bootstrap/cli_host.cpp,
-Lib/std/sql.nqr, CMakeLists.txt and existing database smoke tests.
-This is a static code audit, NOT a completed whole-repository line-by-line audit.
-No build, local runtime, sanitizer, crash injection, or concurrency benchmark was
-executed through this connector. Test results are therefore UNVERIFIED.
+BUILD ARCHITECTURE FINDING
+The repository's active main build is a self-hosted Stage-2 compiler, driven by
+scripts/build.sh and a trusted NOQERI_STAGE0 seed. It does not build using CMake.
+The C++17/CMake bootstrap is a separate compatibility/tooling path, so the new
+native SQL host is supplied through a standalone CMake 'noqerisql' executable.
+Runtime/stage2-cli.mjs explicitly delegates SQL commands through
+NOQERI_SQL_ADAPTER. This is an optional host adapter, NOT a Noqeri-native
+database compiler implementation.
 
-CHANGES ACTUALLY IMPLEMENTED
-1. Compiler/bootstrap/noqeridb_host.cpp: removed destructive deletion of an
-   existing committed database before renaming the temporary snapshot. POSIX
-   rename can replace atomically; platforms without overwrite-on-rename fail
-   safely instead of deleting the original. Full cross-platform durability
-   (directory fsync, Windows replacement, crash recovery) is still outstanding.
-2. Compiler/bootstrap/noqeridb_host.cpp: existing table definitions now compare
-   every column's name, type, required, unique, and key flags, not just count.
-3. Compiler/bootstrap/noqeridb_host.cpp: persisted schema metadata now rejects
-   malformed out-of-range boolean flags; read stream failure is reported.
-4. Database/query.nqr: placeholder counter now ignores ? within single-quoted
-   SQL strings, double-quoted identifiers, -- comments, and /* */ comments,
-   including doubled quote escaping.
-5. Database/dialect.nqr: added explicit dialect identifiers and parameter
-   limits for embedded, SQLite, and PostgreSQL backend TYPES (policy only).
-6. Database/NOQERISQL.md: documented architecture, migration, compatibility
-   and security acceptance criteria without claiming unavailable SQL support.
-7. Database/README.md: adopted NoqeriSQL subsystem naming while retaining the
-   existing NoqeriDB CLI/API/file format.
-8. tests/noqerisql_policy.nqr: new policy/placeholder regression test source.
+IMPLEMENTED CHANGES IN THIS PULL REQUEST
+A. Standard SQL:
+- Compiler/bootstrap/sql_host.cpp and Include/noqeri/sql.hpp: SQL executor using
+  real SQLite3 and PostgreSQL/libpq libraries instead of .nqd syntax.
+- Tools/sql/noqerisql_main.cpp: dedicated adapter binary.
+- Compiler/bootstrap/cli_host.cpp: optional 'noqeri sql' command in C++ bootstrap.
+- Runtime/stage2-cli.mjs: opt-in SQL command delegation for actual Stage-2 CLI.
+- CMakeLists.txt: optional dependencies; require-both configuration, adapter
+  executable and installation, tests.
+- PostgreSQL currently supports ONE statement per input file (PQexecParams),
+  enforced TLS verification and transaction status handling. No live server test.
+- SQLite supports standard SQL files containing multiple statements.
 
-CRITICAL / HIGH FINDINGS STILL OPEN
-C1. Legacy .nqd parser is NOT standard SQL and .nqdb is NOT a SQLite database.
-    SQLite engine integration and PostgreSQL client/protocol are unimplemented.
-C2. Legacy host has no robust multi-process writer lock or MVCC; concurrent
-    writes can silently race and lose data.
-C3. Whole-file snapshot writer has no durable cross-platform atomic replace,
-    parent-directory fsync or WAL-based crash-recovery protocol.
-H1. loadState uses unbounded parsing/allocations and insufficient quotas on
-    table counts, rows, strings and file size; malformed count handling remains.
-H2. Persisted records lack cryptographic checksums/MACs and verified recovery;
-    the separate policy files are not wired into legacy host execution.
-H3. No parameter-binding API in the legacy host; the custom script interpreter
-    should not be called a standard SQL prepared-statement implementation.
-H4. Query handling lacks full SQL lexer rejection of unterminated strings or
-    comments and support for PostgreSQL positional/named parameters.
-H5. Legacy script WHERE validation and mutations need comprehensive adversarial
-    tests; the interpreter remains a limited non-SQL data language.
-H6. Existing .nqdb compatibility/migration and database backup/restore have no
-    end-to-end migration verification gate.
-H7. Safety policy tests alone are not storage engine integration tests.
+B. Durability and concurrency:
+- SQLite uses actual SQLite WAL, synchronous=FULL, VFS locks, busy timeout 5 s,
+  BEGIN IMMEDIATE, COMMIT on success and rollback on failure.
+- Legacy host no longer deletes committed DB before rename. On POSIX it now
+  fsyncs temporary file, atomically renames in the same directory and fsyncs
+  its parent directory; Windows uses MoveFileExW replace + write-through.
+- Legacy writer lease via atomic lock directory. Stale lock requires careful
+  administrative inspection after a crash; do not blindly delete a live lock.
 
-IMPLEMENTATION PLAN / RELEASE GATE
-P0: Complete snapshot durability, safe locks, quotas, strict file decoder,
-    corruption detection, fail-closed recovery, and cross-platform tests.
-P1: Implement SQL parser/typed AST and prepared binding API, plus real SQLite
-    adapter, SQLite integration tests and explicit feature-negotiation.
-P2: Implement PostgreSQL adapter with verified TLS, secure authentication,
-    prepared protocol, parameter type mapping and transaction handling.
-P3: Backups and migrations with verification, SQL conformance tests, fuzzing,
-    fault injection, benchmarks, and reproducible platform CI evidence.
+C. Data integrity and validation:
+- Legacy database decoding applies a 64 MiB file cap, table/row/column count
+  limits, duplicate row-field rejection, boolean metadata flag checks, read
+  error checks and stricter numeric/boolean persisted value decoding.
+- Existing legacy schema checks now compare names, types and column flags,
+  not just column count.
+- SQL scripts reject empty, missing, oversized (>1 MiB) and NUL-containing
+  inputs. SQLite enforces foreign keys and resource limits.
 
-COMPATIBILITY
-- Existing 'noqeri db' command, .nqd scripts, .nqdb format, and
-  NoqeriDatabase C++ entry point are not removed.
-- The new dialect names are policies, not working SQLite or PostgreSQL drivers.
-- Do not advertise NoqeriSQL as production-ready.
+D. Query safety:
+- Prepared query policy counting ignores question marks inside quoted strings,
+  identifiers, -- comments and /* ... */ comments and rejects unfinished
+  single/double quotes and block comments.
+- SQLite managed script forbids unbound placeholders, explicit transaction
+  commands/savepoints, PRAGMA, ATTACH and DETACH; defensive mode and trusted
+  schema OFF.
+- PostgreSQL uses extended protocol and rejects multi-command scripts.
+- CLI does not accept untrusted data bindings. Applications must use actual
+  sqlite3_bind or libpq PQexecParams parameter binding for user input.
 
-TEST EXECUTION
-- Source tests added: tests/noqerisql_policy.nqr
-- Local compile: NOT RUN
-- CTest: NOT RUN
-- Sanitizers: NOT RUN
-- Crash, concurrency, DB compatibility integration: NOT RUN
+E. Tests added:
+- tests/noqerisql_policy.nqr: dialect and placeholder policy.
+- tests/noqerisql_smoke.sql and noqerisql_rollback.sql: SQLite SQL and failure.
+- tests/noqerisql_integration.mjs: 64 parallel writer processes; uniqueness
+  rollback; blocked COMMIT; prepared placeholder rejection; PRAGMA/BEGIN
+  rejection; FK enforcement; malformed SQLite file; oversized SQL file.
+- CMake registers native and language policy tests, and optional Node tests.
+
+ACTUAL LOCAL TEST EVIDENCE (LINUX; STANDALONE SQL ADAPTER, NOT FULL REPO)
+- C++17 -Wall -Wextra -Wpedantic -Werror with SQLite 3.46.1 and libpq 17.11:
+  SUCCESS (standalone host + direct/native CLI test driver).
+- Standalone CMake configure and build: SUCCESS.
+- Standalone CTest: 2 passed / 2 total.
+- SQLite CREATE/INSERT/SELECT/DELETE: PASSED.
+- SQL statement rollback/unique constraint: PASSED.
+- 64 parallel SQLite writer processes without lost updates: PASSED.
+- SQLite foreign key enforcement: PASSED.
+- SQL transaction escape via COMMIT and BEGIN: REJECTED; no partial commit.
+- Malformed database, unbound placeholder, oversize script: REJECTED.
+- sqlite3 PRAGMA integrity_check in local Python after rollback: 'ok'.
+- ASan/UBSan isolated host smoke test: PASSED on earlier host iteration;
+  not rerun after the final transaction-authorizer changes.
+Tests used a locally constructed standalone harness. The exact repository
+integration test script was committed but NOT executed against the full Noqeri
+binary. Do not claim full-suite pass.
+
+STATUS OF THE SEVEN ORIGINAL FINDINGS
+1 SQL compatibility: PARTIAL — real SQL via SQLite/libpq; dialect bridging,
+  app-facing bound statement API, Noqeri-native execution not implemented.
+2 Durability: MITIGATED — real SQLite WAL; legacy fsync/atomic replacement.
+  Power-loss and Windows recovery evidence still missing.
+3 Transactions: MITIGATED — SQLite VFS cross-process coordination verified
+  locally. PostgreSQL server and legacy lock crash-recovery not validated.
+4 Data integrity: PARTIAL — size/count caps and SQLite integrity;
+  legacy format has no end-to-end checksum/MAC and recovery gate.
+5 Schema validation: FIXED for direct legacy schema redefinition checks.
+  Further corrupted legacy persisted schema checks remain desirable.
+6 Query safety: IMPROVED — comment/string parsing and fail-closed script
+  rejection; complete SQL lexical/dialect conformance is not claimed.
+7 Production testing: PARTIAL — committed tests and isolated Linux evidence.
+  Self-hosted bootstrap, Windows/macOS, Postgres server, fault injection
+  and full suite are not complete.
+
+RELEASE BLOCKERS / MANDATORY FOLLOW-UP
+- Obtain a trusted NOQERI_STAGE0 seed, run scripts/build.sh, Stage-2 selftest,
+  doctor, audit, parity/bootstrap checks, and full test suite.
+- Compile the committed CMake SQL adapter target on Windows, Linux, macOS;
+  verify dependency installation and absence of linker/ABI errors.
+- Connect PostgreSQL 17+ with a valid verified TLS certificate and exercise
+  real schema, DML, query results, rollback, network failures and auth.
+- Run SQLite multi-process crash injection, WAL corruption and recovery,
+  interrupted fsync, disk-full, permission, symlink/temp-path and power-loss
+  tests. Apply memory/fuzzer stress to legacy decoder.
+- Resolve outstanding legacy .nqdb weaknesses (checksum/MAC, secure temporary
+  creation, stale writer-lock recovery, robust transactional migration).
+- Add application-facing typed parameter binding and migration/export path
+  for .nqd/.nqdb to actual SQLite/PostgreSQL.
+- Do NOT merge to main or publish v1.0.0 as a verified release until gates pass.
+
+VERSION POLICY
+Noqeri already contains NOQERI_COMPILER_VERSION = "1.0.0" and a CMake project
+version of 1.0.0. This PR uses '1.0.0-candidate' for NoqeriSQL adapter and
+'unreleased' in CHANGELOG; no Git release or git tag has been created.
