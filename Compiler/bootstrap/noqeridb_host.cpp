@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -56,7 +57,7 @@ bool valueEqual(const Value&a,const Value&b){if(a.index()==b.index())return a==b
 std::string hex(const std::string&s){static const char*d="0123456789abcdef";std::string out;out.reserve(s.size()*2);for(unsigned char c:s){out+=d[c>>4];out+=d[c&15];}return out;}
 std::optional<std::string> unhex(const std::string&s){if(s.size()%2)return std::nullopt;auto nib=[](char c)->int{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return 10+c-'a';if(c>='A'&&c<='F')return 10+c-'A';return-1;};std::string out;out.reserve(s.size()/2);for(std::size_t i=0;i<s.size();i+=2){int a=nib(s[i]),b=nib(s[i+1]);if(a<0||b<0)return std::nullopt;out+=static_cast<char>((a<<4)|b);}return out;}
 std::string encodeValue(const Value&v){return std::to_string(v.index())+":"+hex(valueText(v));}
-std::optional<Value> decodeValue(const std::string&s){auto p=s.find(':');if(p==std::string::npos)return std::nullopt;int kind=0;try{kind=std::stoi(s.substr(0,p));}catch(...){return std::nullopt;}auto raw=unhex(s.substr(p+1));if(!raw)return std::nullopt;try{if(kind==0)return Value(static_cast<std::int64_t>(std::stoll(*raw)));if(kind==1)return Value(std::stod(*raw));if(kind==2)return Value(*raw=="true");if(kind==3)return Value(*raw);}catch(...){return std::nullopt;}return std::nullopt;}
+std::optional<Value> decodeValue(const std::string&s){auto p=s.find(':');if(p==std::string::npos)return std::nullopt;int kind=0;try{kind=std::stoi(s.substr(0,p));}catch(...){return std::nullopt;}auto raw=unhex(s.substr(p+1));if(!raw)return std::nullopt;try{if(kind==0){std::size_t used=0;auto number=std::stoll(*raw,&used);if(used!=raw->size())return std::nullopt;return Value(static_cast<std::int64_t>(number));}if(kind==1){std::size_t used=0;auto number=std::stod(*raw,&used);if(used!=raw->size()||!std::isfinite(number))return std::nullopt;return Value(number);}if(kind==2){if(*raw!="true"&&*raw!="false")return std::nullopt;return Value(*raw=="true");}if(kind==3)return Value(*raw);}catch(...){return std::nullopt;}return std::nullopt;}
 
 bool saveState(const std::filesystem::path&path,const State&state,Diagnostics&d){
     std::error_code ec;auto parent=path.parent_path();if(!parent.empty())std::filesystem::create_directories(parent,ec);if(ec){d.error("NQR-D8020",{},"cannot create database directory: "+ec.message());return false;}
