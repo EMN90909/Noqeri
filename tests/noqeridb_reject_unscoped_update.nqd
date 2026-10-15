@@ -1,0 +1,3 @@
+database "noqeridb-reject-update.nqdb"
+table users { id:int key, active:bool required }
+update users set {active:false}
