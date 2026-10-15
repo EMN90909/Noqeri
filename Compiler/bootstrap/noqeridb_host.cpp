@@ -4,6 +4,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <cmath>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -62,10 +68,33 @@ std::optional<Value> decodeValue(const std::string&s){auto p=s.find(':');if(p==s
 bool saveState(const std::filesystem::path&path,const State&state,Diagnostics&d){
     std::error_code ec;auto parent=path.parent_path();if(!parent.empty())std::filesystem::create_directories(parent,ec);if(ec){d.error("NQR-D8020",{},"cannot create database directory: "+ec.message());return false;}
     auto temp=path;temp+=".tmp";if(std::filesystem::exists(temp,ec)){d.error("NQR-D8024",{},"refusing existing temporary database path");return false;}std::ofstream out(temp,std::ios::binary|std::ios::trunc);if(!out){d.error("NQR-D8021",{},"cannot write NoqeriDB file: "+temp.string());return false;}out<<"NQDB1\n";
-    for(const auto&[name,t]:state.tables){out<<"TABLE "<<hex(name)<<' '<<t.columns.size()<<' '<<t.rows.size()<<"\n";for(const auto&c:t.columns)out<<"COL "<<hex(c.name)<<' '<<typeName(c.type)<<' '<<(c.required?1:0)<<' '<<(c.unique?1:0)<<' '<<(c.key?1:0)<<"\n";for(const auto&r:t.rows){out<<"ROW "<<r.size()<<"\n";for(const auto&[k,v]:r)out<<"VAL "<<hex(k)<<' '<<encodeValue(v)<<"\n";}out<<"ENDTABLE\n";}out.flush();if(!out){d.error("NQR-D8022",{},"failed while writing NoqeriDB file");return false;}out.close();// Never delete the committed database before its replacement is ready.
-    // POSIX rename replaces atomically; on platforms that cannot replace an
-    // existing file this fails closed instead of destroying the old file.
-    ec.clear();std::filesystem::rename(temp,path,ec);if(ec){d.error("NQR-D8023",{},"cannot commit NoqeriDB transaction: "+ec.message());return false;}return true;
+    for(const auto&[name,t]:state.tables){out<<"TABLE "<<hex(name)<<' '<<t.columns.size()<<' '<<t.rows.size()<<"\n";for(const auto&c:t.columns)out<<"COL "<<hex(c.name)<<' '<<typeName(c.type)<<' '<<(c.required?1:0)<<' '<<(c.unique?1:0)<<' '<<(c.key?1:0)<<"\n";for(const auto&r:t.rows){out<<"ROW "<<r.size()<<"\n";for(const auto&[k,v]:r)out<<"VAL "<<hex(k)<<' '<<encodeValue(v)<<"\n";}out<<"ENDTABLE\n";}out.flush();if(!out){d.error("NQR-D8022",{},"failed while writing NoqeriDB file");return false;}out.close();
+    if(!out){d.error("NQR-D8022",{},"failed to close temporary NoqeriDB file");return false;}
+#ifdef _WIN32
+    // Same-volume replacement without deleting the previous committed file.
+    // MOVEFILE_WRITE_THROUGH asks Windows to flush before return.
+    if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){
+        d.error("NQR-D8023",{},"Windows atomic database replacement failed; original database retained");
+        return false;
+    }
+#else
+    // Committed bytes must reach storage before the directory entry is changed.
+    const int fd=::open(temp.c_str(),O_RDONLY);
+    if(fd<0){d.error("NQR-D8023",{},"cannot open temporary database for fsync");return false;}
+    const bool synced=(::fsync(fd)==0);
+    ::close(fd);
+    if(!synced){d.error("NQR-D8023",{},"temporary database fsync failed");return false;}
+    ec.clear();std::filesystem::rename(temp,path,ec);
+    if(ec){d.error("NQR-D8023",{},"atomic database rename failed: "+ec.message());return false;}
+    // The directory fsync persists the new filename through a crash.
+    const auto directory=parent.empty()?std::filesystem::path("."):parent;
+    const int dirfd=::open(directory.c_str(),O_RDONLY);
+    if(dirfd<0){d.error("NQR-D8025",{},"database directory cannot be opened for fsync");return false;}
+    const bool dirSynced=(::fsync(dirfd)==0);
+    ::close(dirfd);
+    if(!dirSynced){d.error("NQR-D8025",{},"database directory fsync failed; commit durability uncertain");return false;}
+#endif
+    return true;
 }
 
 bool loadState(const std::filesystem::path&path,State&state,Diagnostics&d){
