@@ -1,8 +1,8 @@
-# NoqeriDB
+# NoqeriSQL (NoqeriDB compatibility layer)
 
-NoqeriDB is the embedded database path for Noqeri applications. The database core is owned by Noqeri source in this directory. Host code is restricted to operating-system capabilities such as files, locks, secure randomness, fsync, and authenticated encryption.
+NoqeriSQL is the evolving database subsystem; the existing NoqeriDB host remains its legacy embedded compatibility path for Noqeri applications. The database core is owned by Noqeri source in this directory. Host code is restricted to operating-system capabilities such as files, locks, secure randomness, fsync, and authenticated encryption.
 
-## Production model
+See [NOQERISQL.md](NOQERISQL.md) for the proposed SQLite and PostgreSQL backend types and their current implementation status. Neither backend is currently implemented.\n\n## Production model
 
 The engine is split into independently testable policy modules:
 
