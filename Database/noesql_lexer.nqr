@@ -1,0 +1,112 @@
+module noqeri.database.noesql_lexer
+
+// Native Noqeri-owned frontend substrate for .noe files. Token ranges are byte
+// offsets into source, allowing the host to render file/line/column diagnostics.
+record NoeToken {
+    kind: int
+    start: usize
+    end: usize
+    line: usize
+    column: usize
+}
+
+export function noeTokenEOF(): int { return 0 }
+export function noeTokenName(): int { return 1 }
+export function noeTokenNumber(): int { return 2 }
+export function noeTokenString(): int { return 3 }
+export function noeTokenSymbol(): int { return 4 }
+export function noeTokenNewline(): int { return 5 }
+export function noeTokenInvalid(): int { return -1 }
+export function noeLexOk(): isize { return 0 as isize }
+export function noeLexBadCharacter(): isize { return -100 as isize }
+export function noeLexUnclosedString(): isize { return -101 as isize }
+export function noeLexTooManyTokens(): isize { return -102 as isize }
+export function noeLexIdentifierTooLong(): isize { return -103 as isize }
+
+export function noeIsDigit(c: u8): bool { return c >= 48 as u8 && c <= 57 as u8 }
+export function noeIsAlpha(c: u8): bool { return (c >= 65 as u8 && c <= 90 as u8) || (c >= 97 as u8 && c <= 122 as u8) }
+export function noeNameStart(c: u8): bool { return noeIsAlpha(c) || c == 95 as u8 }
+export function noeNamePart(c: u8): bool { return noeNameStart(c) || noeIsDigit(c) }
+
+export function noeLex(source: []u8, output: []NoeToken, count: *usize, failureOffset: *usize): isize {
+    if count == null || failureOffset == null { return noeLexBadCharacter() }
+    count[0] = 0 as usize
+    failureOffset[0] = 0 as usize
+    let i: usize = 0 as usize
+    let line: usize = 1 as usize
+    let column: usize = 1 as usize
+    while i < len(source) {
+        let c: u8 = source[i]
+        if c == 32 as u8 || c == 9 as u8 || c == 13 as u8 { i = i + 1 as usize; column = column + 1 as usize }
+        else {
+            if count[0] >= len(output) { failureOffset[0] = i; return noeLexTooManyTokens() }
+            let start: usize = i
+            let startLine: usize = line
+            let startCol: usize = column
+            let kind: int = noeTokenSymbol()
+            if c == 10 as u8 || c == 59 as u8 {
+                if c == 10 as u8 { line = line + 1 as usize; column = 1 as usize }
+                else { column = column + 1 as usize }
+                i = i + 1 as usize
+                kind = noeTokenNewline()
+            } else if (c == 45 as u8 && i + 1 as usize < len(source) && source[i + 1 as usize] == 45 as u8) || (c == 47 as u8 && i + 1 as usize < len(source) && source[i + 1 as usize] == 47 as u8) {
+                while i < len(source) && source[i] != 10 as u8 { i = i + 1 as usize; column = column + 1 as usize }
+                kind = noeTokenEOF()
+            } else if noeNameStart(c) {
+                kind = noeTokenName()
+                while i < len(source) && noeNamePart(source[i]) { i = i + 1 as usize; column = column + 1 as usize }
+                if i - start > 63 as usize { failureOffset[0] = start; return noeLexIdentifierTooLong() }
+            } else if noeIsDigit(c) {
+                kind = noeTokenNumber()
+                while i < len(source) && noeIsDigit(source[i]) { i = i + 1 as usize; column = column + 1 as usize }
+                if i + 1 as usize < len(source) && source[i] == 46 as u8 && noeIsDigit(source[i + 1 as usize]) {
+                    i = i + 1 as usize; column = column + 1 as usize
+                    while i < len(source) && noeIsDigit(source[i]) { i = i + 1 as usize; column = column + 1 as usize }
+                }
+            } else if c == 34 as u8 {
+                kind = noeTokenString()
+                i = i + 1 as usize; column = column + 1 as usize
+                let closed: bool = false
+                while i < len(source) && !closed {
+                    let current: u8 = source[i]
+                    if current == 34 as u8 { closed = true; i = i + 1 as usize; column = column + 1 as usize }
+                    else if current == 92 as u8 {
+                        if i + 1 as usize >= len(source) { break }
+                        i = i + 2 as usize; column = column + 2 as usize
+                    } else {
+                        i = i + 1 as usize
+                        if current == 10 as u8 { line = line + 1 as usize; column = 1 as usize }
+                        else { column = column + 1 as usize }
+                    }
+                }
+                if !closed { failureOffset[0] = start; return noeLexUnclosedString() }
+            } else {
+                let valid: bool = c == 123 as u8 || c == 125 as u8 || c == 40 as u8 || c == 41 as u8 || c == 58 as u8 || c == 44 as u8 || c == 46 as u8 || c == 63 as u8 || c == 36 as u8 || c == 61 as u8 || c == 33 as u8 || c == 60 as u8 || c == 62 as u8 || c == 43 as u8 || c == 45 as u8 || c == 42 as u8 || c == 47 as u8 || c == 37 as u8
+                if !valid { failureOffset[0] = start; return noeLexBadCharacter() }
+                i = i + 1 as usize; column = column + 1 as usize
+                if i < len(source) {
+                    let n: u8 = source[i]
+                    if ((c == 61 as u8 || c == 33 as u8 || c == 60 as u8 || c == 62 as u8) && n == 61 as u8) || ((c == 43 as u8 || c == 45 as u8) && n == 61 as u8) {
+                        i = i + 1 as usize; column = column + 1 as usize
+                    }
+                }
+            }
+            if kind != noeTokenEOF() {
+                output[count[0]].kind = kind
+                output[count[0]].start = start
+                output[count[0]].end = i
+                output[count[0]].line = startLine
+                output[count[0]].column = startCol
+                count[0] = count[0] + 1 as usize
+            }
+        }
+    }
+    if count[0] >= len(output) { failureOffset[0] = len(source); return noeLexTooManyTokens() }
+    output[count[0]].kind = noeTokenEOF()
+    output[count[0]].start = len(source)
+    output[count[0]].end = len(source)
+    output[count[0]].line = line
+    output[count[0]].column = column
+    count[0] = count[0] + 1 as usize
+    return noeLexOk()
+}
