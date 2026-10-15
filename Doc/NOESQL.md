@@ -36,7 +36,7 @@ The Stage-2 CLI also delegates `noqeri noe check ...` and `noqeri noe run ...` t
 - Lexer with source offsets/line/column diagnostics, recursive-descent declarations/statements, precedence expression parser, AST.
 - Catalog of tables, columns, primary/unique/required/nullable/default/reference rules, schema version counters, index metadata, named query validation.
 - Separate semantic validation lowers to one shared IR; reference executor handles scan, projection, filtering, sorting, offset/limit, insert, update, delete.
-- Native `.nqr` lexer and typed IR policy records under `Database/` establish a compiler-owned contract; they are not yet compiled into the running Stage-2 toolchain.
+- Native `.nqr` lexer, expression parser and typed IR policy records under `Database/` establish a compiler-owned contract; they are not yet compiled into the running Stage-2 toolchain.
 - `.nqd` JSON snapshots use SHA-256 for accidental corruption detection, exclusive writer directories, temporary writes and fsync/rename. This is *not* a WAL or MVCC engine. The hash is not a cryptographic authentication mechanism.
 - Query parameters supplied separately to the execution API; no string interpolation.
 
