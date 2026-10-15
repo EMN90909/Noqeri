@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
 function usage() {
@@ -34,7 +34,7 @@ if (command === 'noe') {
   // No native .nqr compiler-runtime equivalence is implied.
   const {spawnSync} = await import('node:child_process')
   const noesqlCli = new URL('./noesql/cli.mjs', import.meta.url)
-  const child = spawnSync(process.execPath, [noesqlCli.pathname, ...args.slice(1)], {
+  const child = spawnSync(process.execPath, [fileURLToPath(noesqlCli), ...args.slice(1)], {
     stdio: 'inherit', timeout: 60000
   })
   if (child.error) console.error('NoeSQL reference host failed: '+child.error.message)
