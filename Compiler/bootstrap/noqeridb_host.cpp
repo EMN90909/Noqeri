@@ -61,7 +61,10 @@ std::optional<Value> decodeValue(const std::string&s){auto p=s.find(':');if(p==s
 bool saveState(const std::filesystem::path&path,const State&state,Diagnostics&d){
     std::error_code ec;auto parent=path.parent_path();if(!parent.empty())std::filesystem::create_directories(parent,ec);if(ec){d.error("NQR-D8020",{},"cannot create database directory: "+ec.message());return false;}
     auto temp=path;temp+=".tmp";std::ofstream out(temp,std::ios::binary|std::ios::trunc);if(!out){d.error("NQR-D8021",{},"cannot write NoqeriDB file: "+temp.string());return false;}out<<"NQDB1\n";
-    for(const auto&[name,t]:state.tables){out<<"TABLE "<<hex(name)<<' '<<t.columns.size()<<' '<<t.rows.size()<<"\n";for(const auto&c:t.columns)out<<"COL "<<hex(c.name)<<' '<<typeName(c.type)<<' '<<(c.required?1:0)<<' '<<(c.unique?1:0)<<' '<<(c.key?1:0)<<"\n";for(const auto&r:t.rows){out<<"ROW "<<r.size()<<"\n";for(const auto&[k,v]:r)out<<"VAL "<<hex(k)<<' '<<encodeValue(v)<<"\n";}out<<"ENDTABLE\n";}out.flush();if(!out){d.error("NQR-D8022",{},"failed while writing NoqeriDB file");return false;}out.close();std::filesystem::remove(path,ec);ec.clear();std::filesystem::rename(temp,path,ec);if(ec){d.error("NQR-D8023",{},"cannot commit NoqeriDB transaction: "+ec.message());return false;}return true;
+    for(const auto&[name,t]:state.tables){out<<"TABLE "<<hex(name)<<' '<<t.columns.size()<<' '<<t.rows.size()<<"\n";for(const auto&c:t.columns)out<<"COL "<<hex(c.name)<<' '<<typeName(c.type)<<' '<<(c.required?1:0)<<' '<<(c.unique?1:0)<<' '<<(c.key?1:0)<<"\n";for(const auto&r:t.rows){out<<"ROW "<<r.size()<<"\n";for(const auto&[k,v]:r)out<<"VAL "<<hex(k)<<' '<<encodeValue(v)<<"\n";}out<<"ENDTABLE\n";}out.flush();if(!out){d.error("NQR-D8022",{},"failed while writing NoqeriDB file");return false;}out.close();
+    // Never delete the last good database before the replacement is committed.
+    // Platforms without atomic replace-over-existing must fail closed rather than lose data.
+    std::filesystem::rename(temp,path,ec);if(ec){d.error("NQR-D8023",{},"cannot commit NoqeriDB transaction: "+ec.message());return false;}return true;
 }
 
 bool loadState(const std::filesystem::path&path,State&state,Diagnostics&d){
