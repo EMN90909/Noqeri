@@ -21,7 +21,7 @@ Usage:
   noqeri audit [--offline]
   noqeri env [--json]
   noqeri doctor [--json] [--strict]
-  noqeri selftest
+  noqeri sql <sqlite|postgres> <database> <script.sql> (requires NOQERI_SQL_ADAPTER)\n  noqeri selftest
 
 'check' is a Stage-2 semantic/compile-readiness check for the current host target.
 The CLI fails closed if the loaded compiler module does not expose the Stage-2 pipeline.`)
@@ -29,6 +29,29 @@ The CLI fails closed if the loaded compiler module does not expose the Stage-2 p
 
 const args = process.argv.slice(2)
 const command = args[0] || '--help'
+if (command === 'sql') {
+  // The main compiler remains self-hosted. Database adapters are native
+  // optional host capabilities and must not be mistaken for compiler output.
+  if (process.env.NOQERI_SQL_DELEGATED === '1') {
+    console.error('NoqeriSQL adapter recursion detected')
+    process.exit(2)
+  }
+  const adapter = process.env.NOQERI_SQL_ADAPTER
+  if (!adapter) {
+    console.error('NoqeriSQL requires a native adapter; set NOQERI_SQL_ADAPTER to the built noqerisql executable.')
+    console.error('Build with CMake target noqerisql; SQLite3/libpq development libraries enable each backend.')
+    process.exit(2)
+  }
+  const { spawnSync } = await import('node:child_process')
+  const child = spawnSync(adapter, ['sql', ...args.slice(1)], {
+    stdio: 'inherit',
+    timeout: 60000,
+    env: { ...process.env, NOQERI_SQL_DELEGATED: '1' }
+  })
+  if (child.error) console.error('NoqeriSQL adapter failed: ' + child.error.message)
+  process.exit(child.status ?? 1)
+}
+
 let packageManager = null
 async function packages() {
   if (!packageManager) {
