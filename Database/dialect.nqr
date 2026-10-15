@@ -1,0 +1,27 @@
+module noqeri.database.dialect
+
+// NoqeriSQL dialect policy. These identifiers describe intended adapters;
+// they do not imply that a PostgreSQL wire client or SQLite VFS exists.
+export function sqlDialectEmbedded(): int { return 1 }
+export function sqlDialectSQLite(): int { return 2 }
+export function sqlDialectPostgreSQL(): int { return 3 }
+export function sqlDialectValid(dialect: int): bool {
+    return dialect == sqlDialectEmbedded() ||
+           dialect == sqlDialectSQLite() ||
+           dialect == sqlDialectPostgreSQL()
+}
+export function sqlDialectUsesFile(dialect: int): bool {
+    return dialect == sqlDialectEmbedded() || dialect == sqlDialectSQLite()
+}
+export function sqlDialectUsesServer(dialect: int): bool {
+    return dialect == sqlDialectPostgreSQL()
+}
+export function sqlDialectParameterLimit(dialect: int): usize {
+    if dialect == sqlDialectPostgreSQL() { return 65535 as usize }
+    if dialect == sqlDialectSQLite() { return 999 as usize }
+    if dialect == sqlDialectEmbedded() { return 1024 as usize }
+    return 0 as usize
+}
+export function sqlDialectParameterCountValid(dialect: int, count: usize): bool {
+    return sqlDialectValid(dialect) && count <= sqlDialectParameterLimit(dialect)
+}

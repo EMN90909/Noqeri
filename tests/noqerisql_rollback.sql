@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS tx_rollback(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+INSERT INTO tx_rollback VALUES (1, 'Ada');
+INSERT INTO tx_rollback VALUES (1, 'Duplicate');

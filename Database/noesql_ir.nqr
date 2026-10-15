@@ -1,0 +1,82 @@
+module noqeri.database.noesql_ir
+import "noesql_lexer.nqr"
+
+// NoeIR is backend-independent. The records are used by the intended future
+// .nqr typed API and .noe frontend. Neither adapter may bypass validation.
+record NoeExprNode {
+    tag: int
+    operator: int
+    start: usize
+    end: usize
+    left: isize
+    right: isize
+    next: isize
+    typeCode: int
+}
+record NoeField {
+    tableId: usize
+    symbol: u64
+    typeCode: int
+    flags: u32
+    referenceTableId: usize
+}
+record NoeTable {
+    tableId: usize
+    nameSymbol: u64
+    fieldFirst: usize
+    fieldCount: usize
+    schemaVersion: usize
+}
+record NoeQueryPlan {
+    sourceTableId: usize
+    schemaVersion: usize
+    operation: int
+    projectionFirst: isize
+    predicate: isize
+    sortFirst: isize
+    offset: usize
+    limit: usize
+    parameterCount: usize
+}
+export function noeIrScan(): int { return 1 }
+export function noeIrInsert(): int { return 2 }
+export function noeIrUpdate(): int { return 3 }
+export function noeIrDelete(): int { return 4 }
+export function noeIrPredicate(): int { return 5 }
+export function noeTypeUnknown(): int { return 0 }
+export function noeTypeInt(): int { return 1 }
+export function noeTypeReal(): int { return 2 }
+export function noeTypeBool(): int { return 3 }
+export function noeTypeText(): int { return 4 }
+export function noeTypeDecimal(): int { return 5 }
+export function noeTypeDateTime(): int { return 6 }
+export function noeTypeReference(): int { return 7 }
+export function noeFieldRequired(): u32 { return 1 as u32 }
+export function noeFieldUnique(): u32 { return 2 as u32 }
+export function noeFieldKey(): u32 { return 4 as u32 }
+export function noeFieldAuto(): u32 { return 8 as u32 }
+export function noeFieldNullable(): u32 { return 16 as u32 }
+
+export function noePlanValid(plan: *NoeQueryPlan, currentVersion: usize, tableCount: usize): bool {
+    if plan == null { return false }
+    if plan.sourceTableId >= tableCount || plan.schemaVersion != currentVersion { return false }
+    if plan.operation < noeIrScan() || plan.operation > noeIrDelete() { return false }
+    if plan.parameterCount > 1024 as usize { return false }
+    if (plan.operation == noeIrUpdate() || plan.operation == noeIrDelete()) && plan.predicate < 0 as isize { return false }
+    return true
+}
+export function noeCatalogFindTable(tables: []NoeTable, count: usize, symbol: u64): isize {
+    let i: usize = 0 as usize
+    while i < count && i < len(tables) { if tables[i].nameSymbol == symbol { return i as isize }; i = i + 1 as usize }
+    return -1 as isize
+}
+export function noeCatalogFindField(fields: []NoeField, first: usize, count: usize, symbol: u64): isize {
+    let i: usize = 0 as usize
+    while i < count && first + i < len(fields) { if fields[first + i].symbol == symbol { return (first + i) as isize }; i = i + 1 as usize }
+    return -1 as isize
+}
+export function noePlanChoose(hasIndex: bool, uniqueIndex: bool, equality: bool, rows: usize): int {
+    if equality && uniqueIndex { return 3 }
+    if equality && hasIndex && rows >= 16 as usize { return 2 }
+    return 1
+}

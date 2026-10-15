@@ -1,0 +1,30 @@
+import "../Database/noesql_ir.nqr"
+import "../Database/noesql_lexer.nqr"
+
+function require(ok: bool): void {
+    if !ok { let bad: *u8 = 0 as *u8; print(bad[0]) }
+}
+
+let sample: [u8; 13] = [116 as u8,97 as u8,98 as u8,108 as u8,101 as u8,32 as u8,117 as u8,115 as u8,101 as u8,114 as u8,115 as u8,10 as u8,0 as u8]
+let tokens: [NoeToken; 16]
+let count: usize = 0 as usize
+let failure: usize = 0 as usize
+// Lex the meaningful 12-byte prefix without the terminator.
+require(noeLex(slice(&sample[0], 12 as usize), slice(tokens), &count, &failure) == noeLexOk())
+require(count == 4 as usize)
+require(tokens[0].kind == noeTokenName())
+require(tokens[2].kind == noeTokenNewline())
+let plan: NoeQueryPlan
+plan.sourceTableId = 0 as usize
+plan.schemaVersion = 2 as usize
+plan.operation = noeIrScan()
+plan.projectionFirst = -1 as isize
+plan.predicate = -1 as isize
+plan.sortFirst = -1 as isize
+plan.offset = 0 as usize
+plan.limit = 10 as usize
+plan.parameterCount = 0 as usize
+require(noePlanValid(&plan, 2 as usize, 1 as usize))
+plan.operation = noeIrDelete()
+require(!noePlanValid(&plan, 2 as usize, 1 as usize))
+print("NoeSQL native token and IR policy: OK")

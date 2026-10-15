@@ -2,7 +2,40 @@
 <h1 align="center">Noqeri</h1>
 <p align="center"><strong>A compact statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.nqr`, project manifests use `project.nqr`, portable compiled objects use `.nqo`, and NoqeriDB uses `.nqd` / `.nqdb`.
+Noqeri source uses `.nqr`, project manifests use `project.nqr`, and portable web/compiler objects use `.nqo`. New **NoeSQL** scripts use `.noe`; the experimental NoeSQL data format uses `.nqd`. Legacy NoqeriDB uses `.nqd` scripts and `.nqdb` data files under its separate `noqeri db` command.
+
+## NoqeriSQL v1.0.0 candidate
+
+NoqeriSQL can execute real SQL through SQLite3 or PostgreSQL/libpq, in an optional native adapter. The normal self-hosted Stage-2 compiler remains unchanged.
+
+Build the native adapter separately with development libraries installed:
+
+    cmake -S . -B build/sql-native -DBUILD_TESTING=OFF -DNOQERI_REQUIRE_SQL_BACKENDS=ON
+    cmake --build build/sql-native --target noqerisql
+
+Use the native executable directly:
+
+    ./build/sql-native/noqerisql sql sqlite ./app.sqlite ./schema.sql
+
+Or from the self-hosted Stage-2 launcher:
+
+    NOQERI_SQL_ADAPTER=./build/sql-native/noqerisql ./build/noqeri sql sqlite ./app.sqlite ./schema.sql
+
+The PostgreSQL adapter executes one SQL statement per file with verified TLS; SQLite permits multi-statement SQL files with transactional rollback. The old .nqd/.nqdb format is retained separately and is **not** standard SQL or SQLite-compatible. See [NoqeriSQL implementation notes](Database/NOQERISQL.md).
+
+The Noqeri v1.0.0 compiler version string already exists; **the NoqeriSQL release is still a candidate**, not a verified or tagged release. Complete self-hosted compiler, server-side PostgreSQL, crash-recovery and platform gates remain outstanding.
+
+## NoeSQL v1.0 language candidate
+
+The new [NoeSQL language and reference engine](Doc/NOESQL.md) provides a compact typed `.noe` syntax for schema definitions, indexes, named queries and CRUD, with one validated query representation and a versioned `.nqd` reference store. In the current implementation the runnable engine is a **Node.js reference host**, not yet the `.nqr` compiler-native production database.
+
+```sh
+node Runtime/noesql/cli.mjs check tests/noesql_fixture.noe
+node Runtime/noesql/cli.mjs run tests/noesql_fixture.noe demo.nqd
+sh scripts/test-noesql.sh
+```
+
+The active Stage-2 CLI also accepts `noqeri noe check` and `noqeri noe run` for the reference implementation. SQLite and PostgreSQL remain separate native compatibility adapters; NoeSQL query translation to them has not yet been completed.
 
 ## Compiler architecture
 

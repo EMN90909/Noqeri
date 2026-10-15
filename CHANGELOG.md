@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — NoeSQL 1.0 design implementation candidate (2026-10-15)
+
+- Preserved the active self-hosted compiler architecture; archived C++ Stage-0 recovery provenance is deliberately retained until reproducible compiler equivalence is established.
+- Added `Database/noesql_lexer.nqr`, `noesql_parser.nqr`, `noesql_ir.nqr`, and `noesql.nqr` as native frontend/IR groundwork. Not yet compiled through the self-hosted toolchain.
+- Added a runnable transitional `Runtime/noesql/` lexer, recursive-descent + precedence parser, schema catalog, typed query IR validation, row executor, and checksummed `.nqd` snapshot persistence.
+- Added `.noe` syntax validation and execution to the Stage-2 CLI via `noqeri noe`; retained native SQLite/PostgreSQL SQL adapter commands separately.
+- Added 16 passing local Node.js reference tests, an offline shell runner, a NoeSQL fixture and an unverified native Noqeri IR test source.
+- **Not a stable release:** no full repository build, native `.nqr` NoeSQL executor, indexed query implementation, WAL/MVCC, PostgreSQL live server tests, crash recovery or cross-platform verification.
+
+
+## Unreleased — NoqeriSQL v1.0.0 candidate (2026-10-15)
+
+- Added host-library SQLite and PostgreSQL SQL execution through a separately built native adapter and optional bootstrap CLI command.
+- Added optional native Stage-2 delegation controlled by NOQERI_SQL_ADAPTER.
+- Made SQLite scripts transactional with WAL, foreign key enforcement, defensive execution, and prohibited transaction escapes.
+- Added bounded script loading, parameter checks, stricter legacy database decoding and schema comparison, writer locking, atomic replacement and fsync protections.
+- Added dialect policy, SQL language tests and SQLite concurrency/rollback integration tests.
+- Release gates remain open: full self-hosted build, PostgreSQL server integration, cross-platform and crash-fault tests. No v1.0.0 release tag has been created.
+
+
 ## 1.4.0-general-systems — 2026-09-11
 
 - Added fixed arrays (`[T; N]`), array literals, slices (`[]T`), `slice(...)`, indexed access, and `len(...)`.

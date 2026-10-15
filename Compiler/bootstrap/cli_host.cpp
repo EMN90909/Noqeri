@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include "sql.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -22,7 +23,8 @@ void usage() {
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
               << "  web [file] [module.nqo]           emit checked portable Noqeri web module\n"
-              << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
+              << "  db <script.nqd> [data.nqdb]       execute a legacy NoqeriDB script\n"
+              << "  sql <sqlite|postgres> <database> <script.sql>  execute real SQL atomically\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
               << "  link <output> <object...>          run explicit linker adapter\n"
@@ -289,6 +291,13 @@ int main(int argc, char** argv) {
     if (cmd == "lsp") return LanguageServer{}.run();
     if (cmd == "doctor" || cmd == "release-check") return runProductionDoctor(argc >= 3 ? argv[2] : ".");
     if (cmd == "audit") return runSecurityAudit(argc >= 3 ? argv[2] : ".");
+    if (cmd == "sql") {
+        if (argc != 5) {
+            std::cerr << "usage: noqeri sql <sqlite|postgres> <database-path-or-conninfo> <script.sql>\n";
+            return 1;
+        }
+        return executeNoqeriSql(argv[2], argv[3], argv[4], std::cout, std::cerr) ? 0 : 1;
+    }
     if (cmd == "db") {
         if (argc < 3) { std::cerr << "NQR-D8041: db requires a .nqd script\n"; return 1; }
         Diagnostics d;
