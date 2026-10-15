@@ -1,0 +1,13 @@
+module noqeri.database.noesql
+import "noesql_lexer.nqr"
+import "noesql_ir.nqr"
+import "noesql_parser.nqr"
+
+// Single public NoeSQL Noqeri-native module entry point for the typed
+// frontend substrate. The JS reference engine remains transitional, not a
+// substitute for compiling this module to Noqeri native/portable targets.
+export function noeSqlLanguageMajor(): int { return 1 }
+export function noeSqlLanguageMinor(): int { return 0 }
+export function noeSqlSchemaVersionSupported(v: usize): bool {
+    return v > 0 as usize
+}
