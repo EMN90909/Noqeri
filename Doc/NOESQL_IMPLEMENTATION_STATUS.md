@@ -72,3 +72,9 @@ node --test tests/noesql-reference.test.mjs tests/noesql-store.test.mjs tests/no
 `tests/noesql_native_ir.nqr` is an unverified native fixture pending a trusted
 Noqeri compiler. The Stage-2/Stage-3 gate in `Doc/SELF_HOSTING.md` remains
 unproven. This is not sufficient for a stable 1.0 release or merging to main.
+
+
+The WAL suite also includes a real POSIX subprocess SIGKILL at the
+post-WAL-directory-fsync point. The tested reference store recovers the committed
+image after a process kill; the stale writer lock is left in place and writers
+fail closed. **This does not prove power-loss durability on all operating systems.**
