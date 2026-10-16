@@ -126,4 +126,21 @@ if command -v node >/dev/null 2>&1; then
   node --input-type=module -e 'import("./build/web_checked_index.mjs").then(m => { if(m.pick(1)!==8) process.exit(1); let trapped=false; try { m.pick(9) } catch(e) { trapped=e instanceof RangeError } if(!trapped) process.exit(2) })'
 fi
 
+# Native codegen must preserve explicit NIR null and bounds traps.
+cat > build/native_runtime_checks.nqr <<'EOF'
+function native_checked_access(index: usize, ptr: *u32): u32 {
+    let values: [u32; 3] = [1 as u32, 2 as u32, 3 as u32]
+    let value: u32 = values[index]
+    unsafe {
+        return ptr[0] + value
+    }
+}
+EOF
+"$NQ" build build/native_runtime_checks.nqr build/native_runtime_checks.s >/dev/null
+native_traps="$(grep -c 'ud2' build/native_runtime_checks.s || true)"
+if [ "${native_traps:-0}" -lt 2 ]; then
+  echo "native codegen dropped a null or bounds trap" >&2
+  exit 1
+fi
+
 echo "unsafe-boundary, runtime-bounds, null-check, checked-overflow, aggregate-borrow, interprocedural-borrow, and web-safety tests passed"

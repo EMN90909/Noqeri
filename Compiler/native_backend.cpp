@@ -190,6 +190,23 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::MakeSlice:if(i.dest&&i.args.size()==2){out<<"    sub rsp, 16\n";load(i.args[0],"rax");out<<"    mov QWORD PTR [rsp], rax\n";load(i.args[1],"rax");out<<"    mov QWORD PTR [rsp+8], rax\n    mov rax, rsp\n";store(*i.dest,"rax");}break;
         case NirOp::SliceData:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax]\n";store(*i.dest,"rax");}break;
         case NirOp::SliceLen:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax+8]\n";store(*i.dest,"rax");}break;
+        case NirOp::CheckNonNull:{
+            if(i.args.size()!=1){diagnostics.error("NQR-N5022",{},"malformed NIR null-check instruction");return false;}
+            load(i.args[0],"rax");
+            const auto valid=localLabel(fn,pc,"nonnull_ok");
+            out<<"    test rax, rax\n    jnz "<<valid<<"\n    ud2\n"<<valid<<":\n";
+            break;
+        }
+        case NirOp::CheckBounds:{
+            if(i.args.size()!=2){diagnostics.error("NQR-N5023",{},"malformed NIR bounds-check instruction");return false;}
+            load(i.args[0],"rax");
+            const auto failed=localLabel(fn,pc,"bounds_fail");
+            const auto valid=localLabel(fn,pc,"bounds_ok");
+            out<<"    test rax, rax\n    js "<<failed<<"\n";
+            load(i.args[1],"rbx");
+            out<<"    cmp rax, rbx\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
+            break;
+        }
         case NirOp::AtomicLoad:if(i.dest&&!i.args.empty()){out<<"    mfence\n";load(i.args[0],"rax");emitLoadWidth(out,i.width);out<<"    mfence\n";store(*i.dest,"rax");}break;
         case NirOp::AtomicStore:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"rbx");emitAtomicStoreWidth(out,i.width);}break;
         case NirOp::AtomicExchange:if(i.dest&&i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"rbx");emitExchangeWidth(out,i.width);store(*i.dest,"rax");}break;

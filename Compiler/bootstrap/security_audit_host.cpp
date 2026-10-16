@@ -49,4 +49,6 @@ int runSecurityAudit(const std::filesystem::path&root){
     if(reviews)std::cout<<"note capability findings are review points, not automatic vulnerabilities\n";
     return integrityFailures?1:0;
 }
+} // namespace
+
 } // namespace noe
