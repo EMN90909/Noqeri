@@ -3,52 +3,64 @@ module noqeri.game.math.vec3
 // Allocation-free 3D vector operations. Coordinates use a right-handed
 // convention. This module does not imply that native floating-point codegen
 // or any graphics backend has passed release qualification.
-export record Vec3 {
+record Vec3 {
     x: f64
     y: f64
     z: f64
 }
 
-export function vec3(x: f64, y: f64, z: f64): Vec3 {
-    return Vec3 { x: x, y: y, z: z }
+export function vec3Set(out: *Vec3, x: f64, y: f64, z: f64): void {
+    out.x = x
+    out.y = y
+    out.z = z
 }
 
-export function vec3Zero(): Vec3 {
-    return vec3(0 as f64, 0 as f64, 0 as f64)
+export function vec3Add(out: *Vec3, a: *Vec3, b: *Vec3): void {
+    let x: f64 = a.x + b.x
+    let y: f64 = a.y + b.y
+    let z: f64 = a.z + b.z
+    vec3Set(out, x, y, z)
 }
 
-export function vec3Add(a: Vec3, b: Vec3): Vec3 {
-    return vec3(a.x + b.x, a.y + b.y, a.z + b.z)
+export function vec3Subtract(out: *Vec3, a: *Vec3, b: *Vec3): void {
+    let x: f64 = a.x - b.x
+    let y: f64 = a.y - b.y
+    let z: f64 = a.z - b.z
+    vec3Set(out, x, y, z)
 }
 
-export function vec3Subtract(a: Vec3, b: Vec3): Vec3 {
-    return vec3(a.x - b.x, a.y - b.y, a.z - b.z)
+export function vec3Scale(out: *Vec3, a: *Vec3, factor: f64): void {
+    let x: f64 = a.x * factor
+    let y: f64 = a.y * factor
+    let z: f64 = a.z * factor
+    vec3Set(out, x, y, z)
 }
 
-export function vec3Scale(a: Vec3, factor: f64): Vec3 {
-    return vec3(a.x * factor, a.y * factor, a.z * factor)
-}
-
-export function vec3Dot(a: Vec3, b: Vec3): f64 {
+export function vec3Dot(a: *Vec3, b: *Vec3): f64 {
     return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-export function vec3Cross(a: Vec3, b: Vec3): Vec3 {
-    return vec3(
-        a.y * b.z - a.z * b.y,
-        a.z * b.x - a.x * b.z,
-        a.x * b.y - a.y * b.x
-    )
+export function vec3Cross(out: *Vec3, a: *Vec3, b: *Vec3): void {
+    let x: f64 = a.y * b.z - a.z * b.y
+    let y: f64 = a.z * b.x - a.x * b.z
+    let z: f64 = a.x * b.y - a.y * b.x
+    vec3Set(out, x, y, z)
 }
 
-export function vec3LengthSquared(a: Vec3): f64 {
+export function vec3LengthSquared(a: *Vec3): f64 {
     return vec3Dot(a, a)
 }
 
-export function vec3DistanceSquared(a: Vec3, b: Vec3): f64 {
-    return vec3LengthSquared(vec3Subtract(a, b))
+export function vec3DistanceSquared(a: *Vec3, b: *Vec3): f64 {
+    let x: f64 = a.x - b.x
+    let y: f64 = a.y - b.y
+    let z: f64 = a.z - b.z
+    return x * x + y * y + z * z
 }
 
-export function vec3Lerp(a: Vec3, b: Vec3, t: f64): Vec3 {
-    return vec3Add(a, vec3Scale(vec3Subtract(b, a), t))
+export function vec3Lerp(out: *Vec3, a: *Vec3, b: *Vec3, t: f64): void {
+    let x: f64 = a.x + (b.x - a.x) * t
+    let y: f64 = a.y + (b.y - a.y) * t
+    let z: f64 = a.z + (b.z - a.z) * t
+    vec3Set(out, x, y, z)
 }
