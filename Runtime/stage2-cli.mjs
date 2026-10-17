@@ -9,7 +9,7 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri check <file.nqr>
+  noqeri web-project [source-dir] [output-dir] (HTML/CSS/JS assets only)\n  noqeri check <file.nqr>
   noqeri syntax <file.nqr>
   noqeri lex-count <file.nqr>
   noqeri fingerprint <file.nqr>
@@ -139,6 +139,12 @@ try {
       if (!problems.length && !warnings.length) console.log('Noqeri doctor: Stage-2 environment looks healthy')
     }
     process.exit(problems.length || (args.includes('--strict') && warnings.length) ? 1 : 0)
+  }
+  if (command === 'web-project') {
+    const { buildWebProject } = await import('./web-project.mjs')
+    const result = await buildWebProject({ source: args[1] || 'web', out: args[2] || 'dist' })
+    console.log('Web assets copied: ' + result.files + ' files (' + result.html + ' HTML); Noqeri source compilation not performed')
+    process.exit(0)
   }
   if (command === 'add') { if (!args[1]) throw new Error('noqeri add needs namespace/name[@version]'); await (await packages()).addPackage(args[1]); process.exit(0) }
   if (command === 'install') { await (await packages()).installProject(); process.exit(0) }
