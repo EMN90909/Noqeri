@@ -9,7 +9,7 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri web-project [source-dir] [output-dir] (HTML/CSS/JS assets only)\n  noqeri check <file.nqr>
+  noqeri web-project [source-dir] [output-dir] (HTML/CSS/JS assets only)\n  noqeri web <file.nqr> <output.mjs> (restricted browser subset)\n  noqeri check <file.nqr>
   noqeri syntax <file.nqr>
   noqeri lex-count <file.nqr>
   noqeri fingerprint <file.nqr>
@@ -171,6 +171,17 @@ try {
     if (args.includes('--json')) console.log(JSON.stringify(report, null, 2))
     else console.log(`Stage-2 pipeline: syntax=${report.syntax} semantics=${report.semantics} compile-check=${report.compileCheck} nir=${report.compileToNir} proof-gate=${report.proofGate} target=${target}`)
     process.exit(report.syntax && report.semantics && report.compileCheck && target ? 0 : 1)
+  }
+  if (command === 'web') {
+    if (!args[1] || !args[2]) throw new Error('web requires an input .nqr and output .mjs path')
+    if (!args[1].endsWith('.nqr') || !args[2].endsWith('.mjs')) throw new Error('web requires .nqr input and .mjs output')
+    await resolveAndCheckPackages(args[1], compiler)
+    const bytes = new Uint8Array(await readFile(args[1]))
+    await checkBytes(compiler, bytes, args[1])
+    const { compileWebFile } = await import('./web-compiler.mjs')
+    await compileWebFile(args[1], args[2])
+    console.log('Wrote restricted browser ES module to ' + args[2])
+    process.exit(0)
   }
   if (command === 'selftest') {
     const sample = new TextEncoder().encode('function main(): int { return 0 }')
