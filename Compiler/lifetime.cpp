@@ -93,7 +93,7 @@ class LifetimeInspector {
 public:
     LifetimeInspector(Diagnostics&diagnostics,bool returnsBorrowable,const SummaryMap&summaries):diagnostics_(diagnostics),returnsBorrowable_(returnsBorrowable),summaries_(summaries){}
     void parameter(const Parameter&parameter,std::size_t index){declaredDepth_[parameter.name]=0;parameters_[parameter.name]=index;if(auto count=fixedArrayCount(parameter.annotation))arraySizes_[parameter.name]=*count;if(borrowType(parameter.annotation))borrowed_[parameter.name]=BorrowInfo{0,parameter.name,true,index};}
-    void run(const std::shared_ptr<BlockStmt>&body){if(body)for(const auto&statement:body->statements)statement(statement,0);}
+    void run(const std::shared_ptr<BlockStmt>&body){if(body)for(const auto&stmt:body->statements)statement(stmt,0);}
 private:
     std::optional<BorrowInfo> sourceOf(const ExprPtr&expression){
         if(!expression)return std::nullopt;

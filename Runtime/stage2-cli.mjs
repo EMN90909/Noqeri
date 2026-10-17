@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { pathToFileURL, fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 
 function usage() {
@@ -9,7 +9,7 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri check <file.nqr>
+  noqeri web-project [source-dir] [output-dir] (HTML/CSS/JS assets only)\n  noqeri web <file.nqr> <output.mjs> (restricted browser subset)\n  noqeri check <file.nqr>
   noqeri syntax <file.nqr>
   noqeri lex-count <file.nqr>
   noqeri fingerprint <file.nqr>
@@ -21,7 +21,7 @@ Usage:
   noqeri audit [--offline]
   noqeri env [--json]
   noqeri doctor [--json] [--strict]
-  noqeri noe <check script.noe | run script.noe data.nqd> (reference runtime)\n  noqeri sql <sqlite|postgres> <database> <script.sql> (requires NOQERI_SQL_ADAPTER)\n  noqeri selftest
+  noqeri selftest
 
 'check' is a Stage-2 semantic/compile-readiness check for the current host target.
 The CLI fails closed if the loaded compiler module does not expose the Stage-2 pipeline.`)
@@ -84,7 +84,7 @@ function hostTarget() {
 }
 
 function modulePath() {
-  return process.env.NOQERI_STAGE2_MODULE || resolve(process.cwd(), 'build/noqeri-stage2.nqo')
+  return process.env.NOQERI_STAGE2_MODULE || resolve(process.cwd(), 'build/noqeri-stage2.mjs')
 }
 
 function environmentSnapshot() {
@@ -175,6 +175,12 @@ try {
     }
     process.exit(problems.length || (args.includes('--strict') && warnings.length) ? 1 : 0)
   }
+  if (command === 'web-project') {
+    const { buildWebProject } = await import('./web-project.mjs')
+    const result = await buildWebProject({ source: args[1] || 'web', out: args[2] || 'dist' })
+    console.log('Web assets copied: ' + result.files + ' files (' + result.html + ' HTML); Noqeri source compilation not performed')
+    process.exit(0)
+  }
   if (command === 'add') { if (!args[1]) throw new Error('noqeri add needs namespace/name[@version]'); await (await packages()).addPackage(args[1]); process.exit(0) }
   if (command === 'install') { await (await packages()).installProject(); process.exit(0) }
   if (command === 'resolve') { if (!args[1]) throw new Error('noqeri resolve needs a source file'); for (const item of await (await packages()).resolvePackageImports(args[1])) console.log(`${item.coordinate}@${item.version} -> ${item.entry} ${item.integrity}`); process.exit(0) }
@@ -200,6 +206,17 @@ try {
     if (args.includes('--json')) console.log(JSON.stringify(report, null, 2))
     else console.log(`Stage-2 pipeline: syntax=${report.syntax} semantics=${report.semantics} compile-check=${report.compileCheck} nir=${report.compileToNir} proof-gate=${report.proofGate} target=${target}`)
     process.exit(report.syntax && report.semantics && report.compileCheck && target ? 0 : 1)
+  }
+  if (command === 'web') {
+    if (!args[1] || !args[2]) throw new Error('web requires an input .nqr and output .mjs path')
+    if (!args[1].endsWith('.nqr') || !args[2].endsWith('.mjs')) throw new Error('web requires .nqr input and .mjs output')
+    await resolveAndCheckPackages(args[1], compiler)
+    const bytes = new Uint8Array(await readFile(args[1]))
+    await checkBytes(compiler, bytes, args[1])
+    const { compileWebFile } = await import('./web-compiler.mjs')
+    await compileWebFile(args[1], args[2])
+    console.log('Wrote restricted browser ES module to ' + args[2])
+    process.exit(0)
   }
   if (command === 'selftest') {
     const sample = new TextEncoder().encode('function main(): int { return 0 }')

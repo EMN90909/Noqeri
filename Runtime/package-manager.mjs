@@ -95,7 +95,7 @@ export function createPackageManager(options = {}) {
     const [namespace, name] = coordinate.split('/')
     const pkg = index.packages?.find(item => item.namespace === namespace && item.name === name)
     if (!pkg) throw new Error(`package not found: ${coordinate}`)
-    const releases = (pkg.versions || []).filter(item => !item.yanked && versionPattern.test(item.version)).sort((a, b) => compareSemver(b.version, a.version))
+    const releases = (pkg.versions || []).filter(item => versionPattern.test(item.version) && (requested ? item.version === requested : !item.yanked)).sort((a, b) => compareSemver(b.version, a.version))
     const release = requested ? releases.find(item => item.version === requested) : releases[0]
     if (!release) throw new Error(`no usable release for ${coordinate}${requested ? '@' + requested : ''}`)
     return { pkg, release }

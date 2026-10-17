@@ -2,14 +2,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <filesystem>
 #include <cmath>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <fcntl.h>
-#include <unistd.h>
-#endif
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -63,75 +57,29 @@ bool valueEqual(const Value&a,const Value&b){if(a.index()==b.index())return a==b
 std::string hex(const std::string&s){static const char*d="0123456789abcdef";std::string out;out.reserve(s.size()*2);for(unsigned char c:s){out+=d[c>>4];out+=d[c&15];}return out;}
 std::optional<std::string> unhex(const std::string&s){if(s.size()%2)return std::nullopt;auto nib=[](char c)->int{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return 10+c-'a';if(c>='A'&&c<='F')return 10+c-'A';return-1;};std::string out;out.reserve(s.size()/2);for(std::size_t i=0;i<s.size();i+=2){int a=nib(s[i]),b=nib(s[i+1]);if(a<0||b<0)return std::nullopt;out+=static_cast<char>((a<<4)|b);}return out;}
 std::string encodeValue(const Value&v){return std::to_string(v.index())+":"+hex(valueText(v));}
-std::optional<Value> decodeValue(const std::string&s){auto p=s.find(':');if(p==std::string::npos)return std::nullopt;int kind=0;try{kind=std::stoi(s.substr(0,p));}catch(...){return std::nullopt;}auto raw=unhex(s.substr(p+1));if(!raw)return std::nullopt;try{if(kind==0){std::size_t used=0;auto number=std::stoll(*raw,&used);if(used!=raw->size())return std::nullopt;return Value(static_cast<std::int64_t>(number));}if(kind==1){std::size_t used=0;double number=std::stod(*raw,&used);if(used!=raw->size()||!std::isfinite(number))return std::nullopt;return Value(number);}if(kind==2){if(*raw!="true"&&*raw!="false")return std::nullopt;return Value(*raw=="true");}if(kind==3)return Value(*raw);}catch(...){return std::nullopt;}return std::nullopt;}
+std::optional<Value> decodeValue(const std::string&s){auto p=s.find(':');if(p==std::string::npos)return std::nullopt;int kind=0;try{kind=std::stoi(s.substr(0,p));}catch(...){return std::nullopt;}auto raw=unhex(s.substr(p+1));if(!raw)return std::nullopt;try{if(kind==0){std::size_t used=0;auto number=std::stoll(*raw,&used);if(used!=raw->size())return std::nullopt;return Value(static_cast<std::int64_t>(number));}if(kind==1){std::size_t used=0;auto number=std::stod(*raw,&used);if(used!=raw->size()||!std::isfinite(number))return std::nullopt;return Value(number);}if(kind==2){if(*raw!="true"&&*raw!="false")return std::nullopt;return Value(*raw=="true");}if(kind==3)return Value(*raw);}catch(...){return std::nullopt;}return std::nullopt;}
 
 bool saveState(const std::filesystem::path&path,const State&state,Diagnostics&d){
     std::error_code ec;auto parent=path.parent_path();if(!parent.empty())std::filesystem::create_directories(parent,ec);if(ec){d.error("NQR-D8020",{},"cannot create database directory: "+ec.message());return false;}
-    auto temp=path;temp+=".tmp";if(std::filesystem::exists(temp,ec)){d.error("NQR-D8024",{},"refusing existing temporary database path");return false;}std::ofstream out(temp,std::ios::binary|std::ios::trunc);if(!out){d.error("NQR-D8021",{},"cannot write NoqeriDB file: "+temp.string());return false;}out<<"NQDB1\n";
+    auto temp=path;temp+=".tmp";std::ofstream out(temp,std::ios::binary|std::ios::trunc);if(!out){d.error("NQR-D8021",{},"cannot write NoqeriDB file: "+temp.string());return false;}out<<"NQDB1\n";
     for(const auto&[name,t]:state.tables){out<<"TABLE "<<hex(name)<<' '<<t.columns.size()<<' '<<t.rows.size()<<"\n";for(const auto&c:t.columns)out<<"COL "<<hex(c.name)<<' '<<typeName(c.type)<<' '<<(c.required?1:0)<<' '<<(c.unique?1:0)<<' '<<(c.key?1:0)<<"\n";for(const auto&r:t.rows){out<<"ROW "<<r.size()<<"\n";for(const auto&[k,v]:r)out<<"VAL "<<hex(k)<<' '<<encodeValue(v)<<"\n";}out<<"ENDTABLE\n";}out.flush();if(!out){d.error("NQR-D8022",{},"failed while writing NoqeriDB file");return false;}out.close();
-    if(!out){d.error("NQR-D8022",{},"failed to close temporary NoqeriDB file");return false;}
-#ifdef _WIN32
-    // Same-volume replacement without deleting the previous committed file.
-    // MOVEFILE_WRITE_THROUGH asks Windows to flush before return.
-    if(!MoveFileExW(temp.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){
-        d.error("NQR-D8023",{},"Windows atomic database replacement failed; original database retained");
-        return false;
-    }
-#else
-    // Committed bytes must reach storage before the directory entry is changed.
-    const int fd=::open(temp.c_str(),O_RDONLY);
-    if(fd<0){d.error("NQR-D8023",{},"cannot open temporary database for fsync");return false;}
-    const bool synced=(::fsync(fd)==0);
-    ::close(fd);
-    if(!synced){d.error("NQR-D8023",{},"temporary database fsync failed");return false;}
-    ec.clear();std::filesystem::rename(temp,path,ec);
-    if(ec){d.error("NQR-D8023",{},"atomic database rename failed: "+ec.message());return false;}
-    // The directory fsync persists the new filename through a crash.
-    const auto directory=parent.empty()?std::filesystem::path("."):parent;
-    const int dirfd=::open(directory.c_str(),O_RDONLY);
-    if(dirfd<0){d.error("NQR-D8025",{},"database directory cannot be opened for fsync");return false;}
-    const bool dirSynced=(::fsync(dirfd)==0);
-    ::close(dirfd);
-    if(!dirSynced){d.error("NQR-D8025",{},"database directory fsync failed; commit durability uncertain");return false;}
-#endif
-    return true;
+    // Never delete the last good database before the replacement is committed.
+    // Platforms without atomic replace-over-existing must fail closed rather than lose data.
+    std::filesystem::rename(temp,path,ec);if(ec){d.error("NQR-D8023",{},"cannot commit NoqeriDB transaction: "+ec.message());return false;}return true;
 }
 
 bool loadState(const std::filesystem::path&path,State&state,Diagnostics&d){
-    if(!std::filesystem::exists(path))return true;std::error_code fsec;auto bytes=std::filesystem::file_size(path,fsec);if(fsec||bytes>67108864u){d.error("NQR-D8029",{},"database file exceeds 64 MiB or cannot be read");return false;}std::ifstream in(path,std::ios::binary);std::string line;if(!std::getline(in,line)||line!="NQDB1"){d.error("NQR-D8030",{},"invalid NoqeriDB header");return false;}
+    if(!std::filesystem::exists(path))return true;std::ifstream in(path,std::ios::binary);std::string line;if(!std::getline(in,line)||line!="NQDB1"){d.error("NQR-D8030",{},"invalid NoqeriDB header");return false;}
     Table* current=nullptr;std::size_t expectedCols=0,expectedRows=0,seenRows=0;Row row;std::size_t expectedVals=0;
-    while(std::getline(in,line)){std::istringstream s(line);std::string op;s>>op;if(op=="TABLE"){std::string n;if(current||( !(s>>n>>expectedCols>>expectedRows))||expectedCols>256u||expectedRows>1000000u||state.tables.size()>=512u){d.error("NQR-D8031",{},"invalid table counts or nested table");return false;}auto decoded=unhex(n);if(!decoded||decoded->empty()||state.tables.count(*decoded)){d.error("NQR-D8031",{},"corrupt table name");return false;}auto& t=state.tables[*decoded];t.name=*decoded;t.columns.clear();t.rows.clear();current=&t;seenRows=0;}else if(op=="COL"&&current){std::string n,ty;int req=0,uni=0,key=0;if(!(s>>n>>ty>>req>>uni>>key)||current->columns.size()>=expectedCols){d.error("NQR-D8032",{},"invalid column record");return false;}auto decoded=unhex(n);auto type=parseType(ty);if(!decoded||!type||req<0||req>1||uni<0||uni>1||key<0||key>1){d.error("NQR-D8032",{},"corrupt column metadata");return false;}current->columns.push_back({*decoded,*type,req!=0,uni!=0,key!=0});}else if(op=="ROW"&&current){if(!(s>>expectedVals)||expectedVals>expectedCols||seenRows>=expectedRows){d.error("NQR-D8033",{},"invalid row size");return false;}row.clear();while(expectedVals--){if(!std::getline(in,line)){d.error("NQR-D8033",{},"truncated row");return false;}std::istringstream vline(line);std::string tag,k,v;vline>>tag>>k>>v;if(tag!="VAL"){d.error("NQR-D8034",{},"invalid row value record");return false;}auto key=unhex(k);auto value=decodeValue(v);if(!key||!value||row.count(*key)){d.error("NQR-D8035",{},"corrupt or duplicate row value");return false;}row[*key]=*value;}current->rows.push_back(row);++seenRows;}else if(op=="ENDTABLE"&&current){if(current->columns.size()!=expectedCols||seenRows!=expectedRows){d.error("NQR-D8036",{},"NoqeriDB table count mismatch");return false;}current=nullptr;}else if(!op.empty()){d.error("NQR-D8037",{},"unknown NoqeriDB record: "+op);return false;}}
-    if(current){d.error("NQR-D8038",{},"truncated NoqeriDB table");return false;}if(!in.eof()&&in.fail()){d.error("NQR-D8039",{},"database read failed");return false;}return true;
+    while(std::getline(in,line)){std::istringstream s(line);std::string op;s>>op;if(op=="TABLE"){std::string n;s>>n>>expectedCols>>expectedRows;auto decoded=unhex(n);if(!decoded){d.error("NQR-D8031",{},"corrupt table name");return false;}auto& t=state.tables[*decoded];t.name=*decoded;t.columns.clear();t.rows.clear();current=&t;seenRows=0;}else if(op=="COL"&&current){std::string n,ty;int req=0,uni=0,key=0;s>>n>>ty>>req>>uni>>key;auto decoded=unhex(n);auto type=parseType(ty);if(!decoded||!type){d.error("NQR-D8032",{},"corrupt column metadata");return false;}current->columns.push_back({*decoded,*type,req!=0,uni!=0,key!=0});}else if(op=="ROW"&&current){s>>expectedVals;row.clear();while(expectedVals--){if(!std::getline(in,line)){d.error("NQR-D8033",{},"truncated row");return false;}std::istringstream vline(line);std::string tag,k,v;vline>>tag>>k>>v;if(tag!="VAL"){d.error("NQR-D8034",{},"invalid row value record");return false;}auto key=unhex(k);auto value=decodeValue(v);if(!key||!value){d.error("NQR-D8035",{},"corrupt row value");return false;}row[*key]=*value;}current->rows.push_back(row);++seenRows;}else if(op=="ENDTABLE"&&current){if(current->columns.size()!=expectedCols||seenRows!=expectedRows){d.error("NQR-D8036",{},"NoqeriDB table count mismatch");return false;}current=nullptr;}else if(!op.empty()){d.error("NQR-D8037",{},"unknown NoqeriDB record: "+op);return false;}}
+    if(current){d.error("NQR-D8038",{},"truncated NoqeriDB table");return false;}return true;
 }
-
-// A conservative, portable exclusive lease for the legacy snapshot engine.
- // An unclean termination may leave the lock directory; never steal it
- // automatically because the writer could still be alive on another host.
-class DatabaseWriterLock {
-public:
-    bool acquire(const std::filesystem::path& database, Diagnostics& d) {
-        auto next=database;next+=".writer.lock";
-        if(next==path_)return true;
-        std::error_code ec;auto parent=database.parent_path();
-        if(!parent.empty())std::filesystem::create_directories(parent,ec);
-        if(ec||!std::filesystem::create_directory(next,ec)){
-            d.error("NQR-D8042",{},"cannot acquire exclusive database writer lock: "+next.string());
-            return false;
-        }
-        release();path_=next;return true;
-    }
-    ~DatabaseWriterLock(){release();}
-private:
-    void release(){if(path_.empty())return;std::error_code ec;std::filesystem::remove(path_,ec);path_.clear();}
-    std::filesystem::path path_;
-};
 
 class Parser {
 public:
     Parser(std::vector<Token> t,std::filesystem::path script,std::filesystem::path overridePath,std::ostream&out,Diagnostics&d):t_(std::move(t)),script_(std::move(script)),dbPath_(std::move(overridePath)),out_(out),d_(d){}
     bool run(){
         if(dbPath_.empty()){dbPath_=script_;dbPath_.replace_extension(".nqdb");}
-        if(!writerLock_.acquire(dbPath_,d_))return false;
         if(!loadState(dbPath_,state_,d_))return false;
         while(!at(Tok::Eof)){if(!statement())return false;match(Tok::Semi);}
         return !d_.hasErrors()&&(!dirty_||saveState(dbPath_,state_,d_));
@@ -150,20 +98,20 @@ private:
     bool matches(const Row&r,const std::optional<std::pair<std::string,Value>>&w)const{if(!w)return true;auto it=r.find(w->first);return it!=r.end()&&valueEqual(it->second,w->second);}
     std::optional<std::pair<std::string,Value>> where(){if(!keyword("where"))return std::optional<std::pair<std::string,Value>>{};take();auto k=id();if(!k||!match(Tok::Equal)){error("expected '=' in where clause");return std::nullopt;}auto v=value();if(!v)return std::nullopt;return std::make_pair(*k,*v);}
     bool statement(){
-        if(keyword("database")){take();if(!at(Tok::String))return error("database expects a quoted .nqdb path");auto requested=std::filesystem::path(take().text);if(requested.extension()!=".nqdb")requested.replace_extension(".nqdb");if(requested.is_relative())requested=script_.parent_path()/requested;if(dbPath_!=requested&&std::filesystem::exists(dbPath_)&&state_.tables.size()){return error("database path must be declared before data statements");}if(!writerLock_.acquire(requested,d_))return false;dbPath_=requested;state_={};return loadState(dbPath_,state_,d_);}
-        if(keyword("table")){take();auto name=id();if(!name)return false;if(!match(Tok::LBrace))return error("expected '{' after table name");Table t;t.name=*name;std::set<std::string>seen;while(!at(Tok::RBrace)&&!at(Tok::Eof)){auto cn=id();if(!cn||!match(Tok::Colon))return error("expected column type after ':'");auto ty=id();if(!ty)return false;auto parsed=parseType(*ty);if(!parsed)return error("unknown NoqeriDB type '"+*ty+"'");Column c{*cn,*parsed,false,false,false};while(at(Tok::Id)){auto flag=lower(peek().text);if(flag=="required"){c.required=true;take();}else if(flag=="unique"){c.unique=true;take();}else if(flag=="key"){c.key=true;c.unique=true;c.required=true;take();}else break;}if(!seen.insert(c.name).second)return error("duplicate column '"+c.name+"'");t.columns.push_back(c);if(match(Tok::Comma)||match(Tok::Semi))continue;}if(!match(Tok::RBrace))return error("expected '}' after table schema");auto it=state_.tables.find(*name);if(it==state_.tables.end()){state_.tables[*name]=std::move(t);dirty_=true;}else {if(it->second.columns.size()!=t.columns.size())return error("existing table schema differs for '"+*name+"'");for(std::size_t ci=0;ci<t.columns.size();++ci){const auto&a=it->second.columns[ci];const auto&b=t.columns[ci];if(a.name!=b.name||a.type!=b.type||a.required!=b.required||a.unique!=b.unique||a.key!=b.key)return error("existing table schema differs for '"+*name+"'");}}return true;}
+        if(keyword("database")){take();if(!at(Tok::String))return error("database expects a quoted .nqdb path");auto requested=std::filesystem::path(take().text);if(requested.extension()!=".nqdb")requested.replace_extension(".nqdb");if(requested.is_relative())requested=script_.parent_path()/requested;if(dbPath_!=requested&&std::filesystem::exists(dbPath_)&&state_.tables.size()){return error("database path must be declared before data statements");}dbPath_=requested;state_={};return loadState(dbPath_,state_,d_);}
+        if(keyword("table")){take();auto name=id();if(!name)return false;if(!match(Tok::LBrace))return error("expected '{' after table name");Table t;t.name=*name;std::set<std::string>seen;while(!at(Tok::RBrace)&&!at(Tok::Eof)){auto cn=id();if(!cn||!match(Tok::Colon))return error("expected column type after ':'");auto ty=id();if(!ty)return false;auto parsed=parseType(*ty);if(!parsed)return error("unknown NoqeriDB type '"+*ty+"'");Column c{*cn,*parsed,false,false,false};while(at(Tok::Id)){auto flag=lower(peek().text);if(flag=="required"){c.required=true;take();}else if(flag=="unique"){c.unique=true;take();}else if(flag=="key"){c.key=true;c.unique=true;c.required=true;take();}else break;}if(!seen.insert(c.name).second)return error("duplicate column '"+c.name+"'");t.columns.push_back(c);if(match(Tok::Comma)||match(Tok::Semi))continue;}if(!match(Tok::RBrace))return error("expected '}' after table schema");auto it=state_.tables.find(*name);if(it==state_.tables.end()){state_.tables[*name]=std::move(t);dirty_=true;}else if(it->second.columns.size()!=t.columns.size())return error("existing table schema differs for '"+*name+"'");else {for(std::size_t c=0;c<t.columns.size();++c){const auto&a=it->second.columns[c],&b=t.columns[c];if(a.name!=b.name||a.type!=b.type||a.required!=b.required||a.unique!=b.unique||a.key!=b.key)return error("existing table schema differs for '"+*name+"'");}}return true;}
         if(keyword("insert")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");auto r=object();if(!r||!validate(it->second,*r))return false;it->second.rows.push_back(std::move(*r));dirty_=true;return true;}
-        if(keyword("select")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");auto w=where();if(keyword("where")&&!w)return false;for(std::size_t c=0;c<it->second.columns.size();++c){if(c)out_<<'\t';out_<<it->second.columns[c].name;}out_<<'\n';for(const auto&r:it->second.rows)if(matches(r,w)){for(std::size_t c=0;c<it->second.columns.size();++c){if(c)out_<<'\t';auto v=r.find(it->second.columns[c].name);if(v!=r.end())out_<<valueText(v->second);}out_<<'\n';}return true;}
-        if(keyword("delete")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");auto w=where();auto&rows=it->second.rows;auto before=rows.size();rows.erase(std::remove_if(rows.begin(),rows.end(),[&](const Row&r){return matches(r,w);}),rows.end());dirty_=dirty_||rows.size()!=before;return true;}
-        if(keyword("update")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");if(!consumeKeyword("set"))return false;auto patch=object();if(!patch)return false;auto w=where();for(std::size_t idx=0;idx<it->second.rows.size();++idx)if(matches(it->second.rows[idx],w)){Row candidate=it->second.rows[idx];for(const auto&[k,v]:*patch)candidate[k]=v;if(!validate(it->second,candidate,idx))return false;it->second.rows[idx]=std::move(candidate);dirty_=true;}return true;}
+        if(keyword("select")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");const bool hasWhere=keyword("where");auto w=where();if(hasWhere&&!w)return false;for(std::size_t c=0;c<it->second.columns.size();++c){if(c)out_<<'\t';out_<<it->second.columns[c].name;}out_<<'\n';for(const auto&r:it->second.rows)if(matches(r,w)){for(std::size_t c=0;c<it->second.columns.size();++c){if(c)out_<<'\t';auto v=r.find(it->second.columns[c].name);if(v!=r.end())out_<<valueText(v->second);}out_<<'\n';}return true;}
+        if(keyword("delete")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");if(!keyword("where"))return error("delete requires an explicit where clause");auto w=where();if(!w)return false;auto&rows=it->second.rows;auto before=rows.size();rows.erase(std::remove_if(rows.begin(),rows.end(),[&](const Row&r){return matches(r,w);}),rows.end());dirty_=dirty_||rows.size()!=before;return true;}
+        if(keyword("update")){take();auto n=id();if(!n)return false;auto it=state_.tables.find(*n);if(it==state_.tables.end())return error("unknown table '"+*n+"'");if(!consumeKeyword("set"))return false;auto patch=object();if(!patch)return false;if(!keyword("where"))return error("update requires an explicit where clause");auto w=where();if(!w)return false;for(std::size_t idx=0;idx<it->second.rows.size();++idx)if(matches(it->second.rows[idx],w)){Row candidate=it->second.rows[idx];for(const auto&[k,v]:*patch)candidate[k]=v;if(!validate(it->second,candidate,idx))return false;it->second.rows[idx]=std::move(candidate);dirty_=true;}return true;}
         return error("expected database, table, insert, select, update or delete statement");
     }
-    std::vector<Token>t_;std::size_t i_=0;std::filesystem::path script_,dbPath_;std::ostream&out_;Diagnostics&d_;State state_;DatabaseWriterLock writerLock_;bool dirty_=false;
+    std::vector<Token>t_;std::size_t i_=0;std::filesystem::path script_,dbPath_;std::ostream&out_;Diagnostics&d_;State state_;bool dirty_=false;
 };
 }
 
 bool NoqeriDatabase::execute(const std::filesystem::path&script,const std::filesystem::path&databaseOverride,std::ostream&output,Diagnostics&diagnostics)const{
-    std::error_code sec;auto scriptSize=std::filesystem::file_size(script,sec);if(sec||scriptSize>1048576u){diagnostics.error("NQR-D8043",{},"database script is unreadable or exceeds 1 MiB");return false;}std::ifstream in(script,std::ios::binary);if(!in){diagnostics.error("NQR-D8040",{},"cannot open .nqd script: "+script.string());return false;}std::ostringstream source;source<<in.rdbuf();Lexer lexer(source.str());auto tokens=lexer.run(diagnostics);if(diagnostics.hasErrors())return false;Parser parser(std::move(tokens),script,databaseOverride,output,diagnostics);return parser.run();
+    std::ifstream in(script,std::ios::binary);if(!in){diagnostics.error("NQR-D8040",{},"cannot open .nqd script: "+script.string());return false;}std::ostringstream source;source<<in.rdbuf();Lexer lexer(source.str());auto tokens=lexer.run(diagnostics);if(diagnostics.hasErrors())return false;Parser parser(std::move(tokens),script,databaseOverride,output,diagnostics);return parser.run();
 }
 
 } // namespace noe

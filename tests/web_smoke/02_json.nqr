@@ -1,0 +1,4 @@
+module smoke.json
+export function response(): string {
+    return "{\"status\":\"ok\",\"source\":\"noqeri\"}"
+}

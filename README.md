@@ -2,40 +2,7 @@
 <h1 align="center">Noqeri</h1>
 <p align="center"><strong>A compact statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.nqr`, project manifests use `project.nqr`, and portable web/compiler objects use `.nqo`. New **NoeSQL** scripts use `.noe`; the experimental NoeSQL data format uses `.nqd`. Legacy NoqeriDB uses `.nqd` scripts and `.nqdb` data files under its separate `noqeri db` command.
-
-## NoqeriSQL v1.0.0 candidate
-
-NoqeriSQL can execute real SQL through SQLite3 or PostgreSQL/libpq, in an optional native adapter. The normal self-hosted Stage-2 compiler remains unchanged.
-
-Build the native adapter separately with development libraries installed:
-
-    cmake -S . -B build/sql-native -DBUILD_TESTING=OFF -DNOQERI_REQUIRE_SQL_BACKENDS=ON
-    cmake --build build/sql-native --target noqerisql
-
-Use the native executable directly:
-
-    ./build/sql-native/noqerisql sql sqlite ./app.sqlite ./schema.sql
-
-Or from the self-hosted Stage-2 launcher:
-
-    NOQERI_SQL_ADAPTER=./build/sql-native/noqerisql ./build/noqeri sql sqlite ./app.sqlite ./schema.sql
-
-The PostgreSQL adapter executes one SQL statement per file with verified TLS; SQLite permits multi-statement SQL files with transactional rollback. The old .nqd/.nqdb format is retained separately and is **not** standard SQL or SQLite-compatible. See [NoqeriSQL implementation notes](Database/NOQERISQL.md).
-
-The Noqeri v1.0.0 compiler version string already exists; **the NoqeriSQL release is still a candidate**, not a verified or tagged release. Complete self-hosted compiler, server-side PostgreSQL, crash-recovery and platform gates remain outstanding.
-
-## NoeSQL v1.0 language candidate
-
-The new [NoeSQL language and reference engine](Doc/NOESQL.md) provides a compact typed `.noe` syntax for schema definitions, indexes, named queries and CRUD, with one validated query representation and a versioned `.nqd` reference store. In the current implementation the runnable engine is a **Node.js reference host**, not yet the `.nqr` compiler-native production database.
-
-```sh
-node Runtime/noesql/cli.mjs check tests/noesql_fixture.noe
-node Runtime/noesql/cli.mjs run tests/noesql_fixture.noe demo.nqd
-sh scripts/test-noesql.sh
-```
-
-The active Stage-2 CLI also accepts `noqeri noe check` and `noqeri noe run` for the reference implementation. SQLite and PostgreSQL remain separate native compatibility adapters; NoeSQL query translation to them has not yet been completed.
+Noqeri source uses `.nqr`, project manifests use `project.nqr`, portable compiled objects use `.nqo`, and NoqeriDB uses `.nqd` / `.nqdb`.
 
 ## Compiler architecture
 
@@ -63,9 +30,9 @@ $env:NOQERI_STAGE0 = 'C:\path\to\noqeri.exe'
 .\build\noqeri.cmd selftest
 ```
 
-The build emits a portable `build/noqeri-stage1.nqo` and a platform launcher. The reference portable host requires Node.js 20+; the `.nqo` compiler kernel itself is OS-neutral.
+The build emits a portable `build/noqeri-stage2.mjs` and a platform launcher. The current reference host requires Node.js 20+ and an **ES-module** Stage-2 compiler export. Portable binary NQO2 is a distinct artifact format and cannot be loaded by JavaScript dynamic import without a decoder or runner. The bootstrap build fails closed unless its trusted seed produces a valid Stage-2 ES module; the restricted web compiler is **not** a drop-in self-host compiler bootstrap.
 
-## Current stage-1 commands
+## Active Stage-2 CLI commands
 
 ```text
 noqeri --version
@@ -87,6 +54,11 @@ The current language supports fixed-width integers, arrays/slices, records, raw 
 - Website/source bootstrap: `EMN90909/noqeri-web` — exposes POSIX and PowerShell source-install endpoints in addition to registry downloads.
 
 Automatic GitHub Actions workflows are intentionally not required for this migration; local verification is the canonical path.
+
+
+## Release readiness
+
+**Pre-release, not verified v1.0.0:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity, or end-to-end browser parity. See [release status](Doc/RELEASE_VERIFICATION_2026-10-17.md).
 
 ## License
 

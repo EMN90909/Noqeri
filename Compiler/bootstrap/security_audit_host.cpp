@@ -31,6 +31,7 @@ bool validateLockedDependency(const std::string&lock,bool v3,const std::string&a
     if(integrity.rfind("sha256:",0)!=0||integrity.size()!=71){std::cerr<<"fail dependency lacks SHA-256 lock identity: "<<alias<<"\n";return false;}
     return true;
 }
+} // namespace
 
 int runSecurityAudit(const std::filesystem::path&root){
     int integrityFailures=0;std::size_t reviews=0;Diagnostics diagnostics;auto manifestPath=root/"project.nqr";auto manifest=PackageManager{}.loadManifest(manifestPath,diagnostics);
@@ -49,4 +50,5 @@ int runSecurityAudit(const std::filesystem::path&root){
     if(reviews)std::cout<<"note capability findings are review points, not automatic vulnerabilities\n";
     return integrityFailures?1:0;
 }
+
 } // namespace noe

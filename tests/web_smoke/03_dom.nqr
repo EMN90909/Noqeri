@@ -1,0 +1,5 @@
+module smoke.dom
+extern function domText(selector: string, value: string): bool
+export function render(): bool {
+    return domText("#app", "Hello from Noqeri")
+}
