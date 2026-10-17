@@ -55,7 +55,12 @@ The current language supports fixed-width integers, arrays/slices, records, raw 
 
 Automatic GitHub Actions workflows are intentionally not required for this migration; local verification is the canonical path.
 
-## Release readiness\n\n**Pre-release, not verified v1.0.0:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity, or end-to-end browser parity. See [release status](Doc/RELEASE_VERIFICATION_2026-10-17.md).\n\n## License
+
+## Release readiness
+
+**Pre-release, not verified v1.0.0:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity, or end-to-end browser parity. See [release status](Doc/RELEASE_VERIFICATION_2026-10-17.md).
+
+## License
 
 Noqeri's project code is distributed under the **GNU General Public License, version 3 only (`GPL-3.0-only`)**, unless a file or component carries a separate license notice. `LICENSE` contains the complete license text. See [`LICENSES.md`](LICENSES.md) for the project licensing guide and third-party component guidance.
 
