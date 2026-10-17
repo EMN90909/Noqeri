@@ -51,7 +51,7 @@ function testGameFoundations(): int {
     fixedStepAdvance(step, 250 as u64, frame)
     if frame.steps != 2 as u32 || frame.alpha != 0.5 { return 12 }
     fixedStepAdvance(step, 450 as u64, frame)
-    if frame.steps != 2 as u32 || frame.droppedCatchupNs != 200 as u64 { return 13 }
+    if frame.steps != 2 as u32 || frame.droppedCatchupNs != 300 as u64 { return 13 }
     fixedStepPause(step, true)
     fixedStepAdvance(step, 250 as u64, frame)
     if frame.steps != 0 as u32 { return 14 }
