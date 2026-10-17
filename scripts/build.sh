@@ -23,10 +23,10 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 mkdir -p "$BUILD_DIR"
 "$STAGE0" check "$COMPILER"
-"$STAGE0" web "$COMPILER" "$BUILD_DIR/noqeri-stage2.nqo"
+"$STAGE0" web "$COMPILER" "$BUILD_DIR/noqeri-stage2.mjs"\n# The portable host imports a JavaScript ESM artifact; reject invalid seed output.\nnode --check "$BUILD_DIR/noqeri-stage2.mjs"\nNOQERI_STAGE2_MODULE="$BUILD_DIR/noqeri-stage2.mjs" node "$ROOT/scripts/verify-stage2-module.mjs"
 cat > "$BUILD_DIR/noqeri" <<LAUNCH
 #!/usr/bin/env sh
-NOQERI_STAGE2_MODULE="$BUILD_DIR/noqeri-stage2.nqo" exec node "$ROOT/Runtime/stage2-cli.mjs" "\$@"
+NOQERI_STAGE2_MODULE="$BUILD_DIR/noqeri-stage2.mjs" exec node "$ROOT/Runtime/stage2-cli.mjs" "\$@"
 LAUNCH
 chmod +x "$BUILD_DIR/noqeri"
 "$BUILD_DIR/noqeri" selftest
