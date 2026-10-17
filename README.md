@@ -30,9 +30,9 @@ $env:NOQERI_STAGE0 = 'C:\path\to\noqeri.exe'
 .\build\noqeri.cmd selftest
 ```
 
-The build emits a portable `build/noqeri-stage1.nqo` and a platform launcher. The reference portable host requires Node.js 20+; the `.nqo` compiler kernel itself is OS-neutral.
+The build emits a portable `build/noqeri-stage2.mjs` and a platform launcher. The current reference host requires Node.js 20+ and an **ES-module** Stage-2 compiler export. Portable binary NQO2 is a distinct artifact format and cannot be loaded by JavaScript dynamic import without a decoder or runner. The bootstrap build fails closed unless its trusted seed produces a valid Stage-2 ES module; the restricted web compiler is **not** a drop-in self-host compiler bootstrap.
 
-## Current stage-1 commands
+## Active Stage-2 CLI commands
 
 ```text
 noqeri --version
@@ -55,7 +55,7 @@ The current language supports fixed-width integers, arrays/slices, records, raw 
 
 Automatic GitHub Actions workflows are intentionally not required for this migration; local verification is the canonical path.
 
-## License
+## Release readiness\n\n**Pre-release, not verified v1.0.0:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity, or end-to-end browser parity. See [release status](Doc/RELEASE_VERIFICATION_2026-10-17.md).\n\n## License
 
 Noqeri's project code is distributed under the **GNU General Public License, version 3 only (`GPL-3.0-only`)**, unless a file or component carries a separate license notice. `LICENSE` contains the complete license text. See [`LICENSES.md`](LICENSES.md) for the project licensing guide and third-party component guidance.
 
