@@ -102,7 +102,7 @@ async function compilerModule() {
   let compiler
   try { compiler = await import(pathToFileURL(path).href) }
   catch (error) { throw new Error(`cannot load Stage-2 module ${path}: ${error.message}`) }
-  const required = ['stage2SyntaxCheck', 'stage2SemanticCheckMerged', 'stage2CompileReady', 'stage2CompileCheck']
+  const required = ['stage1VersionMajor', 'stage1VersionMinor', 'stage1VersionPatch', 'stage2SyntaxCheck', 'stage2SemanticCheckMerged', 'stage2CompileReady', 'stage2CompileCheck']
   const missing = required.filter(name => typeof compiler[name] !== 'function')
   if (missing.length) throw new Error(`compiler module is not Stage-2 capable; missing exports: ${missing.join(', ')}`)
   compilerCache = compiler
@@ -164,7 +164,7 @@ try {
 
   const compiler = await compilerModule()
   if (command === '--version') {
-    const major = compiler.stage1VersionMajor?.() ?? 1, minor = compiler.stage1VersionMinor?.() ?? 0, patch = compiler.stage1VersionPatch?.() ?? 0
+    const major = compiler.stage1VersionMajor(), minor = compiler.stage1VersionMinor(), patch = compiler.stage1VersionPatch()
     console.log(`Noqeri ${major}.${minor}.${patch} Stage-2 pipeline`)
     process.exit(0)
   }
