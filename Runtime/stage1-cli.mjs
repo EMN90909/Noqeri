@@ -89,7 +89,7 @@ try {
   const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(process.cwd(), 'build/noqeri-stage1.nqo')
   let compiler
   try { compiler = await import(pathToFileURL(modulePath).href) } catch (error) { throw new Error(`cannot load stage-1 module ${modulePath}: ${error.message}`) }
-  if (command === '--version') { console.log(`Noqeri ${compiler.stage1VersionMajor?.() ?? 1}.${compiler.stage1VersionMinor?.() ?? 0}.${compiler.stage1VersionPatch?.() ?? 0} stage1`); process.exit(0) }
+  if (command === '--version') { console.log(`Noqeri ${compiler.stage1VersionMajor()}.${compiler.stage1VersionMinor()}.${compiler.stage1VersionPatch()} stage1`); process.exit(0) }
   if (command === 'selftest') { const sample = new TextEncoder().encode('function main(): int { return 0 }'); const status = compiler.stage1CheckSource(sample), tokens = compiler.stage1TokenCount(sample); const pkg = new TextEncoder().encode('noqeri/supabase'); if (status !== 0 || tokens < 6 || compiler.stage1PackageCoordinateValid?.(pkg) !== true) throw new Error(`stage-1 selftest failed: status=${status} tokens=${tokens}`); console.log(`stage-1 selftest passed (${tokens} tokens; package policy OK)`); process.exit(0) }
   if (!['check', 'lex-count', 'fingerprint'].includes(command)) { usage(); process.exit(2) }
   if (!args[1]) throw new Error(`noqeri: ${command} needs a source file`)
