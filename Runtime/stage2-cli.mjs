@@ -49,7 +49,7 @@ function hostTarget() {
 }
 
 function modulePath() {
-  return process.env.NOQERI_STAGE2_MODULE || resolve(process.cwd(), 'build/noqeri-stage2.nqo')
+  return process.env.NOQERI_STAGE2_MODULE || resolve(process.cwd(), 'build/noqeri-stage2.mjs')
 }
 
 function environmentSnapshot() {
