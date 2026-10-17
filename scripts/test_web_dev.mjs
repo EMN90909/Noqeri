@@ -53,8 +53,14 @@ try{
     if(prior===undefined)delete globalThis.NoqeriHost
     else globalThis.NoqeriHost=prior
   }
-  const invalid=invoke(['web','tests/web_smoke/06_invalid_browser_asm.nqr',join(temp,'invalid.mjs')])
-  record('reject native assembly in browser',!invalid.ok,'exit='+invalid.status)
+  const invalidSource=invoke(['check','tests/web_smoke/06_invalid_browser_asm.nqr'])
+  if(invalidSource.ok){
+    const invalid=invoke(['web','tests/web_smoke/06_invalid_browser_asm.nqr',join(temp,'invalid.mjs')])
+    const webSupported=!results.some(r=>['exports','json','arithmetic','dom'].includes(r.name)&&r.details.startsWith('web compiler unavailable'))
+    record('reject native assembly in browser',webSupported&&!invalid.ok,'webSupported='+webSupported+' exit='+invalid.status)
+  }else{
+    record('reject native assembly in browser',false,'source check failed; web rejection cannot be assessed')
+  }
 }catch(error){record('initialization',false,error.message)}
 finally{
   rmSync(temp,{recursive:true,force:true})
