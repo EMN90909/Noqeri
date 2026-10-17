@@ -1,0 +1,23 @@
+name: Native database safety
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native bootstrap
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+      - name: Compile native bootstrap and ABI
+        run: cmake --build build --parallel 2
+      - name: Native database safety regression suite
+        run: ctest --test-dir build -R '^(noqeri-noqeridb|noqeridb-reject-.*)$' --output-on-failure

@@ -6,7 +6,8 @@ table users {
     active: bool required
 }
 
-delete users
+delete users where id = 1
+delete users where id = 2
 insert users { id: 1, name: "Ada", active: true }
 insert users { id: 2, name: "Grace", active: true }
 update users set { name: "Grace Hopper" } where id = 2
