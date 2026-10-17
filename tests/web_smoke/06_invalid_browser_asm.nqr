@@ -1,0 +1,4 @@
+module smoke.unsafe
+export function bad(): void {
+    asm("nop")
+}
