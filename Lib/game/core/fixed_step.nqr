@@ -1,0 +1,78 @@
+module noqeri.game.core.fixed_step
+
+// Deterministic fixed-step scheduler in integer nanoseconds.
+// Time comes from a host monotonic clock; this module never reads wall time.
+// Caller runs the simulation exactly 'steps' times and uses alpha for rendering.
+export record FixedStep {
+    stepNs: u64
+    accumulatorNs: u64
+    maxFrameNs: u64
+    maxSteps: u32
+    paused: bool
+}
+
+export record FramePlan {
+    steps: u32
+    alpha: f64
+    droppedNs: u64
+}
+
+export function fixedStepCreate(stepNs: u64, maxFrameNs: u64, maxSteps: u32): FixedStep {
+    return FixedStep {
+        stepNs: stepNs,
+        accumulatorNs: 0 as u64,
+        maxFrameNs: maxFrameNs,
+        maxSteps: maxSteps,
+        paused: false
+    }
+}
+
+// Returns true only for well-formed configuration.
+export function fixedStepValid(clock: FixedStep): bool {
+    return clock.stepNs > 0 as u64 && clock.maxFrameNs >= clock.stepNs && clock.maxSteps > 0 as u32
+}
+
+export function fixedStepReset(clock: *FixedStep): void {
+    clock.accumulatorNs = 0 as u64
+}
+
+export function fixedStepPause(clock: *FixedStep, pause: bool): void {
+    clock.paused = pause
+}
+
+// Any time beyond maxFrameNs or maxSteps is explicitly dropped rather
+// than trying to catch up forever. Avoids overflow before accumulation.
+export function fixedStepAdvance(clock: *FixedStep, elapsedNs: u64): FramePlan {
+    let plan: FramePlan = FramePlan {
+        steps: 0 as u32,
+        alpha: 0 as f64,
+        droppedNs: 0 as u64
+    }
+    if clock == null { return plan }
+    if !fixedStepValid(clock) || clock.paused { return plan }
+
+    let accepted: u64 = elapsedNs
+    if accepted > clock.maxFrameNs {
+        plan.droppedNs = accepted - clock.maxFrameNs
+        accepted = clock.maxFrameNs
+    }
+    let free: u64 = (0 as u64 - 1 as u64) - clock.accumulatorNs
+    if accepted > free {
+        plan.droppedNs = plan.droppedNs + (accepted - free)
+        accepted = free
+    }
+    clock.accumulatorNs = clock.accumulatorNs + accepted
+
+    while clock.accumulatorNs >= clock.stepNs && plan.steps < clock.maxSteps {
+        clock.accumulatorNs = clock.accumulatorNs - clock.stepNs
+        plan.steps = plan.steps + 1 as u32
+    }
+
+    if clock.accumulatorNs >= clock.stepNs {
+        let pending: u64 = clock.accumulatorNs - (clock.accumulatorNs % clock.stepNs)
+        plan.droppedNs = plan.droppedNs + pending
+        clock.accumulatorNs = clock.accumulatorNs % clock.stepNs
+    }
+    plan.alpha = (clock.accumulatorNs as f64) / (clock.stepNs as f64)
+    return plan
+}
