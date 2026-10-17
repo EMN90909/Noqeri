@@ -1,66 +1,84 @@
 module noqeri.game.math.vec3
+import "../../std/math.nqr"
 
-// Allocation-free 3D vector operations. Coordinates use a right-handed
-// convention. This module does not imply that native floating-point codegen
-// or any graphics backend has passed release qualification.
+// Right-handed Cartesian coordinates, unitless, allocation-free.
+// `float` is Noqeri's documented 64-bit floating-point scalar.
 record Vec3 {
-    x: f64
-    y: f64
-    z: f64
+    x: float
+    y: float
+    z: float
 }
 
-export function vec3Set(out: *Vec3, x: f64, y: f64, z: f64): void {
+export function vec3Set(out: *Vec3, x: float, y: float, z: float): void {
     out.x = x
     out.y = y
     out.z = z
 }
 
+export function vec3Zero(out: *Vec3): void {
+    vec3Set(out, 0.0, 0.0, 0.0)
+}
+
 export function vec3Add(out: *Vec3, a: *Vec3, b: *Vec3): void {
-    let x: f64 = a.x + b.x
-    let y: f64 = a.y + b.y
-    let z: f64 = a.z + b.z
+    let x: float = a.x + b.x
+    let y: float = a.y + b.y
+    let z: float = a.z + b.z
     vec3Set(out, x, y, z)
 }
 
 export function vec3Subtract(out: *Vec3, a: *Vec3, b: *Vec3): void {
-    let x: f64 = a.x - b.x
-    let y: f64 = a.y - b.y
-    let z: f64 = a.z - b.z
+    let x: float = a.x - b.x
+    let y: float = a.y - b.y
+    let z: float = a.z - b.z
     vec3Set(out, x, y, z)
 }
 
-export function vec3Scale(out: *Vec3, a: *Vec3, factor: f64): void {
-    let x: f64 = a.x * factor
-    let y: f64 = a.y * factor
-    let z: f64 = a.z * factor
+export function vec3Scale(out: *Vec3, a: *Vec3, scale: float): void {
+    let x: float = a.x * scale
+    let y: float = a.y * scale
+    let z: float = a.z * scale
     vec3Set(out, x, y, z)
 }
 
-export function vec3Dot(a: *Vec3, b: *Vec3): f64 {
+export function vec3Dot(a: *Vec3, b: *Vec3): float {
     return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
 export function vec3Cross(out: *Vec3, a: *Vec3, b: *Vec3): void {
-    let x: f64 = a.y * b.z - a.z * b.y
-    let y: f64 = a.z * b.x - a.x * b.z
-    let z: f64 = a.x * b.y - a.y * b.x
+    let x: float = a.y * b.z - a.z * b.y
+    let y: float = a.z * b.x - a.x * b.z
+    let z: float = a.x * b.y - a.y * b.x
     vec3Set(out, x, y, z)
 }
 
-export function vec3LengthSquared(a: *Vec3): f64 {
+export function vec3LengthSquared(a: *Vec3): float {
     return vec3Dot(a, a)
 }
 
-export function vec3DistanceSquared(a: *Vec3, b: *Vec3): f64 {
-    let x: f64 = a.x - b.x
-    let y: f64 = a.y - b.y
-    let z: f64 = a.z - b.z
+export function vec3Length(a: *Vec3): float {
+    return nqSqrtFloat(vec3LengthSquared(a))
+}
+
+export function vec3DistanceSquared(a: *Vec3, b: *Vec3): float {
+    let x: float = a.x - b.x
+    let y: float = a.y - b.y
+    let z: float = a.z - b.z
     return x * x + y * y + z * z
 }
 
-export function vec3Lerp(out: *Vec3, a: *Vec3, b: *Vec3, t: f64): void {
-    let x: f64 = a.x + (b.x - a.x) * t
-    let y: f64 = a.y + (b.y - a.y) * t
-    let z: f64 = a.z + (b.z - a.z) * t
+// Returns false for degenerate vectors instead of creating NaNs.
+export function vec3Normalize(out: *Vec3, a: *Vec3, epsilon: float): bool {
+    if epsilon <= 0.0 { return false }
+    let lengthSquared: float = vec3LengthSquared(a)
+    if !(lengthSquared > epsilon * epsilon) { return false }
+    let inverse: float = 1.0 / nqSqrtFloat(lengthSquared)
+    vec3Scale(out, a, inverse)
+    return true
+}
+
+export function vec3Lerp(out: *Vec3, a: *Vec3, b: *Vec3, t: float): void {
+    let x: float = a.x + (b.x - a.x) * t
+    let y: float = a.y + (b.y - a.y) * t
+    let z: float = a.z + (b.z - a.z) * t
     vec3Set(out, x, y, z)
 }
