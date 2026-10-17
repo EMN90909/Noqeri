@@ -1,6 +1,6 @@
 # Noqeri game-development workstream and v0.7.0 release gates
 
-**Status: development workstream only. NOT a verified v0.7.0 release.**
+**Status: 0.7.0 development-version source committed; NOT a verified v0.7.0 release.**
 
 Baseline: `main` tree `145667eb0bd8bc1b1e04aaf34c7ab8a412bd2f8a` (inspected 2026-10-18).
 Reference target: Linux x86-64. First rendering path: SDL3 window/input and OpenGL 3.3 Core, subject to native ABI and driver proof.
@@ -45,17 +45,32 @@ Product Design input for developer experience: the first user should encounter o
 
 ## Initial implementation
 
-- `Lib/game/math/vec3.nqr`: pure f64 vector operations without GPU dependencies.
-- `Lib/game/core/fixed_step.nqr`: bounded deterministic step planning and render alpha.
+- `Lib/game/math/vec3.nqr`: pure `float` vector operations, cross/dot, normalization and interpolation.
+- `Lib/game/core/fixed_step.nqr`: bounded deterministic step planning, dropped-time accounting and render alpha.
+- `Lib/game/physics/aabb.nqr`: AABB overlap, point and ray tests.
+- `Lib/game/input/button.nqr`: backend-independent button transitions.
+- `Tools/game/validate-obj.mjs`: bounded position-only OBJ vertex/face loading and triangulation.
+- `tests/game_foundations.nqr`: Noqeri native language conformance fixture, execution unverified.
+- `tests/game-obj.test.mjs`: Node executable geometry validation tests.
+- `scripts/check-game-sdk.mjs`: source-only test mode and fail-closed native/GPU release checks.
 
 These are *source implementations awaiting compiler and execution verification*. No graphics API, hardware acceleration, or completed compiler bootstrap is implied. Before marking these ready: compile on a verified compiler, add reference-value tests (cross, dot, interpolation, zero and large clocks), run invalid-input paths, and record output. In particular review unsigned overflow semantics for nanosecond counters and use compiler-verified limits.
 
 ## v0.7.0 gate
 
-**Do not change the release version or tag v0.7.0 until** a real Noqeri executable opens a desktop window, renders a textured rotating 3D cube, handles keyboard/mouse input, exits cleanly, and the baseline language suites pass. Store command logs, exact compiler/host versions, GPU and driver identification, platform evidence, and commit hashes in the release report.
+**The development-source version is 0.7.0, but do not tag or publish v0.7.0 as ready until** a real Noqeri executable opens a desktop window, renders a textured rotating 3D cube, handles keyboard/mouse input, exits cleanly, and the baseline language suites pass. Store command logs, exact compiler/host versions, GPU and driver identification, platform evidence, and commit hashes in the release report.
 
-No successful local build was performed during this workstream: network access for checkout failed, and the established release report states that trusted bootstrap proof remains unavailable. Code review alone is not a release gate.
+Local evidence: `node --test tests/game-obj.test.mjs` passed 4/4 cases; `node Tools/game/validate-obj.mjs examples/game_sdk/assets/cube.obj --json` returned 8 vertices and 12 triangles; `node scripts/check-game-sdk.mjs --source-only` passed asset checks. The default full game gate exited 1 because the compiler, Noqeri runner and GPU proof were unavailable. These tests ran on a locally reconstructed, matching subset of the committed files, **not** a complete repository checkout. No successful native Noqeri build was performed: GitHub DNS access for checkout failed, and trusted bootstrap proof remains unavailable. Code review alone is not a release gate.
 
 ## Product metrics
 
 Measure successful first-run rate, time to first displayed frame, and 95th-percentile frame time on a named reference machine. Baselines are unknown until tests run. Collect developer feedback on setup failures before expanding feature scope.
+
+## Additional documents
+
+- [Engineering strategy review](GAME_PRODUCT_PLAN_0_7.md)
+- [Layered architecture](GAME_ARCHITECTURE.md)
+- [SDK API contract](GAME_SDK_API.md)
+- [Build and testing guide](GAME_BUILD_GUIDE.md)
+- [Platform matrix](GAME_PLATFORM_MATRIX.md)
+- [Performance evidence policy](GAME_PERFORMANCE.md)
