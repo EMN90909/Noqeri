@@ -3,7 +3,7 @@ module noqeri.game.core.fixed_step
 // Deterministic fixed-step scheduler in integer nanoseconds.
 // Time comes from a host monotonic clock; this module never reads wall time.
 // Caller runs the simulation exactly 'steps' times and uses alpha for rendering.
-export record FixedStep {
+record FixedStep {
     stepNs: u64
     accumulatorNs: u64
     maxFrameNs: u64
@@ -11,25 +11,23 @@ export record FixedStep {
     paused: bool
 }
 
-export record FramePlan {
+record FramePlan {
     steps: u32
     alpha: f64
     droppedNs: u64
 }
 
-export function fixedStepCreate(stepNs: u64, maxFrameNs: u64, maxSteps: u32): FixedStep {
-    return FixedStep {
-        stepNs: stepNs,
-        accumulatorNs: 0 as u64,
-        maxFrameNs: maxFrameNs,
-        maxSteps: maxSteps,
-        paused: false
-    }
+export function fixedStepInit(out: *FixedStep, stepNs: u64, maxFrameNs: u64, maxSteps: u32): void {
+    out.stepNs = stepNs
+    out.accumulatorNs = 0 as u64
+    out.maxFrameNs = maxFrameNs
+    out.maxSteps = maxSteps
+    out.paused = false
 }
 
 // Returns true only for well-formed configuration.
 export function fixedStepValid(clock: FixedStep): bool {
-    return clock.stepNs > 0 as u64 && clock.maxFrameNs >= clock.stepNs && clock.maxSteps > 0 as u32
+    return clock.stepNs > 0 as u64 && clock.maxFrameNs >= clock.stepNs && clock.maxSteps > 0 as u32 && clock.maxFrameNs <= 1000000000 as u64
 }
 
 export function fixedStepReset(clock: *FixedStep): void {
@@ -42,37 +40,29 @@ export function fixedStepPause(clock: *FixedStep, pause: bool): void {
 
 // Any time beyond maxFrameNs or maxSteps is explicitly dropped rather
 // than trying to catch up forever. Avoids overflow before accumulation.
-export function fixedStepAdvance(clock: *FixedStep, elapsedNs: u64): FramePlan {
-    let plan: FramePlan = FramePlan {
-        steps: 0 as u32,
-        alpha: 0 as f64,
-        droppedNs: 0 as u64
-    }
-    if clock == null { return plan }
-    if !fixedStepValid(clock) || clock.paused { return plan }
+export function fixedStepAdvance(clock: *FixedStep, elapsedNs: u64, out: *FramePlan): void {
+    out.steps = 0 as u32
+    out.alpha = 0 as f64
+    out.droppedNs = 0 as u64
+    if clock == null { return }
+    if !fixedStepValid(clock) || clock.paused { return }
 
     let accepted: u64 = elapsedNs
     if accepted > clock.maxFrameNs {
-        plan.droppedNs = accepted - clock.maxFrameNs
+        out.droppedNs = accepted - clock.maxFrameNs
         accepted = clock.maxFrameNs
     }
-    let free: u64 = (0 as u64 - 1 as u64) - clock.accumulatorNs
-    if accepted > free {
-        plan.droppedNs = plan.droppedNs + (accepted - free)
-        accepted = free
-    }
+
+    // Valid configurations bound sum to less than 2e9 ns.
     clock.accumulatorNs = clock.accumulatorNs + accepted
-
-    while clock.accumulatorNs >= clock.stepNs && plan.steps < clock.maxSteps {
+    while clock.accumulatorNs >= clock.stepNs && out.steps < clock.maxSteps {
         clock.accumulatorNs = clock.accumulatorNs - clock.stepNs
-        plan.steps = plan.steps + 1 as u32
+        out.steps = out.steps + 1 as u32
     }
-
     if clock.accumulatorNs >= clock.stepNs {
         let pending: u64 = clock.accumulatorNs - (clock.accumulatorNs % clock.stepNs)
-        plan.droppedNs = plan.droppedNs + pending
+        out.droppedNs = out.droppedNs + pending
         clock.accumulatorNs = clock.accumulatorNs % clock.stepNs
     }
-    plan.alpha = (clock.accumulatorNs as f64) / (clock.stepNs as f64)
-    return plan
+    out.alpha = (clock.accumulatorNs as f64) / (clock.stepNs as f64)
 }
