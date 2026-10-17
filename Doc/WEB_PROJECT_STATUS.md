@@ -22,3 +22,17 @@ The CLI command can package regular HTML/CSS/JS projects without loading the com
 - The source import mechanism must explicitly specify interoperability rules for importing JavaScript modules and CSS assets; copying JS and CSS is not equivalent to integrating them with .nqr syntax.
 
 No GitHub Actions are required or used.
+
+## October 17 web compiler progress
+
+The Stage-2 CLI now exposes `noqeri web input.nqr output.mjs`, which first invokes Stage-2 semantic checking and then emits ES modules using `Runtime/web-compiler.mjs`. This is **an intentionally restricted implementation**, not full language parity: functions, typed parameters, exports, returns, basic expressions, scalar local declarations, if/while, and explicit extern host calls are its initial supported syntax. Unsupported imports, arrays, property access, raw native constructs, complex types and advanced constructs are rejected, not silently miscompiled.
+
+Browser interaction is explicit: `Runtime/browser-host.mjs` installs limited safe text/class DOM operations and caller-supplied JavaScript functions through `NoqeriHost`. HTML, CSS and JS are still ordinary web assets via `web-project`. For example:
+
+```sh
+noqeri web tests/web_smoke/01_exports.nqr dist/app.mjs
+noqeri web-project examples/web_project dist-static
+node --test tests/web-compiler.test.mjs
+```
+
+**Verification scope:** The initial restricted compiler prototype was exercised on a local Node.js server with eight focused smoke checks passing after one test expectation correction. The checked-in implementation was reviewed through the GitHub connector but was not executed from a full repository checkout. The normal Stage-2 compiler CLI and its browser integration have not been exercised end-to-end here: the checkout failed due DNS and a trusted compiler seed is unavailable. Do not claim production maturity, type-system completeness, browser compatibility or security certification from this test coverage. To reach mature status, replace the restricted source parser with code generation from typed compiler NIR, bootstrap and run the full language suite, test browser imports, and add end-to-end Chromium/Firefox coverage.
