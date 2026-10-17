@@ -29,6 +29,16 @@ The CLI fails closed if the loaded compiler module does not expose the Stage-2 p
 
 const args = process.argv.slice(2)
 const command = args[0] || '--help'
+// Experimental NoeSQL reference runner. This is not the native Noqeri engine.
+if (command === 'noe') {
+  const { spawnSync } = await import('node:child_process')
+  const { fileURLToPath } = await import('node:url')
+  const script = new URL('./noesql/cli.mjs', import.meta.url)
+  const result = spawnSync(process.execPath, [fileURLToPath(script), ...args.slice(1)], { stdio: 'inherit', timeout: 60000 })
+  if (result.error) console.error('NoeSQL reference runner:', result.error.message)
+  process.exit(result.status ?? 1)
+}
+
 let packageManager = null
 async function packages() {
   if (!packageManager) {
