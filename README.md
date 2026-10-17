@@ -1,5 +1,7 @@
 <p align="center"><img src="Brand/noqeri-logo.webp" alt="Noqeri code logo" width="560"></p>
 <h1 align="center">Noqeri</h1>
+
+**Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
 <p align="center"><strong>A compact statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
 Noqeri source uses `.nqr`, project manifests use `project.nqr`, portable compiled objects use `.nqo`, and NoqeriDB uses `.nqd` / `.nqdb`.

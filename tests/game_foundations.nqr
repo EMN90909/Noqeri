@@ -1,0 +1,71 @@
+// Native Noqeri conformance fixture. Requires a working compiler/runtime.
+// Program prints 0 on success; any nonzero number identifies a failed check.
+import "../Lib/game/math/vec3.nqr"
+import "../Lib/game/core/fixed_step.nqr"
+import "../Lib/game/physics/aabb.nqr"
+import "../Lib/game/input/button.nqr"
+
+function testGameFoundations(): int {
+    // Typed u64 buffers provide sufficient alignment for simple record storage.
+    let aw: [u64; 4] = [0 as u64, 0 as u64, 0 as u64, 0 as u64]
+    let bw: [u64; 4] = [0 as u64, 0 as u64, 0 as u64, 0 as u64]
+    let cw: [u64; 4] = [0 as u64, 0 as u64, 0 as u64, 0 as u64]
+    let a: *Vec3 = (&aw[0 as usize]) as *Vec3
+    let b: *Vec3 = (&bw[0 as usize]) as *Vec3
+    let c: *Vec3 = (&cw[0 as usize]) as *Vec3
+    vec3Set(a, 1.0, 0.0, 0.0)
+    vec3Set(b, 0.0, 1.0, 0.0)
+    if vec3Dot(a, b) != 0.0 { return 1 }
+    vec3Cross(c, a, b)
+    if c.x != 0.0 || c.y != 0.0 || c.z != 1.0 { return 2 }
+    vec3Add(c, a, b)
+    if c.x != 1.0 || c.y != 1.0 { return 3 }
+    vec3Lerp(c, a, b, 0.5)
+    if c.x != 0.5 || c.y != 0.5 { return 4 }
+    vec3Zero(c)
+    if vec3Normalize(c, c, 0.00001) { return 5 }
+    if vec3DistanceSquared(a, b) != 2.0 { return 6 }
+
+    let mn: *Vec3 = a
+    let mx: *Vec3 = b
+    vec3Set(mn, 0.0, 0.0, 0.0)
+    vec3Set(mx, 2.0, 2.0, 2.0)
+    vec3Set(c, 1.0, 1.0, 1.0)
+    if !aabbContainsPoint(mn, mx, c) { return 7 }
+    vec3Set(c, 3.0, 1.0, 1.0)
+    if aabbContainsPoint(mn, mx, c) { return 8 }
+
+    let dw: [u64; 4] = [0 as u64, 0 as u64, 0 as u64, 0 as u64]
+    let origin: *Vec3 = (&dw[0 as usize]) as *Vec3
+    vec3Set(origin, -1.0, 1.0, 1.0)
+    vec3Set(c, 1.0, 0.0, 0.0)
+    if !aabbRayHit(mn, mx, origin, c, 10.0) { return 9 }
+    if aabbRayHit(mn, mx, origin, c, 0.5) { return 10 }
+
+    let stepWords: [u64; 8] = [0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64]
+    let planWords: [u64; 8] = [0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64, 0 as u64]
+    let step: *FixedStep = (&stepWords[0 as usize]) as *FixedStep
+    let frame: *FramePlan = (&planWords[0 as usize]) as *FramePlan
+    fixedStepInit(step, 100 as u64, 500 as u64, 2 as u32)
+    if !fixedStepValid(step) { return 11 }
+    fixedStepAdvance(step, 250 as u64, frame)
+    if frame.steps != 2 as u32 || frame.alpha != 0.5 { return 12 }
+    fixedStepAdvance(step, 450 as u64, frame)
+    if frame.steps != 2 as u32 || frame.droppedCatchupNs != 300 as u64 { return 13 }
+    fixedStepPause(step, true)
+    fixedStepAdvance(step, 250 as u64, frame)
+    if frame.steps != 0 as u32 { return 14 }
+
+    let buttonWords: [u64; 2] = [0 as u64, 0 as u64]
+    let button: *GameButton = (&buttonWords[0 as usize]) as *GameButton
+    buttonInit(button)
+    buttonSetDown(button, true)
+    if !buttonWasPressed(button) || !buttonIsDown(button) { return 15 }
+    buttonBeginFrame(button)
+    if buttonWasPressed(button) || !buttonIsDown(button) { return 16 }
+    buttonSetDown(button, false)
+    if !buttonWasReleased(button) || buttonIsDown(button) { return 17 }
+    return 0
+}
+
+print(testGameFoundations())

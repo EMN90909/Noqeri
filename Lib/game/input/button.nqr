@@ -1,0 +1,42 @@
+module noqeri.game.input.button
+
+// One action/button state independent of keyboard, mouse and gamepad backends.
+// Call buttonBeginFrame once before processing events each frame.
+record GameButton {
+    down: bool
+    pressed: bool
+    released: bool
+}
+
+export function buttonInit(button: *GameButton): void {
+    if button == null { return }
+    button.down = false
+    button.pressed = false
+    button.released = false
+}
+
+export function buttonBeginFrame(button: *GameButton): void {
+    if button == null { return }
+    button.pressed = false
+    button.released = false
+}
+
+export function buttonSetDown(button: *GameButton, down: bool): void {
+    if button == null { return }
+    if button.down == down { return }
+    button.pressed = down
+    button.released = !down
+    button.down = down
+}
+
+export function buttonIsDown(button: *GameButton): bool {
+    return button != null && button.down
+}
+
+export function buttonWasPressed(button: *GameButton): bool {
+    return button != null && button.pressed
+}
+
+export function buttonWasReleased(button: *GameButton): bool {
+    return button != null && button.released
+}

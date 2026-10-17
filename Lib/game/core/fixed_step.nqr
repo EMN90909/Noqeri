@@ -1,0 +1,78 @@
+module noqeri.game.core.fixed_step
+
+// Simulation time is integer nanoseconds supplied by a monotonic host clock.
+// A frame plan describes how often the caller must run its fixed-step update.
+// This module does not create a window or schedule actual threads.
+record FixedStep {
+    stepNs: u64
+    accumulatorNs: u64
+    maxFrameNs: u64
+    maxSteps: u32
+    paused: bool
+}
+
+record FramePlan {
+    steps: u32
+    alpha: float
+    droppedInputNs: u64
+    droppedCatchupNs: u64
+}
+
+export function fixedStepInit(out: *FixedStep, stepNs: u64, maxFrameNs: u64, maxSteps: u32): void {
+    out.stepNs = stepNs
+    out.accumulatorNs = 0 as u64
+    out.maxFrameNs = maxFrameNs
+    out.maxSteps = maxSteps
+    out.paused = false
+}
+
+// Invariant bounds accumulator growth to <2 seconds; invalid input is rejected.
+export function fixedStepValid(clock: *FixedStep): bool {
+    if clock == null { return false }
+    return clock.stepNs > 0 as u64
+        && clock.maxFrameNs >= clock.stepNs
+        && clock.maxFrameNs <= 1000000000 as u64
+        && clock.maxSteps > 0 as u32
+        && clock.accumulatorNs < clock.stepNs
+}
+
+export function fixedStepReset(clock: *FixedStep): void {
+    if clock == null { return }
+    clock.accumulatorNs = 0 as u64
+}
+
+export function fixedStepPause(clock: *FixedStep, pause: bool): void {
+    if clock == null { return }
+    clock.paused = pause
+}
+
+// Discard excess time rather than enter an unbounded catch-up loop.
+// Input and catch-up drops are separate fields to avoid u64 sum overflow.
+export function fixedStepAdvance(clock: *FixedStep, elapsedNs: u64, out: *FramePlan): void {
+    if out == null { return }
+    out.steps = 0 as u32
+    out.alpha = 0.0
+    out.droppedInputNs = 0 as u64
+    out.droppedCatchupNs = 0 as u64
+    if !fixedStepValid(clock) || clock.paused { return }
+
+    let accepted: u64 = elapsedNs
+    if accepted > clock.maxFrameNs {
+        out.droppedInputNs = accepted - clock.maxFrameNs
+        accepted = clock.maxFrameNs
+    }
+
+    // maxFrameNs <= 1e9, and the remainder is < stepNs <= 1e9.
+    clock.accumulatorNs = clock.accumulatorNs + accepted
+    while clock.accumulatorNs >= clock.stepNs && out.steps < clock.maxSteps {
+        clock.accumulatorNs = clock.accumulatorNs - clock.stepNs
+        out.steps = out.steps + 1 as u32
+    }
+
+    if clock.accumulatorNs >= clock.stepNs {
+        let pending: u64 = clock.accumulatorNs - (clock.accumulatorNs % clock.stepNs)
+        out.droppedCatchupNs = pending
+        clock.accumulatorNs = clock.accumulatorNs % clock.stepNs
+    }
+    out.alpha = (clock.accumulatorNs as float) / (clock.stepNs as float)
+}

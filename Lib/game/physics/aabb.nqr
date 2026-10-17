@@ -1,0 +1,52 @@
+module noqeri.game.physics.aabb
+import "../math/vec3.nqr"
+
+// Axis-aligned boxes are valid only when min <= max along each axis.
+// AABB and ray tests use closed boundaries, including touching faces.
+export function aabbValid(minimum: *Vec3, maximum: *Vec3): bool {
+    if minimum == null || maximum == null { return false }
+    return minimum.x <= maximum.x && minimum.y <= maximum.y && minimum.z <= maximum.z
+}
+
+export function aabbContainsPoint(minimum: *Vec3, maximum: *Vec3, point: *Vec3): bool {
+    if !aabbValid(minimum, maximum) || point == null { return false }
+    return point.x >= minimum.x && point.x <= maximum.x
+        && point.y >= minimum.y && point.y <= maximum.y
+        && point.z >= minimum.z && point.z <= maximum.z
+}
+
+export function aabbOverlaps(aMin: *Vec3, aMax: *Vec3, bMin: *Vec3, bMax: *Vec3): bool {
+    if !aabbValid(aMin, aMax) || !aabbValid(bMin, bMax) { return false }
+    return aMin.x <= bMax.x && aMax.x >= bMin.x
+        && aMin.y <= bMax.y && aMax.y >= bMin.y
+        && aMin.z <= bMax.z && aMax.z >= bMin.z
+}
+
+// Slab intersection, including zero-direction axes without division by zero.
+function aabbClipRayAxis(origin: float, direction: float, minimum: float, maximum: float, near: *float, far: *float): bool {
+    if direction == 0.0 { return origin >= minimum && origin <= maximum }
+    let a: float = (minimum - origin) / direction
+    let b: float = (maximum - origin) / direction
+    if a > b {
+        let swap: float = a
+        a = b
+        b = swap
+    }
+    if a > *near { *near = a }
+    if b < *far { *far = b }
+    return *near <= *far
+}
+
+// maxDistance is expressed along rayDirection; normalized direction gives
+// distance in world units. A ray starting inside the box counts as a hit.
+export function aabbRayHit(minimum: *Vec3, maximum: *Vec3, origin: *Vec3, direction: *Vec3, maxDistance: float): bool {
+    if !aabbValid(minimum, maximum) || origin == null || direction == null { return false }
+    if !(maxDistance >= 0.0) { return false }
+    if direction.x == 0.0 && direction.y == 0.0 && direction.z == 0.0 { return false }
+    let near: float = 0.0
+    let far: float = maxDistance
+    if !aabbClipRayAxis(origin.x, direction.x, minimum.x, maximum.x, &near, &far) { return false }
+    if !aabbClipRayAxis(origin.y, direction.y, minimum.y, maximum.y, &near, &far) { return false }
+    if !aabbClipRayAxis(origin.z, direction.z, minimum.z, maximum.z, &near, &far) { return false }
+    return true
+}
