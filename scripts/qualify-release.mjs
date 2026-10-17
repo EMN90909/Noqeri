@@ -14,7 +14,7 @@ function run(name,command,args,cwd=root,env={}) {
  steps.push(entry);console.log((entry.passed?'PASS ':'FAIL ')+name+(entry.error?' '+entry.error:''))
  return entry.passed
 }
-const seed=process.env.NOQERI_STAGE0
+// Standalone Node tests are valuable even without a compiler seed.\nrun('web-component-regressions','node',['--test','tests/web-compiler.test.mjs','tests/web-project.test.mjs'])\nconst seed=process.env.NOQERI_STAGE0
 if(!seed) {
  console.error('NOQERI_STAGE0 is mandatory for independent full compiler bootstrap')
  steps.push({name:'trusted-bootstrap-seed',passed:false,error:'NOQERI_STAGE0 is not configured'})
@@ -30,7 +30,7 @@ if(!seed) {
    run('bootstrap-proof','node',['scripts/bootstrap-stage2.mjs'])
   else steps.push({name:'bootstrap-proof',passed:false,error:'bootstrap-local.json missing'})
  } else {
-  for(const name of ['stage2-abi','core-conformance','web-compiler','web-smoke','full-historical-suite','bootstrap-proof'])
+  for(const name of ['stage2-abi','core-conformance','web-smoke','full-historical-suite','bootstrap-proof'])
    steps.push({name,passed:false,error:'blocked by bootstrap build'})
  }
 }
