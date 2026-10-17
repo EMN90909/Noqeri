@@ -34,3 +34,19 @@ Suggested local commands once a trusted seed/compiler exists:
 - npm run test:source; npm run build; npm run smoke (in noqeri-web)
 
 No GitHub Actions were used.
+
+## Attempted local full build (2026-10-17)
+
+On the available Linux worker: Node.js 22.16.0, GCC, Clang, CMake, Ninja and Git were installed, but `git ls-remote https://github.com/EMN90909/Noqeri.git HEAD` failed with `Could not resolve host: github.com`. There was no existing checkout or trusted `NOQERI_STAGE0` compiler on the worker. Consequently **no complete compiler build was executed**. No native backend or optimizer test is claimed as passing.
+
+A fail-closed cross-repository local qualification runner has been added at `scripts/qualify-release.mjs`. It produces `build/release-qualification/report.json` with executed commands, exit codes, and failures, and requires an independently configured Stage-0 seed; unavailable tools and omitted suites are treated as blockers, not green checks.
+
+To run on a machine with network access or offline checkouts of Noqeri, noqeri-web, and noqeri-registry as sibling directories:
+
+```sh
+export NOQERI_STAGE0=/absolute/path/to/trusted/noqeri
+node scripts/qualify-release.mjs
+cat build/release-qualification/report.json
+```
+
+The release gate is intentionally expected to fail until the Stage-2 module bootstrap and historical runtime parity are repaired. The above test coverage does not establish production readiness.
