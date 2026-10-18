@@ -65,6 +65,12 @@ function testGameFoundations(): int {
     if buttonWasPressed(button) || !buttonIsDown(button) { return 16 }
     buttonSetDown(button, false)
     if !buttonWasReleased(button) || buttonIsDown(button) { return 17 }
+    buttonBeginFrame(button)
+    buttonSetDown(button, true)
+    buttonSetDown(button, false)
+    if !buttonWasPressed(button) || !buttonWasReleased(button) || buttonIsDown(button) { return 18 }
+    buttonBeginFrame(button)
+    if buttonWasPressed(button) || buttonWasReleased(button) { return 19 }
     return 0
 }
 
