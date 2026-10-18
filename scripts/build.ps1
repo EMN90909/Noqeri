@@ -11,13 +11,21 @@ if (-not $Stage0) {
   Write-Error "Noqeri's compiler is written in Noqeri. Set NOQERI_STAGE0 to a trusted Noqeri seed. The normal main-branch build does not use CMake or C++."
 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Error 'The portable Stage-2 host currently requires Node.js 20+' }
+$NodeMajor = [int](& node -p 'process.versions.node.split(".")[0]')
+if ($LASTEXITCODE -ne 0 -or $NodeMajor -lt 20) { Write-Error 'The portable Stage-2 host requires Node.js 20 or newer' }
+if (-not (Get-Command $Stage0 -ErrorAction SilentlyContinue)) { Write-Error "Trusted NOQERI_STAGE0 seed not found or not executable: $Stage0" }
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 & $Stage0 check $Compiler
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $Module = Join-Path $BuildDir 'noqeri-stage2.mjs'
 & $Stage0 web $Compiler $Module
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& node --check $Module\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n$env:NOQERI_STAGE2_MODULE = $Module\n& node (Join-Path $Root 'scripts\\verify-stage2-module.mjs')\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n$Launcher = Join-Path $BuildDir 'noqeri.cmd'
+& node --check $Module
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$env:NOQERI_STAGE2_MODULE = $Module
+& node (Join-Path $Root 'scripts\verify-stage2-module.mjs')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$Launcher = Join-Path $BuildDir 'noqeri.cmd'
 $Cli = Join-Path $Root 'Runtime\stage2-cli.mjs'
 Set-Content -Path $Launcher -Encoding ascii -Value "@echo off`r`nset NOQERI_STAGE2_MODULE=$Module`r`nnode `"$Cli`" %*`r`n"
 & $Launcher selftest
