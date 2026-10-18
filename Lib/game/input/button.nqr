@@ -24,8 +24,9 @@ export function buttonBeginFrame(button: *GameButton): void {
 export function buttonSetDown(button: *GameButton, down: bool): void {
     if button == null { return }
     if button.down == down { return }
-    button.pressed = down
-    button.released = !down
+    // Both edges may occur within a single rendered frame.
+    // Retain earlier transitions until buttonBeginFrame clears them.
+    if down { button.pressed = true } else { button.released = true }
     button.down = down
 }
 
