@@ -49,7 +49,8 @@ int runProductionDoctor(const std::filesystem::path&root){
         if(!e.is_regular_file())continue;
         const auto ext=e.path().extension().string();
         if(ext==".nqr")++noqeriFiles;
-        if(ext==".noe"||ext==".ric"){++failures;std::cerr<<"fail legacy source extension present: "<<e.path().string()<<"\n";}
+        // .noe is the supported NoeSQL source extension; only historical .ric is obsolete.
+        if(ext==".ric"){++failures;std::cerr<<"fail legacy source extension present: "<<e.path().string()<<"\n";}
     }
     const auto stdRoot=root/"Lib/std";
     if(std::filesystem::exists(stdRoot))for(const auto&e:std::filesystem::recursive_directory_iterator(stdRoot))if(e.is_regular_file()&&e.path().extension()==".nqr")++stdModules;
