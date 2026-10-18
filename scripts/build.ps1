@@ -20,7 +20,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & node --check $Module
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $env:NOQERI_STAGE2_MODULE = $Module
-& node (Join-Path $Root 'scripts\\verify-stage2-module.mjs')\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n$Launcher = Join-Path $BuildDir 'noqeri.cmd'
+& node (Join-Path $Root 'scripts\\verify-stage2-module.mjs')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$Launcher = Join-Path $BuildDir 'noqeri.cmd'
 $Cli = Join-Path $Root 'Runtime\stage2-cli.mjs'
 Set-Content -Path $Launcher -Encoding ascii -Value "@echo off`r`nset NOQERI_STAGE2_MODULE=$Module`r`nnode `"$Cli`" %*`r`n"
 & $Launcher selftest
