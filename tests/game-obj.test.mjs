@@ -22,7 +22,24 @@ test('applies vertex, triangle and byte limits', () => {
   assert.throws(() => parseObj('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3', { maxTriangles: 0 }))
   assert.throws(() => parseObj('x'.repeat(20), { maxBytes: 10 }))
 })
-test('triangulates convex quads and rejects zero direction', () => {
+test('triangulates convex planar quads', () => {
   const mesh = parseObj('v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4')
   assert.deepEqual(mesh.triangles, [[0, 1, 2], [0, 2, 3]])
+})
+
+test('rejects concave, non-planar and self-intersecting polygons instead of silently mis-triangulating', () => {
+  const examples = [
+    'v 0 0 0\nv 2 0 0\nv 0.4 0.4 0\nv 0 2 0\nf 1 2 3 4',
+    'v 0 0 0\nv 1 0 0\nv 1 1 1\nv 0 1 0\nf 1 2 3 4',
+    'v 0 0 0\nv 1 1 0\nv 0 1 0\nv 1 0 0\nf 1 2 3 4'
+  ]
+  for (const source of examples) assert.throws(() => parseObj(source), /OBJ line 5/)
+})
+test('rejects invalid limits and supports tightly bounded geometry', () => {
+  const source = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3'
+  for (const option of [{ maxBytes: -1 }, { maxTriangles: NaN }, { maxVertices: 1.5 }, { maxBytes: Infinity }]) {
+    assert.throws(() => parseObj(source, option), RangeError)
+  }
+  const mesh = parseObj(source, { maxVertices: 3, maxTriangles: 1, maxBytes: Buffer.byteLength(source) })
+  assert.equal(mesh.triangleCount, 1)
 })
