@@ -56,11 +56,15 @@ Product Design input for developer experience: the first user should encounter o
 
 These are *source implementations awaiting compiler and execution verification*. No graphics API, hardware acceleration, or completed compiler bootstrap is implied. Before marking these ready: compile on a verified compiler, add reference-value tests (cross, dot, interpolation, zero and large clocks), run invalid-input paths, and record output. In particular review unsigned overflow semantics for nanosecond counters and use compiler-verified limits.
 
-## v0.7.0 gate
+## General-language stability versus optional game-development readiness
 
-**The development-source version is 0.7.0, but do not tag or publish v0.7.0 as ready until** a real Noqeri executable opens a desktop window, renders a textured rotating 3D cube, handles keyboard/mouse input, exits cleanly, and the baseline language suites pass. Store command logs, exact compiler/host versions, GPU and driver identification, platform evidence, and commit hashes in the release report.
+**Noqeri 0.7.0 is a general-purpose language version.** Its stable release requires verified compiler bootstrap, usable native execution, type/memory/optimizer correctness, regression suites, distribution evidence and platform-specific tests as specified in [the general-purpose qualification report](RELEASE_VERIFICATION_2026-10-18.md). The language **does not require a complete 3D game engine** to be useful or to reach general-purpose stability.
 
-Local evidence: `node --test tests/game-obj.test.mjs` passed 4/4 cases; `node Tools/game/validate-obj.mjs examples/game_sdk/assets/cube.obj --json` returned 8 vertices and 12 triangles; `node scripts/check-game-sdk.mjs --source-only` passed asset checks. The default full game gate exited 1 because the compiler, Noqeri runner and GPU proof were unavailable. These tests ran on a locally reconstructed, matching subset of the committed files, **not** a complete repository checkout. No successful native Noqeri build was performed: GitHub DNS access for checkout failed, and trusted bootstrap proof remains unavailable. Code review alone is not a release gate.
+The **separate 3D-game-ready claim** requires a real Noqeri executable to open a window, render a textured rotating cube, handle keyboard/mouse input and exit cleanly. Do not advertise that claim until native graphics/input, tests and GPU-driver evidence exist.
+
+Game modules are optional libraries, not compiler keywords, runtime requirements or a restriction on use in web, database, CLI or systems development.
+
+The original local evidence: `node --test tests/game-obj.test.mjs` passed 4/4 cases; `node Tools/game/validate-obj.mjs examples/game_sdk/assets/cube.obj --json` returned 8 vertices and 12 triangles; `node scripts/check-game-sdk.mjs --source-only` passed asset checks. The default full game gate exited 1 because the compiler, Noqeri runner and GPU proof were unavailable. These tests ran on a locally reconstructed, matching subset of the committed files, **not** a complete repository checkout. No successful native Noqeri build was performed: GitHub DNS access for checkout failed, and trusted bootstrap proof remains unavailable. Code review alone is not a release gate.
 
 ## Product metrics
 
@@ -74,3 +78,7 @@ Measure successful first-run rate, time to first displayed frame, and 95th-perce
 - [Build and testing guide](GAME_BUILD_GUIDE.md)
 - [Platform matrix](GAME_PLATFORM_MATRIX.md)
 - [Performance evidence policy](GAME_PERFORMANCE.md)
+
+## Follow-up verification (2026-10-18)
+
+OBJ validator regression testing now includes rejection of concave, non-planar and self-intersecting faces, malformed limits and convex polygon triangulation. The focused asset/release scripts reported 8/8 tests passing on the local preview subset. Native Noqeri compilation and GPU rendering are still not verified. See [current release verification](RELEASE_VERIFICATION_2026-10-18.md) for exact scope and blockers.

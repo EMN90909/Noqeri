@@ -34,7 +34,8 @@ The first-run flow is: install a verified compiler -> select a documented game t
 - [ ] Establish first-build success rate and real frame-time baselines.
 - [ ] Run developer feedback sessions; identify top onboarding failures.
 - [ ] Publish platform support only with executable proof.
-- [ ] Release v0.7.0 only after all P0 and release-critical acceptance criteria pass.
+- [ ] Qualify the general-purpose language via `scripts/qualify-release.mjs` and its documented compiler/runtime/distribution gates.
+- [ ] Advertise 3D-game-ready support only after the additional GPU/hardware/gameplay gates pass; this is separate from general-purpose language stability.
 
 ## Explicit deferrals
 
