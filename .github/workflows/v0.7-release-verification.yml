@@ -1,0 +1,75 @@
+name: Noqeri 0.7 verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-regressions:
+    name: Portable tools and general-purpose suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check release tools syntax
+        run: |
+          node --check scripts/bootstrap-stage2.mjs
+          node --check scripts/verify-stage2-module.mjs
+          node --check scripts/qualify-release.mjs
+          node --check scripts/check-game-sdk.mjs
+          sh -n scripts/build.sh
+      - name: Release, bootstrap and game tooling regressions
+        run: node --test tests/bootstrap-proof.test.mjs tests/release-qualification.test.mjs tests/game-obj.test.mjs
+      - name: Web developer tests
+        run: node --test tests/web-compiler.test.mjs tests/web-project.test.mjs
+      - name: NoeSQL reference tests
+        run: node --test tests/noesql*.test.mjs
+      - name: Package and tooling tests
+        run: node --test tests/tooling/*.test.mjs
+      - name: Source-only optional game tests
+        run: node scripts/check-game-sdk.mjs --source-only
+
+  legacy-native-and-stage0:
+    name: Existing C++ compiler and Stage-0 compatibility probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build existing archival C++ bootstrap
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+          cmake --build build --parallel 2
+      - name: Run legacy native compiler and runtime tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Attempt Stage-0 -> selfhost Stage-2 transition (fail if unsupported)
+        run: |
+          NOQERI_STAGE0="$PWD/build/noqeri" sh scripts/build.sh
+          ./build/noqeri --version
+          ./build/noqeri selftest
+          ./build/noqeri check examples/hello.nqr
+
+  windows-bootstrap-parser:
+    name: Windows PowerShell build parser
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/build.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { $errors | Out-String | Write-Error; exit 1 }
