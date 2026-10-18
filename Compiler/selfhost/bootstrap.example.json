@@ -1,13 +1,15 @@
 {
   "schema": 1,
-  "note": "Copy this file to Compiler/selfhost/bootstrap-local.json. Replace every null command with a command that exercises the actual local Noqeri toolchain. Do not set release_needs_cpp=false until the normal release build no longer uses C++.",
+  "note": "Copy this file to bootstrap-local.json. Configure real commands for Stage-0 to build Stage-1, Stage-1 to build Stage-2, and Stage-2 to rebuild the same compiler. Each stage must produce a separate nonempty compiler artifact. Do not set stage0_built_stage1=true until the configured Stage-0 command actually creates Stage-1. Do not set release_needs_cpp=false until normal release no longer depends on C++.",
   "stage0_built_stage1": false,
   "release_needs_cpp": true,
   "artifacts": {
+    "stage1": "build/bootstrap/noqeri-stage1",
     "stage2": "build/bootstrap/noqeri-stage2",
     "rebuilt": "build/bootstrap/noqeri-stage2-rebuilt"
   },
   "commands": {
+    "stage0_builds_stage1": null,
     "stage1_builds_stage2": null,
     "stage2_rebuilds_compiler": null,
     "semantic_equivalence": null
