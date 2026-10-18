@@ -32,8 +32,10 @@ The modern Stage-2 CLI may not support `run`. To execute the fixture, a verified
 
 The fixture prints `0` only if its runtime assertions pass. A successful `check` alone is not a game-functionality proof.
 
-## Full v0.7.0 release gate
+## General-purpose language versus game SDK qualification
 
-See `Doc/GAME_DEV_READINESS.md` and `Doc/RELEASE_VERIFICATION_2026-10-17.md`. The release is blocked until complete bootstrap, FFI, real GPU draw, input, cleanup, conformance and regression suites pass.
+`node scripts/qualify-release.mjs` is the general-purpose 0.7.0 release qualification runner. It tests the optional asset tooling while keeping native 3D GPU certification separate. General-purpose release remains blocked until full bootstrap, native/runtime conformance, distribution and regression suites pass.
+
+`node scripts/check-game-sdk.mjs` provides the stricter optional **game-development** qualification that also requires a real native runner and GPU rendering evidence. See `Doc/GAME_DEV_READINESS.md` and `Doc/RELEASE_VERIFICATION_2026-10-18.md`.
 
 Do not replace a failed compiler with the restricted browser compiler or unverified C++ fallback. Store exact run commands and machine hardware in release evidence.
