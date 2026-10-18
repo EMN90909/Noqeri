@@ -2,7 +2,7 @@
 <h1 align="center">Noqeri</h1>
 
 **Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
-<p align="center"><strong>A compact statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
+<p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
 Noqeri source uses `.nqr`, project manifests use `project.nqr`, portable compiled objects use `.nqo`, and NoqeriDB uses `.nqd` / `.nqdb`.
 
@@ -50,6 +50,12 @@ The historical compiler contains additional native/NIR/package/database/formatte
 
 The current language supports fixed-width integers, arrays/slices, records, raw pointers, volatile memory, imports, register-value generics, checked status propagation, atomics, explicit casts, extern/export linkage, target intrinsics and constrained inline assembly. Reusable standard/security/test/database/platform functionality is already implemented under `.nqr` directories.
 
+## Optional game development SDK
+
+Noqeri is a **general-purpose language**, not a game-specific language or a completed game engine. Optional, experimental source modules under `Lib/game/` provide vector math, bounded fixed-step simulation, button transitions and AABB collision queries. A Node.js OBJ asset validator is available for tooling. None of these features implies that native Noqeri game compilation, input/window adapters or GPU graphics are qualified. See [game SDK docs](Doc/GAME_SDK_API.md) and [the game readiness checklist](Doc/GAME_DEV_READINESS.md).
+
+Use `node scripts/check-game-sdk.mjs --source-only` for a reproducible asset-tool smoke test. It is **not** a compiler test. The stable general-language release gate is independent of the optional full 3D-game certification.
+
 ## Registry and web distribution
 
 - Packages: `EMN90909/noqeri-registry` — GPL-3.0-only Noqeri package implementations.
@@ -60,7 +66,7 @@ Automatic GitHub Actions workflows are intentionally not required for this migra
 
 ## Release readiness
 
-**Pre-release, not verified v1.0.0:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity, or end-to-end browser parity. See [release status](Doc/RELEASE_VERIFICATION_2026-10-17.md).
+**0.7.0 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
 
 ## License
 
