@@ -21,6 +21,14 @@ if ! command -v node >/dev/null 2>&1; then
   echo "Noqeri's portable Stage-2 host currently requires Node.js 20+" >&2
   exit 2
 fi
+if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)'; then
+  echo "Noqeri's portable Stage-2 host requires Node.js 20 or newer" >&2
+  exit 2
+fi
+if ! command -v "$STAGE0" >/dev/null 2>&1; then
+  echo "Trusted NOQERI_STAGE0 seed not found or not executable: $STAGE0" >&2
+  exit 2
+fi
 mkdir -p "$BUILD_DIR"
 "$STAGE0" check "$COMPILER"
 "$STAGE0" web "$COMPILER" "$BUILD_DIR/noqeri-stage2.mjs"
