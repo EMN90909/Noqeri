@@ -65,8 +65,13 @@ std::optional<std::pair<std::string,std::size_t>> parseTypeText(const std::strin
         auto nested=parseTypeText(s,p);if(!nested)return std::nullopt;p=nested->second;skipSpace(s,p);if(p>=s.size()||s[p]!=';')return std::nullopt;++p;skipSpace(s,p);std::size_t n=p;while(p<s.size()&&(std::isalnum(static_cast<unsigned char>(s[p]))||s[p]=='x'||s[p]=='X'))++p;if(n==p)return std::nullopt;auto count=s.substr(n,p-n);skipSpace(s,p);if(p>=s.size()||s[p]!=']')return std::nullopt;++p;return std::make_pair("["+nested->first+";"+count+"]",p);
     }
     if(!identStart(s[p]))return std::nullopt;
-    std::size_t begin=p++;while(p<s.size()&&ident(s[p]))++p;std::string base=s.substr(begin,p-begin);skipSpace(s,p);
-    if(p>=s.size()||s[p]!='<')return std::make_pair(base,p);
+    std::size_t begin=p++;while(p<s.size()&&ident(s[p]))++p;std::string base=s.substr(begin,p-begin);
+    const std::size_t afterName=p;
+    skipSpace(s,p);
+    // Preserve trailing whitespace/newlines when no generic arguments follow.
+    // Otherwise rewriting `id: i64\nactive: bool` removed the newline and
+    // produced the invalid token `i64active` (likewise `u8print` after casts).
+    if(p>=s.size()||s[p]!='<')return std::make_pair(base,afterName);
     ++p;std::vector<std::string> args;
     for(;;){auto arg=parseTypeText(s,p);if(!arg)return std::nullopt;args.push_back(arg->first);p=arg->second;skipSpace(s,p);if(p<s.size()&&s[p]==','){++p;continue;}if(p<s.size()&&s[p]=='>'){++p;break;}return std::nullopt;}
     return std::make_pair(mangleGeneric(base,args),p);
