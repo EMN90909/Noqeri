@@ -1,6 +1,8 @@
 function dangerous(): bool {
-    let invalid: *u8 = 0 as *u8
-    print(invalid[0])
+    unsafe {
+        let invalid: *u8 = 0 as *u8
+        print(invalid[0])
+    }
     return true
 }
 
