@@ -38,8 +38,8 @@ jobs:
       - name: Source-only optional game tests
         run: node scripts/check-game-sdk.mjs --source-only
 
-  legacy-native-and-stage0:
-    name: Existing C++ compiler and Stage-0 compatibility probe
+  legacy-native-suite:
+    name: Existing C++ compiler native regression suite
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -53,12 +53,26 @@ jobs:
           cmake --build build --parallel 2
       - name: Run legacy native compiler and runtime tests
         run: ctest --test-dir build --output-on-failure
-      - name: Attempt Stage-0 -> selfhost Stage-2 transition (fail if unsupported)
+  legacy-stage0-to-stage2:
+    name: Test archived seed to self-hosted Stage-2 transition
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build archival seed candidate from source
         run: |
-          NOQERI_STAGE0="$PWD/build/noqeri" sh scripts/build.sh
+          cmake -S . -B bootstrap-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build bootstrap-build --target noqeri --parallel 2
+      - name: Compile Noqeri-owned compiler with archival seed
+        run: |
+          NOQERI_STAGE0="$PWD/bootstrap-build/noqeri" sh scripts/build.sh
           ./build/noqeri --version
           ./build/noqeri selftest
           ./build/noqeri check examples/hello.nqr
+
 
   windows-bootstrap-parser:
     name: Windows PowerShell build parser
