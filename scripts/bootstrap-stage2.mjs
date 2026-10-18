@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -55,7 +55,9 @@ function runStep(root, name, command, timeout) {
 function requireFile(root, value, label) {
   if (!value) return { path: null, exists: false, label }
   const path = resolve(root, value)
-  return { path, exists: existsSync(path), label }
+  let valid = false
+  try { valid = statSync(path).isFile() && statSync(path).size > 0 } catch {}
+  return { path, exists: valid, label }
 }
 
 const root = resolve(option('root', process.cwd()))
@@ -76,17 +78,24 @@ catch (error) { console.error(`bootstrap-stage2: invalid config: ${error.message
 
 const sourceClosure = sha256CompilerSources(root, sourceManifest)
 const stages = []
-const stage1 = runStep(root, 'stage1-builds-stage2', config.commands?.stage1_builds_stage2, timeout)
+const stage0 = runStep(root, 'stage0-builds-stage1', config.commands?.stage0_builds_stage1, timeout)
+stages.push(stage0)
+const stage1Artifact = requireFile(root, config.artifacts?.stage1, 'stage1')
+const stage0Proven = stage0.passed && stage1Artifact.exists && config.stage0_built_stage1 === true
+const stage1 = stage0Proven
+  ? runStep(root, 'stage1-builds-stage2', config.commands?.stage1_builds_stage2, timeout)
+  : { name: 'stage1-builds-stage2', passed: false, skipped: true, stderr: 'stage0 did not build a nonempty stage1 artifact' }
 stages.push(stage1)
 const stage2 = stage1.passed ? runStep(root, 'stage2-rebuilds-compiler', config.commands?.stage2_rebuilds_compiler, timeout) : { name: 'stage2-rebuilds-compiler', passed: false, configured: Array.isArray(config.commands?.stage2_rebuilds_compiler), skipped: true, stderr: 'stage1 build failed' }
 stages.push(stage2)
 
 const stage2Artifact = requireFile(root, config.artifacts?.stage2, 'stage2')
 const rebuiltArtifact = requireFile(root, config.artifacts?.rebuilt, 'rebuilt-stage2')
+const artifactsDistinct = stage1Artifact.path !== stage2Artifact.path && stage1Artifact.path !== rebuiltArtifact.path && stage2Artifact.path !== rebuiltArtifact.path
 let outputEquivalent = false
 let stage2Sha256 = null
 let rebuiltSha256 = null
-if (stage1.passed && stage2.passed && stage2Artifact.exists && rebuiltArtifact.exists) {
+if (stage0Proven && stage1.passed && stage2.passed && artifactsDistinct && stage2Artifact.exists && rebuiltArtifact.exists) {
   stage2Sha256 = sha256File(stage2Artifact.path)
   rebuiltSha256 = sha256File(rebuiltArtifact.path)
   outputEquivalent = stage2Sha256 === rebuiltSha256
@@ -122,17 +131,20 @@ if (stage1.passed && stage2.passed && outputEquivalent) {
 const suiteMap = Object.fromEntries(suites.map(x => [x.name, x.passed]))
 const releaseNeedsCpp = config.release_needs_cpp !== false
 const allSuitesPassed = suites.every(x => x.passed)
-const verified = stage1.passed && stage2.passed && outputEquivalent && allSuitesPassed && !releaseNeedsCpp
+const verified = stage0Proven && stage1.passed && stage2.passed && artifactsDistinct && outputEquivalent && allSuitesPassed && !releaseNeedsCpp
 
 const proof = {
-  schema: 1,
+  schema: 2,
   verified,
+  artifacts_distinct: artifactsDistinct,
+  stage0_proven: stage0Proven,
+  stage1_output_sha256: stage0Proven ? sha256File(stage1Artifact.path) : null,
   generated_at: new Date().toISOString(),
   source_manifest: 'Compiler/selfhost/compiler-sources.txt',
   source_closure_sha256: sourceClosure.sha256,
   source_files: sourceClosure.files,
   release_needs_cpp: releaseNeedsCpp,
-  stage0_built_stage1: Boolean(config.stage0_built_stage1),
+  stage0_built_stage1: stage0Proven,
   stage1_built_stage2: stage1.passed,
   stage2_rebuilt_compiler: stage2.passed,
   stage2_output_sha256: stage2Sha256,
@@ -154,6 +166,7 @@ const proof = {
     practical_corpus_passed: Boolean(suiteMap['practical-corpus'])
   },
   artifacts: {
+    stage1: { configured: Boolean(config.artifacts?.stage1), exists: stage1Artifact.exists, path: config.artifacts?.stage1 || null },
     stage2: { configured: Boolean(config.artifacts?.stage2), exists: stage2Artifact.exists, path: config.artifacts?.stage2 || null },
     rebuilt: { configured: Boolean(config.artifacts?.rebuilt), exists: rebuiltArtifact.exists, path: config.artifacts?.rebuilt || null }
   },
@@ -163,7 +176,7 @@ const proof = {
 mkdirSync(dirname(outputPath), { recursive: true })
 writeFileSync(outputPath, JSON.stringify(proof, null, 2) + '\n')
 console.log(`bootstrap-stage2: wrote ${outputPath}`)
-console.log(`bootstrap-stage2: verified=${verified} equivalent=${outputEquivalent} suites=${suites.filter(x => x.passed).length}/${suites.length} release_needs_cpp=${releaseNeedsCpp}`)
+console.log(`bootstrap-stage2: verified=${verified} stage0=${stage0Proven} distinct=${artifactsDistinct} equivalent=${outputEquivalent} suites=${suites.filter(x => x.passed).length}/${suites.length} release_needs_cpp=${releaseNeedsCpp}`)
 if (!verified) {
   console.error('bootstrap-stage2: Stage 2 is NOT verified. C++ bootstrap provenance must not be removed or described as unnecessary yet.')
 }
