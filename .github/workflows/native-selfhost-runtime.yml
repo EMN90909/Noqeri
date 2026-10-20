@@ -88,6 +88,8 @@ jobs:
           ./build-native/noqeri nqri tests/bootstrap_language_compat.noqeri build-native/bootstrap-language.nqri
           result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri contextualNames)
           test "$result" = "48"
+          cast_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri castComparison)
+          test "$cast_result" = "1"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -98,6 +100,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $result = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri contextualNames).Trim()
           if ($LASTEXITCODE -ne 0 -or $result -ne '48') { throw "bootstrap language compatibility returned '$result'" }
+          $castResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri castComparison).Trim()
+          if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
       - name: Build trusted Stage-1 NQRI seed (Linux)
         if: runner.os == 'Linux'
         shell: bash
