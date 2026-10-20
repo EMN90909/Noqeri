@@ -19,20 +19,18 @@ A fresh machine needs one trusted Noqeri seed once—the same unavoidable bootst
 Linux/macOS/POSIX:
 
 ```sh
-NOQERI_STAGE0=/path/to/noqeri ./scripts/build.sh
-./build/noqeri selftest
-./build/noqeri check examples/hello.noqeri
+./bootstrap.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-$env:NOQERI_STAGE0 = 'C:\path\to\noqeri.exe'
-.\scripts\build.ps1
-.\build\noqeri.cmd selftest
+.\bootstrap.ps1
 ```
 
-The build emits a portable `build/noqeri-stage2.mjs` and a platform launcher. The current reference host requires Node.js 20+ and an **ES-module** Stage-2 compiler export. Portable binary NQRI is a distinct artifact format and cannot be loaded by JavaScript dynamic import without a decoder or runner. The bootstrap build fails closed unless its trusted seed produces a valid Stage-2 ES module; the restricted web compiler is **not** a drop-in self-host compiler bootstrap.
+A fresh checkout builds the audited C++ Stage-0 bootstrap compiler and the native `noqeri-nqri` runtime, emits `build/noqeri-stage1.nqri`, then uses that Noqeri compiler artifact to build Stage 2 and Stage 3. The bootstrap succeeds only when the Stage-2 and Stage-3 `.nqri` files are byte-identical. An already verified Stage-1 seed can be supplied with `NOQERI_STAGE1_NQRI`.
+
+Node.js is no longer part of the compiler self-rebuild path. JavaScript remains only in optional ecosystem/browser/reference tooling.
 
 ## Active Stage-2 CLI commands
 
