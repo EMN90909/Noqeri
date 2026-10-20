@@ -1,0 +1,18 @@
+record Pair {
+    left: int
+    right: int
+}
+
+export function zeroInitCheck(): int {
+    let values: [int; 4]
+    let pair: Pair
+    let total: int
+
+    if total != 0 { return -1 }
+    if values[1] != 0 { return -2 }
+    if pair.right != 0 { return -3 }
+
+    values[0] = 7
+    pair.left = 3
+    return values[0] + pair.left
+}
