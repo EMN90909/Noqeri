@@ -41,6 +41,7 @@ record NqSemanticContext {
     currentReturnCode: int
     currentReturnSymbol: u64
     unsafeAllowed: bool
+    errorStart: usize
 }
 
 export function nqSemanticProgramCapacity(): isize { return -220 }
@@ -281,7 +282,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             if leftNode.tag == nqAstInteger() && rightNode.tag != nqAstInteger() { result = rightNode.typeCode }
             else if rightNode.tag == nqAstInteger() && leftNode.tag != nqAstInteger() { result = leftNode.typeCode }
         }
-        if result == nqAstTypeUnknown() { return nqSemanticInvalidBinary() }
+        if result == nqAstTypeUnknown() { context.errorStart = node.start return nqSemanticInvalidBinary() }
         node.typeCode = result
         return nqSemanticOk()
     }
@@ -441,7 +442,7 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
     return nqSemanticOk()
 }
 
-export function nqSemanticAnalyzeProgram(source: []u8, nodes: []NqAstNode, nodeCount: *usize, first: isize, unsafeAllowed: bool): isize {
+function nqSemanticAnalyzeProgramCore(source: []u8, nodes: []NqAstNode, nodeCount: *usize, first: isize, unsafeAllowed: bool, outErrorStart: *usize): isize {
     if nodeCount == null { return nqSemanticProgramCapacity() }
     let genericStatus: isize = nqGenericMetadataAttach(source, nodes, nodeCount, first)
     if genericStatus < 0 as isize { return genericStatus }
@@ -467,6 +468,8 @@ export function nqSemanticAnalyzeProgram(source: []u8, nodes: []NqAstNode, nodeC
     context.currentReturnCode = nqAstTypeVoid()
     context.currentReturnSymbol = 0 as u64
     context.unsafeAllowed = unsafeAllowed
+    context.errorStart = 0 as usize
+    if outErrorStart != null { outErrorStart[0] = 0 as usize }
     let cursor: isize = first
     while cursor >= 0 as isize {
         let node: *NqAstNode = &nodes[cursor as usize]
@@ -494,7 +497,7 @@ export function nqSemanticAnalyzeProgram(source: []u8, nodes: []NqAstNode, nodeC
             }
             if node.extra >= 0 as isize {
                 let status: isize = nqSemanticStatement(source, nodes, node.extra, slice(symbols), &context, slice(functions), slice(parameters), slice(records), recordCount, slice(fields))
-                if status < 0 as isize { return status }
+                if status < 0 as isize { if outErrorStart != null { outErrorStart[0] = context.errorStart } return status }
             }
             nqSymbolsPopScope(slice(symbols), &context.symbolCount, 1 as usize)
             context.currentFunction = nqAstNoNode()
@@ -502,9 +505,17 @@ export function nqSemanticAnalyzeProgram(source: []u8, nodes: []NqAstNode, nodeC
             context.scopeDepth = 0 as usize
         } else if node.tag == nqAstBinding() || nqAstIsStatement(node.tag) {
             let status: isize = nqSemanticStatement(source, nodes, cursor, slice(symbols), &context, slice(functions), slice(parameters), slice(records), recordCount, slice(fields))
-            if status < 0 as isize { return status }
+            if status < 0 as isize { if outErrorStart != null { outErrorStart[0] = context.errorStart } return status }
         }
         cursor = node.next
     }
     return nqSemanticOk()
+}
+
+export function nqSemanticAnalyzeProgram(source: []u8, nodes: []NqAstNode, nodeCount: *usize, first: isize, unsafeAllowed: bool): isize {
+    return nqSemanticAnalyzeProgramCore(source, nodes, nodeCount, first, unsafeAllowed, null)
+}
+
+export function nqSemanticAnalyzeProgramDetailed(source: []u8, nodes: []NqAstNode, nodeCount: *usize, first: isize, unsafeAllowed: bool, outErrorStart: *usize): isize {
+    return nqSemanticAnalyzeProgramCore(source, nodes, nodeCount, first, unsafeAllowed, outErrorStart)
 }
