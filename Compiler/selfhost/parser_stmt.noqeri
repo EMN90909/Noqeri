@@ -326,12 +326,18 @@ function nqStmtParseDeclaration(source: []u8, start: usize, nodes: []NqAstNode, 
     if nqTokenTextEqual(source, &token, slice([102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8])) {
         let declarationName: NqToken
         nqCompilerNextToken(source, token.end, &declarationName)
-        if declarationName.kind == nqTokenIdentifier() { return nqStmtParseFunction(source, token.start, nodes, count, outEnd, modifiers) }
+        let declarationTail: NqToken
+        nqCompilerNextToken(source, declarationName.end, &declarationTail)
+        let functionShape: bool = declarationName.kind == nqTokenIdentifier() && ((declarationTail.kind == nqTokenPunctuation() && declarationTail.first == 40 as u8) || (declarationTail.kind == nqTokenOperator() && declarationTail.first == 60 as u8))
+        if functionShape { return nqStmtParseFunction(source, token.start, nodes, count, outEnd, modifiers) }
     }
     if nqTokenTextEqual(source, &token, slice([114 as u8,101 as u8,99 as u8,111 as u8,114 as u8,100 as u8])) {
         let declarationName: NqToken
         nqCompilerNextToken(source, token.end, &declarationName)
-        if declarationName.kind == nqTokenIdentifier() { return nqStmtParseRecord(source, token.start, nodes, count, outEnd) }
+        let declarationTail: NqToken
+        nqCompilerNextToken(source, declarationName.end, &declarationTail)
+        let recordShape: bool = declarationName.kind == nqTokenIdentifier() && declarationTail.kind == nqTokenPunctuation() && declarationTail.first == 123 as u8
+        if recordShape { return nqStmtParseRecord(source, token.start, nodes, count, outEnd) }
     }
     if nqTokenTextEqual(source, &token, slice([105 as u8,102 as u8])) { return nqStmtParseIf(source, token.start, nodes, count, outEnd) }
     if nqTokenTextEqual(source, &token, slice([119 as u8,104 as u8,105 as u8,108 as u8,101 as u8])) { return nqStmtParseWhile(source, token.start, nodes, count, outEnd) }
