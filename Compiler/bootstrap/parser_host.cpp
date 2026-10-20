@@ -185,6 +185,8 @@ StmtPtr Parser::statement(){
     if(match({TokenKind::If}))return ifStatement();
     if(match({TokenKind::While}))return whileStatement();
     if(match({TokenKind::Repeat}))return repeatStatement();
+    if(match({TokenKind::Break}))return breakStatement();
+    if(match({TokenKind::Continue}))return continueStatement();
     if(match({TokenKind::Return}))return returnStatement();
     if(match({TokenKind::Throw}))return throwStatement();
     if(match({TokenKind::Unsafe})){
@@ -233,6 +235,8 @@ StmtPtr Parser::repeatStatement(){
     auto outer=std::make_shared<BlockStmt>();outer->span=start.span;outer->statements.push_back(limit);outer->statements.push_back(index);outer->statements.push_back(loop);
     return outer;
 }
+StmtPtr Parser::breakStatement(){Token start=previous();match({TokenKind::Semicolon});auto s=std::make_shared<BreakStmt>();s->span=start.span;return s;}
+StmtPtr Parser::continueStatement(){Token start=previous();match({TokenKind::Semicolon});auto s=std::make_shared<ContinueStmt>();s->span=start.span;return s;}
 StmtPtr Parser::returnStatement(){Token start=previous();auto s=std::make_shared<ReturnStmt>();s->span=start.span;if(!check(TokenKind::Semicolon)&&!check(TokenKind::RBrace)&&!check(TokenKind::Eof))s->value=expression();match({TokenKind::Semicolon});return s;}
 StmtPtr Parser::throwStatement(){Token start=previous();auto s=std::make_shared<ThrowStmt>();s->span=start.span;s->value=expression();match({TokenKind::Semicolon});return s;}
 std::shared_ptr<BlockStmt> Parser::block(){auto b=std::make_shared<BlockStmt>();b->span=previous().span;while(!check(TokenKind::RBrace)&&!check(TokenKind::Eof)){try{b->statements.push_back(declaration());}catch(const ParseError&){synchronize();}}consume(TokenKind::RBrace,"expected '}' after block");return b;}
