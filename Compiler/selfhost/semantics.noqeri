@@ -47,13 +47,16 @@ export function nqSemanticExplicitCastValid(fromCode: int, toCode: int): bool {
     if fromCode == toCode { return true }
     if nqCompilerTypeIsNumeric(fromCode) && nqCompilerTypeIsNumeric(toCode) { return true }
     if fromCode == nqAstTypePointer() && toCode == nqAstTypePointer() { return true }
-    if fromCode == nqAstTypePointer() && toCode == nqAstTypeUsize() { return true }
-    if fromCode == nqAstTypeUsize() && toCode == nqAstTypePointer() { return true }
+    if fromCode == nqAstTypePointer() && (toCode == nqAstTypeUsize() || toCode == nqAstTypeIsize()) { return true }
+    if toCode == nqAstTypePointer() && (fromCode == nqAstTypeUsize() || fromCode == nqAstTypeIsize() || fromCode == nqAstTypeInt() || fromCode == nqAstTypeNull()) { return true }
     return false
 }
 
 export function nqSemanticCastRequiresUnsafe(fromCode: int, toCode: int): bool {
-    return (fromCode == nqAstTypePointer() && toCode == nqAstTypeUsize()) || (fromCode == nqAstTypeUsize() && toCode == nqAstTypePointer())
+    // Match the seed compiler's raw-pointer safety boundary: any explicit cast
+    // whose result is a raw pointer requires unsafe unless the whole compilation
+    // is already in the trusted bootstrap mode.
+    return toCode == nqAstTypePointer()
 }
 
 export function nqSemanticReturnValid(actual: int, expected: int): bool {
