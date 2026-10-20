@@ -9,7 +9,7 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri web-project [source-dir] [output-dir] (HTML/CSS/JS assets only)\n  noqeri web <file.nqr> <output.mjs> (restricted browser subset)\n  noqeri check <file.nqr>
+  noqeri web-project [source-dir] [output-dir] (compile Noqeri + package web assets)\n  noqeri web <file.nqr> <output.mjs> (Stage-2 checked browser module)\n  noqeri check <file.nqr>
   noqeri syntax <file.nqr>
   noqeri lex-count <file.nqr>
   noqeri fingerprint <file.nqr>
@@ -102,7 +102,7 @@ async function compilerModule() {
   let compiler
   try { compiler = await import(pathToFileURL(path).href) }
   catch (error) { throw new Error(`cannot load Stage-2 module ${path}: ${error.message}`) }
-  const required = ['stage1VersionMajor', 'stage1VersionMinor', 'stage1VersionPatch', 'stage2SyntaxCheck', 'stage2SemanticCheckMerged', 'stage2CompileReady', 'stage2CompileCheck']
+  const required = ['stage1VersionMajor', 'stage1VersionMinor', 'stage1VersionPatch', 'stage2SyntaxCheck', 'stage2SemanticCheckMerged', 'stage2CompileReady', 'stage2CompileCheck', 'stage2WebCheck']
   const missing = required.filter(name => typeof compiler[name] !== 'function')
   if (missing.length) throw new Error(`compiler module is not Stage-2 capable; missing exports: ${missing.join(', ')}`)
   compilerCache = compiler
@@ -117,6 +117,12 @@ async function checkBytes(compiler, bytes, label) {
   return status
 }
 
+async function webCheckBytes(compiler, bytes, label) {
+  const status = Number(compiler.stage2WebCheck(bytes))
+  if (status !== 0) throw new Error(`${label}: Stage-2 web check failed (${status})`)
+  return status
+}
+
 async function resolveAndCheckPackages(sourcePath, compiler) {
   const resolved = await (await packages()).resolvePackageImports(sourcePath)
   for (const item of resolved) {
@@ -124,6 +130,22 @@ async function resolveAndCheckPackages(sourcePath, compiler) {
     await checkBytes(compiler, bytes, `${item.coordinate}@${item.version}`)
   }
   return resolved
+}
+
+async function resolveAndCheckWebPackages(sourcePath, compiler) {
+  const resolved = await (await packages()).resolvePackageImports(sourcePath)
+  for (const item of resolved) {
+    const bytes = new Uint8Array(await readFile(item.entry))
+    await webCheckBytes(compiler, bytes, `${item.coordinate}@${item.version}`)
+  }
+  return resolved
+}
+
+async function resolveWebPackage(coordinate, importer) {
+  const resolved = await (await packages()).resolvePackageImports(importer)
+  const match = resolved.find(item => item.coordinate === coordinate)
+  if (!match) throw new Error(`${importer}: package import ${coordinate} is not pinned/resolved`)
+  return match.entry
 }
 
 try {
@@ -151,9 +173,18 @@ try {
     process.exit(problems.length || (args.includes('--strict') && warnings.length) ? 1 : 0)
   }
   if (command === 'web-project') {
+    const compiler = await compilerModule()
     const { buildWebProject } = await import('./web-project.mjs')
-    const result = await buildWebProject({ source: args[1] || 'web', out: args[2] || 'dist' })
-    console.log('Web assets copied: ' + result.files + ' files (' + result.html + ' HTML); Noqeri source compilation not performed')
+    const result = await buildWebProject({
+      source: args[1] || 'web',
+      out: args[2] || 'dist',
+      validateNoqeri: async file => {
+        await resolveAndCheckWebPackages(file, compiler)
+        await webCheckBytes(compiler, new Uint8Array(await readFile(file)), file)
+      },
+      resolvePackage: resolveWebPackage
+    })
+    console.log(`Built ${result.files} web inputs: ${result.compiled} Noqeri module(s), ${result.copied} static asset(s), ${result.html} HTML`)
     process.exit(0)
   }
   if (command === 'add') { if (!args[1]) throw new Error('noqeri add needs namespace/name[@version]'); await (await packages()).addPackage(args[1]); process.exit(0) }
@@ -175,27 +206,29 @@ try {
       syntax: typeof compiler.stage2SyntaxCheck === 'function',
       semantics: typeof compiler.stage2SemanticCheckMerged === 'function',
       compileCheck: typeof compiler.stage2CompileCheck === 'function',
+      webCheck: typeof compiler.stage2WebCheck === 'function',
       compileToNir: typeof compiler.stage2CompileToNir === 'function',
       proofGate: typeof compiler.stage2ProofStatus === 'function' && typeof compiler.stage2Verified === 'function'
     }
     if (args.includes('--json')) console.log(JSON.stringify(report, null, 2))
-    else console.log(`Stage-2 pipeline: syntax=${report.syntax} semantics=${report.semantics} compile-check=${report.compileCheck} nir=${report.compileToNir} proof-gate=${report.proofGate} target=${target}`)
-    process.exit(report.syntax && report.semantics && report.compileCheck && target ? 0 : 1)
+    else console.log(`Stage-2 pipeline: syntax=${report.syntax} semantics=${report.semantics} compile-check=${report.compileCheck} web-check=${report.webCheck} nir=${report.compileToNir} proof-gate=${report.proofGate} target=${target}`)
+    process.exit(report.syntax && report.semantics && report.compileCheck && report.webCheck && target ? 0 : 1)
   }
   if (command === 'web') {
     if (!args[1] || !args[2]) throw new Error('web requires an input .nqr and output .mjs path')
     if (!args[1].endsWith('.nqr') || !args[2].endsWith('.mjs')) throw new Error('web requires .nqr input and .mjs output')
-    await resolveAndCheckPackages(args[1], compiler)
+    await resolveAndCheckWebPackages(args[1], compiler)
     const bytes = new Uint8Array(await readFile(args[1]))
-    await checkBytes(compiler, bytes, args[1])
+    await webCheckBytes(compiler, bytes, args[1])
     const { compileWebFile } = await import('./web-compiler.mjs')
-    await compileWebFile(args[1], args[2])
-    console.log('Wrote restricted browser ES module to ' + args[2])
+    await compileWebFile(args[1], args[2], { resolvePackage: resolveWebPackage })
+    console.log('Wrote Stage-2 checked browser ES module to ' + args[2])
     process.exit(0)
   }
   if (command === 'selftest') {
     const sample = new TextEncoder().encode('function main(): int { return 0 }')
     await checkBytes(compiler, sample, 'selftest')
+    await webCheckBytes(compiler, sample, 'selftest-web')
     const coordinate = new TextEncoder().encode('noqeri/supabase')
     if (typeof compiler.stage1PackageCoordinateValid === 'function' && compiler.stage1PackageCoordinateValid(coordinate) !== true) throw new Error('Stage-2 selftest failed package-coordinate policy')
     console.log(`Stage-2 selftest passed for target ${hostTarget()}`)
