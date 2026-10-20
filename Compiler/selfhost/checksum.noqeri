@@ -1,0 +1,16 @@
+module noqeri.compiler.selfhost.checksum
+
+// The compiler bootstrap only needs a deterministic source fingerprint.
+// Keep this implementation compiler-owned so the trusted compiler closure
+// does not depend on the full general-purpose checksum standard library.
+export function nqAdler32(data: []u8): u32 {
+    let a: u32 = 1 as u32
+    let b: u32 = 0 as u32
+    let index: usize = 0 as usize
+    while index < len(data) {
+        a = (a + data[index] as u32) % 65521 as u32
+        b = (b + a) % 65521 as u32
+        index = index + 1 as usize
+    }
+    return b * 65536 as u32 + a
+}
