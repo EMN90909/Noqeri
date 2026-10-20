@@ -385,3 +385,17 @@ export function nqParserProgramValid(source: []u8): bool {
     let first: isize = nqAstNoNode()
     return nqParserParseProgram(source, slice(nodes), &count, &first) == nqParseOk()
 }
+
+
+export function nqParserFirstErrorOffset(source: []u8): usize {
+    let nodes: [NqAstNode; 4096]
+    let count: usize = 0 as usize
+    let cursor: usize = nqCompilerSkipTrivia(source, 0 as usize)
+    while cursor < len(source) {
+        let end: usize = cursor
+        let declaration: isize = nqStmtParseDeclaration(source, cursor, slice(nodes), &count, &end, true)
+        if declaration < 0 as isize || end <= cursor { return cursor }
+        cursor = nqCompilerSkipTrivia(source, end)
+    }
+    return len(source)
+}
