@@ -6,7 +6,7 @@ namespace noe {
 namespace {
 std::string jsString(const std::string&s){std::string out="\"";for(char c:s){switch(c){case'\\':out+="\\\\";break;case'\"':out+="\\\"";break;case'\n':out+="\\n";break;case'\r':out+="\\r";break;case'\t':out+="\\t";break;default:out+=c;}}return out+'"';}
 std::string op(TokenKind k){switch(k){case TokenKind::Plus:return"+";case TokenKind::Minus:return"-";case TokenKind::Star:return"*";case TokenKind::Slash:return"/";case TokenKind::Percent:return"%";case TokenKind::Bang:return"!";case TokenKind::Equal:return"=";case TokenKind::EqualEqual:return"===";case TokenKind::BangEqual:return"!==";case TokenKind::Less:return"<";case TokenKind::LessEqual:return"<=";case TokenKind::Greater:return">";case TokenKind::GreaterEqual:return">=";case TokenKind::AndAnd:return"&&";case TokenKind::OrOr:return"||";default:return"?";}}
-const char* runtimePrelude(){return R"NQRI(// Noqeri 1.0 portable web runtime. The .nqri file remains a normal ES module.
+const char* runtimePrelude(){return R"NQRI(// Noqeri 1.0 portable web runtime. The generated .mjs file is a standard ES module.
 const __nqHost = () => globalThis.NoqeriHost;
 const __nqNeedHost = (name) => { const h=__nqHost(); if(!h || typeof h[name] !== 'function') throw new Error(`Noqeri host capability '${name}' is unavailable`); return h[name].bind(h); };
 const __nqNonNull = (value,what='value') => { if(value === null || value === undefined) throw new Error(`Noqeri null check failed for ${what}`); return value; };
