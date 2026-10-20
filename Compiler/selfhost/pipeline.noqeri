@@ -168,3 +168,32 @@ export function nqPipelineCompileCheck(source: []u8, target: int, unsafeAllowed:
     let result: NqCompileResult
     return nqPipelineCompileToNir(source, target, true, unsafeAllowed, slice(nodes), slice(instructions), slice(functions), &result)
 }
+
+// Diagnostic-only helper. A positive result packs the first malformed NIR
+// instruction as (index + 1) * 64 + opcode. Zero means the lowered NIR is
+// structurally valid; negative values are failures before NIR validation.
+export function nqPipelineInvalidNirDiagnostic(source: []u8, target: int, unsafeAllowed: bool): isize {
+    let nodes: [NqAstNode; 131072]
+    let instructions: [NqNirInstruction; 262144]
+    let functions: [NqNirFunction; 8192]
+    let first: isize = nqAstNoNode()
+    let astCount: usize = 0 as usize
+    let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &astCount, &first)
+    if parseStatus < 0 as isize { return parseStatus }
+    let zeroStatus: isize = nqZeroInitNormalize(source, slice(nodes), &astCount, first)
+    if zeroStatus < 0 as isize { return zeroStatus }
+    let semanticStatus: isize = nqSemanticAnalyzeProgram(source, slice(nodes), &astCount, first, unsafeAllowed)
+    if semanticStatus < 0 as isize { return semanticStatus }
+    let instructionCount: usize = 0 as usize
+    let functionCount: usize = 0 as usize
+    let lowerStatus: isize = nqLowerProgram(source, slice(nodes), first, slice(instructions), slice(functions), &instructionCount, &functionCount)
+    if lowerStatus < 0 as isize { return lowerStatus }
+    let index: usize = 0 as usize
+    while index < instructionCount {
+        if !nqNirInstructionValid(&instructions[index]) {
+            return ((index + 1 as usize) * 64 as usize + instructions[index].opcode as usize) as isize
+        }
+        index = index + 1 as usize
+    }
+    return 0 as isize
+}
