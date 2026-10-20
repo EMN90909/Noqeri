@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 
 const file=resolve(process.env.NOQERI_STAGE2_MODULE || 'build/noqeri-stage2.mjs')
-const required=['stage2SyntaxCheck','stage2SemanticCheckMerged','stage2CompileReady','stage2CompileCheck']
+const required=['stage2SyntaxCheck','stage2SemanticCheckMerged','stage2CompileReady','stage2CompileCheck','stage2WebCheck']
 try {
  const metadata=await stat(file)
  if(!metadata.isFile()||metadata.size===0)throw Error('missing or empty Stage-2 module')
