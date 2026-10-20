@@ -380,6 +380,13 @@ int main(int argc, char** argv) {
         if (cmd == "run") return Interpreter{}.run(compilation.nir);
         if (cmd == "bootstrap-seed") {
             if (argc < 3) { std::cerr << "NQR-B9035: bootstrap-seed requires Compiler/selfhost/main.noqeri or another compiler entry source\n"; return 1; }
+            const auto seedAbi = std::find_if(compilation.nir.functions.begin(), compilation.nir.functions.end(), [](const NirFunction& fn) {
+                return fn.name == "stage2CompileToNqri" && fn.isExport;
+            });
+            if (seedAbi == compilation.nir.functions.end()) {
+                std::cerr << "NQR-B9037: bootstrap compiler must export stage2CompileToNqri; refusing to emit an unusable Stage-1 seed\n";
+                return 1;
+            }
             std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / "noqeri-stage1.nqri";
             if (output.extension().empty()) output += ".nqri";
             if (output.extension() != ".nqri") {
