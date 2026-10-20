@@ -5,6 +5,20 @@ namespace noe {
 namespace {
 struct ParseError:std::runtime_error{using std::runtime_error::runtime_error;};
 
+bool isNameKind(TokenKind kind){
+    switch(kind){
+        case TokenKind::Identifier:
+        case TokenKind::Let: case TokenKind::Const: case TokenKind::Function:
+        case TokenKind::If: case TokenKind::Else: case TokenKind::While: case TokenKind::Repeat:
+        case TokenKind::Return: case TokenKind::Import: case TokenKind::Module:
+        case TokenKind::Record: case TokenKind::Class: case TokenKind::Extern:
+        case TokenKind::Export: case TokenKind::Volatile: case TokenKind::As:
+        case TokenKind::Throw: case TokenKind::Try: case TokenKind::Unsafe:
+            return true;
+        default:return false;
+    }
+}
+
 std::string decodeStringLiteral(const std::string& lexeme){
     if(lexeme.size()<2)return {};
     std::string out;
@@ -57,7 +71,7 @@ StmtPtr Parser::declaration(){
 std::vector<std::string> Parser::parseGenericParams(){
     std::vector<std::string> out;
     if(!match({TokenKind::Less}))return out;
-    do{out.push_back(consume(TokenKind::Identifier,"expected generic type parameter").lexeme);}while(match({TokenKind::Comma}));
+    do{out.push_back(consumeName("expected generic type parameter").lexeme);}while(match({TokenKind::Comma}));
     consume(TokenKind::Greater,"expected '>' after generic parameters");
     return out;
 }
@@ -75,14 +89,14 @@ std::string Parser::parseTypeName(){
         consume(TokenKind::RBracket,"expected ']' after fixed array type");
         return "["+element+";"+count.lexeme+"]";
     }
-    const Token& base=consume(TokenKind::Identifier,"expected type name");
+    const Token& base=consumeName("expected type name");
     return base.lexeme;
 }
 
 StmtPtr Parser::moduleDeclaration(){
-    const Token& first=consume(TokenKind::Identifier,"expected module name");
+    const Token& first=consumeName("expected module name");
     std::string name=first.lexeme;
-    while(match({TokenKind::Dot}))name+="."+consume(TokenKind::Identifier,"expected module name segment").lexeme;
+    while(match({TokenKind::Dot}))name+="."+consumeName("expected module name segment").lexeme;
     match({TokenKind::Semicolon});
     auto m=std::make_shared<ModuleStmt>();m->span=first.span;m->name=std::move(name);return m;
 }
@@ -94,11 +108,11 @@ StmtPtr Parser::importDeclaration(){
 }
 
 StmtPtr Parser::recordDeclaration(){
-    const Token& name=consume(TokenKind::Identifier,"expected record name");
+    const Token& name=consumeName("expected record name");
     consume(TokenKind::LBrace,"expected '{' after record name");
     auto r=std::make_shared<RecordStmt>();r->name=name.lexeme;r->span=name.span;
     while(!check(TokenKind::RBrace)&&!check(TokenKind::Eof)){
-        const Token& field=consume(TokenKind::Identifier,"expected field name");
+        const Token& field=consumeName("expected field name");
         consume(TokenKind::Colon,"expected ':' after field name");
         r->fields.push_back(RecordField{field.lexeme,parseTypeName(),field.span});
         match({TokenKind::Comma,TokenKind::Semicolon});
@@ -109,13 +123,13 @@ StmtPtr Parser::recordDeclaration(){
 }
 
 StmtPtr Parser::functionDeclaration(bool isExtern,bool isExport){
-    const Token& name=consume(TokenKind::Identifier,"expected function name");
+    const Token& name=consumeName("expected function name");
     auto genericParams=parseGenericParams();
     consume(TokenKind::LParen,"expected '(' after function name");
     std::vector<Parameter> params;
     if(!check(TokenKind::RParen)){
         do{
-            const Token& p=consume(TokenKind::Identifier,"expected parameter name");
+            const Token& p=consumeName("expected parameter name");
             std::optional<std::string> type;
             if(match({TokenKind::Colon}))type=parseTypeName();
             params.push_back({p.lexeme,type,p.span});
@@ -127,13 +141,19 @@ StmtPtr Parser::functionDeclaration(bool isExtern,bool isExport){
     auto fn=std::make_shared<FunctionStmt>();
     fn->span=name.span;fn->name=name.lexeme;fn->genericParams=std::move(genericParams);fn->params=std::move(params);fn->returnType=ret;fn->isExtern=isExtern;fn->isExport=isExport;
     if(isExtern){match({TokenKind::Semicolon});fn->body=std::make_shared<BlockStmt>();return fn;}
-    consume(TokenKind::LBrace,"expected '{' before function body");
+    if(!check(TokenKind::LBrace)){
+        fn->isForward=true;
+        match({TokenKind::Semicolon});
+        fn->body=std::make_shared<BlockStmt>();
+        return fn;
+    }
+    advance();
     fn->body=block();
     return fn;
 }
 
 StmtPtr Parser::letDeclaration(bool isConst){
-    const Token& name=consume(TokenKind::Identifier,"expected variable name");
+    const Token& name=consumeName("expected variable name");
     std::optional<std::string> annotation;
     if(match({TokenKind::Colon}))annotation=parseTypeName();
     auto s=std::make_shared<LetStmt>();s->span=name.span;s->isConst=isConst;s->name=name.lexeme;s->annotation=annotation;
@@ -236,7 +256,7 @@ ExprPtr Parser::call(){
     for(;;){
         if(match({TokenKind::LParen})){auto c=std::make_shared<CallExpr>();c->callee=e;c->span=previous().span;if(!check(TokenKind::RParen))do{c->args.push_back(expression());}while(match({TokenKind::Comma}));consume(TokenKind::RParen,"expected ')' after arguments");e=c;continue;}
         if(match({TokenKind::LBracket})){auto x=std::make_shared<IndexExpr>();x->object=e;x->index=expression();x->span=previous().span;consume(TokenKind::RBracket,"expected ']' after index");e=x;continue;}
-        if(match({TokenKind::Dot})){const auto& m=consume(TokenKind::Identifier,"expected field name after '.'");auto x=std::make_shared<MemberExpr>();x->object=e;x->member=m.lexeme;x->span=m.span;e=x;continue;}
+        if(match({TokenKind::Dot})){const auto& m=consumeName("expected field name after '.'");auto x=std::make_shared<MemberExpr>();x->object=e;x->member=m.lexeme;x->span=m.span;e=x;continue;}
         break;
     }
     return e;
@@ -247,7 +267,7 @@ ExprPtr Parser::primary(){
     if(match({TokenKind::True,TokenKind::False})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=previous().kind==TokenKind::True;return x;}
     if(match({TokenKind::Null})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=std::monostate{};return x;}
     if(match({TokenKind::String})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=decodeStringLiteral(previous().lexeme);return x;}
-    if(match({TokenKind::Identifier})){auto x=std::make_shared<NameExpr>();x->span=previous().span;x->name=previous().lexeme;return x;}
+    if(isNameKind(peek().kind)){const Token name=advance();auto x=std::make_shared<NameExpr>();x->span=name.span;x->name=name.lexeme;return x;}
     if(match({TokenKind::LBracket})){
         auto a=std::make_shared<ArrayExpr>();a->span=previous().span;
         if(!check(TokenKind::RBracket))do{a->elements.push_back(expression());}while(match({TokenKind::Comma}));
@@ -263,5 +283,6 @@ const Token& Parser::advance(){if(!check(TokenKind::Eof))++current_;return previ
 const Token& Parser::previous()const{return tokens_[current_-1];}
 const Token& Parser::peek()const{return tokens_[current_];}
 const Token& Parser::consume(TokenKind kind,const std::string& message){if(check(kind))return advance();diagnostics_.error("NOE-P2000",peek().span,message);throw ParseError("parse");}
+const Token& Parser::consumeName(const std::string& message){if(isNameKind(peek().kind))return advance();diagnostics_.error("NOE-P2000",peek().span,message);throw ParseError("parse");}
 void Parser::synchronize(){if(!check(TokenKind::Eof))advance();while(!check(TokenKind::Eof)){if(previous().kind==TokenKind::Semicolon)return;switch(peek().kind){case TokenKind::Function:case TokenKind::Record:case TokenKind::Module:case TokenKind::Import:case TokenKind::Extern:case TokenKind::Export:case TokenKind::Let:case TokenKind::Const:case TokenKind::If:case TokenKind::While:case TokenKind::Repeat:case TokenKind::Return:case TokenKind::Throw:case TokenKind::Unsafe:return;default:break;}advance();}}
 } // namespace noe
