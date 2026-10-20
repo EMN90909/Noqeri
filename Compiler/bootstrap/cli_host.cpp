@@ -79,12 +79,13 @@ std::optional<SourceSelection> selectSource(int argc, char** argv, Diagnostics& 
     }
     auto manifest = PackageManager{}.loadManifest("project.noqeri", d);
     if (!manifest) return std::nullopt;
-    if (manifest->entry.extension() != ".noqeri") {
-        d.error("NQR-P3014", {}, "project entry must use the .noqeri extension: " + manifest->entry.string(),
+    const std::filesystem::path manifestEntry = manifest->entry;
+    if (manifestEntry.extension() != ".noqeri") {
+        d.error("NQR-P3014", {}, "project entry must use the .noqeri extension: " + manifestEntry.string(),
                 "update project.noqeri so entry points at a .noqeri source file");
         return std::nullopt;
     }
-    return SourceSelection{manifest->entry, manifest->name, manifest->target};
+    return SourceSelection{manifestEntry, manifest->name, manifest->target};
 }
 
 bool isIgnoredDirectory(const std::filesystem::path& path) {
