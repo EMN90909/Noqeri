@@ -103,7 +103,9 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
             Reg slice=lowerExpr(fn,e->args[0]);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={slice};emit(fn,check);NirInstruction i;i.op=NirOp::SliceLen;i.dest=fn.nextReg++;i.args={slice};emit(fn,i);return*i.dest;
         }
         if(name=="slice"){
-            Reg data=lowerExpr(fn,e->args[0]);Reg length=0;
+            Reg data=lowerExpr(fn,e->args[0]);
+            if(e->builtinSliceSource){NirInstruction d;d.op=NirOp::SliceData;d.dest=fn.nextReg++;d.args={data};emit(fn,d);data=*d.dest;}
+            Reg length=0;
             if(e->args.size()==2)length=lowerExpr(fn,e->args[1]);else{NirInstruction c;c.op=NirOp::Const;c.dest=fn.nextReg++;c.literal=static_cast<std::int64_t>(e->builtinCount);emit(fn,c);length=*c.dest;}
             NirInstruction i;i.op=NirOp::MakeSlice;i.dest=fn.nextReg++;i.args={data,length};i.width=e->builtinWidth;emit(fn,i);return*i.dest;
         }
