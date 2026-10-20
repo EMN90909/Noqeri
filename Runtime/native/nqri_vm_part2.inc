@@ -53,6 +53,11 @@ static std::string trim(std::string value) {
     if (first >= last) return {};
     return std::string(first, last);
 }
+static bool redundantForwardPrototype(const std::string& clean) {
+    if (clean.rfind("function ", 0) != 0) return false;
+    if (clean.find('{') != std::string::npos) return false;
+    return clean.find('(') != std::string::npos && clean.find(')') != std::string::npos;
+}
 static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, const std::string& manifestPath) {
     namespace fs = std::filesystem;
     const fs::path root = fs::weakly_canonical(fs::path(rootPath));
@@ -75,6 +80,11 @@ static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, con
         while (std::getline(input, line)) {
             const auto clean = trim(line);
             if (clean.rfind("module ", 0) == 0 || clean.rfind("import ", 0) == 0) continue;
+            // Module-local forward declarations are needed while parsing a single
+            // source file, but become duplicate top-level declarations after the
+            // deterministic compiler closure is flattened. Full definitions are
+            // already present later in the same source closure.
+            if (redundantForwardPrototype(clean)) continue;
             merged << line << '\n';
         }
         merged << '\n';
