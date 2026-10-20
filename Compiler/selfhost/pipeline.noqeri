@@ -63,6 +63,23 @@ export function nqPipelineSemanticCheckMerged(source: []u8, unsafeAllowed: bool)
     return nqSemanticAnalyzeProgram(source, slice(nodes), &count, first, unsafeAllowed)
 }
 
+export function nqPipelineSemanticErrorOffset(source: []u8, unsafeAllowed: bool): usize {
+    let policy: NqSecurityPolicy
+    nqSecurityProductionPolicy(&policy)
+    if !nqSecuritySourceAllowed(&policy, len(source)) { return 0 as usize }
+    let nodes: [NqAstNode; 131072]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &count, &first)
+    if parseStatus < 0 as isize { return 0 as usize }
+    let zeroStatus: isize = nqZeroInitNormalize(source, slice(nodes), &count, first)
+    if zeroStatus < 0 as isize { return 0 as usize }
+    let errorStart: usize = 0 as usize
+    let status: isize = nqSemanticAnalyzeProgramDetailed(source, slice(nodes), &count, first, unsafeAllowed, &errorStart)
+    if status >= 0 as isize { return 0 as usize }
+    return errorStart
+}
+
 export function nqPipelineTargetCheck(target: int): isize { if !nqBackendTargetReady(target) { return nqBackendUnsupportedTarget() } return 0 }
 export function nqPipelineCompileReady(source: []u8, target: int): bool { return nqPipelineCheck(source) == 0 && nqPipelineTargetCheck(target) == 0 }
 export function nqPipelineDefaultOptimization(debug: bool): int { if debug { return nqOptLevelNone() } return nqOptLevelSpeed() }
