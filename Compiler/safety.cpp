@@ -17,7 +17,7 @@ bool pointerType(const std::string&type){return !type.empty()&&type.front()=='*'
 
 class Annotator {
 public:
-    explicit Annotator(Diagnostics&diagnostics):diagnostics_(diagnostics){}
+    Annotator(Diagnostics&diagnostics,bool allowUnsafe):diagnostics_(diagnostics),allowUnsafe_(allowUnsafe){}
     void function(const std::shared_ptr<FunctionStmt>&fn){
         bounds_.clear();rawPointers_.clear();unsafeDepth_=0;
         for(const auto&p:fn->params)if(p.annotation){if(auto count=fixedArrayCount(*p.annotation))bounds_[p.name]=*count;if(pointerType(*p.annotation))rawPointers_.insert(p.name);}
@@ -26,7 +26,7 @@ public:
 
 private:
     void requireUnsafe(Span span,const std::string&operation){
-        if(unsafeDepth_>0)return;
+        if(allowUnsafe_||unsafeDepth_>0)return;
         diagnostics_.error("NQR-S3100",span,operation+" requires an explicit unsafe block","wrap only the smallest raw-memory operation in unsafe { ... }");
     }
 
@@ -102,13 +102,14 @@ private:
     std::unordered_map<std::string,std::size_t> bounds_;
     std::unordered_set<std::string> rawPointers_;
     std::size_t unsafeDepth_=0;
+    bool allowUnsafe_=false;
 };
 
 } // namespace
 
-bool SafetyAnnotator::check(const Program&program,Diagnostics&diagnostics)const{
+bool SafetyAnnotator::check(const Program&program,Diagnostics&diagnostics,bool allowUnsafe)const{
     const auto before=diagnostics.items().size();
-    for(const auto&statement:program.statements)if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(statement);fn&&!fn->isExtern){Annotator annotator(diagnostics);annotator.function(fn);}
+    for(const auto&statement:program.statements)if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(statement);fn&&!fn->isExtern&&!fn->isForward){Annotator annotator(diagnostics,allowUnsafe);annotator.function(fn);}
     return diagnostics.items().size()==before;
 }
 
