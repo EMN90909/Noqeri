@@ -43,7 +43,7 @@ static Module loadNqo2(const std::vector<std::uint8_t>& bytes) {
     std::size_t off=32+sourceBytes;
     for(std::uint32_t n=0;n<functionCount;++n,off+=40){Function f;f.symbol=u64(bytes,off);f.nameStart=u32(bytes,off+8);f.nameEnd=u32(bytes,off+12);f.firstInstruction=u32(bytes,off+16);f.instructionCount=u32(bytes,off+20);f.parameterCount=u32(bytes,off+24);f.flags=u32(bytes,off+28);if(f.symbol==0||f.nameEnd<=f.nameStart||f.nameEnd>m.source.size()||static_cast<std::uint64_t>(f.firstInstruction)+f.instructionCount>instructionCount)throw RuntimeError("invalid function record");f.name.assign(reinterpret_cast<const char*>(m.source.data()+f.nameStart),f.nameEnd-f.nameStart);m.bySymbol[f.symbol]=m.functions.size();m.byName[f.name]=m.functions.size();m.functions.push_back(std::move(f));}
     for(std::uint32_t n=0;n<instructionCount;++n,off+=96){Instruction x;x.opcode=u32(bytes,off);x.typeCode=u32(bytes,off+4);x.flags=u32(bytes,off+8);x.dest=i64(bytes,off+16);x.left=i64(bytes,off+24);x.right=i64(bytes,off+32);x.immediate=i64(bytes,off+40);x.symbol=u64(bytes,off+48);x.width=u64(bytes,off+56);x.sourceStart=u64(bytes,off+64);x.sourceEnd=u64(bytes,off+72);x.floatImmediate=f64bits(u64(bytes,off+80));if(x.opcode>47||x.sourceEnd<x.sourceStart||x.sourceEnd>m.source.size())throw RuntimeError("invalid instruction record");m.instructions.push_back(x);}
-    const std::regex rec(R"(records+([A-Za-z_][A-Za-z0-9_]*))"); for(std::sregex_iterator it(m.sourceText.begin(),m.sourceText.end(),rec),end;it!=end;++it)m.recordTypes.insert((*it)[1].str());
+    const std::regex rec(R"(\brecord\s+([A-Za-z_][A-Za-z0-9_]*))"); for(std::sregex_iterator it(m.sourceText.begin(),m.sourceText.end(),rec),end;it!=end;++it)m.recordTypes.insert((*it)[1].str());
     return m;
 }
 
@@ -59,8 +59,7 @@ static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, con
     std::ifstream manifest(manifestPath);
     if (!manifest) throw RuntimeError("cannot open source manifest " + manifestPath);
     std::ostringstream merged;
-    merged << "module noqeri.compiler.selfhost.bundle
-";
+    merged << "module noqeri.compiler.selfhost.bundle\n";
     std::unordered_set<std::string> seen;
     std::string relative;
     while (std::getline(manifest, relative)) {
@@ -76,11 +75,9 @@ static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, con
         while (std::getline(input, line)) {
             const auto clean = trim(line);
             if (clean.rfind("module ", 0) == 0 || clean.rfind("import ", 0) == 0) continue;
-            merged << line << '
-';
+            merged << line << '\n';
         }
-        merged << '
-';
+        merged << '\n';
     }
     const auto text = merged.str();
     return std::vector<std::uint8_t>(text.begin(), text.end());
