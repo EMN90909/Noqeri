@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Reference/parity VM only. The compiler bootstrap now uses Runtime/native/nqo_vm.cpp.
+// Keep this implementation for differential testing while the native host is qualified.
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
