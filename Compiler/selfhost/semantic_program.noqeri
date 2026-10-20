@@ -529,7 +529,11 @@ function nqSemanticAnalyzeProgramCore(source: []u8, nodes: []NqAstNode, nodeCoun
             }
             if node.extra >= 0 as isize {
                 let status: isize = nqSemanticStatement(source, nodes, node.extra, slice(symbols), &context, slice(functions), slice(parameters), slice(records), recordCount, slice(fields))
-                if status < 0 as isize { if outErrorStart != null { outErrorStart[0] = context.errorStart } return status }
+                if status < 0 as isize {
+                    if context.errorStart == 0 as usize { context.errorStart = nodes[node.extra as usize].start }
+                    if outErrorStart != null { outErrorStart[0] = context.errorStart }
+                    return status
+                }
             }
             nqSymbolsPopScope(slice(symbols), &context.symbolCount, 1 as usize)
             context.currentFunction = nqAstNoNode()
@@ -537,7 +541,11 @@ function nqSemanticAnalyzeProgramCore(source: []u8, nodes: []NqAstNode, nodeCoun
             context.scopeDepth = 0 as usize
         } else if node.tag == nqAstBinding() || nqAstIsStatement(node.tag) {
             let status: isize = nqSemanticStatement(source, nodes, cursor, slice(symbols), &context, slice(functions), slice(parameters), slice(records), recordCount, slice(fields))
-            if status < 0 as isize { if outErrorStart != null { outErrorStart[0] = context.errorStart } return status }
+            if status < 0 as isize {
+                if context.errorStart == 0 as usize { context.errorStart = node.start }
+                if outErrorStart != null { outErrorStart[0] = context.errorStart }
+                return status
+            }
         }
         cursor = node.next
     }
