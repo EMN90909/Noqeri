@@ -223,7 +223,15 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         return nqSemanticFail(context, node, nqSemanticUnknownName())
     }
     if node.tag == nqAstArray() {
-        if node.extra <= 0 as isize || node.right < 0 as isize { return nqSemanticFail(context, node, nqSemanticInvalidArrayElement()) }
+        if node.extra < 0 as isize { return nqSemanticFail(context, node, nqSemanticInvalidArrayElement()) }
+        if node.extra == 0 as isize {
+            node.typeCode = nqAstTypeArray()
+            node.elementTypeCode = nqAstTypeUnknown()
+            node.elementTypeSymbol = 0 as u64
+            node.arrayLength = 0 as usize
+            return nqSemanticOk()
+        }
+        if node.right < 0 as isize { return nqSemanticFail(context, node, nqSemanticInvalidArrayElement()) }
         let element: isize = node.right
         let expectedCode: int = nqAstTypeUnknown()
         let expectedSymbol: u64 = 0 as u64
@@ -232,7 +240,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             let status: isize = nqSemanticExpression(source, nodes, element, symbols, context, functions, functionParameters, records, recordCount, fields)
             if status < 0 as isize { return status }
             if expectedCode == nqAstTypeUnknown() { expectedCode = nodes[element as usize].typeCode expectedSymbol = nodes[element as usize].typeSymbol }
-            else if !nqSemanticAssignable(nodes[element as usize].typeCode, expectedCode) { return nqSemanticInvalidArrayElement() }
+            else if !nqSemanticAssignable(nodes[element as usize].typeCode, expectedCode) { return nqSemanticFail(context, node, nqSemanticInvalidArrayElement()) }
             element = nodes[element as usize].next
             count = count + 1 as usize
         }
