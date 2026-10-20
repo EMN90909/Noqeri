@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { resolve, dirname, extname } from 'node:path'
+import { resolve, dirname, extname, relative, sep } from 'node:path'
 
 // Browser ES-module emitter for Stage-2 validated Noqeri source.
 // Semantic/type ownership stays in the Noqeri Stage-2 compiler. This module is
@@ -28,7 +28,7 @@ function lex(source) {
 
 function isIdentifier(value) { return /^[A-Za-z_$][\w$]*$/.test(value) && !keywords.has(value) }
 function quote(value) { return JSON.stringify(value) }
-function replaceExtension(path, extension='.js') { return path.replace(/\.nqr(?=([?#]|$))/i, extension) }
+function replaceExtension(path, extension='.js') { return path.replace(/\.nqr(?=([?#]|$))/i, extension) }\nfunction inside(root,file){ const rel=relative(resolve(root),resolve(file)); return rel===''||(rel!=='..'&&!rel.startsWith('..'+sep)) }\nfunction commentPath(file){ return String(file).replace(/[\r\n\u2028\u2029]/g,' ') }
 
 class Parser {
   constructor(source,{modulePath='<memory>'}={}) {
@@ -273,7 +273,7 @@ export function compileWeb(source,{modulePath='<memory>'}={}) {
   return runtimePrelude+hostWrappers(parsed.externs)+parsed.body
 }
 
-async function loadGraph(entry,{readSource=async path=>readFile(path,'utf8'),resolvePackage=null}={}) {
+async function loadGraph(entry,{readSource=async path=>readFile(path,'utf8'),resolvePackage=null,root=null}={}) {
   const seen=new Set(), ordered=[]
   async function visit(file) {
     const absolute=resolve(file)
@@ -306,7 +306,7 @@ export async function compileWebGraph(entry,options={}) {
       if(prior&&prior!==file) throw Error(`duplicate function ${name} across ${prior} and ${file}`)
       functionOwners.set(name,file)
     }
-    chunks.push(`\n// ${file}\n${parsed.body}`)
+    chunks.push(`\n// ${commentPath(file)}\n${parsed.body}`)
   }
   return runtimePrelude+hostWrappers([...externs])+chunks.join('')
 }
