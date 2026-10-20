@@ -131,20 +131,38 @@ export function nqTypeRefParse(source: []u8, start: usize, out: *NqTypeRef): usi
     let nameEnd: usize = cursor
     out.code = nqCompilerTypeCodeFromSource(source, nameStart)
     out.nameSymbol = nqTypeNameSymbol(source, nameStart, nameEnd)
-    cursor = nqTypeSkip(source, cursor)
+    // Match nqParserScanType: generic '<...>' must be adjacent to the type
+    // name. A spaced '<' belongs to the surrounding expression, such as
+    // "value as usize < limit". If an adjacent '<' does not form a complete
+    // generic type, leave it to the expression parser instead of rejecting the
+    // cast target.
     if cursor < len(source) && source[cursor] == 60 as u8 {
-        cursor = nqTypeSkip(source, cursor + 1 as usize)
-        while true {
-            let arg: NqTypeRef
-            let argEnd: usize = nqTypeRefParse(source, cursor, &arg)
-            if argEnd <= cursor { return start }
-            if out.genericArgCount == 0 as usize { out.firstGenericCode = arg.code out.firstGenericSymbol = arg.nameSymbol }
-            out.genericArgCount = out.genericArgCount + 1 as usize
-            cursor = nqTypeSkip(source, argEnd)
-            if cursor >= len(source) { return start }
-            if source[cursor] == 62 as u8 { cursor = cursor + 1 as usize break }
-            if source[cursor] != 44 as u8 { return start }
-            cursor = nqTypeSkip(source, cursor + 1 as usize)
+        let genericCursor: usize = nqTypeSkip(source, cursor + 1 as usize)
+        let firstArg: NqTypeRef
+        let firstEnd: usize = nqTypeRefParse(source, genericCursor, &firstArg)
+        if firstEnd > genericCursor {
+            let probe: usize = nqTypeSkip(source, firstEnd)
+            let argCount: usize = 1 as usize
+            let firstCode: int = firstArg.code
+            let firstSymbol: u64 = firstArg.nameSymbol
+            while probe < len(source) && source[probe] == 44 as u8 {
+                probe = nqTypeSkip(source, probe + 1 as usize)
+                let nextArg: NqTypeRef
+                let nextEnd: usize = nqTypeRefParse(source, probe, &nextArg)
+                if nextEnd <= probe { probe = nameEnd break }
+                argCount = argCount + 1 as usize
+                probe = nqTypeSkip(source, nextEnd)
+            }
+            if probe < len(source) && source[probe] == 62 as u8 {
+                out.genericArgCount = argCount
+                out.firstGenericCode = firstCode
+                out.firstGenericSymbol = firstSymbol
+                cursor = probe + 1 as usize
+            } else {
+                cursor = nameEnd
+            }
+        } else {
+            cursor = nameEnd
         }
     }
     out.end = cursor
