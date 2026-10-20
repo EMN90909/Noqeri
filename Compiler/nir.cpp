@@ -15,8 +15,8 @@ NirProgram Lowerer::lower(const Program&program){
     NirProgram out;out.entry.name="__entry";
     for(const auto&s:program.statements){
         if(auto f=std::dynamic_pointer_cast<FunctionStmt>(s)){
-            NirFunction nf;nf.name=f->name;nf.genericParams=f->genericParams;nf.isExtern=f->isExtern;nf.isExport=f->isExport;for(const auto&p:f->params)nf.params.push_back(p.name);
-            if(!f->isExtern){for(const auto&x:f->body->statements)lowerStmt(nf,x);if(nf.code.empty()||nf.code.back().op!=NirOp::Return){NirInstruction r;r.op=NirOp::Return;nf.code.push_back(r);}}
+            NirFunction nf;nf.name=f->name;nf.genericParams=f->genericParams;nf.isExtern=f->isExtern||f->isForward;nf.isExport=f->isExport;for(const auto&p:f->params)nf.params.push_back(p.name);
+            if(!f->isExtern&&!f->isForward){for(const auto&x:f->body->statements)lowerStmt(nf,x);if(nf.code.empty()||nf.code.back().op!=NirOp::Return){NirInstruction r;r.op=NirOp::Return;nf.code.push_back(r);}}
             out.functions.push_back(std::move(nf));
         }else if(!std::dynamic_pointer_cast<RecordStmt>(s)&&!std::dynamic_pointer_cast<ImportStmt>(s)&&!std::dynamic_pointer_cast<ModuleStmt>(s))lowerStmt(out.entry,s);
     }
