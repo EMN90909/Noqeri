@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Static web assets only. This is NOT a Noqeri-to-JavaScript compiler.
+// Static web project builder with a restricted Noqeri-to-ES-module compiler.
+// This compiler accepts a deliberately limited browser-safe language subset.
 import { cp, lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { resolve, relative, join, dirname, extname, sep } from 'node:path'
 import { compileWeb } from './web-compiler.mjs'
