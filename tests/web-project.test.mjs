@@ -31,6 +31,13 @@ test('compiles local Noqeri imports into the entry module',()=>fixture(async roo
  await buildWebProject({source:src,out:dist})
  const mod=await import(pathToFileURL(join(dist,'app.js')).href+'?t='+Date.now());assert.equal(mod.answer(),42)
 }))
+test('rejects Noqeri imports that escape the web project',()=>fixture(async root=>{
+ const src=join(root,'src'),dist=join(root,'dist');await mkdir(src)
+ await writeFile(join(root,'secret.nqr'),'function secret(): int { return 7 }')
+ await writeFile(join(src,'index.html'),'<script src="app.nqr"></script>')
+ await writeFile(join(src,'app.nqr'),'import "../secret.nqr"\nexport function x(): int { return secret() }')
+ await assert.rejects(buildWebProject({source:src,out:dist}),/import escapes web project/)
+}))
 test('rejects path traversal and symlinks',()=>fixture(async root=>{
  const src=join(root,'src');await mkdir(src);await writeFile(join(src,'index.html'),'<script src="../secret.js"></script>')
  await assert.rejects(buildWebProject({source:src,out:join(root,'dist')}),/escapes project/)
