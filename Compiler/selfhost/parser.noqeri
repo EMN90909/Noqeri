@@ -102,18 +102,21 @@ export function nqParserScanType(source: []u8, start: usize): usize {
     // "value as usize < limit", and must not be consumed as "usize<limit>".
     index = nameEnd
     if index < len(source) && source[index] == 60 as u8 {
-        index = nqCompilerSkipTrivia(source, index + 1 as usize)
-        let argumentEnd: usize = nqParserScanType(source, index)
-        if argumentEnd <= index { return start }
-        index = nqCompilerSkipTrivia(source, argumentEnd)
-        while index < len(source) && source[index] == 44 as u8 {
-            index = nqCompilerSkipTrivia(source, index + 1 as usize)
-            let nextArgument: usize = nqParserScanType(source, index)
-            if nextArgument <= index { return start }
-            index = nqCompilerSkipTrivia(source, nextArgument)
+        // '<' is ambiguous with the comparison operator after a cast. Only
+        // commit to a generic application when a complete '<...>' type parses.
+        // Otherwise leave '<' to the surrounding expression parser.
+        let genericCursor: usize = nqCompilerSkipTrivia(source, index + 1 as usize)
+        let argumentEnd: usize = nqParserScanType(source, genericCursor)
+        if argumentEnd <= genericCursor { return nameEnd }
+        genericCursor = nqCompilerSkipTrivia(source, argumentEnd)
+        while genericCursor < len(source) && source[genericCursor] == 44 as u8 {
+            genericCursor = nqCompilerSkipTrivia(source, genericCursor + 1 as usize)
+            let nextArgument: usize = nqParserScanType(source, genericCursor)
+            if nextArgument <= genericCursor { return nameEnd }
+            genericCursor = nqCompilerSkipTrivia(source, nextArgument)
         }
-        if index >= len(source) || source[index] != 62 as u8 { return start }
-        return index + 1 as usize
+        if genericCursor >= len(source) || source[genericCursor] != 62 as u8 { return nameEnd }
+        return genericCursor + 1 as usize
     }
     return nameEnd
 }
