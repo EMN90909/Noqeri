@@ -113,6 +113,14 @@ jobs:
             test -z "$source" && continue
             ./build-native/noqeri-nqri syntax build-native/noqeri-stage1.nqri "$source"
           done < Compiler/selfhost/stage2-sources.txt
+      - name: Upload generated trusted Stage-1 seed
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-stage1-seed-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: build-native/noqeri-stage1.nqri
       - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Linux)
         if: runner.os == 'Linux'
         shell: bash
