@@ -107,26 +107,31 @@ export function nqNirInstructionInit(out: *NqNirInstruction, opcode: int, dest: 
     out.flags = 0 as u32
 }
 
+export function nqNirInstructionInvalidReason(instruction: *NqNirInstruction): int {
+    if instruction == null { return 1 }
+    if !nqNirOpcodeValid(instruction.opcode) { return 2 }
+    if instruction.sourceEnd < instruction.sourceStart { return 3 }
+    if nqNirDefinesValue(instruction.opcode) && instruction.dest < 0 as isize { return 4 }
+    if instruction.opcode == nqNirMove() && instruction.left < 0 as isize { return 5 }
+    if nqNirIsPureArithmetic(instruction.opcode) && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return 6 }
+    if instruction.opcode == nqNirTry() && instruction.left < 0 as isize { return 7 }
+    if instruction.opcode == nqNirBoundsCheck() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return 8 }
+    if instruction.opcode == nqNirStore() && (instruction.symbol == 0 as u64 || instruction.left < 0 as isize) { return 9 }
+    if instruction.opcode == nqNirLoad() && instruction.symbol == 0 as u64 { return 10 }
+    if instruction.opcode == nqNirAddr() && instruction.symbol == 0 as u64 { return 11 }
+    if instruction.opcode == nqNirLoadMemory() && instruction.left < 0 as isize { return 12 }
+    if instruction.opcode == nqNirStoreMemory() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return 13 }
+    if instruction.opcode == nqNirPtrAdd() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return 14 }
+    if instruction.opcode == nqNirMakeSlice() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return 15 }
+    if instruction.opcode == nqNirBranch() && instruction.left < 0 as isize { return 16 }
+    if instruction.opcode == nqNirCall() && instruction.symbol == 0 as u64 { return 17 }
+    if instruction.opcode == nqNirCallArg() && instruction.left < 0 as isize { return 18 }
+    if instruction.opcode == nqNirParameter() && instruction.symbol == 0 as u64 { return 19 }
+    return 0
+}
+
 export function nqNirInstructionValid(instruction: *NqNirInstruction): bool {
-    if instruction == null || !nqNirOpcodeValid(instruction.opcode) { return false }
-    if instruction.sourceEnd < instruction.sourceStart { return false }
-    if nqNirDefinesValue(instruction.opcode) && instruction.dest < 0 as isize { return false }
-    if instruction.opcode == nqNirMove() && instruction.left < 0 as isize { return false }
-    if nqNirIsPureArithmetic(instruction.opcode) && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return false }
-    if instruction.opcode == nqNirTry() && instruction.left < 0 as isize { return false }
-    if instruction.opcode == nqNirBoundsCheck() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return false }
-    if instruction.opcode == nqNirStore() && (instruction.symbol == 0 as u64 || instruction.left < 0 as isize) { return false }
-    if instruction.opcode == nqNirLoad() && instruction.symbol == 0 as u64 { return false }
-    if instruction.opcode == nqNirAddr() && instruction.symbol == 0 as u64 { return false }
-    if instruction.opcode == nqNirLoadMemory() && instruction.left < 0 as isize { return false }
-    if instruction.opcode == nqNirStoreMemory() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return false }
-    if instruction.opcode == nqNirPtrAdd() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return false }
-    if instruction.opcode == nqNirMakeSlice() && (instruction.left < 0 as isize || instruction.right < 0 as isize) { return false }
-    if instruction.opcode == nqNirBranch() && instruction.left < 0 as isize { return false }
-    if instruction.opcode == nqNirCall() && instruction.symbol == 0 as u64 { return false }
-    if instruction.opcode == nqNirCallArg() && instruction.left < 0 as isize { return false }
-    if instruction.opcode == nqNirParameter() && instruction.symbol == 0 as u64 { return false }
-    return true
+    return nqNirInstructionInvalidReason(instruction) == 0
 }
 
 export function nqNirInstructionUses(instruction: *NqNirInstruction, value: isize): bool {
