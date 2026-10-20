@@ -62,6 +62,10 @@ MSG
 fi
 
 "$RUNTIME" --selftest
+if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqo; then
+  echo "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqo." >&2
+  exit 2
+fi
 "$RUNTIME" compile-manifest "$SEED" "$ROOT" "$MANIFEST" "$STAGE2" "$TARGET"
 "$RUNTIME" compile-manifest "$STAGE2" "$ROOT" "$MANIFEST" "$STAGE3" "$TARGET"
 
