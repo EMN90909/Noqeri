@@ -140,8 +140,9 @@ jobs:
         shell: pwsh
         run: |
           $env:BUILD_DIR = Join-Path $PWD 'build-selfhost'
-          $env:NOQERI_STAGE1_NQRI = Join-Path $PWD 'build-native\noqeri-stage1.nqri'
           $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
+          $env:NOQERI_STAGE0_CPP = Join-Path $PWD 'build-native\Release\noqeri.exe'
+          Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
           .\scripts\bootstrap-native.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload trusted Stage-1 seed and proof
