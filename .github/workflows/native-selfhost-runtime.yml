@@ -10,6 +10,7 @@ on:
       - 'scripts/bootstrap-native.*'
       - 'scripts/build.*'
       - 'CMakeLists.txt'
+      - 'tests/zero_init.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - 'scripts/bootstrap-native.*'
       - 'scripts/build.*'
       - 'CMakeLists.txt'
+      - 'tests/zero_init.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -39,6 +41,25 @@ jobs:
         run: cmake --build build-native --target noqeri noqeri-nqri --config Release
       - name: Run native NQRI self-test
         run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqri-selftest$'
+      - name: Verify zero initialization through C++ -> NQRI (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check tests/zero_init.noqeri
+          ./build-native/noqeri nqri tests/zero_init.noqeri build-native/zero-init.nqri
+          result=$(./build-native/noqeri-nqri build-native/zero-init.nqri zeroInitCheck)
+          test "$result" = "10"
+      - name: Verify zero initialization through C++ -> NQRI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri.exe check tests\zero_init.noqeri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri.exe nqri tests\zero_init.noqeri build-native\zero-init.nqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $result = (& .\build-native\Release\noqeri-nqri.exe build-native\zero-init.nqri zeroInitCheck).Trim()
+          if ($LASTEXITCODE -ne 0 -or $result -ne '10') { throw "zero-init NQRI check returned '$result'" }
       - name: Build trusted Stage-1 NQRI seed (Linux)
         if: runner.os == 'Linux'
         shell: bash
