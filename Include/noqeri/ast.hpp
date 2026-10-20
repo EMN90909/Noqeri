@@ -13,7 +13,7 @@ namespace noe {
 enum class TokenKind {
     Eof, Identifier, Integer, Float, String,
     LineComment, BlockComment,
-    Let, Const, Function, If, Else, While, Repeat, Return, True, False, Null,
+    Let, Const, Function, If, Else, While, Repeat, Break, Continue, Return, True, False, Null,
     Import, Module, Record, Class, Extern, Export, Volatile, As, Throw, Try, Unsafe,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     Comma, Colon, Semicolon, Dot,
@@ -34,7 +34,7 @@ struct LiteralExpr final : Expr { Literal value; };
 struct NameExpr final : Expr { std::string name; };
 struct UnaryExpr final : Expr { TokenKind op; ExprPtr operand; std::size_t memoryWidth=8; bool volatileAccess=false; };
 struct BinaryExpr final : Expr { ExprPtr left; TokenKind op; ExprPtr right; };
-struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; std::string builtinText; };
+struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; std::string builtinText; };
 struct CastExpr final : Expr { ExprPtr value; std::string typeName; };
 struct IndexExpr final : Expr { ExprPtr object,index; std::size_t elementSize=1; bool volatileAccess=false; bool baseIsSlice=false; bool hasFixedBound=false; std::size_t fixedBound=0; };
 struct MemberExpr final : Expr { ExprPtr object; std::string member; std::size_t offset=0; std::size_t fieldSize=0; bool volatileAccess=false; bool baseIsPointer=false; };
@@ -47,6 +47,8 @@ struct LetStmt final : Stmt { bool isConst=false; std::string name; std::optiona
 struct BlockStmt final : Stmt { std::vector<StmtPtr> statements; bool isUnsafe=false; };
 struct IfStmt final : Stmt { ExprPtr condition; StmtPtr thenBranch; StmtPtr elseBranch; };
 struct WhileStmt final : Stmt { ExprPtr condition; StmtPtr body; };
+struct BreakStmt final : Stmt {};
+struct ContinueStmt final : Stmt {};
 struct ReturnStmt final : Stmt { ExprPtr value; };
 struct ThrowStmt final : Stmt { ExprPtr value; };
 struct Parameter { std::string name; std::optional<std::string> annotation; Span span; };
