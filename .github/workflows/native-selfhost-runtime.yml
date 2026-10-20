@@ -22,6 +22,7 @@ on:
       - 'scripts/build.*'
       - 'CMakeLists.txt'
       - 'tests/zero_init.noqeri'
+      - 'tests/bootstrap_language_compat.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -92,6 +93,8 @@ jobs:
           test "$cast_result" = "1"
           promotion_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri integerLiteralPromotion)
           test "$promotion_result" = "14"
+          empty_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri zeroLengthArrayContext)
+          test "$empty_result" = "0"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -106,6 +109,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
           $promotionResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri integerLiteralPromotion).Trim()
           if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
+          $emptyResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri zeroLengthArrayContext).Trim()
+          if ($LASTEXITCODE -ne 0 -or $emptyResult -ne '0') { throw "zero-length array compatibility returned '$emptyResult'" }
       - name: Build trusted Stage-1 NQRI seed (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -117,6 +122,7 @@ jobs:
             test -z "$source" && continue
             ./build-native/noqeri-nqri syntax build-native/noqeri-stage1.nqri "$source"
           done < Compiler/selfhost/stage2-sources.txt
+          ./build-native/noqeri-nqri check build-native/noqeri-stage1.nqri tests/bootstrap_language_compat.noqeri 3
       - name: Verify self-hosted zero initialization (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -153,6 +159,8 @@ jobs:
             & .\build-native\Release\noqeri-nqri.exe syntax build-native\noqeri-stage1.nqri $source
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+          & .\build-native\Release\noqeri-nqri.exe check build-native\noqeri-stage1.nqri tests\bootstrap_language_compat.noqeri 3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
