@@ -58,11 +58,19 @@ StmtPtr Parser::declaration(){
     if(match({TokenKind::Extern})) isExtern=true;
     if(isExport && match({TokenKind::Extern})) isExtern=true;
     if(isExtern && match({TokenKind::Export})) isExport=true;
-    if(match({TokenKind::Function})) return functionDeclaration(isExtern,isExport);
-    if(isExport||isExtern){diagnostics_.error("NOE-P2010",previous().span,"export/extern currently apply to function declarations");throw ParseError("parse");}
-    if(match({TokenKind::Module}))return moduleDeclaration();
-    if(match({TokenKind::Import}))return importDeclaration();
-    if(match({TokenKind::Record}))return recordDeclaration();
+
+    auto nextKind=[&](std::size_t offset)->TokenKind{
+        const auto index=current_+offset;
+        return index<tokens_.size()?tokens_[index].kind:TokenKind::Eof;
+    };
+    const bool functionDecl=check(TokenKind::Function)&&isNameKind(nextKind(1))&&(nextKind(2)==TokenKind::LParen||nextKind(2)==TokenKind::Less);
+    if((isExport||isExtern)||functionDecl){
+        if(!match({TokenKind::Function})){diagnostics_.error("NOE-P2010",peek().span,"export/extern currently apply to function declarations");throw ParseError("parse");}
+        return functionDeclaration(isExtern,isExport);
+    }
+    if(check(TokenKind::Module)&&isNameKind(nextKind(1))){advance();return moduleDeclaration();}
+    if(check(TokenKind::Import)&&nextKind(1)==TokenKind::String){advance();return importDeclaration();}
+    if(check(TokenKind::Record)&&isNameKind(nextKind(1))&&nextKind(2)==TokenKind::LBrace){advance();return recordDeclaration();}
     if(match({TokenKind::Let}))return letDeclaration(false);
     if(match({TokenKind::Const}))return letDeclaration(true);
     return statement();
