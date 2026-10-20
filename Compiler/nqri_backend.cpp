@@ -275,11 +275,14 @@ bool translateFunction(const NirFunction& fn,
                 if (i.args.size() != 2) { diagnostics.error("NQR-B9013", {}, "malformed bounds check in C++ NIR"); return false; }
                 x.opcode = 35; x.left = i.args[0]; x.right = i.args[1]; out.push_back(x); break;
             case NirOp::AtomicLoad:
-                if (i.args.size()!=1) return false; x.opcode=26; x.left=i.args[0]; out.push_back(x); break;
+                if (i.args.size()!=1) { diagnostics.error("NQR-B9029", {}, "malformed atomic load in C++ NIR"); return false; }
+                x.opcode=26; x.left=i.args[0]; out.push_back(x); break;
             case NirOp::AtomicStore:
-                if (i.args.size()!=2) return false; x.opcode=27; x.left=i.args[0]; x.right=i.args[1]; out.push_back(x); break;
+                if (i.args.size()!=2) { diagnostics.error("NQR-B9030", {}, "malformed atomic store in C++ NIR"); return false; }
+                x.opcode=27; x.left=i.args[0]; x.right=i.args[1]; out.push_back(x); break;
             case NirOp::AtomicExchange:
-                if (i.args.size()!=2) return false; x.opcode=28; x.left=i.args[0]; x.right=i.args[1]; out.push_back(x); break;
+                if (i.args.size()!=2) { diagnostics.error("NQR-B9031", {}, "malformed atomic exchange in C++ NIR"); return false; }
+                x.opcode=28; x.left=i.args[0]; x.right=i.args[1]; out.push_back(x); break;
             case NirOp::AtomicCompareExchange:
                 diagnostics.error("NQR-B9014", {}, "compare-exchange is not accepted in a trusted Stage-0 NQRI seed");
                 return false;
@@ -292,16 +295,18 @@ bool translateFunction(const NirFunction& fn,
                 diagnostics.error("NQR-B9016", {}, "inline assembly is not accepted in a portable trusted NQRI seed");
                 return false;
             case NirOp::Try:
-                if (i.args.size()!=1) return false; x.opcode=33; x.left=i.args[0]; out.push_back(x); break;
+                if (i.args.size()!=1) { diagnostics.error("NQR-B9032", {}, "malformed try instruction in C++ NIR"); return false; }
+                x.opcode=33; x.left=i.args[0]; out.push_back(x); break;
             case NirOp::Throw:
-                if (i.args.size()!=1) return false; x.opcode=34; x.left=i.args[0]; out.push_back(x); break;
+                if (i.args.size()!=1) { diagnostics.error("NQR-B9033", {}, "malformed throw instruction in C++ NIR"); return false; }
+                x.opcode=34; x.left=i.args[0]; out.push_back(x); break;
             case NirOp::Jump: {
                 const auto target = absoluteTarget(i.target);
                 if (!target) { diagnostics.error("NQR-B9017", {}, "jump target overflow in NQRI emitter"); return false; }
                 x.opcode = 19; x.immediate = *target; out.push_back(x); break;
             }
             case NirOp::JumpIfFalse: {
-                if (i.args.size()!=1) return false;
+                if (i.args.size()!=1) { diagnostics.error("NQR-B9034", {}, "malformed conditional branch in C++ NIR"); return false; }
                 const auto target = absoluteTarget(i.target);
                 if (!target) { diagnostics.error("NQR-B9018", {}, "branch target overflow in NQRI emitter"); return false; }
                 x.opcode = 20; x.left = i.args[0]; x.immediate = *target; out.push_back(x); break;
