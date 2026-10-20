@@ -7,6 +7,7 @@ import "symbols.noqeri"
 import "semantics.noqeri"
 import "record_layout.noqeri"
 import "generic_metadata.noqeri"
+import "zero_init.noqeri"
 
 record NqFunctionInfo {
     symbol: u64
@@ -185,12 +186,6 @@ export function nqSemanticBuildFunctions(source: []u8, nodes: []NqAstNode, first
             if existingIndex >= 0 as isize {
                 let existing: *NqFunctionInfo = &functions[existingIndex as usize]
                 let existingNode: *NqAstNode = &nodes[existing.astIndex as usize]
-                let existingReturn: NqTypeRef
-                existingReturn.code = existing.returnCode
-                existingReturn.nameSymbol = existing.returnSymbol
-                existingReturn.elementCode = existing.returnElementCode
-                existingReturn.elementSymbol = existing.returnElementSymbol
-                existingReturn.arrayLength = 0 as usize
                 let signatureMatches: bool = existing.returnCode == returnRef.code &&
                     existing.returnSymbol == returnRef.nameSymbol &&
                     existing.returnElementCode == returnRef.elementCode &&
@@ -561,6 +556,12 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
             let end: usize = nqTypeRefParse(source, node.extra as usize, &declared)
             if end <= node.extra as usize { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             nqSemanticNormalizeRef(nodes, context.currentFunction, &declared)
+            if (node.flags / nqZeroInitFlag()) % 2 as u32 == 1 as u32 {
+                // The zero-init normalization inserts a synthetic type-value
+                // expression. Give it the declaration's exact type before the
+                // ordinary assignment and aggregate checks run.
+                nqSemanticApplyRef(value, &declared)
+            }
             if !nqSemanticExpressionAssignable(source, nodes, node.right, declared.code) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             if declared.code == nqAstTypeArray() {
                 if value.typeCode != nqAstTypeArray() || value.arrayLength != declared.arrayLength { return nqSemanticFail(context, value, nqSemanticInvalidArrayElement()) }
