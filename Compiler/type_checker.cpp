@@ -203,7 +203,20 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Type from=checkExpr(e->value),to=resolveType(e->typeName,e->span);bool ok=(from.isNumeric()&&to.isNumeric())||(from.kind==TypeKind::Pointer&&to.kind==TypeKind::Pointer)||(from.kind==TypeKind::Pointer&&(to.kind==TypeKind::Usize||to.kind==TypeKind::Isize))||(to.kind==TypeKind::Pointer&&(from.kind==TypeKind::Usize||from.kind==TypeKind::Isize||from.kind==TypeKind::Int))||(from.kind==TypeKind::Null&&to.kind==TypeKind::Pointer);if(!ok&&from.kind!=TypeKind::Unknown&&to.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3027",e->span,"cannot cast "+from.name()+" to "+to.name());return to;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
         if(e->op==TokenKind::Equal){Type lhs=checkExpr(e->left),rhs=checkExpr(e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left))if(isConstSymbol(n->name))diagnostics_.error("NOE-T3014",e->span,"cannot assign to const '"+n->name+"'");if(!canAssignValue(lhs,rhs,e->right))diagnostics_.error("NOE-T3001",e->span,"cannot assign "+rhs.name()+" to "+lhs.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");return lhs;}
-        Type l=checkExpr(e->left),r=checkExpr(e->right);switch(e->op){case TokenKind::Plus:if(l.kind==TypeKind::String&&r.kind==TypeKind::String)return simple(TypeKind::String);if(l.kind==TypeKind::Pointer&&r.isInteger())return l;if(r.kind==TypeKind::Pointer&&l.isInteger())return r;[[fallthrough]];case TokenKind::Minus:case TokenKind::Star:case TokenKind::Slash:case TokenKind::Percent:if((!l.isNumeric()||!r.isNumeric())&&l.kind!=TypeKind::Unknown&&r.kind!=TypeKind::Unknown&&l.kind!=TypeKind::Generic&&r.kind!=TypeKind::Generic)diagnostics_.error("NOE-T3007",e->span,"arithmetic operator requires numeric operands");return(l.kind==TypeKind::Float||r.kind==TypeKind::Float)?simple(TypeKind::Float):l;case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return simple(TypeKind::Bool);default:return simple(TypeKind::Unknown);}
+        Type l=checkExpr(e->left),r=checkExpr(e->right);switch(e->op){case TokenKind::Plus:if(l.kind==TypeKind::String&&r.kind==TypeKind::String)return simple(TypeKind::String);if(l.kind==TypeKind::Pointer&&r.isInteger())return l;if(r.kind==TypeKind::Pointer&&l.isInteger())return r;[[fallthrough]];case TokenKind::Minus:case TokenKind::Star:case TokenKind::Slash:case TokenKind::Percent:
+            if((!l.isNumeric()||!r.isNumeric())&&l.kind!=TypeKind::Unknown&&r.kind!=TypeKind::Unknown&&l.kind!=TypeKind::Generic&&r.kind!=TypeKind::Generic){diagnostics_.error("NOE-T3007",e->span,"arithmetic operator requires numeric operands");return simple(TypeKind::Unknown);}
+            if(l.kind==TypeKind::Float||r.kind==TypeKind::Float)return simple(TypeKind::Float);
+            if(l.kind==TypeKind::Unknown||r.kind==TypeKind::Unknown||l.kind==TypeKind::Generic||r.kind==TypeKind::Generic)return l;
+            if(l.kind==r.kind)return l;
+            if(l.isInteger()&&r.isInteger()){
+                if(auto literal=literalInteger(e->right);literal&&literalFitsInteger(l,*literal))return l;
+                if(auto literal=literalInteger(e->left);literal&&literalFitsInteger(r,*literal))return r;
+                if(canAssign(l,r))return l;
+                if(canAssign(r,l))return r;
+                diagnostics_.error("NOE-T3055",e->span,"mixed integer arithmetic requires an explicit cast when neither operand can widen safely");
+                return simple(TypeKind::Unknown);
+            }
+            return l;case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return simple(TypeKind::Bool);default:return simple(TypeKind::Unknown);}
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
         std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
