@@ -170,8 +170,8 @@ StmtPtr Parser::statement(){
     if(match({TokenKind::LBrace}))return block();
     return expressionStatement();
 }
-StmtPtr Parser::ifStatement(){Token start=previous();ExprPtr cond;if(match({TokenKind::LParen})){cond=expression();consume(TokenKind::RParen,"expected ')' after if condition");}else cond=expression();auto s=std::make_shared<IfStmt>();s->span=start.span;s->condition=cond;s->thenBranch=statement();if(match({TokenKind::Else}))s->elseBranch=statement();return s;}
-StmtPtr Parser::whileStatement(){Token start=previous();ExprPtr cond;if(match({TokenKind::LParen})){cond=expression();consume(TokenKind::RParen,"expected ')' after while condition");}else cond=expression();auto s=std::make_shared<WhileStmt>();s->span=start.span;s->condition=cond;s->body=statement();return s;}
+StmtPtr Parser::ifStatement(){Token start=previous();ExprPtr cond=expression();auto s=std::make_shared<IfStmt>();s->span=start.span;s->condition=cond;s->thenBranch=statement();if(match({TokenKind::Else}))s->elseBranch=statement();return s;}
+StmtPtr Parser::whileStatement(){Token start=previous();ExprPtr cond=expression();auto s=std::make_shared<WhileStmt>();s->span=start.span;s->condition=cond;s->body=statement();return s;}
 StmtPtr Parser::repeatStatement(){
     Token start=previous();
     auto count=expression();
