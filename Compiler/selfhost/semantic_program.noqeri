@@ -430,6 +430,15 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
             if end <= node.extra as usize { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             nqSemanticNormalizeRef(nodes, context.currentFunction, &declared)
             if !nqSemanticAssignable(value.typeCode, declared.code) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+            if declared.code == nqAstTypeArray() {
+                if value.typeCode != nqAstTypeArray() || value.arrayLength != declared.arrayLength { return nqSemanticFail(context, value, nqSemanticInvalidArrayElement()) }
+                if value.arrayLength == 0 as usize && value.elementTypeCode == nqAstTypeUnknown() {
+                    value.elementTypeCode = declared.elementCode
+                    value.elementTypeSymbol = declared.elementSymbol
+                } else if !nqSemanticAssignable(value.elementTypeCode, declared.elementCode) {
+                    return nqSemanticFail(context, value, nqSemanticInvalidArrayElement())
+                }
+            }
             nqSemanticApplyRef(node, &declared)
         } else { nqAstApplyType(node, value.typeCode, value.typeSymbol, value.elementTypeCode, value.elementTypeSymbol, value.arrayLength) }
         let name: *NqAstNode = &nodes[node.left as usize]
