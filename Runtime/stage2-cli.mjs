@@ -9,7 +9,7 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri web-project [source-dir] [output-dir] (HTML/CSS/JS assets only)\n  noqeri web <file.nqr> <output.mjs> (restricted browser subset)\n  noqeri check <file.nqr>
+  noqeri web-project [source-dir] [output-dir] (checked .nqr and static assets)\n  noqeri web <file.nqr> <output.mjs> (restricted browser subset)\n  noqeri check <file.nqr>
   noqeri syntax <file.nqr>
   noqeri lex-count <file.nqr>
   noqeri fingerprint <file.nqr>
@@ -152,8 +152,12 @@ try {
   }
   if (command === 'web-project') {
     const { buildWebProject } = await import('./web-project.mjs')
-    const result = await buildWebProject({ source: args[1] || 'web', out: args[2] || 'dist' })
-    console.log('Web assets copied: ' + result.files + ' files (' + result.html + ' HTML); Noqeri source compilation not performed')
+    const compiler = await compilerModule()
+    const result = await buildWebProject({ source: args[1] || 'web', out: args[2] || 'dist', checkSource: async (file, bytes) => {
+      await resolveAndCheckPackages(file, compiler)
+      await checkBytes(compiler, bytes, file)
+    } })
+    console.log(`Built ${result.files} web assets (${result.html} HTML, ${result.compiled} checked Noqeri modules)`)
     process.exit(0)
   }
   if (command === 'add') { if (!args[1]) throw new Error('noqeri add needs namespace/name[@version]'); await (await packages()).addPackage(args[1]); process.exit(0) }
