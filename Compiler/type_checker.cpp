@@ -118,8 +118,18 @@ bool TypeChecker::check(const Program&program){
         activeGenericParams_.clear();for(const auto&g:fn->genericParams)activeGenericParams_.insert(g);
         std::vector<Type>params;for(const auto&p:fn->params)params.push_back(p.annotation?resolveType(*p.annotation,p.span):simple(TypeKind::Unknown));
         Type ret=fn->returnType?resolveType(*fn->returnType,fn->span):simple(TypeKind::Void);
-        if(functions_.count(fn->name))diagnostics_.error("NOE-T3021",fn->span,"function '"+fn->name+"' is already declared");
-        functions_[fn->name]=FunctionType{params,ret,fn->genericParams,fn->isExtern,fn->isExport};activeGenericParams_.clear();
+        FunctionType next{params,ret,fn->genericParams,fn->isExtern,fn->isExport,{},fn->isForward};
+        auto existing=functions_.find(fn->name);
+        if(existing==functions_.end())functions_[fn->name]=next;
+        else{
+            const bool sameSignature=existing->second.params==next.params&&existing->second.result==next.result&&existing->second.genericParams==next.genericParams;
+            if(!sameSignature)diagnostics_.error("NOE-T3021",fn->span,"function '"+fn->name+"' conflicts with an earlier declaration");
+            else if(existing->second.isForward&&!next.isForward)functions_[fn->name]=next;
+            else if(!existing->second.isForward&&next.isForward){}
+            else if(existing->second.isForward&&next.isForward){}
+            else diagnostics_.error("NOE-T3021",fn->span,"function '"+fn->name+"' is already declared");
+        }
+        activeGenericParams_.clear();
     }
     for(const auto&stmt:program.statements)checkStmt(stmt);
     return!diagnostics_.hasErrors();
@@ -135,7 +145,7 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
     if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){Type v=s->value?checkExpr(s->value):simple(TypeKind::Void);if(!canAssignValue(currentReturn_,v,s->value))diagnostics_.error("NOE-T3005",s->span,"return type mismatch: expected "+currentReturn_.name()+", found "+v.name());return;}
     if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){Type code=checkExpr(s->value);if(!insideFunction_)diagnostics_.error("NOE-T3031",s->span,"throw is only valid inside a function");if(!code.isInteger()&&code.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3032",s->span,"throw requires an integer error code");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3033",s->span,"throw requires an integer-returning function","use an integer status return such as isize when using lightweight try/throw");return;}
     if(auto s=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
-        auto sig=functions_[s->name];if(s->isExtern)return;
+        auto sig=functions_[s->name];if(s->isExtern||s->isForward)return;
         Type saved=currentReturn_;bool savedInside=insideFunction_;auto savedGenerics=activeGenericParams_;
         currentReturn_=sig.result;insideFunction_=true;activeGenericParams_.clear();for(const auto&g:s->genericParams)activeGenericParams_.insert(g);
         pushScope();for(std::size_t i=0;i<s->params.size();++i)define(s->params[i].name,sig.params[i],false,s->params[i].span);for(const auto&x:s->body->statements)checkStmt(x);popScope();
