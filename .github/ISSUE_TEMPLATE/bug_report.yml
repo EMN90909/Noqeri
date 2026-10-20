@@ -9,7 +9,7 @@ body:
     validations: {required: true}
   - type: textarea
     id: repro
-    attributes: {label: Minimal .nqr reproducer, render: nqr}
+    attributes: {label: Minimal .noqeri reproducer, render: nqr}
     validations: {required: true}
   - type: input
     id: version
