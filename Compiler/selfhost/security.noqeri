@@ -17,6 +17,7 @@ export function nqSecurityLimitExceeded(): isize { return -700 }
 export function nqSecurityUnsafeDenied(): isize { return -701 }
 export function nqSecurityInvalidRange(): isize { return -702 }
 export function nqSecurityInvalidTarget(): isize { return -703 }
+export function nqSecurityInvalidInstruction(): isize { return -704 }
 
 export function nqSecurityProductionPolicy(out: *NqSecurityPolicy): void {
     out.allowUnsafe = false
@@ -55,6 +56,7 @@ export function nqSecurityProgramCheck(policy: *NqSecurityPolicy, target: int, i
     if !nqSecurityInstructionCountAllowed(policy, len(instructions)) { return nqSecurityLimitExceeded() }
     let index: usize = 0 as usize
     while index < len(instructions) {
+        if !nqNirInstructionValid(&instructions[index]) { return nqSecurityInvalidInstruction() }
         if !nqSecurityInstructionAllowed(policy, &instructions[index]) { return nqSecurityUnsafeDenied() }
         index = index + 1 as usize
     }
