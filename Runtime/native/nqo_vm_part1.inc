@@ -177,7 +177,7 @@ static void writeScalar(const PointerPtr& pointer, const Value& value, std::size
     target.block->ensure(target.offset + width);
     if (std::holds_alternative<PointerPtr>(value) || std::holds_alternative<SlicePtr>(value)) {
         target.block->refs[target.offset] = value;
-        std::fill(target.block->buffer.begin() + static_cast<std::ptrdiff_t>(target.offset), target.block->buffer.begin() + static_cast<std::ptrdiff_t>(target.offset + width), 0);
+        std::fill(target.block->buffer.begin() + static_cast<std::ptrdiff_t>(target.offset), target.block->buffer.begin() + static_cast<std::ptrdiff_t>(target.offset + width), std::uint8_t{0});
         return;
     }
     target.block->refs.erase(target.offset);
