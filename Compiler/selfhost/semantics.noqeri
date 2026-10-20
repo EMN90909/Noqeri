@@ -44,6 +44,7 @@ export function nqSemanticAssignable(fromCode: int, toCode: int): bool {
 }
 
 export function nqSemanticExplicitCastValid(fromCode: int, toCode: int): bool {
+    if fromCode == nqAstTypeUnknown() || toCode == nqAstTypeUnknown() { return true }
     if fromCode == toCode { return true }
     if nqCompilerTypeIsNumeric(fromCode) && nqCompilerTypeIsNumeric(toCode) { return true }
     if fromCode == nqAstTypePointer() && toCode == nqAstTypePointer() { return true }
