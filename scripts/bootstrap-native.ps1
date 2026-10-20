@@ -66,7 +66,39 @@ if (-not $Runtime -or -not (Test-Path $Runtime)) {
     throw 'Native NQRI runtime was not produced. Set NOQERI_NQRI_RUNTIME to noqeri-nqri.'
 }
 if (-not (Test-Path $Seed)) {
-    throw 'A trusted Stage-1 NQRI compiler seed is required. Set NOQERI_STAGE1_NQRI. After that trust boundary, Stage 1 builds Stage 2 and Stage 2 rebuilds Stage 3 using the native NQRI host.'
+    if (-not $SeedCompiler) {
+        foreach ($candidate in @(
+            (Join-Path $HostBuild 'noqeri.exe'),
+            (Join-Path $HostBuild 'Release\noqeri.exe'),
+            (Join-Path $HostBuild 'noqeri'),
+            (Join-Path $HostBuild 'Release\noqeri')
+        )) {
+            if (Test-Path $candidate) { $SeedCompiler = $candidate; break }
+        }
+    }
+    if (-not $SeedCompiler -or -not (Test-Path $SeedCompiler)) {
+        if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+            throw 'cmake is required to build the trusted C++ Stage-0 seed compiler.'
+        }
+        & cmake -S $Root -B $HostBuild -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & cmake --build $HostBuild --target noqeri noqeri-nqri --config Release
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        foreach ($candidate in @(
+            (Join-Path $HostBuild 'noqeri.exe'),
+            (Join-Path $HostBuild 'Release\noqeri.exe'),
+            (Join-Path $HostBuild 'noqeri'),
+            (Join-Path $HostBuild 'Release\noqeri')
+        )) {
+            if (Test-Path $candidate) { $SeedCompiler = $candidate; break }
+        }
+    }
+    if (-not $SeedCompiler -or -not (Test-Path $SeedCompiler)) {
+        throw 'Trusted C++ Stage-0 compiler was not produced. Set NOQERI_STAGE0_CPP.'
+    }
+    Write-Host 'Generating trusted Stage-1 NQRI seed with C++ Stage-0 compiler...'
+    & $SeedCompiler bootstrap-seed (Join-Path $Root 'Compiler\selfhost\main.noqeri') $Seed
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 & $Runtime --selftest
