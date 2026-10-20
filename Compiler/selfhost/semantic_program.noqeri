@@ -385,7 +385,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         } else if nqSemanticNameEqual(source, callee, slice([108 as u8,101 as u8,110 as u8])) {
             if argumentIndex != 1 as usize || node.right < 0 as isize { return nqSemanticBadCall() }
             let base: *NqAstNode = &nodes[node.right as usize]
-            if base.typeCode != nqAstTypeArray() && base.typeCode != nqAstTypeSlice() && base.typeCode != nqAstTypeString() { return nqSemanticTypeMismatch() }
+            if base.typeCode != nqAstTypeArray() && base.typeCode != nqAstTypeSlice() { return nqSemanticTypeMismatch() }
             node.typeCode = nqAstTypeUsize()
         } else if nqSemanticNameEqual(source, callee, slice([115 as u8,108 as u8,105 as u8,99 as u8,101 as u8])) {
             if (argumentIndex != 1 as usize && argumentIndex != 2 as usize) || node.right < 0 as isize { return nqSemanticBadCall() }
