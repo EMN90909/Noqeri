@@ -21,7 +21,8 @@ void usage() {
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
-              << "  nqri [file] [module.nqri]          emit portable self-host/bootstrap module\n"
+              << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
+              << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
               << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
@@ -368,6 +369,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         auto options = optionsFromArgs(argc, argv, selected->target);
+        if (cmd == "bootstrap-seed") options.allowUnsafe = true;
         auto compilation = compileFile(path, options);
         if (compilation.diagnostics.hasErrors()) { compilation.diagnostics.print(path.string()); return 1; }
         if (cmd == "check") {
@@ -376,6 +378,20 @@ int main(int argc, char** argv) {
         }
         if (cmd == "nir") { std::cout << printNir(compilation.nir); return 0; }
         if (cmd == "run") return Interpreter{}.run(compilation.nir);
+        if (cmd == "bootstrap-seed") {
+            if (argc < 3) { std::cerr << "NQR-B9035: bootstrap-seed requires Compiler/selfhost/main.noqeri or another compiler entry source\n"; return 1; }
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / "noqeri-stage1.nqri";
+            if (output.extension().empty()) output += ".nqri";
+            if (output.extension() != ".nqri") {
+                std::cerr << "NQR-B9036: bootstrap seed output must use the .nqri extension\n";
+                return 1;
+            }
+            std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
+            Diagnostics d;
+            if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
+            std::cout << "emitted trusted Stage-1 NQRI seed: " << output << "\n";
+            return 0;
+        }
         if (cmd == "nqri") {
             std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".nqri");
             if (output.extension().empty()) output += ".nqri";
