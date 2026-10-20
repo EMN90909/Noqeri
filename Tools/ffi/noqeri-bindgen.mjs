@@ -40,6 +40,16 @@ async function main() {
   if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(moduleName)) throw new Error(`invalid module name ${moduleName}`)
   const imports = (raw.imports || []).map(fn)
   const exports = (raw.exports || []).map(fn)
+  const names = new Set()
+  for (const item of [...imports, ...exports]) {
+    if (names.has(item.name)) throw new Error(`duplicate imported/exported ABI symbol: ${item.name}`)
+    names.add(item.name)
+    const paramNames = new Set()
+    for (const param of item.params) {
+      if (paramNames.has(param.name)) throw new Error(`duplicate parameter ${param.name} in ${item.name}`)
+      paramNames.add(param.name)
+    }
+  }
   await mkdir(outDir, { recursive: true })
 
   const guard = guardName(moduleName)
