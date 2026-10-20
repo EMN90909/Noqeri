@@ -8,6 +8,7 @@
     "rebuilt": "build/bootstrap/noqeri-stage2-rebuilt"
   },
   "commands": {
+    "stage0_builds_stage1": null,
     "stage1_builds_stage2": null,
     "stage2_rebuilds_compiler": null,
     "semantic_equivalence": null
