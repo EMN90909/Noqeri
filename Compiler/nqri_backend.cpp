@@ -1,5 +1,5 @@
 #include "noe.hpp"
-#include "noqeri/nqri.hpp"
+#include "nqri.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
