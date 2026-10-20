@@ -396,7 +396,7 @@ export function nqParserProgramValid(source: []u8): bool {
 
 
 export function nqParserFirstErrorOffset(source: []u8): usize {
-    let nodes: [NqAstNode; 32768]
+    let nodes: [NqAstNode; 131072]
     let count: usize = 0 as usize
     let cursor: usize = nqCompilerSkipTrivia(source, 0 as usize)
     while cursor < len(source) {
