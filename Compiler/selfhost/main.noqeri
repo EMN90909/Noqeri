@@ -24,6 +24,7 @@ export function stage1PackageCoordinateValid(value: []u8): bool { return nqPacka
 export function stage2SyntaxCheck(source: []u8): isize { return nqPipelineSyntaxCheck(source) }
 export function stage2SyntaxErrorOffset(source: []u8): usize { return nqParserFirstErrorOffset(source) }
 export function stage2SemanticCheckMerged(source: []u8, unsafeAllowed: bool): isize { return nqPipelineSemanticCheckMerged(source, unsafeAllowed) }
+export function stage2SemanticErrorOffset(source: []u8, unsafeAllowed: bool): usize { return nqPipelineSemanticErrorOffset(source, unsafeAllowed) }
 export function stage2CompileReady(source: []u8, target: int): bool { return nqPipelineCompileReady(source, target) }
 export function stage2CompileCheck(source: []u8, target: int, unsafeAllowed: bool): isize { return nqPipelineCompileCheck(source, target, unsafeAllowed) }
 export function stage2CompileToNir(source: []u8, target: int, debug: bool, unsafeAllowed: bool, nodes: []NqAstNode, instructions: []NqNirInstruction, functions: []NqNirFunction, out: *NqCompileResult): isize {
