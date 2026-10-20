@@ -127,7 +127,20 @@ bool TypeChecker::check(const Program&program){
 
 void TypeChecker::checkStmt(const StmtPtr&stmt){
     if(std::dynamic_pointer_cast<RecordStmt>(stmt)||std::dynamic_pointer_cast<ImportStmt>(stmt)||std::dynamic_pointer_cast<ModuleStmt>(stmt))return;
-    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){Type init=checkExpr(s->initializer);Type declared=s->annotation?resolveType(*s->annotation,s->span):init;if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");define(s->name,declared,s->isConst,s->span);return;}
+    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){
+        Type declared;
+        if(s->zeroInitialized){
+            if(!s->annotation){diagnostics_.error("NOE-T3046",s->span,"zero-initialized let requires an explicit type");return;}
+            declared=resolveType(*s->annotation,s->span);
+        }else{
+            Type init=checkExpr(s->initializer);
+            declared=s->annotation?resolveType(*s->annotation,s->span):init;
+            if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");
+        }
+        s->resolvedType=declared;
+        define(s->name,declared,s->isConst,s->span);
+        return;
+    }
     if(auto s=std::dynamic_pointer_cast<ExprStmt>(stmt)){checkExpr(s->expr);return;}
     if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){pushScope();for(const auto&x:s->statements)checkStmt(x);popScope();return;}
     if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){Type c=checkExpr(s->condition);if(c.kind!=TypeKind::Bool&&c.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3004",s->condition->span,"if condition must be bool, found "+c.name());checkStmt(s->thenBranch);if(s->elseBranch)checkStmt(s->elseBranch);return;}
@@ -150,7 +163,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         Type element=checkExpr(e->elements.front());for(std::size_t i=1;i<e->elements.size();++i){Type t=checkExpr(e->elements[i]);if(!canAssignValue(element,t,e->elements[i]))diagnostics_.error("NOE-T3035",e->elements[i]->span,"array literal elements must have one compatible type");}
         e->elementSize=std::max<std::size_t>(1,element.size());Type out;out.kind=TypeKind::Array;out.element=std::make_shared<Type>(element);out.count=e->elements.size();return out;
     }
-    if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t)return*t;if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
+    if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t){e->aggregateStorage=t->kind==TypeKind::Record||t->kind==TypeKind::Array;return*t;}if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
         Type t=checkExpr(e->operand);
         if(e->op==TokenKind::Try){if(!insideFunction_)diagnostics_.error("NOE-T3036",e->span,"try is only valid inside a function");if(!t.isInteger()&&t.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3037",e->span,"try expects an integer status value");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3038",e->span,"try propagation requires an integer-returning function");return t;}
@@ -159,7 +172,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         if(e->op==TokenKind::Bang){if(t.kind!=TypeKind::Bool&&t.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3006",e->span,"operator ! requires bool");return simple(TypeKind::Bool);}
         if(!t.isNumeric()&&t.kind!=TypeKind::Unknown&&t.kind!=TypeKind::Generic)diagnostics_.error("NOE-T3006",e->span,"numeric unary operator requires a numeric type");return t;
     }
-    if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Type b=checkExpr(e->object);auto f=resolveField(b,e->member);if(!f){diagnostics_.error("NOE-T3024",e->span,"type '"+b.name()+"' has no field '"+e->member+"'");return simple(TypeKind::Unknown);}e->offset=f->offset;e->fieldSize=f->size;if(b.kind==TypeKind::Pointer){e->volatileAccess=b.isVolatile;e->baseIsPointer=true;}return resolveType(f->typeName,e->span);}
+    if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Type b=checkExpr(e->object);auto f=resolveField(b,e->member);if(!f){diagnostics_.error("NOE-T3024",e->span,"type '"+b.name()+"' has no field '"+e->member+"'");return simple(TypeKind::Unknown);}e->offset=f->offset;e->fieldSize=f->size;if(b.kind==TypeKind::Pointer){e->volatileAccess=b.isVolatile;e->baseIsPointer=true;}else if(b.kind==TypeKind::Record)e->baseIsPointer=true;return resolveType(f->typeName,e->span);}
     if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
         Type container=checkExpr(e->object);Type idx=checkExpr(e->index);if(!idx.isInteger()&&idx.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3025",e->index->span,"index must be an integer");
         if(container.kind==TypeKind::Pointer&&container.pointee){e->elementSize=std::max<std::size_t>(1,container.pointee->size());e->volatileAccess=container.isVolatile;return*container.pointee;}
