@@ -325,7 +325,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         if status < 0 as isize { return status }
         let target: NqTypeRef
         let end: usize = nqTypeRefParse(source, node.extra as usize, &target)
-        if end <= node.extra as usize { return nqSemanticInvalidCast() }
+        if end <= node.extra as usize { return nqSemanticFail(context, node, nqSemanticInvalidCast()) }
         nqSemanticNormalizeRef(nodes, context.currentFunction, &target)
         let fromCode: int = nodes[node.left as usize].typeCode
         if !nqSemanticExplicitCastValid(fromCode, target.code) { context.errorStart = node.start return nqSemanticInvalidCast() }
