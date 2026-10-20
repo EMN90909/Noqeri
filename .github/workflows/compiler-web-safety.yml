@@ -1,0 +1,38 @@
+name: Compiler and web safety
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compiler-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: JavaScript host syntax
+        run: |
+          node --check Runtime/web-compiler.mjs
+          node --check Runtime/web-project.mjs
+          node --check Runtime/stage2-cli.mjs
+      - name: Web host regression suite
+        run: node --test tests/web-compiler.test.mjs tests/web-project.test.mjs
+      - name: Configure Noqeri bootstrap
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+      - name: Build Noqeri bootstrap
+        run: cmake --build build --parallel 2
+      - name: Validate self-host compiler sources
+        run: |
+          ./build/noqeri check Compiler/selfhost/main.nqr
+          ./build/noqeri run tests/compiler_stage2_core.nqr
+      - name: Compiler regression tests
+        run: ctest --test-dir build -R '^(noqeri-check-hello|noqeri-tests|noqeri-noqeri-owned-components|noqeri-library-suite|noqeri-general-capabilities|noqeri-module-imports)$' --output-on-failure
