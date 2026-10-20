@@ -10,13 +10,13 @@ Do not delete or relabel the seed merely because equivalent Noqeri source exists
 
 ## Stage 1 — Noqeri compiler source
 
-`Compiler/selfhost/` contains the Noqeri-owned frontend, program parser, type/semantic analysis, generic inference, NIR, lowering, optimizer, target/ABI model, object-format writers, backend/link policy, security checks, formatter/LSP policy and Stage-2 proof contract. `Compiler/selfhost/main.nqr` now exposes the full parse -> semantic analysis -> NIR -> optimization/validation pipeline; `Compiler/selfhost/bootstrap.nqr` remains the broad bootstrap/conformance export surface.
+`Compiler/selfhost/` contains the Noqeri-owned frontend, program parser, type/semantic analysis, generic inference, NIR, lowering, optimizer, target/ABI model, object-format writers, backend/link policy, security checks, formatter/LSP policy and Stage-2 proof contract. `Compiler/selfhost/main.noqeri` now exposes the full parse -> semantic analysis -> NIR -> optimization/validation pipeline; `Compiler/selfhost/bootstrap.noqeri` remains the broad bootstrap/conformance export surface.
 
 `Compiler/selfhost/compiler-sources.txt` is the deterministic source closure used by bootstrap verification. New compiler modules must be added to that manifest.
 
 ## Host boundary
 
-Filesystem, process, terminal, network and executable-page services may be supplied by a portable host adapter. Compiler language semantics, safety rules, NIR semantics and code-generation policy belong in `.nqr`. A host adapter must not silently reimplement the frontend, type checker, optimizer or backend semantics in JavaScript or C++.
+Filesystem, process, terminal, network and executable-page services may be supplied by a portable host adapter. Compiler language semantics, safety rules, NIR semantics and code-generation policy belong in `.noqeri`. A host adapter must not silently reimplement the frontend, type checker, optimizer or backend semantics in JavaScript or C++.
 
 A portable host adapter is not evidence of self-hosting by itself. The compiler binary still has to be produced by Noqeri from the Noqeri compiler source.
 

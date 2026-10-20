@@ -1,9 +1,9 @@
 // Native Noqeri conformance fixture. Requires a working compiler/runtime.
 // Program prints 0 on success; any nonzero number identifies a failed check.
-import "../Lib/game/math/vec3.nqr"
-import "../Lib/game/core/fixed_step.nqr"
-import "../Lib/game/physics/aabb.nqr"
-import "../Lib/game/input/button.nqr"
+import "../Lib/game/math/vec3.noqeri"
+import "../Lib/game/core/fixed_step.noqeri"
+import "../Lib/game/physics/aabb.noqeri"
+import "../Lib/game/input/button.noqeri"
 
 function testGameFoundations(): int {
     // Typed u64 buffers provide sufficient alignment for simple record storage.

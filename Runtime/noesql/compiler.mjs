@@ -1,5 +1,5 @@
 // NoeSQL reference compiler: byte offsets, line/column diagnostics, AST and typed IR.
-// Transitional JS host; the production compiler is intended to be implemented in .nqr.
+// Transitional JS host; the production compiler is intended to be implemented in .noqeri.
 export class NoeError extends Error {
   constructor(code, message, token) {
     super(`${code} ${message} at ${token?.line ?? 1}:${token?.col ?? 1}`);

@@ -9,7 +9,7 @@ The public documentation is separated from implementation notes so users can lea
 - `TOOLCHAIN.md` — compiler pipeline and CLI.
 - `PLATFORM_SUPPORT.md` — exact Linux/Windows/macOS status.
 - `PRODUCTION_READINESS.md` — release gates and limitations.
-- `PROJECTS.md` — `project.nqr` and `noqeri.lock`.
+- `PROJECTS.md` — `project.noqeri` and `noqeri.lock`.
 - `ROADMAP.md` — work beyond the bootstrap.
 - `reference/` — focused reference pages.
 - `using/` — command-line and project usage.

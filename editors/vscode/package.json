@@ -1,7 +1,7 @@
 {
   "name": "noqeri-language",
   "displayName": "noqeri Language",
-  "description": "Language support for noqeri (.nqr)",
+  "description": "Language support for noqeri (.noqeri)",
   "version": "1.0.0",
   "publisher": "noqeri-lang",
   "license": "MIT",
@@ -12,8 +12,8 @@
   "categories": ["Programming Languages", "Themes", "Snippets"],
   "activationEvents": [],
   "contributes": {
-    "languages": [{"id": "noqeri", "aliases": ["noqeri", "NQR"], "extensions": [".nqr"], "configuration": "./language-configuration.json", "icon": {"light": "./assets/noqeri-mark.png", "dark": "./assets/noqeri-mark.png"}}],
-    "grammars": [{"language": "noqeri", "scopeName": "source.nqr", "path": "./syntaxes/noqeri.tmLanguage.json"}],
+    "languages": [{"id": "noqeri", "aliases": ["noqeri", "NQR"], "extensions": [".noqeri"], "configuration": "./language-configuration.json", "icon": {"light": "./assets/noqeri-mark.png", "dark": "./assets/noqeri-mark.png"}}],
+    "grammars": [{"language": "noqeri", "scopeName": "source.noqeri", "path": "./syntaxes/noqeri.tmLanguage.json"}],
     "snippets": [{"language":"noqeri","path":"./snippets/noqeri.json"}],
     "iconThemes": [{"id": "noqeri-icons", "label": "noqeri File Icons", "path": "./icons/icon-theme.json"}]
   }

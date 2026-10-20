@@ -1,8 +1,8 @@
 # NoeSQL experimental reference grammar (2026-10-15)
 
-**Status:** executable *subset* for the reference implementation at `Runtime/noesql-reference.mjs`. Not the final production language grammar. The independent Noqeri scanner at `Database/noesql_lexer.nqr` recognizes the same lexical categories but has not passed Stage-2 binary verification. The broader NoeSQL roadmap in `Doc/NOESQL_IMPLEMENTATION_STATUS.md` is not part of this grammar's currently executable semantics.
+**Status:** executable *subset* for the reference implementation at `Runtime/noesql-reference.mjs`. Not the final production language grammar. The independent Noqeri scanner at `Database/noesql_lexer.noqeri` recognizes the same lexical categories but has not passed Stage-2 binary verification. The broader NoeSQL roadmap in `Doc/NOESQL_IMPLEMENTATION_STATUS.md` is not part of this grammar's currently executable semantics.
 
-A NoeSQL script is `.noe`; `.nqr` remains Noqeri source. Experimental `.nqd` stores database *data*, not executable Noqeri source. `.nqo` remains compiled Noqeri object/web output. NoeSQL statements do not become Noqeri `.nqr` grammar productions until an actual compiler integration passes conformance.
+A NoeSQL script is `.noe`; `.noqeri` remains Noqeri source. Experimental `.nqd` stores database *data*, not executable Noqeri source. `.nqri` remains compiled Noqeri object/web output. NoeSQL statements do not become Noqeri `.noqeri` grammar productions until an actual compiler integration passes conformance.
 
 ```ebnf
 unit          = { separator | declaration, boundary | statement, boundary } ;
@@ -51,4 +51,4 @@ fieldBoundary = ("," | separator), {separator} | "}" ;
 
 **Execution contract:** `get` is mandatory for retrieval, and `where` is mandatory for `set` and `delete`. `get` returns selected rows; `add` returns the inserted row and an affected count; `set` and `delete` return affected counts. Equality is strictly typed, truth conditions must be booleans, and null comparisons evaluate to unknown (not true). `&&` and `||` short-circuit and follow three-valued logic. Arithmetic only accepts safe integers and checks overflow. The reference rejects unsupported scalar types rather than converting money to float.
 
-**Current restrictions:** one integer primary key per table; only scalar `int`, `bool`, `text` and integer-key `ref` types; single-column sort; indexes currently have schema metadata only (no physical index seek); no `group`, aggregates, joins, relationship projection, date/decimal, explicit `is null`, migrations, byte storage or typed Noqeri binding generation. These are NOT silently accepted. NoeSQL does not yet parse inline inside a `.nqr` compilation unit.
+**Current restrictions:** one integer primary key per table; only scalar `int`, `bool`, `text` and integer-key `ref` types; single-column sort; indexes currently have schema metadata only (no physical index seek); no `group`, aggregates, joins, relationship projection, date/decimal, explicit `is null`, migrations, byte storage or typed Noqeri binding generation. These are NOT silently accepted. NoeSQL does not yet parse inline inside a `.noqeri` compilation unit.

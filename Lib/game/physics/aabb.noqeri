@@ -1,5 +1,5 @@
 module noqeri.game.physics.aabb
-import "../math/vec3.nqr"
+import "../math/vec3.noqeri"
 
 // Axis-aligned boxes are valid only when min <= max along each axis.
 // AABB and ray tests use closed boundaries, including touching faces.

@@ -10,11 +10,11 @@ fi
 "$NQ" --version
 "$NQ" stage2-status
 "$NQ" selftest
-"$NQ" check examples/hello.nqr
-"$NQ" check tests/compiler_stage2_core.nqr
-"$NQ" check tests/generic_records.nqr
-"$NQ" check tests/generic_collections.nqr
-"$NQ" check tests/stdlib_deep_foundations.nqr
+"$NQ" check examples/hello.noqeri
+"$NQ" check tests/compiler_stage2_core.noqeri
+"$NQ" check tests/generic_records.noqeri
+"$NQ" check tests/generic_collections.noqeri
+"$NQ" check tests/stdlib_deep_foundations.noqeri
 node --test tests/tooling/*.test.mjs
 node scripts/stdlib-audit.mjs --json >/dev/null
 node scripts/deep-foundations-gate.mjs

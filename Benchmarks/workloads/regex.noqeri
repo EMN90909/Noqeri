@@ -1,4 +1,4 @@
-import "../../Lib/std/regex.nqr"
+import "../../Lib/std/regex.noqeri"
 
 let pattern: [u8; 13] = [94 as u8,110 as u8,111 as u8,113 as u8,101 as u8,114 as u8,105 as u8,46 as u8,42 as u8,50 as u8,48 as u8,50 as u8,54 as u8]
 let text: [u8; 24] = [110 as u8,111 as u8,113 as u8,101 as u8,114 as u8,105 as u8,45 as u8,98 as u8,101 as u8,110 as u8,99 as u8,104 as u8,45 as u8,50 as u8,48 as u8,50 as u8,54 as u8,45 as u8,120 as u8,120 as u8,120 as u8,120 as u8,120 as u8,120 as u8]

@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.coff_writer
-import "targets.nqr"
-import "object_formats.nqr"
+import "targets.noqeri"
+import "object_formats.noqeri"
 
 export function nqCoffSectionNameBytes(): usize { return 8 as usize }
 export function nqCoffFileHeaderBytes(): usize { return 20 as usize }

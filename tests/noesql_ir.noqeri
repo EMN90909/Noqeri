@@ -1,5 +1,5 @@
-import "../Database/noesql_ir.nqr"
-import "../Database/noesql_lexer.nqr"
+import "../Database/noesql_ir.noqeri"
+import "../Database/noesql_lexer.noqeri"
 
 function require(ok: bool): void {
     if !ok { let bad: *u8 = 0 as *u8; print(bad[0]) }

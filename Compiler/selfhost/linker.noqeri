@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.linker
-import "targets.nqr"
+import "targets.noqeri"
 export function nqLinkExecutable(): int { return 1 }
 export function nqLinkStaticLibrary(): int { return 2 }
 export function nqLinkSharedLibrary(): int { return 3 }

@@ -1,8 +1,8 @@
-import "../Lib/std/int.nqr"
-import "../Lib/std/slice_i64.nqr"
-import "../Lib/std/sort.nqr"
-import "../Lib/std/search.nqr"
-import "../Lib/std/checksum.nqr"
+import "../Lib/std/int.noqeri"
+import "../Lib/std/slice_i64.noqeri"
+import "../Lib/std/sort.noqeri"
+import "../Lib/std/search.noqeri"
+import "../Lib/std/checksum.noqeri"
 
 let numbers: [i64; 5] = [9 as i64, 2 as i64, 7 as i64, 1 as i64, 5 as i64]
 let view: []i64 = slice(numbers)

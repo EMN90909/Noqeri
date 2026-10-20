@@ -66,7 +66,7 @@ if (!seed) {
       run('bootstrap-proof', process.execPath, ['scripts/bootstrap-stage2.mjs'])
     else blocked('bootstrap-proof', 'bootstrap-local.json missing')
     if (existsSync(resolve(root, 'build/noqeri')))
-      run('game-sdk-type-check', resolve(root, 'build/noqeri'), ['check', 'tests/game_foundations.nqr'])
+      run('game-sdk-type-check', resolve(root, 'build/noqeri'), ['check', 'tests/game_foundations.noqeri'])
     else blocked('game-sdk-type-check', 'verified compiler executable not present')
   } else {
     for (const name of ['stage2-abi', 'core-conformance', 'historical-regressions', 'web-smoke', 'bootstrap-proof', 'game-sdk-type-check'])

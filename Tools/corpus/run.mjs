@@ -30,8 +30,8 @@ function nqrFiles(path) {
   for (const name of readdirSync(path)) {
     const full = join(path, name)
     const info = statSync(full)
-    if (info.isDirectory()) result.push(...nqrFiles(full))
-    else if (info.isFile() && name.endsWith('.nqr')) result.push(full)
+    if (info.isDirectory()) result.push(...noqeriFiles(full))
+    else if (info.isFile() && name.endsWith('.noqeri')) result.push(full)
   }
   return result
 }

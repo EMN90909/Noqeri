@@ -53,11 +53,11 @@ recordField    := IDENT ":" type ("," | terminator)?
 There are deliberately two import forms and no third module-resolution syntax:
 
 ```nqr
-import "./local_file.nqr"
+import "./local_file.noqeri"
 import package "noqeri/supabase"
 ```
 
-A quoted import resolves relative to the importing source file. `import package` resolves an installed registry package by its `namespace/name` coordinate. Package coordinates may contain ASCII letters, digits, `_` and `-` in each segment and contain exactly one `/`. Versions do not appear in source code: `project.nqr` declares the acceptable version and `noqeri.lock` pins the exact artifact and integrity identity. Compilation never silently changes a dependency version. Network access belongs to `noqeri add` / `noqeri install`; the compiler resolves imports from the immutable package cache and can therefore build offline.
+A quoted import resolves relative to the importing source file. `import package` resolves an installed registry package by its `namespace/name` coordinate. Package coordinates may contain ASCII letters, digits, `_` and `-` in each segment and contain exactly one `/`. Versions do not appear in source code: `project.noqeri` declares the acceptable version and `noqeri.lock` pins the exact artifact and integrity identity. Compilation never silently changes a dependency version. Network access belongs to `noqeri add` / `noqeri install`; the compiler resolves imports from the immutable package cache and can therefore build offline.
 
 This syntax exists to delete ambiguity between a local file and a registry dependency. It does not introduce aliases, URL imports, install-time scripts, or a second module system.
 
@@ -193,7 +193,7 @@ print(view[2])
 
 ## Modules and generics
 
-`module name` gives a source file an organizational identity. Local `import "path.nqr"` resolves recursively relative to the importing file. `import package "namespace/name"` resolves the package entry point from the exact artifact pinned in `noqeri.lock`. The package manager may download and verify an artifact, but the compiler itself never executes arbitrary package install scripts. Imported declarations currently enter one compilation graph; the package form changes resolution, not the language's symbol model.
+`module name` gives a source file an organizational identity. Local `import "path.noqeri"` resolves recursively relative to the importing file. `import package "namespace/name"` resolves the package entry point from the exact artifact pinned in `noqeri.lock`. The package manager may download and verify an artifact, but the compiler itself never executes arbitrary package install scripts. Imported declarations currently enter one compilation graph; the package form changes resolution, not the language's symbol model.
 
 Generic functions use inferred register-value type parameters:
 

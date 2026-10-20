@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.profiles
-import "optimizer.nqr"
+import "optimizer.noqeri"
 export function nqProfileDebug(): int { return 1 }
 export function nqProfileRelease(): int { return 2 }
 export function nqProfileSize(): int { return 3 }

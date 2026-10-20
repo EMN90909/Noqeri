@@ -13,7 +13,7 @@ A multi-package repository can declare `noqeri.workspace.json`:
 }
 ```
 
-Each member must contain `project.nqr`. Run one public command over members:
+Each member must contain `project.noqeri`. Run one public command over members:
 
 ```sh
 node Tools/workspace/noqeri-workspace.mjs check
@@ -29,11 +29,11 @@ Keep target-dependent files in `noqeri.build.json`:
 ```json
 {
   "schema": 1,
-  "sources": ["src/common.nqr"],
+  "sources": ["src/common.noqeri"],
   "conditional": [
     {
       "when": {"os": ["linux"], "arch": ["x64", "arm64"], "features": ["tls"]},
-      "sources": ["src/linux_tls.nqr"]
+      "sources": ["src/linux_tls.noqeri"]
     }
   ]
 }
@@ -56,7 +56,7 @@ The stage-1 package manager already content-addresses packages and re-hashes the
 Use the vendored home without network access:
 
 ```sh
-NOQERI_HOME=.noqeri/vendor-home NOQERI_OFFLINE=1 noqeri check src/main.nqr
+NOQERI_HOME=.noqeri/vendor-home NOQERI_OFFLINE=1 noqeri check src/main.noqeri
 ```
 
 `noqeri vendor --offline` only succeeds if every locked package is already present and passes cache integrity verification. Vendoring is not a second dependency resolver. The lockfile remains authoritative. Stage-1 vendoring currently requires lock v3 because the native v2 cache/checksum contract is different; v2 remains accepted by the audit path during migration.

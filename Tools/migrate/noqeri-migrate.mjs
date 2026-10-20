@@ -11,7 +11,7 @@ async function sources(root) {
       const path = join(dir, name)
       const info = await stat(path)
       if (info.isDirectory()) await walk(path)
-      else if (info.isFile() && path.endsWith('.nqr')) out.push(path)
+      else if (info.isFile() && path.endsWith('.noqeri')) out.push(path)
     }
   }
   await walk(root)

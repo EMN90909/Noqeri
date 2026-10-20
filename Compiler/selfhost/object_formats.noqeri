@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.object_formats
-import "targets.nqr"
+import "targets.noqeri"
 
 export function nqElfMagic32(): u32 { return 0x464c457f as u32 }
 export function nqMachOMagic64(): u32 { return 0xfeedfacf as u32 }

@@ -1,11 +1,11 @@
-import "../Lib/std/core.nqr"
-import "../Lib/std/compare.nqr"
-import "../Lib/std/counter.nqr"
-import "../Lib/std/adler.nqr"
-import "../Lib/std/bit.nqr"
-import "../Lib/std/checksum.nqr"
-import "../Lib/std/algorithm.nqr"
-import "../Lib/std/crypto.nqr"
+import "../Lib/std/core.noqeri"
+import "../Lib/std/compare.noqeri"
+import "../Lib/std/counter.noqeri"
+import "../Lib/std/adler.noqeri"
+import "../Lib/std/bit.noqeri"
+import "../Lib/std/checksum.noqeri"
+import "../Lib/std/algorithm.noqeri"
+import "../Lib/std/crypto.noqeri"
 
 function test_core_compare(): int {
     let values: [i64; 5] = [9 as i64, 3 as i64, 7 as i64, 1 as i64, 5 as i64]

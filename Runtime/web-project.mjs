@@ -25,9 +25,9 @@ export async function buildWebProject({source='web',out='dist',checkSource=null}
       if(stat.isDirectory()) { await walk(p); continue }
       if(!stat.isFile()) throw Error('unsupported filesystem entry: '+p)
       const extension=extname(p).toLowerCase()
-      if(extension==='.nqr') {
-        const target=join(output,relative(input,p).replace(/\.nqr$/i,'.mjs'))
-        if (entries.some(existing=>relative(input,existing).replace(/\.nqr$/i,'.mjs')===relative(output,target))) throw Error('duplicate output asset: '+relative(output,target))
+      if(extension==='.noqeri') {
+        const target=join(output,relative(input,p).replace(/\.noqeri$/i,'.mjs'))
+        if (entries.some(existing=>relative(input,existing).replace(/\.noqeri$/i,'.mjs')===relative(output,target))) throw Error('duplicate output asset: '+relative(output,target))
         entries.push(p)
         continue
       }
@@ -39,7 +39,7 @@ export async function buildWebProject({source='web',out='dist',checkSource=null}
   const targets=new Set()
   for(const p of entries) {
     const rel=relative(input,p)
-    const dest=extname(p).toLowerCase()==='.nqr'?rel.replace(/\.nqr$/i,'.mjs'):rel
+    const dest=extname(p).toLowerCase()==='.noqeri'?rel.replace(/\.noqeri$/i,'.mjs'):rel
     if(targets.has(dest)) throw Error('duplicate output asset: '+dest)
     targets.add(dest)
   }
@@ -59,22 +59,22 @@ export async function buildWebProject({source='web',out='dist',checkSource=null}
   for(const file of entries) {
     const target=join(output,relative(input,file))
     await mkdir(dirname(target),{recursive:true})
-    if(extname(file).toLowerCase()==='.nqr') {
+    if(extname(file).toLowerCase()==='.noqeri') {
       const sourceText=await readFile(file,'utf8')
       if (checkSource) await checkSource(file,new TextEncoder().encode(sourceText))
       const compiled=compileWeb(sourceText)
-      await writeFile(target.replace(/\.nqr$/i,'.mjs'),compiled)
+      await writeFile(target.replace(/\.noqeri$/i,'.mjs'),compiled)
     } else if(['.html','.htm'].includes(extname(file).toLowerCase())) {
       const html=await readFile(file,'utf8')
       const rewritten=html.replace(/\b(src|href)(\s*=\s*["'])([^"']+)(["'])/gi,(full,attr,equals,ref,quote)=>{
         if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(ref)) return full
         const [path,suffix='']=ref.split(/([?#].*)/,2)
-        return /\.nqr$/i.test(path)?attr+equals+path.replace(/\.nqr$/i,'.mjs')+suffix+quote:full
+        return /\.noqeri$/i.test(path)?attr+equals+path.replace(/\.noqeri$/i,'.mjs')+suffix+quote:full
       })
       await writeFile(target,rewritten)
     } else await cp(file,target,{force:true,errorOnExist:false})
   }
-  return {files:entries.length,html:html.length,compiled:entries.filter(p=>extname(p).toLowerCase()==='.nqr').length,source:input,output}
+  return {files:entries.length,html:html.length,compiled:entries.filter(p=>extname(p).toLowerCase()==='.noqeri').length,source:input,output}
 }
 if(process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
   const [source='web',out='dist']=process.argv.slice(2)

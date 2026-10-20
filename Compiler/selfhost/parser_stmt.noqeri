@@ -1,8 +1,8 @@
 module noqeri.compiler.selfhost.parser_stmt
-import "lexer.nqr"
-import "ast.nqr"
-import "parser.nqr"
-import "parser_expr.nqr"
+import "lexer.noqeri"
+import "ast.noqeri"
+import "parser.noqeri"
+import "parser_expr.noqeri"
 
 export function nqParseProgramCapacity(): isize { return -120 }
 export function nqParseBadStatement(): isize { return -121 }

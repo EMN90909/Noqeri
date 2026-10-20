@@ -1,6 +1,6 @@
 # Getting started
 
-Noqeri source files end in `.nqr`. The normal application path is deliberately small: values, decisions, counted repetition, functions, records and libraries first; systems mechanisms later.
+Noqeri source files end in `.noqeri`. The normal application path is deliberately small: values, decisions, counted repetition, functions, records and libraries first; systems mechanisms later.
 
 ## First program
 
@@ -8,11 +8,11 @@ Use an official Noqeri release or a previously built compiler for your platform:
 
 ```sh
 noqeri --version
-noqeri check hello.nqr
-noqeri run hello.nqr
+noqeri check hello.noqeri
+noqeri run hello.noqeri
 ```
 
-Save this as `hello.nqr`:
+Save this as `hello.noqeri`:
 
 ```nqr
 function square(x: int): int {
@@ -61,8 +61,8 @@ For a project, the normal commands are:
 noqeri new my-app
 noqeri check my-app
 noqeri test my-app/tests
-noqeri run my-app/src/main.nqr
-noqeri build my-app/src/main.nqr
+noqeri run my-app/src/main.noqeri
+noqeri build my-app/src/main.noqeri
 ```
 
 Application programmers should not need pointers, atomics, ABI layouts, object formats, assembly or FFI merely to use files, data formats, collections or ordinary concurrency abstractions. Those features remain available for systems work and interop.
@@ -95,7 +95,7 @@ On Windows use `scripts/build.ps1`; multi-config generators may place the execut
 The quality driver exposes opt-in heavy diagnostics while keeping normal Noqeri simple:
 
 ```sh
-node Runtime/noqeri-quality.mjs run --check-memory hello.nqr
+node Runtime/noqeri-quality.mjs run --check-memory hello.noqeri
 node Runtime/noqeri-quality.mjs test --race tests
 node Runtime/noqeri-quality.mjs test --overflow tests
 ```

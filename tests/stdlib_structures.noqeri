@@ -1,8 +1,8 @@
-import "../Lib/std/bitset.nqr"
-import "../Lib/std/bloom.nqr"
-import "../Lib/std/deque.nqr"
-import "../Lib/std/heap.nqr"
-import "../Lib/std/priority_queue.nqr"
+import "../Lib/std/bitset.noqeri"
+import "../Lib/std/bloom.noqeri"
+import "../Lib/std/deque.noqeri"
+import "../Lib/std/heap.noqeri"
+import "../Lib/std/priority_queue.noqeri"
 
 function test_bitset(): int {
     let stateBytes: [u8; 32] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]

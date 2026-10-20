@@ -21,17 +21,17 @@ void usage() {
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
-              << "  web [file] [module.nqo]           emit checked portable Noqeri web module\n"
+              << "  web [file] [module.nqri]           emit checked portable Noqeri web module\n"
               << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
               << "  link <output> <object...>          run explicit linker adapter\n"
               << "  targets                           list compiler target contracts\n"
               << "  format <file>                     canonical-format source in place\n"
-              << "  manifest [file]                   read project.nqr\n"
+              << "  manifest [file]                   read project.noqeri\n"
               << "  lock [file]                       generate content-addressed noqeri.lock\n"
               << "  audit [dir]                       verify lock integrity and review capabilities\n"
-              << "  test [dir]                        compile and run .nqr tests\n"
+              << "  test [dir]                        compile and run .noqeri tests\n"
               << "  doctor [dir]                      verify repository health\n"
               << "  release-check [dir]               repository production checks\n"
               << "  lsp                               run JSON-RPC language server\n\n"
@@ -67,7 +67,7 @@ std::optional<SourceSelection> selectSource(int argc, char** argv, Diagnostics& 
     if (argc >= 3 && argv[2][0] != '-') {
         return SourceSelection{argv[2], std::filesystem::path(argv[2]).stem().string(), NOQERI_DEFAULT_TARGET};
     }
-    auto manifest = PackageManager{}.loadManifest("project.nqr", d);
+    auto manifest = PackageManager{}.loadManifest("project.noqeri", d);
     if (!manifest) return std::nullopt;
     return SourceSelection{manifest->entry, manifest->name, manifest->target};
 }
@@ -80,9 +80,9 @@ bool isIgnoredDirectory(const std::filesystem::path& path) {
 
 bool isOrdinaryNoqeriSource(const std::filesystem::path& path) {
     const auto file = path.filename().string();
-    if (path.extension() != ".nqr") return false;
-    if (file == "project.nqr") return false;
-    if (file == "fuzz.nqr") return false;
+    if (path.extension() != ".noqeri") return false;
+    if (file == "project.noqeri") return false;
+    if (file == "fuzz.noqeri") return false;
     return true;
 }
 
@@ -172,7 +172,7 @@ bool runParserFuzz(const std::filesystem::path& root, int cases) {
         std::string text;
         text.reserve(500);
         for (int j = 0; j < 500; ++j) text.push_back(chars[static_cast<std::size_t>(pick(rng))]);
-        const auto file = dir / ("fuzz-" + std::to_string(i) + ".nqr");
+        const auto file = dir / ("fuzz-" + std::to_string(i) + ".noqeri");
         { std::ofstream out(file, std::ios::trunc); out << text << "\n"; }
         try {
             CompileOptions options;
@@ -227,16 +227,16 @@ int runStress(int argc, char** argv) {
             if (!checkFileForStress(root, entry.path(), false)) return false;
             ++checked;
         }
-        std::cout << "ok   checked ordinary .nqr source files=" << checked << "\n";
+        std::cout << "ok   checked ordinary .noqeri source files=" << checked << "\n";
         return checked > 0;
     });
 
     const std::vector<std::filesystem::path> smokePrograms = {
-        root / "examples" / "hello.nqr",
-        root / "examples" / "ecosystem_smoke.nqr",
-        root / "Programs" / "selftest.nqr",
-        root / "tests" / "noqeri_library_suite.nqr",
-        root / "tests" / "short_circuit.nqr"
+        root / "examples" / "hello.noqeri",
+        root / "examples" / "ecosystem_smoke.noqeri",
+        root / "Programs" / "selftest.noqeri",
+        root / "tests" / "noqeri_library_suite.noqeri",
+        root / "tests" / "short_circuit.noqeri"
     };
     step("runtime-smoke", [&] {
         for (const auto& file : smokePrograms) if (!runProgramForStress(root, file)) return false;
@@ -245,7 +245,7 @@ int runStress(int argc, char** argv) {
 
     step("repeat-check", [&] {
         const int count = full ? 1000 : 100;
-        const auto file = root / "examples" / "hello.nqr";
+        const auto file = root / "examples" / "hello.noqeri";
         for (int i = 0; i < count; ++i) if (!checkFileForStress(root, file, false)) return false;
         std::cout << "ok   repeated hello checks=" << count << "\n";
         return true;
@@ -324,7 +324,7 @@ int main(int argc, char** argv) {
         }
         if (cmd == "test") return TestRunner{}.runDirectory(argc >= 3 ? argv[2] : "tests");
         if (cmd == "manifest" || cmd == "lock") {
-            std::filesystem::path path = argc >= 3 ? argv[2] : "project.nqr";
+            std::filesystem::path path = argc >= 3 ? argv[2] : "project.noqeri";
             Diagnostics d;
             auto p = PackageManager{}.loadManifest(path, d);
             if (!p) { d.print(path.string()); return 1; }
@@ -353,7 +353,7 @@ int main(int argc, char** argv) {
         }
         Diagnostics selectionDiagnostics;
         auto selected = selectSource(argc, argv, selectionDiagnostics);
-        if (!selected) { selectionDiagnostics.print("project.nqr"); return 1; }
+        if (!selected) { selectionDiagnostics.print("project.noqeri"); return 1; }
         auto path = selected->source;
         if (cmd == "lex") {
             auto source = readTextFile(path);
@@ -374,8 +374,8 @@ int main(int argc, char** argv) {
         if (cmd == "nir") { std::cout << printNir(compilation.nir); return 0; }
         if (cmd == "run") return Interpreter{}.run(compilation.nir);
         if (cmd == "web") {
-            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".nqo");
-            if (output.extension().empty()) output += ".nqo";
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".nqri");
+            if (output.extension().empty()) output += ".nqri";
             std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
             Diagnostics d;
             if (!WebBackend{}.emitModule(compilation.ast, output, d)) { d.print(path.string()); return 1; }

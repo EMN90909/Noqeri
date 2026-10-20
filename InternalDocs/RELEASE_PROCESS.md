@@ -20,7 +20,7 @@ node Tools/corpus/run.mjs --noqeri=build/noqeri
 
 A release advertised as satisfying the complete practical corpus must use `--require-complete`; pending application classes then fail the gate rather than being counted as passes.
 
-Noqeri now contains a language-owned race event/instrumentation model in `Compiler/selfhost/race.nqr` and a bounded Noqeri runtime race core in `Runtime/race.nqr`. Until the native instrumentation path is proven end-to-end on the release toolchain, `noqeri test --race` also relies on the ThreadSanitizer-backed host build as execution evidence. Do not describe the native detector as fully integrated merely because its compiler/runtime components exist.
+Noqeri now contains a language-owned race event/instrumentation model in `Compiler/selfhost/race.noqeri` and a bounded Noqeri runtime race core in `Runtime/race.noqeri`. Until the native instrumentation path is proven end-to-end on the release toolchain, `noqeri test --race` also relies on the ThreadSanitizer-backed host build as execution evidence. Do not describe the native detector as fully integrated merely because its compiler/runtime components exist.
 
 Run the dependency/security audit with advisory data available. `unknown` advisory status is not clean status. Follow `InternalDocs/SECURITY_RESPONSE.md` for embargoed vulnerabilities.
 

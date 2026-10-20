@@ -1,6 +1,6 @@
-import "../Lib/std/ring.nqr"
-import "../Lib/std/pool.nqr"
-import "../Lib/std/cache.nqr"
+import "../Lib/std/ring.noqeri"
+import "../Lib/std/pool.noqeri"
+import "../Lib/std/cache.noqeri"
 
 // Storage-structure workload for repeatable performance measurement. This file
 // is intentionally not a performance claim. Benchmarks/suite.json labels the

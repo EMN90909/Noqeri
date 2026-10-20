@@ -1,8 +1,8 @@
 module noqeri.compiler.selfhost.backend
-import "nir.nqr"
-import "targets.nqr"
-import "object_formats.nqr"
-import "abi.nqr"
+import "nir.noqeri"
+import "targets.noqeri"
+import "object_formats.noqeri"
+import "abi.noqeri"
 
 record NqBackendPlan {
     target: NqTargetInfo

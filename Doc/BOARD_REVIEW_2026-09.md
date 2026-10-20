@@ -126,7 +126,7 @@ Compatibility helpers matching the previous placeholder names remain temporarily
 
 ## Test contract for the new structures
 
-`tests/stdlib_structures.nqr` imports all five public modules and exercises multi-operation behavior rather than copying algorithms into the test fixture. It covers boundaries and invariants such as bitset out-of-range rejection, Bloom add/query/reset behavior, deque ordering/rotation, heap ordering/update, and stable priority-queue ordering.
+`tests/stdlib_structures.noqeri` imports all five public modules and exercises multi-operation behavior rather than copying algorithms into the test fixture. It covers boundaries and invariants such as bitset out-of-range rejection, Bloom add/query/reset behavior, deque ordering/rotation, heap ordering/update, and stable priority-queue ordering.
 
 The repository test command already runs `noqeri test tests`, so the new fixture joins the normal test discovery path.
 
@@ -134,7 +134,7 @@ The repository test command already runs `noqeri test tests`, so the new fixture
 
 ## Performance evidence
 
-`Benchmarks/suite.json` now has explicit evidence states and foundational-structure workload IDs for bitset, Bloom filter, deque, heap and priority queue. `Benchmarks/structures.nqr` provides a repeated mixed-operation workload for those structures.
+`Benchmarks/suite.json` now has explicit evidence states and foundational-structure workload IDs for bitset, Bloom filter, deque, heap and priority queue. `Benchmarks/structures.noqeri` provides a repeated mixed-operation workload for those structures.
 
 Those entries are deliberately marked `unmeasured`. No timing numbers were invented. The existing performance gate already refuses to report a passing comparison when result IDs are not comparable.
 

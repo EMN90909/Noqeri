@@ -88,7 +88,7 @@ StmtPtr Parser::moduleDeclaration(){
 }
 
 StmtPtr Parser::importDeclaration(){
-    const Token& path=consume(TokenKind::String,"expected quoted import path, for example import \"math.nqr\"");
+    const Token& path=consume(TokenKind::String,"expected quoted import path, for example import \"math.noqeri\"");
     auto i=std::make_shared<ImportStmt>();i->span=path.span;i->path=decodeStringLiteral(path.lexeme);
     match({TokenKind::Semicolon});return i;
 }

@@ -1,10 +1,10 @@
-import "../Modules/builtin.nqr"
-import "../Modules/native.nqr"
-import "../Objects/value.nqr"
-import "../Objects/text.nqr"
-import "../Database/noqeridb.nqr"
-import "../Tools/security/policy.nqr"
-import "../Lib/test/assert.nqr"
+import "../Modules/builtin.noqeri"
+import "../Modules/native.noqeri"
+import "../Objects/value.noqeri"
+import "../Objects/text.noqeri"
+import "../Database/noqeridb.noqeri"
+import "../Tools/security/policy.noqeri"
+import "../Lib/test/assert.noqeri"
 
 function failIf(status: isize): void {
     if status != 0 {

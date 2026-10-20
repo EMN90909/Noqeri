@@ -21,13 +21,13 @@ This verifies asset validation only. It does not compile the game SDK.
 
 ```sh
 NOQERI_STAGE0=/absolute/path/to/trusted/noqeri ./scripts/build.sh
-./build/noqeri check tests/game_foundations.nqr
+./build/noqeri check tests/game_foundations.noqeri
 ```
 
 The modern Stage-2 CLI may not support `run`. To execute the fixture, a verified runner with `run <source>` support is required:
 
 ```sh
-/path/to/verified-noqeri-runner run tests/game_foundations.nqr
+/path/to/verified-noqeri-runner run tests/game_foundations.noqeri
 ```
 
 The fixture prints `0` only if its runtime assertions pass. A successful `check` alone is not a game-functionality proof.

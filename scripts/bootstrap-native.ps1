@@ -3,11 +3,11 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BuildDir = if ($env:BUILD_DIR) { $env:BUILD_DIR } else { Join-Path $Root 'build' }
 $HostBuild = if ($env:NOQERI_HOST_BUILD) { $env:NOQERI_HOST_BUILD } else { Join-Path $BuildDir 'bootstrap-host' }
-$Runtime = $env:NOQERI_NQO_RUNTIME
-$Seed = if ($env:NOQERI_STAGE1_NQO) { $env:NOQERI_STAGE1_NQO } else { Join-Path $BuildDir 'noqeri-stage1.nqo' }
+$Runtime = $env:NOQERI_NQRI_RUNTIME
+$Seed = if ($env:NOQERI_STAGE1_NQRI) { $env:NOQERI_STAGE1_NQRI } else { Join-Path $BuildDir 'noqeri-stage1.nqri' }
 $Manifest = Join-Path $Root 'Compiler\selfhost\stage2-sources.txt'
-$Stage2 = Join-Path $BuildDir 'noqeri-stage2.nqo'
-$Stage3 = Join-Path $BuildDir 'noqeri-stage3.nqo'
+$Stage2 = Join-Path $BuildDir 'noqeri-stage2.nqri'
+$Stage3 = Join-Path $BuildDir 'noqeri-stage3.nqri'
 $Proof = Join-Path $BuildDir 'native-selfhost-proof.json'
 
 function Resolve-HostTarget {
@@ -33,12 +33,12 @@ $Target = Resolve-HostTarget
 
 if (-not $Runtime) {
     $candidates = @(
-        (Join-Path $BuildDir 'noqeri-nqo.exe'),
-        (Join-Path $HostBuild 'noqeri-nqo.exe'),
-        (Join-Path $HostBuild 'Release\noqeri-nqo.exe'),
-        (Join-Path $BuildDir 'noqeri-nqo'),
-        (Join-Path $HostBuild 'noqeri-nqo'),
-        (Join-Path $HostBuild 'Release\noqeri-nqo')
+        (Join-Path $BuildDir 'noqeri-nqri.exe'),
+        (Join-Path $HostBuild 'noqeri-nqri.exe'),
+        (Join-Path $HostBuild 'Release\noqeri-nqri.exe'),
+        (Join-Path $BuildDir 'noqeri-nqri'),
+        (Join-Path $HostBuild 'noqeri-nqri'),
+        (Join-Path $HostBuild 'Release\noqeri-nqri')
     )
     foreach ($candidate in $candidates) {
         if (Test-Path $candidate) { $Runtime = $candidate; break }
@@ -46,32 +46,32 @@ if (-not $Runtime) {
 }
 if (-not $Runtime) {
     if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-        throw 'cmake is required once to build the native NQO2 bootstrap host, or set NOQERI_NQO_RUNTIME.'
+        throw 'cmake is required once to build the native NQRI bootstrap host, or set NOQERI_NQRI_RUNTIME.'
     }
     & cmake -S $Root -B $HostBuild -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & cmake --build $HostBuild --target noqeri-nqo --config Release
+    & cmake --build $HostBuild --target noqeri-nqri --config Release
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     foreach ($candidate in @(
-        (Join-Path $HostBuild 'noqeri-nqo.exe'),
-        (Join-Path $HostBuild 'Release\noqeri-nqo.exe'),
-        (Join-Path $HostBuild 'noqeri-nqo'),
-        (Join-Path $HostBuild 'Release\noqeri-nqo')
+        (Join-Path $HostBuild 'noqeri-nqri.exe'),
+        (Join-Path $HostBuild 'Release\noqeri-nqri.exe'),
+        (Join-Path $HostBuild 'noqeri-nqri'),
+        (Join-Path $HostBuild 'Release\noqeri-nqri')
     )) {
         if (Test-Path $candidate) { $Runtime = $candidate; break }
     }
 }
 if (-not $Runtime -or -not (Test-Path $Runtime)) {
-    throw 'Native NQO2 runtime was not produced. Set NOQERI_NQO_RUNTIME to noqeri-nqo.'
+    throw 'Native NQRI runtime was not produced. Set NOQERI_NQRI_RUNTIME to noqeri-nqri.'
 }
 if (-not (Test-Path $Seed)) {
-    throw 'A trusted Stage-1 NQO2 compiler seed is required. Set NOQERI_STAGE1_NQO. After that trust boundary, Stage 1 builds Stage 2 and Stage 2 rebuilds Stage 3 using the native NQO2 host.'
+    throw 'A trusted Stage-1 NQRI compiler seed is required. Set NOQERI_STAGE1_NQRI. After that trust boundary, Stage 1 builds Stage 2 and Stage 2 rebuilds Stage 3 using the native NQRI host.'
 }
 
 & $Runtime --selftest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Runtime has-export $Seed stage2CompileToNqo
-if ($LASTEXITCODE -ne 0) { throw "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqo." }
+& $Runtime has-export $Seed stage2CompileToNqri
+if ($LASTEXITCODE -ne 0) { throw "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqri." }
 & $Runtime compile-manifest $Seed $Root $Manifest $Stage2 $Target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Runtime compile-manifest $Stage2 $Root $Manifest $Stage3 $Target

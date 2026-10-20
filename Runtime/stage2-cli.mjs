@@ -9,14 +9,14 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri web-project [source-dir] [output-dir] (checked .nqr and static assets)\n  noqeri web <file.nqr> <output.mjs> (restricted browser subset)\n  noqeri check <file.nqr>
-  noqeri syntax <file.nqr>
-  noqeri lex-count <file.nqr>
-  noqeri fingerprint <file.nqr>
+  noqeri web-project [source-dir] [output-dir] (checked .noqeri and static assets)\n  noqeri web <file.noqeri> <output.mjs> (restricted browser subset)\n  noqeri check <file.noqeri>
+  noqeri syntax <file.noqeri>
+  noqeri lex-count <file.noqeri>
+  noqeri fingerprint <file.noqeri>
   noqeri stage2-status [--json]
   noqeri add <namespace/name>[@version]
   noqeri install
-  noqeri resolve <file.nqr>
+  noqeri resolve <file.noqeri>
   noqeri vendor [--offline]
   noqeri audit [--offline]
   noqeri env [--json]
@@ -74,7 +74,7 @@ function environmentSnapshot() {
     cwd: process.cwd(),
     compilerModule: path,
     compilerModuleExists: existsSync(path),
-    projectManifestExists: existsSync(resolve(process.cwd(), 'project.nqr')),
+    projectManifestExists: existsSync(resolve(process.cwd(), 'project.noqeri')),
     lockfileExists: existsSync(resolve(process.cwd(), 'noqeri.lock')),
     offline: process.env.NOQERI_OFFLINE === '1',
     home: process.env.NOQERI_HOME || null,
@@ -88,7 +88,7 @@ function printEnvironment(snapshot, json) {
   console.log(`Host: ${snapshot.platform}/${snapshot.arch} (Noqeri target ${snapshot.target || 'unsupported'})`)
   console.log(`Working directory: ${snapshot.cwd}`)
   console.log(`Compiler module: ${snapshot.compilerModule} (${snapshot.compilerModuleExists ? 'present' : 'missing'})`)
-  console.log(`project.nqr: ${snapshot.projectManifestExists ? 'present' : 'not found'}`)
+  console.log(`project.noqeri: ${snapshot.projectManifestExists ? 'present' : 'not found'}`)
   console.log(`noqeri.lock: ${snapshot.lockfileExists ? 'present' : 'not found'}`)
   console.log(`Offline: ${snapshot.offline ? 'yes' : 'no'}`)
   console.log(`NOQERI_HOME: ${snapshot.home || '(default)'}`)
@@ -134,7 +134,7 @@ try {
     if (!snapshot.nodeSupported) problems.push('Node.js 20+ is required by the current portable Stage-2 host')
     if (!snapshot.target) problems.push(`Noqeri Stage-2 has no host target mapping for ${snapshot.platform}/${snapshot.arch}`)
     if (!snapshot.compilerModuleExists) warnings.push('Stage-2 compiler module is not built; run scripts/build.sh with a trusted NOQERI_STAGE0 seed')
-    if (!snapshot.projectManifestExists) warnings.push('project.nqr was not found in the current directory')
+    if (!snapshot.projectManifestExists) warnings.push('project.noqeri was not found in the current directory')
     if (snapshot.offline && !snapshot.lockfileExists) warnings.push('offline mode is enabled but noqeri.lock is missing')
     if (snapshot.compilerModuleExists) {
       try { await compilerModule() }
@@ -187,8 +187,8 @@ try {
     process.exit(report.syntax && report.semantics && report.compileCheck && target ? 0 : 1)
   }
   if (command === 'web') {
-    if (!args[1] || !args[2]) throw new Error('web requires an input .nqr and output .mjs path')
-    if (!args[1].endsWith('.nqr') || !args[2].endsWith('.mjs')) throw new Error('web requires .nqr input and .mjs output')
+    if (!args[1] || !args[2]) throw new Error('web requires an input .noqeri and output .mjs path')
+    if (!args[1].endsWith('.noqeri') || !args[2].endsWith('.mjs')) throw new Error('web requires .noqeri input and .mjs output')
     await resolveAndCheckPackages(args[1], compiler)
     const bytes = new Uint8Array(await readFile(args[1]))
     await checkBytes(compiler, bytes, args[1])

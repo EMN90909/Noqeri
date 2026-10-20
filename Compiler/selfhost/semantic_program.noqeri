@@ -1,12 +1,12 @@
 module noqeri.compiler.selfhost.semantic_program
-import "lexer.nqr"
-import "ast.nqr"
-import "types.nqr"
-import "type_ref.nqr"
-import "symbols.nqr"
-import "semantics.nqr"
-import "record_layout.nqr"
-import "generic_metadata.nqr"
+import "lexer.noqeri"
+import "ast.noqeri"
+import "types.noqeri"
+import "type_ref.noqeri"
+import "symbols.noqeri"
+import "semantics.noqeri"
+import "record_layout.noqeri"
+import "generic_metadata.noqeri"
 
 record NqFunctionInfo {
     symbol: u64

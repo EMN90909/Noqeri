@@ -1,4 +1,4 @@
-import "../../Lib/std/json.nqr"
+import "../../Lib/std/json.noqeri"
 
 let text: [u8; 32] = [32 as u8,32 as u8,34 as u8,110 as u8,111 as u8,113 as u8,101 as u8,114 as u8,105 as u8,92 as u8,110 as u8,98 as u8,101 as u8,110 as u8,99 as u8,104 as u8,34 as u8,32 as u8,45 as u8,49 as u8,50 as u8,51 as u8,46 as u8,52 as u8,53 as u8,101 as u8,43 as u8,54 as u8,32 as u8,32 as u8,32 as u8,32 as u8]
 let input: []u8 = slice(text)

@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.generics
-import "types.nqr"
-import "semantics.nqr"
+import "types.noqeri"
+import "semantics.noqeri"
 
 export function nqGenericUnbound(): int { return -1 }
 export function nqGenericConcrete(): int { return -2 }

@@ -1,6 +1,6 @@
 module noqeri.std.math.advanced
 
-import "../math.nqr"
+import "../math.noqeri"
 
 export function nqAtanSeries(value: float): float {
     let x2: float = value * value

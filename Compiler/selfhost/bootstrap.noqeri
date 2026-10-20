@@ -1,39 +1,39 @@
 module noqeri.compiler.bootstrap
-import "driver.nqr"
-import "types.nqr"
-import "type_ref.nqr"
-import "imports.nqr"
-import "package_policy.nqr"
-import "ast.nqr"
-import "lexer.nqr"
-import "parser.nqr"
-import "parser_expr.nqr"
-import "parser_stmt.nqr"
-import "symbols.nqr"
-import "generic_metadata.nqr"
-import "generics.nqr"
-import "semantics.nqr"
-import "record_layout.nqr"
-import "semantic_program.nqr"
-import "nir.nqr"
-import "lower.nqr"
-import "optimizer.nqr"
-import "targets.nqr"
-import "object_formats.nqr"
-import "backend.nqr"
-import "race.nqr"
-import "nqo_writer.nqr"
-import "linker.nqr"
-import "formatter.nqr"
-import "lsp.nqr"
-import "pipeline.nqr"
-import "abi.nqr"
-import "coff_writer.nqr"
-import "elf_writer.nqr"
-import "macho_writer.nqr"
-import "profiles.nqr"
-import "security.nqr"
-import "stage2.nqr"
+import "driver.noqeri"
+import "types.noqeri"
+import "type_ref.noqeri"
+import "imports.noqeri"
+import "package_policy.noqeri"
+import "ast.noqeri"
+import "lexer.noqeri"
+import "parser.noqeri"
+import "parser_expr.noqeri"
+import "parser_stmt.noqeri"
+import "symbols.noqeri"
+import "generic_metadata.noqeri"
+import "generics.noqeri"
+import "semantics.noqeri"
+import "record_layout.noqeri"
+import "semantic_program.noqeri"
+import "nir.noqeri"
+import "lower.noqeri"
+import "optimizer.noqeri"
+import "targets.noqeri"
+import "object_formats.noqeri"
+import "backend.noqeri"
+import "race.noqeri"
+import "nqri_writer.noqeri"
+import "linker.noqeri"
+import "formatter.noqeri"
+import "lsp.noqeri"
+import "pipeline.noqeri"
+import "abi.noqeri"
+import "coff_writer.noqeri"
+import "elf_writer.noqeri"
+import "macho_writer.noqeri"
+import "profiles.noqeri"
+import "security.noqeri"
+import "stage2.noqeri"
 
 export function stage1VersionMajor(): int { return nqCompilerVersionMajor() }
 export function stage1VersionMinor(): int { return nqCompilerVersionMinor() }
@@ -64,17 +64,17 @@ export function stage2SemanticCheck(source: []u8, unsafeAllowed: bool): isize { 
 export function stage2InferGenerics(parameterTypes: []int, parameterSlots: []int, argumentTypes: []int, bindings: []int): isize { return nqGenericInfer(parameterTypes, parameterSlots, argumentTypes, bindings) }
 export function stage2LowerExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize, instructions: []NqNirInstruction, state: *NqLowerState): isize { return nqLowerExpression(source, nodes, nodeIndex, instructions, state) }
 export function stage2CompileToNir(source: []u8, target: int, debug: bool, unsafeAllowed: bool, nodes: []NqAstNode, instructions: []NqNirInstruction, functions: []NqNirFunction, out: *NqCompileResult): isize { return nqPipelineCompileToNir(source, target, debug, unsafeAllowed, nodes, instructions, functions, out) }
-export function stage2CompileToNqo(source: []u8, target: int, debug: bool, unsafeAllowed: bool, out: []u8): isize {
+export function stage2CompileToNqri(source: []u8, target: int, debug: bool, unsafeAllowed: bool, out: []u8): isize {
     let nodes: [NqAstNode; 4096]
     let instructions: [NqNirInstruction; 8192]
     let functions: [NqNirFunction; 512]
     let result: NqCompileResult
     let status: isize = nqPipelineCompileToNir(source, target, debug, unsafeAllowed, slice(nodes), slice(instructions), slice(functions), &result)
     if status < 0 as isize { return status }
-    return nqNqoWrite(source, slice(functions, result.functionCount), slice(instructions, result.instructionCount), out)
+    return nqNqriWrite(source, slice(functions, result.functionCount), slice(instructions, result.instructionCount), out)
 }
-export function stage2NqoRequiredBytes(sourceBytes: usize, functionCount: usize, instructionCount: usize, out: *usize): isize { return nqNqoRequiredBytes(sourceBytes, functionCount, instructionCount, out) }
-export function stage2WriteNqo(source: []u8, functions: []NqNirFunction, instructions: []NqNirInstruction, out: []u8): isize { return nqNqoWrite(source, functions, instructions, out) }
+export function stage2NqriRequiredBytes(sourceBytes: usize, functionCount: usize, instructionCount: usize, out: *usize): isize { return nqNqriRequiredBytes(sourceBytes, functionCount, instructionCount, out) }
+export function stage2WriteNqri(source: []u8, functions: []NqNirFunction, instructions: []NqNirInstruction, out: []u8): isize { return nqNqriWrite(source, functions, instructions, out) }
 export function stage2Optimize(instructions: []NqNirInstruction, level: int): usize { return nqOptimizerRun(instructions, level) }
 export function stage2ValidateNir(target: int, instructions: []NqNirInstruction, unsafeAllowed: bool): isize { return nqBackendProgramValid(target, instructions, unsafeAllowed) }
 export function stage2RaceInstrumentable(instructions: []NqNirInstruction): bool { return nqRaceProgramInstrumentable(instructions) }

@@ -14,7 +14,7 @@ Implement import semantics, module discovery, package resolution and a tested st
 
 ## Self-hosting
 
-Grow noqeri until the compiler can be implemented in `.nqr`, then maintain a reproducible staged bootstrap.
+Grow noqeri until the compiler can be implemented in `.noqeri`, then maintain a reproducible staged bootstrap.
 
 ## Tooling
 

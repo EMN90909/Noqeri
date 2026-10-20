@@ -1,6 +1,6 @@
 module noqeri.std.parser
 
-import "lexer.nqr"
+import "lexer.noqeri"
 
 // ParserCursor is intentionally grammar-neutral. It layers predictable
 // lookahead, checkpoints, expectations and primitive literal parsing over the

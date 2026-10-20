@@ -27,7 +27,7 @@ test('reject dynamic execution and global access',()=>{
   assert.throws(()=>compileWeb('export function run(): int { return globalThis }'),/Unsafe/)
 })
 test('reject unimplemented imports and native-only calls',()=>{
-  assert.throws(()=>compileWeb('import "foo.nqr"'),/Expected function/)
+  assert.throws(()=>compileWeb('import "foo.noqeri"'),/Expected function/)
   assert.throws(()=>compileWeb('export function run(): int { return asm("nop") }'),/Unsafe/)
 })
 test('reject invalid syntax and duplicate exports',()=>{

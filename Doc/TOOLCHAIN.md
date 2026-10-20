@@ -6,4 +6,4 @@ The bootstrap pipeline is:
 
 The executable is `noqeri`. `lex`, `check`, `nir`, `run`, `build`, `format`, `manifest`, `lock`, `test`, `doctor`, `release-check`, and `lsp` are the current commands.
 
-CMake is the canonical bootstrap build. The language project format itself remains noqeri-native (`project.nqr`), not CMake.
+CMake is the canonical bootstrap build. The language project format itself remains noqeri-native (`project.noqeri`), not CMake.

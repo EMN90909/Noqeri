@@ -1,10 +1,10 @@
-import "../Lib/std/event.nqr"
-import "../Lib/std/future.nqr"
-import "../Lib/std/iterator.nqr"
-import "../Lib/std/metrics.nqr"
-import "../Lib/std/numeric.nqr"
-import "../Lib/std/lexer.nqr"
-import "../Lib/std/parser.nqr"
+import "../Lib/std/event.noqeri"
+import "../Lib/std/future.noqeri"
+import "../Lib/std/iterator.noqeri"
+import "../Lib/std/metrics.noqeri"
+import "../Lib/std/numeric.noqeri"
+import "../Lib/std/lexer.noqeri"
+import "../Lib/std/parser.noqeri"
 
 function test_event(): int {
     let state: [u8; 64] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]

@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.macho_writer
-import "targets.nqr"
-import "object_formats.nqr"
+import "targets.noqeri"
+import "object_formats.noqeri"
 
 export function nqMachHeaderBytes64(): usize { return 32 as usize }
 export function nqMachSegmentCommandBytes64(): usize { return 72 as usize }

@@ -17,10 +17,10 @@ run('OBJ loader unit and adversarial tests', process.execPath, ['--test', 'tests
 run('OBJ cube asset fixture', process.execPath, ['Tools/game/validate-obj.mjs', 'examples/game_sdk/assets/cube.obj'])
 if (!sourceOnly) {
   const compiler = process.env.NOQERI_GAME_COMPILER || resolve(root, 'build/noqeri')
-  if (existsSync(compiler)) run('Noqeri compiler checks game source', compiler, ['check', 'tests/game_foundations.nqr'])
+  if (existsSync(compiler)) run('Noqeri compiler checks game source', compiler, ['check', 'tests/game_foundations.noqeri'])
   else checks.push({ name: 'Noqeri compiler checks game source', passed: false, error: `compiler unavailable: ${compiler}` })
   const runner = process.env.NOQERI_GAME_RUNNER
-  if (runner && existsSync(runner)) run('Noqeri runs gameplay fixture', runner, ['run', 'tests/game_foundations.nqr'], '0')
+  if (runner && existsSync(runner)) run('Noqeri runs gameplay fixture', runner, ['run', 'tests/game_foundations.noqeri'], '0')
   else checks.push({ name: 'Noqeri runs gameplay fixture', passed: false, error: 'set NOQERI_GAME_RUNNER to a verified runner supporting run' })
   checks.push({ name: 'Noqeri native 3D GPU frame', passed: false, error: 'native Noqeri SDL3/OpenGL renderer not implemented or verified' })
 }

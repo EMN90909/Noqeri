@@ -3,7 +3,7 @@
 ## Verified source changes
 - POSIX and PowerShell bootstrap scripts and Stage-2 CLI now use the JavaScript module extension .mjs consistently.
 - A new Stage-2 ESM ABI validator checks JavaScript importability and required compiler exports; bootstrap fails closed on incompatible generated modules.
-- Noqeri README documents current Stage-2 commands and warns that binary NQO2 is not an importable ES module.
+- Noqeri README documents current Stage-2 commands and warns that binary NQRI is not an importable ES module.
 - noqeri-web documentation corrects generated browser artifact extensions and clarifies that source download is not a verified compiler distribution.
 - noqeri-registry now includes an offline catalog validator for coordinates, versions, paths, duplicates, protocol and yanked flags.
 
@@ -11,7 +11,7 @@
 
 | Subsystem | Source present | What still needs executable verification |
 | --- | --- | --- |
-| Type system | semantic_program.nqr, types.nqr, type_ref.nqr, generics.nqr | Valid and invalid type matrix; casts, overflow, lifetime, diagnostics |
+| Type system | semantic_program.noqeri, types.noqeri, type_ref.noqeri, generics.noqeri | Valid and invalid type matrix; casts, overflow, lifetime, diagnostics |
 | Memory safety | safety and lifetime implementations | Aliasing, escaping borrows, null, bounds and sanitizer/fuzz testing |
 | Frontend | Lexer, parser, semantic pipeline | Full grammar corpus, import resolution, source diagnostics and fuzzing |
 | Optimizer | Folding, simplification and dead-code passes | Differential optimizer-on/off execution, overflow and control flow |

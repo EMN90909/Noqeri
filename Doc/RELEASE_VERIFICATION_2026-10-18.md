@@ -43,7 +43,7 @@ The local subset lacks the complete web/NoeSQL tests and sibling repositories. T
 - [ ] Execute positive/negative grammar, type, memory, ownership, generics, optimizer and native ABI conformance tests.
 - [ ] Produce, link and run a native general-purpose application; verify correct external function calls and cleanup.
 - [ ] Verify full web, NoeSQL, package-manager, security and existing regression suites on a complete checkout.
-- [ ] Verify native `tests/game_foundations.nqr` and investigate compiler errors if any; optional 3D graphics remain experimental.
+- [ ] Verify native `tests/game_foundations.noqeri` and investigate compiler errors if any; optional 3D graphics remain experimental.
 - [ ] Verify clean installs, release artifacts, signatures and platform-specific execution on every advertised target.
 - [ ] Run `node scripts/qualify-release.mjs` with the trusted seed and required sibling projects; retain the output `build/release-qualification/report.json`.
 - [ ] Publish stable 0.7.0 only after all release-critical gates pass.

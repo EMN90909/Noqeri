@@ -1,4 +1,4 @@
-// Portable ROW1 codec used to independently check the native .nqr wire contract.
+// Portable ROW1 codec used to independently check the native .noqeri wire contract.
 // This is a conformance/reference implementation, not the native runtime.
 const MAGIC='NROW', HEAD=14, MAX_COLS=256
 const kind={int:1,bool:2,text:3}

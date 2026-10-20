@@ -1,14 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "noqeri",
-  "scopeName": "source.nqr",
+  "scopeName": "source.noqeri",
   "patterns": [{"include":"#comments"},{"include":"#strings"},{"include":"#numbers"},{"include":"#keywords"},{"include":"#types"},{"include":"#functions"}],
   "repository": {
-    "comments": {"patterns":[{"name":"comment.line.double-slash.nqr","match":"//.*$"}]},
-    "strings": {"patterns":[{"name":"string.quoted.double.nqr","begin":"\"","end":"\"","patterns":[{"name":"constant.character.escape.nqr","match":"\\\\[nrt\\\"\\\\]"}]}]},
-    "numbers": {"patterns":[{"name":"constant.numeric.nqr","match":"\\b(?:[0-9]+(?:\\.[0-9]+)?)\\b"}]},
-    "keywords": {"patterns":[{"name":"keyword.control.nqr","match":"\\b(?:if|else|while|return)\\b"},{"name":"storage.type.nqr","match":"\\b(?:let|const|function)\\b"},{"name":"constant.language.nqr","match":"\\b(?:true|false|null)\\b"}]},
-    "types": {"patterns":[{"name":"support.type.nqr","match":"\\b(?:void|null|bool|int|int64|float|float64|string)\\b"}]},
-    "functions": {"patterns":[{"name":"entity.name.function.nqr","match":"(?<=\\bfunction\\s)[A-Za-z_][A-Za-z0-9_]*"}]}
+    "comments": {"patterns":[{"name":"comment.line.double-slash.noqeri","match":"//.*$"}]},
+    "strings": {"patterns":[{"name":"string.quoted.double.noqeri","begin":"\"","end":"\"","patterns":[{"name":"constant.character.escape.noqeri","match":"\\\\[nrt\\\"\\\\]"}]}]},
+    "numbers": {"patterns":[{"name":"constant.numeric.noqeri","match":"\\b(?:[0-9]+(?:\\.[0-9]+)?)\\b"}]},
+    "keywords": {"patterns":[{"name":"keyword.control.noqeri","match":"\\b(?:if|else|while|return)\\b"},{"name":"storage.type.noqeri","match":"\\b(?:let|const|function)\\b"},{"name":"constant.language.noqeri","match":"\\b(?:true|false|null)\\b"}]},
+    "types": {"patterns":[{"name":"support.type.noqeri","match":"\\b(?:void|null|bool|int|int64|float|float64|string)\\b"}]},
+    "functions": {"patterns":[{"name":"entity.name.function.noqeri","match":"(?<=\\bfunction\\s)[A-Za-z_][A-Za-z0-9_]*"}]}
   }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Reference/parity VM only. The compiler bootstrap now uses Runtime/native/nqo_vm.cpp.
+// Reference/parity VM only. The compiler bootstrap now uses Runtime/native/nqri_vm.cpp.
 // Keep this implementation for differential testing while the native host is qualified.
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -8,15 +8,15 @@ const I64_MIN = -(1n << 63n)
 const I64_MAX = (1n << 63n) - 1n
 const U64_MAX = (1n << 64n) - 1n
 
-class NqoError extends Error {
+class NqriError extends Error {
   constructor(message, instruction = null) {
     super(message)
-    this.name = 'NqoError'
+    this.name = 'NqriError'
     this.instruction = instruction
   }
 }
-class NqoThrow extends Error {
-  constructor(value) { super(`Noqeri throw: ${String(value)}`); this.name = 'NqoThrow'; this.value = value }
+class NqriThrow extends Error {
+  constructor(value) { super(`Noqeri throw: ${String(value)}`); this.name = 'NqriThrow'; this.value = value }
 }
 class MemoryBlock {
   constructor(bytes = 0, logicalLength = null) {
@@ -48,10 +48,10 @@ function asBigInt(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value))
   if (value === false || value == null) return 0n
   if (value === true) return 1n
-  throw new NqoError(`expected integer, got ${typeof value}`)
+  throw new NqriError(`expected integer, got ${typeof value}`)
 }
 function checkedI64(value) {
-  if (value < I64_MIN || value > I64_MAX) throw new NqoError('checked i64 overflow')
+  if (value < I64_MIN || value > I64_MAX) throw new NqriError('checked i64 overflow')
   return value
 }
 function widthForType(typeCode) {
@@ -62,7 +62,7 @@ function widthForType(typeCode) {
 }
 function signedType(typeCode) { return [3, 6, 8, 10, 12, 14].includes(typeCode) }
 function resolvePointer(pointer) {
-  if (!isPointer(pointer)) throw new NqoError('null or non-pointer memory access')
+  if (!isPointer(pointer)) throw new NqriError('null or non-pointer memory access')
   if (pointer.kind === 'ptr') return { block: pointer.block, offset: pointer.offset, cell: null }
   const { cell, offset } = pointer
   if (offset === 0 && !isPointer(cell.value)) return { block: null, offset: 0, cell }
@@ -78,7 +78,7 @@ function writeScalar(pointer, value, width = 8) {
   if (target.cell && target.offset === 0) { target.cell.value = value; return }
   const block = target.block
   const offset = target.offset
-  if (!block || offset < 0) throw new NqoError('invalid write address')
+  if (!block || offset < 0) throw new NqriError('invalid write address')
   block.ensure(offset + width)
   if (typeof value === 'object' && value !== null) {
     block.refs.set(offset, value)
@@ -95,7 +95,7 @@ function readScalar(pointer, width = 8, typeCode = 0) {
   if (target.cell && target.offset === 0) return target.cell.value ?? 0n
   const block = target.block
   const offset = target.offset
-  if (!block || offset < 0 || offset + width > block.buffer.length) throw new NqoError('out-of-bounds memory read')
+  if (!block || offset < 0 || offset + width > block.buffer.length) throw new NqriError('out-of-bounds memory read')
   if (block.refs.has(offset)) return block.refs.get(offset)
   let raw = 0n
   for (let i = 0; i < width; i++) raw |= BigInt(block.buffer[offset + i]) << BigInt(i * 8)
@@ -107,9 +107,9 @@ function readScalar(pointer, width = 8, typeCode = 0) {
   return raw
 }
 function pointerAdd(base, index, width, immediate = 0n) {
-  if (!isPointer(base)) throw new NqoError('pointer arithmetic on non-pointer')
+  if (!isPointer(base)) throw new NqriError('pointer arithmetic on non-pointer')
   const delta = Number(asBigInt(index) * BigInt(Math.max(1, width)) + immediate)
-  if (!Number.isSafeInteger(delta)) throw new NqoError('pointer offset exceeds host safe range')
+  if (!Number.isSafeInteger(delta)) throw new NqriError('pointer offset exceeds host safe range')
   if (base.kind === 'ptr') return ptr(base.block, base.offset + delta)
   return cellPtr(base.cell, base.offset + delta)
 }
@@ -120,20 +120,20 @@ function decodeStringLiteral(bytes) {
   return new TextEncoder().encode(text)
 }
 
-export function loadNqo2(input) {
+export function loadNqri2(input) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
-  if (bytes.length < 32 || String.fromCharCode(...bytes.subarray(0, 4)) !== 'NQO2') throw new NqoError('not an NQO2 module')
+  if (bytes.length < 32 || String.fromCharCode(...bytes.subarray(0, 4)) !== 'NQRI') throw new NqriError('not an NQRI module')
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const u32 = off => view.getUint32(off, true)
   const u64 = off => view.getBigUint64(off, true)
   const i64 = off => view.getBigInt64(off, true)
   const version = u32(4)
-  if (version !== 2) throw new NqoError(`unsupported NQO version ${version}`)
+  if (version !== 2) throw new NqriError(`unsupported NQRI version ${version}`)
   const sourceBytes = u32(8), functionCount = u32(12), instructionCount = u32(16)
   const functionBytes = u32(20), instructionBytes = u32(24)
-  if (functionBytes !== 40 || instructionBytes !== 96) throw new NqoError('unsupported NQO2 record layout')
+  if (functionBytes !== 40 || instructionBytes !== 96) throw new NqriError('unsupported NQRI record layout')
   const required = 32 + sourceBytes + functionCount * functionBytes + instructionCount * instructionBytes
-  if (!Number.isSafeInteger(required) || required !== bytes.length) throw new NqoError(`invalid NQO2 length: expected ${required}, got ${bytes.length}`)
+  if (!Number.isSafeInteger(required) || required !== bytes.length) throw new NqriError(`invalid NQRI length: expected ${required}, got ${bytes.length}`)
   const source = bytes.slice(32, 32 + sourceBytes)
   const decoder = new TextDecoder()
   let offset = 32 + sourceBytes
@@ -145,7 +145,7 @@ export function loadNqo2(input) {
       firstInstruction: u32(offset + 16), instructionCount: u32(offset + 20),
       parameterCount: u32(offset + 24), flags: u32(offset + 28)
     }
-    if (fn.nameEnd <= fn.nameStart || fn.nameEnd > source.length || fn.firstInstruction + fn.instructionCount > instructionCount) throw new NqoError('invalid function record')
+    if (fn.nameEnd <= fn.nameStart || fn.nameEnd > source.length || fn.firstInstruction + fn.instructionCount > instructionCount) throw new NqriError('invalid function record')
     fn.name = decoder.decode(source.subarray(fn.nameStart, fn.nameEnd))
     functions.push(fn); bySymbol.set(fn.symbol.toString(), fn); byName.set(fn.name, fn)
   }
@@ -165,7 +165,7 @@ export function loadNqo2(input) {
   return { version, bytes, source, sourceText: text, functions, instructions, bySymbol, byName, recordTypes }
 }
 
-export class NqoVm {
+export class NqriVm {
   constructor(module, options = {}) {
     this.module = module
     this.maxSteps = Number(options.maxSteps ?? 50_000_000)
@@ -180,14 +180,14 @@ export class NqoVm {
   }
   zeroValueForType(text) {
     const type = text.trim()
-    if (!type) throw new NqoError('zero-init marker has no type')
+    if (!type) throw new NqriError('zero-init marker has no type')
     if (type.startsWith('[]')) return sliceValue(null, 0)
     if (type.startsWith('*')) return null
     if (type.startsWith('[')) {
       const match = type.match(/^\[.*;\s*(\d+)\s*\]$/s)
-      if (!match) throw new NqoError(`invalid zero-init array type ${type}`)
+      if (!match) throw new NqriError(`invalid zero-init array type ${type}`)
       const length = Number(match[1])
-      if (!Number.isSafeInteger(length) || length < 0) throw new NqoError('array length exceeds host range')
+      if (!Number.isSafeInteger(length) || length < 0) throw new NqriError('array length exceeds host range')
       return ptr(new MemoryBlock(Math.min(length * 8, 1024), length), 0)
     }
     if (this.module.recordTypes.has(type.split('<')[0].trim())) return ptr(new MemoryBlock(128), 0)
@@ -198,7 +198,7 @@ export class NqoVm {
     // gives them a concrete representation; unresolved ordinary calls never use
     // this path because they are not tagged by the zero-init normalization pass.
     if (/^[A-Z][A-Za-z0-9_]*$/.test(type)) return 0n
-    throw new NqoError(`unsupported zero-init type ${type}`)
+    throw new NqriError(`unsupported zero-init type ${type}`)
   }
   hostCall(name, args, ins) {
     if (this.host.has(name)) return this.host.get(name)(...args)
@@ -207,7 +207,7 @@ export class NqoVm {
       if (isSlice(value)) return BigInt(value.length)
       if (value instanceof Uint8Array || Array.isArray(value) || typeof value === 'string') return BigInt(value.length)
       if (isPointer(value) && value.kind === 'ptr' && value.block.logicalLength != null) return BigInt(value.block.logicalLength)
-      throw new NqoError('len requires a slice, array or string', ins)
+      throw new NqriError('len requires a slice, array or string', ins)
     }
     if (name === 'slice') {
       const value = args[0]
@@ -217,10 +217,10 @@ export class NqoVm {
       if (isPointer(value)) {
         const inferred = value.kind === 'ptr' ? value.block.logicalLength ?? value.block.buffer.length : null
         if (length == null) length = inferred
-        if (length == null) throw new NqoError('slice(pointer) requires known length', ins)
+        if (length == null) throw new NqriError('slice(pointer) requires known length', ins)
         return sliceValue(value, length)
       }
-      throw new NqoError('slice requires addressable storage', ins)
+      throw new NqriError('slice requires addressable storage', ins)
     }
     if (name === 'print') { this.stdout(args[0]); return 0n }
     const fn = this.module.byName.get(name)
@@ -228,12 +228,12 @@ export class NqoVm {
     // Internal typed zero-init normalization generates a no-argument call whose
     // source span is exactly a type expression. Only demonstrable types qualify.
     if (args.length === 0 && (this.module.recordTypes.has(name.split('<')[0].trim()) || /^(?:\*|\[\]|\[)|^(?:bool|int|float|string|i8|u8|i16|u16|i32|u32|i64|u64|isize|usize)$/.test(name))) return this.zeroValueForType(name)
-    throw new NqoError(`unresolved call ${name}`, ins)
+    throw new NqriError(`unresolved call ${name}`, ins)
   }
   getReg(frame, id, ins) {
     if (id < 0n) return undefined
     const key = id.toString()
-    if (!frame.regs.has(key)) throw new NqoError(`read of undefined register ${key}`, ins)
+    if (!frame.regs.has(key)) throw new NqriError(`read of undefined register ${key}`, ins)
     return frame.regs.get(key)
   }
   setReg(frame, id, value) { if (id >= 0n) frame.regs.set(id.toString(), value) }
@@ -244,12 +244,12 @@ export class NqoVm {
   }
   executeFunction(functionOrName, args = [], depth = 0) {
     const fn = typeof functionOrName === 'string' ? this.module.byName.get(functionOrName) : functionOrName
-    if (!fn) throw new NqoError(`function not found: ${String(functionOrName)}`)
-    if (depth > this.maxDepth) throw new NqoError('NQO call-depth limit exceeded')
+    if (!fn) throw new NqriError(`function not found: ${String(functionOrName)}`)
+    if (depth > this.maxDepth) throw new NqriError('NQRI call-depth limit exceeded')
     const frame = { regs: new Map(), cells: new Map(), pendingArgs: new Map(), args, pc: fn.firstInstruction }
     const end = fn.firstInstruction + fn.instructionCount
     while (frame.pc < end) {
-      if (++this.steps > this.maxSteps) throw new NqoError('NQO instruction-step limit exceeded')
+      if (++this.steps > this.maxSteps) throw new NqriError('NQRI instruction-step limit exceeded')
       const ins = this.module.instructions[frame.pc]
       const next = frame.pc + 1
       let value, a, b
@@ -264,11 +264,11 @@ export class NqoVm {
           a = this.getReg(frame, ins.left, ins); b = this.getReg(frame, ins.right, ins)
           if (typeof a === 'number' || typeof b === 'number') {
             a = Number(a); b = Number(b)
-            if ((ins.opcode === 9 || ins.opcode === 10) && b === 0) throw new NqoError('division by zero', ins)
+            if ((ins.opcode === 9 || ins.opcode === 10) && b === 0) throw new NqriError('division by zero', ins)
             value = ins.opcode === 6 ? a + b : ins.opcode === 7 ? a - b : ins.opcode === 8 ? a * b : ins.opcode === 9 ? a / b : a % b
           } else {
             a = asBigInt(a); b = asBigInt(b)
-            if ((ins.opcode === 9 || ins.opcode === 10) && b === 0n) throw new NqoError('division by zero', ins)
+            if ((ins.opcode === 9 || ins.opcode === 10) && b === 0n) throw new NqriError('division by zero', ins)
             value = ins.opcode === 6 ? a + b : ins.opcode === 7 ? a - b : ins.opcode === 8 ? a * b : ins.opcode === 9 ? a / b : a % b
             if (ins.flags & 2) value = checkedI64(value)
           }
@@ -292,7 +292,7 @@ export class NqoVm {
           break
         }
         case 22: return ins.left >= 0n ? this.getReg(frame, ins.left, ins) : 0n
-        case 23: throw new NqoError('phi requires CFG predecessor metadata and is not emitted by current Stage-2 lowering', ins)
+        case 23: throw new NqriError('phi requires CFG predecessor metadata and is not emitted by current Stage-2 lowering', ins)
         case 24: {
           const cell = this.cell(frame, ins.symbol)
           this.setReg(frame, ins.dest, isPointer(cell.value) ? cell.value : cellPtr(cell, 0))
@@ -302,18 +302,18 @@ export class NqoVm {
         case 26: case 28: case 29: this.setReg(frame, ins.dest, readScalar(this.getReg(frame, ins.left, ins), ins.width || 8, ins.typeCode)); break
         case 27: writeScalar(this.getReg(frame, ins.left, ins), this.getReg(frame, ins.right, ins), ins.width || 8); break
         case 30: break
-        case 31: throw new NqoError(`unimplemented intrinsic ${ins.symbol}`, ins)
-        case 32: throw new NqoError('inline assembly is unavailable in portable NQO2 execution', ins)
+        case 31: throw new NqriError(`unimplemented intrinsic ${ins.symbol}`, ins)
+        case 32: throw new NqriError('inline assembly is unavailable in portable NQRI execution', ins)
         case 33: {
           value = this.getReg(frame, ins.left, ins)
           if (typeof value === 'bigint' && value < 0n) return value
           this.setReg(frame, ins.dest, value)
           break
         }
-        case 34: throw new NqoThrow(this.getReg(frame, ins.left, ins))
+        case 34: throw new NqriThrow(this.getReg(frame, ins.left, ins))
         case 35: {
           const index = asBigInt(this.getReg(frame, ins.left, ins)), length = asBigInt(this.getReg(frame, ins.right, ins))
-          if (index < 0n || index >= length) throw new NqoError(`bounds check failed: ${index}/${length}`, ins)
+          if (index < 0n || index >= length) throw new NqriError(`bounds check failed: ${index}/${length}`, ins)
           break
         }
         case 36: break
@@ -324,10 +324,10 @@ export class NqoVm {
         case 38: this.setReg(frame, ins.dest, readScalar(this.getReg(frame, ins.left, ins), ins.width || widthForType(ins.typeCode), ins.typeCode)); break
         case 39: writeScalar(this.getReg(frame, ins.left, ins), this.getReg(frame, ins.right, ins), ins.width || 8); break
         case 40: {
-          const s = this.getReg(frame, ins.left, ins); if (!isSlice(s)) throw new NqoError('slice_data on non-slice', ins); this.setReg(frame, ins.dest, s.data); break
+          const s = this.getReg(frame, ins.left, ins); if (!isSlice(s)) throw new NqriError('slice_data on non-slice', ins); this.setReg(frame, ins.dest, s.data); break
         }
         case 41: {
-          const s = this.getReg(frame, ins.left, ins); if (!isSlice(s)) throw new NqoError('slice_len on non-slice', ins); this.setReg(frame, ins.dest, BigInt(s.length)); break
+          const s = this.getReg(frame, ins.left, ins); if (!isSlice(s)) throw new NqriError('slice_len on non-slice', ins); this.setReg(frame, ins.dest, BigInt(s.length)); break
         }
         case 42: this.setReg(frame, ins.dest, sliceValue(this.getReg(frame, ins.left, ins), asBigInt(this.getReg(frame, ins.right, ins)))); break
         case 43: {
@@ -337,14 +337,14 @@ export class NqoVm {
           this.setReg(frame, ins.dest, value); break
         }
         case 45: {
-          if (ins.sourceEnd > this.module.source.length || ins.sourceEnd <= ins.sourceStart) throw new NqoError('invalid string source span', ins)
+          if (ins.sourceEnd > this.module.source.length || ins.sourceEnd <= ins.sourceStart) throw new NqriError('invalid string source span', ins)
           const literal = decodeStringLiteral(this.module.source.subarray(ins.sourceStart, ins.sourceEnd))
           const block = new MemoryBlock(literal.length, literal.length); block.buffer.set(literal)
           this.setReg(frame, ins.dest, sliceValue(ptr(block, 0), literal.length)); break
         }
         case 46: frame.pendingArgs.set(Number(ins.immediate), this.getReg(frame, ins.left, ins)); break
         case 47: this.setReg(frame, ins.dest, frame.args[Number(ins.immediate)] ?? 0n); break
-        default: throw new NqoError(`unsupported NIR opcode ${ins.opcode}`, ins)
+        default: throw new NqriError(`unsupported NIR opcode ${ins.opcode}`, ins)
       }
       frame.pc = next
     }
@@ -353,20 +353,20 @@ export class NqoVm {
   invoke(name, ...args) {
     this.steps = 0
     try { return this.executeFunction(name, args, 0) }
-    catch (error) { if (error instanceof NqoThrow) throw error; throw error }
+    catch (error) { if (error instanceof NqriThrow) throw error; throw error }
   }
 }
 
-export function loadNqo2File(path, options = {}) {
-  const module = loadNqo2(readFileSync(path))
-  return new NqoVm(module, options)
+export function loadNqri2File(path, options = {}) {
+  const module = loadNqri2(readFileSync(path))
+  return new NqriVm(module, options)
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const [file, functionName = 'main', ...rawArgs] = process.argv.slice(2)
-  if (!file) { console.error('usage: node Runtime/nqo-vm.mjs <module.nqo> [function] [integer-args...]'); process.exit(2) }
+  if (!file) { console.error('usage: node Runtime/nqri-vm.mjs <module.nqri> [function] [integer-args...]'); process.exit(2) }
   try {
-    const vm = loadNqo2File(file)
+    const vm = loadNqri2File(file)
     const result = vm.invoke(functionName, ...rawArgs.map(value => BigInt(value)))
     if (result !== undefined) console.log(typeof result === 'bigint' ? result.toString() : result)
   } catch (error) {

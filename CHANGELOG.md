@@ -10,7 +10,7 @@
 ## 1.4.0-general-systems — 2026-09-11
 
 - Added fixed arrays (`[T; N]`), array literals, slices (`[]T`), `slice(...)`, indexed access, and `len(...)`.
-- Added organizational `module` declarations and recursive relative file imports through `import "file.nqr"`.
+- Added organizational `module` declarations and recursive relative file imports through `import "file.noqeri"`.
 - Added inferred register-value function generics such as `function identity<T>(value: T): T`.
 - Added allocation-free integer status propagation through `throw` and `try`.
 - Added typed sequentially-consistent atomic load, store, exchange, compare-exchange, and fence operations.
@@ -36,8 +36,8 @@
 ## 1.0.0-production-track — 2026-09-11
 
 - Established **noqeri** as the canonical language name.
-- Changed public source files to **`.nqr`**.
-- Renamed the CLI to `noqeri`, manifest to `project.nqr`, and lock file to `noqeri.lock`.
+- Changed public source files to **`.noqeri`**.
+- Renamed the CLI to `noqeri`, manifest to `project.noqeri`, and lock file to `noqeri.lock`.
 - Reorganized the repository around mature language-runtime responsibilities inspired by CPython.
 - Moved the buildable bootstrap compiler into `Compiler/bootstrap/`.
 - Added a canonical wolf/code brand asset and reused it in the README, site and editor file icons.

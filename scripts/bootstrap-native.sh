@@ -4,11 +4,11 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 HOST_BUILD="${NOQERI_HOST_BUILD:-$BUILD_DIR/bootstrap-host}"
-RUNTIME="${NOQERI_NQO_RUNTIME:-}"
-SEED="${NOQERI_STAGE1_NQO:-$BUILD_DIR/noqeri-stage1.nqo}"
+RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
+SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
-STAGE2="$BUILD_DIR/noqeri-stage2.nqo"
-STAGE3="$BUILD_DIR/noqeri-stage3.nqo"
+STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
+STAGE3="$BUILD_DIR/noqeri-stage3.nqri"
 PROOF="$BUILD_DIR/native-selfhost-proof.txt"
 
 host_target() {
@@ -33,44 +33,44 @@ fi
 
 mkdir -p "$BUILD_DIR"
 if [ -z "$RUNTIME" ]; then
-  for candidate in "$BUILD_DIR/noqeri-nqo" "$HOST_BUILD/noqeri-nqo" "$HOST_BUILD/Release/noqeri-nqo"; do
+  for candidate in "$BUILD_DIR/noqeri-nqri" "$HOST_BUILD/noqeri-nqri" "$HOST_BUILD/Release/noqeri-nqri"; do
     if [ -x "$candidate" ]; then RUNTIME="$candidate"; break; fi
   done
 fi
 if [ -z "$RUNTIME" ]; then
   command -v cmake >/dev/null 2>&1 || {
-    echo "cmake is required once to build the native NQO2 bootstrap host, or set NOQERI_NQO_RUNTIME." >&2
+    echo "cmake is required once to build the native NQRI bootstrap host, or set NOQERI_NQRI_RUNTIME." >&2
     exit 2
   }
   cmake -S "$ROOT" -B "$HOST_BUILD" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
-  cmake --build "$HOST_BUILD" --target noqeri-nqo --config Release
-  for candidate in "$HOST_BUILD/noqeri-nqo" "$HOST_BUILD/Release/noqeri-nqo"; do
+  cmake --build "$HOST_BUILD" --target noqeri-nqri --config Release
+  for candidate in "$HOST_BUILD/noqeri-nqri" "$HOST_BUILD/Release/noqeri-nqri"; do
     if [ -x "$candidate" ]; then RUNTIME="$candidate"; break; fi
   done
 fi
 if [ -z "$RUNTIME" ] || [ ! -x "$RUNTIME" ]; then
-  echo "native NQO2 runtime was not produced; set NOQERI_NQO_RUNTIME to noqeri-nqo." >&2
+  echo "native NQRI runtime was not produced; set NOQERI_NQRI_RUNTIME to noqeri-nqri." >&2
   exit 2
 fi
 if [ ! -f "$SEED" ]; then
   cat >&2 <<MSG
-A trusted Stage-1 NQO2 compiler seed is required.
-Set NOQERI_STAGE1_NQO to the seed artifact. After this trust boundary, Stage 1
-builds Stage 2 and Stage 2 rebuilds Stage 3 entirely through the native NQO2 host.
+A trusted Stage-1 NQRI compiler seed is required.
+Set NOQERI_STAGE1_NQRI to the seed artifact. After this trust boundary, Stage 1
+builds Stage 2 and Stage 2 rebuilds Stage 3 entirely through the native NQRI host.
 MSG
   exit 2
 fi
 
 "$RUNTIME" --selftest
-if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqo; then
-  echo "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqo." >&2
+if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
+  echo "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqri." >&2
   exit 2
 fi
 "$RUNTIME" compile-manifest "$SEED" "$ROOT" "$MANIFEST" "$STAGE2" "$TARGET"
 "$RUNTIME" compile-manifest "$STAGE2" "$ROOT" "$MANIFEST" "$STAGE3" "$TARGET"
 
 if ! cmp -s "$STAGE2" "$STAGE3"; then
-  echo "Noqeri self-host bootstrap FAILED: Stage-2 and Stage-3 NQO2 outputs differ." >&2
+  echo "Noqeri self-host bootstrap FAILED: Stage-2 and Stage-3 NQRI outputs differ." >&2
   exit 1
 fi
 

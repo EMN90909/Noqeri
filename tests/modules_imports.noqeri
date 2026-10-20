@@ -1,4 +1,4 @@
 module tests.imports
-import "module_math.nqr"
+import "module_math.noqeri"
 
 print(twice(4))

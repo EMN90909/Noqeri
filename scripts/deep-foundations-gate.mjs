@@ -4,7 +4,7 @@ import path from 'node:path'
 
 const minimumBytes = 20 * 1024
 const minimumExports = 20
-const modules = ['core.nqr', 'compare.nqr', 'counter.nqr', 'crypto.nqr', 'adler.nqr', 'bit.nqr', 'checksum.nqr', 'algorithm.nqr']
+const modules = ['core.noqeri', 'compare.noqeri', 'counter.noqeri', 'crypto.noqeri', 'adler.noqeri', 'bit.noqeri', 'checksum.noqeri', 'algorithm.noqeri']
 let failed = false
 for (const name of modules) {
   const file = path.join(process.cwd(), 'Lib', 'std', name)

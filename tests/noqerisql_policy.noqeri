@@ -1,5 +1,5 @@
-import "../Database/dialect.nqr"
-import "../Database/query.nqr"
+import "../Database/dialect.noqeri"
+import "../Database/query.noqeri"
 
 function require(ok: bool): void {
     if !ok {

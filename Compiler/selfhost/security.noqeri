@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.security
-import "nir.nqr"
-import "targets.nqr"
+import "nir.noqeri"
+import "targets.noqeri"
 
 record NqSecurityPolicy {
     allowUnsafe: bool

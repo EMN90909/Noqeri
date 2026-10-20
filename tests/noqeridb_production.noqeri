@@ -1,9 +1,9 @@
-import "../Database/index.nqr"
-import "../Database/security.nqr"
-import "../Database/query.nqr"
-import "../Database/planner.nqr"
-import "../Database/recovery.nqr"
-import "../Database/transaction.nqr"
+import "../Database/index.noqeri"
+import "../Database/security.noqeri"
+import "../Database/query.noqeri"
+import "../Database/planner.noqeri"
+import "../Database/recovery.noqeri"
+import "../Database/transaction.noqeri"
 
 function require(ok: bool): void {
     if !ok {

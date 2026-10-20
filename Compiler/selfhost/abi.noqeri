@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.abi
-import "targets.nqr"
+import "targets.noqeri"
 
 record NqAbiInfo {
     target: int

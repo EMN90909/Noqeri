@@ -1,4 +1,4 @@
-import "../Runtime/race.nqr"
+import "../Runtime/race.noqeri"
 
 let slots: [NqRaceSlot; 16]
 nqRaceSlotsClear(slice(slots))

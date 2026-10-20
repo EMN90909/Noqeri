@@ -20,7 +20,7 @@
 #include <variant>
 #include <vector>
 
-namespace noqeri::nqo {
+namespace noqeri::nqri {
 
 struct RuntimeError : std::runtime_error {
     explicit RuntimeError(const std::string& message) : std::runtime_error(message) {}

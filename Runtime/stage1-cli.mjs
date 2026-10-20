@@ -9,12 +9,12 @@ function usage() {
 
 Usage:
   noqeri --version
-  noqeri check <file.nqr>
-  noqeri lex-count <file.nqr>
-  noqeri fingerprint <file.nqr>
+  noqeri check <file.noqeri>
+  noqeri lex-count <file.noqeri>
+  noqeri fingerprint <file.noqeri>
   noqeri add <namespace/name>[@version]
   noqeri install
-  noqeri resolve <file.nqr>
+  noqeri resolve <file.noqeri>
   noqeri vendor [--offline]
   noqeri audit [--offline]
   noqeri env [--json]
@@ -38,12 +38,12 @@ async function packages() {
 }
 
 function environmentSnapshot() {
-  const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(process.cwd(), 'build/noqeri-stage1.nqo')
+  const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(process.cwd(), 'build/noqeri-stage1.nqri')
   const major = Number(process.versions.node.split('.')[0] || 0)
   return {
     node: process.version, nodeSupported: major >= 20, platform: process.platform, arch: process.arch, cwd: process.cwd(),
     compilerModule: modulePath, compilerModuleExists: existsSync(modulePath),
-    projectManifestExists: existsSync(resolve(process.cwd(), 'project.nqr')), lockfileExists: existsSync(resolve(process.cwd(), 'noqeri.lock')),
+    projectManifestExists: existsSync(resolve(process.cwd(), 'project.noqeri')), lockfileExists: existsSync(resolve(process.cwd(), 'noqeri.lock')),
     offline: process.env.NOQERI_OFFLINE === '1', home: process.env.NOQERI_HOME || null,
     registryIndex: process.env.NOQERI_REGISTRY_INDEX || 'https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json'
   }
@@ -54,7 +54,7 @@ function printEnvironment(snapshot, json) {
   console.log(`Host: ${snapshot.platform}/${snapshot.arch}`)
   console.log(`Working directory: ${snapshot.cwd}`)
   console.log(`Compiler module: ${snapshot.compilerModule} (${snapshot.compilerModuleExists ? 'present' : 'missing'})`)
-  console.log(`project.nqr: ${snapshot.projectManifestExists ? 'present' : 'not found'}`)
+  console.log(`project.noqeri: ${snapshot.projectManifestExists ? 'present' : 'not found'}`)
   console.log(`noqeri.lock: ${snapshot.lockfileExists ? 'present' : 'not found'}`)
   console.log(`Offline: ${snapshot.offline ? 'yes' : 'no'}`)
   console.log(`NOQERI_HOME: ${snapshot.home || '(default)'}`)
@@ -68,7 +68,7 @@ try {
     const snapshot = environmentSnapshot(), problems = [], warnings = []
     if (!snapshot.nodeSupported) problems.push('Node.js 20+ is required by the portable stage-1 host')
     if (!snapshot.compilerModuleExists) warnings.push('stage-1 compiler module is not built; run scripts/build.sh with a trusted NOQERI_STAGE0 seed')
-    if (!snapshot.projectManifestExists) warnings.push('project.nqr was not found in the current directory')
+    if (!snapshot.projectManifestExists) warnings.push('project.noqeri was not found in the current directory')
     if (snapshot.offline && !snapshot.lockfileExists) warnings.push('offline mode is enabled but noqeri.lock is missing')
     const report = { status: problems.length ? 'error' : warnings.length ? 'warning' : 'ok', problems, warnings, environment: snapshot }
     if (args.includes('--json')) console.log(JSON.stringify(report, null, 2))
@@ -86,7 +86,7 @@ try {
   if (command === 'vendor') { const { vendorProject } = await import('./ecosystem-tools.mjs'); const result = await vendorProject({ projectDir: process.cwd(), offline: args.includes('--offline') || process.env.NOQERI_OFFLINE === '1' }); console.log(`vendored ${result.packages.length} locked package(s) into ${result.vendorHome}`); console.log('offline: set NOQERI_HOME=.noqeri/vendor-home and NOQERI_OFFLINE=1'); process.exit(0) }
   if (command === 'audit') { const { auditProject } = await import('./ecosystem-tools.mjs'); const result = await auditProject({ projectDir: process.cwd(), offline: args.includes('--offline') || process.env.NOQERI_OFFLINE === '1' }); console.log(JSON.stringify(result.report, null, 2)); process.exit(result.exitCode) }
 
-  const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(process.cwd(), 'build/noqeri-stage1.nqo')
+  const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(process.cwd(), 'build/noqeri-stage1.nqri')
   let compiler
   try { compiler = await import(pathToFileURL(modulePath).href) } catch (error) { throw new Error(`cannot load stage-1 module ${modulePath}: ${error.message}`) }
   if (command === '--version') { console.log(`Noqeri ${compiler.stage1VersionMajor()}.${compiler.stage1VersionMinor()}.${compiler.stage1VersionPatch()} stage1`); process.exit(0) }

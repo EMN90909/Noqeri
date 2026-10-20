@@ -1,1 +1,1 @@
-au BufRead,BufNewFile *.nqr set filetype=noqeri
+au BufRead,BufNewFile *.noqeri set filetype=noqeri

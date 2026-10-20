@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.formatter
-import "lexer.nqr"
+import "lexer.noqeri"
 export function nqFormatIndentWidth(): usize { return 4 as usize }
 export function nqFormatLineLimit(): usize { return 100 as usize }
 export function nqFormatNeedsSpaceBefore(value: u8): bool { return value == 123 as u8 }

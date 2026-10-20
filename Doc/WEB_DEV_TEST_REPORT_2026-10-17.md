@@ -5,30 +5,30 @@ Scope: current `main` source, Stage-2 CLI, self-host bootstrap, historical brows
 
 ## Evidence and limits
 
-- Reviewed `Runtime/stage2-cli.mjs`, `Compiler/selfhost/main.nqr`, `Compiler/selfhost/nqo_writer.nqr`, `scripts/build.sh`, `scripts/test.sh`, `Doc/SELF_HOSTING.md`, `examples/web_app.nqr` and `tests/web_module.nqr`.
-- External execution environment could not clone the repository: GitHub DNS resolution failed. No usable compiled Noqeri binary was available to execute `.nqr` programs. **No passing compiler execution is claimed.**
+- Reviewed `Runtime/stage2-cli.mjs`, `Compiler/selfhost/main.noqeri`, `Compiler/selfhost/nqri_writer.noqeri`, `scripts/build.sh`, `scripts/test.sh`, `Doc/SELF_HOSTING.md`, `examples/web_app.noqeri` and `tests/web_module.noqeri`.
+- External execution environment could not clone the repository: GitHub DNS resolution failed. No usable compiled Noqeri binary was available to execute `.noqeri` programs. **No passing compiler execution is claimed.**
 - No GitHub Actions were used, added or invoked.
 
 ## Findings
 
 | ID | Severity | Status | Finding |
 | --- | --- | --- | --- |
-| WEB-01 | Critical | Confirmed in source | `Runtime/stage2-cli.mjs` recognizes `check`, `syntax`, `lex-count`, `fingerprint`, package commands, and diagnostics, but not `web`. It responds with usage and exit code 2 for unknown commands, so the current Stage-2 CLI cannot emit browser JavaScript from `.nqr`. |
-| WEB-02 | High | Unverified | `Compiler/selfhost/nqo_writer.nqr` defines an NQO2 portable object format; writing this format is not evidence of runnable ES-module output. Browser module code generation has not been proven end-to-end through Stage 2. |
+| WEB-01 | Critical | Confirmed in source | `Runtime/stage2-cli.mjs` recognizes `check`, `syntax`, `lex-count`, `fingerprint`, package commands, and diagnostics, but not `web`. It responds with usage and exit code 2 for unknown commands, so the current Stage-2 CLI cannot emit browser JavaScript from `.noqeri`. |
+| WEB-02 | High | Unverified | `Compiler/selfhost/nqri_writer.noqeri` defines an NQRI portable object format; writing this format is not evidence of runnable ES-module output. Browser module code generation has not been proven end-to-end through Stage 2. |
 | WEB-03 | High | Confirmed in source | `scripts/test.sh` calls legacy `run`, `nir`, `web`, `db`, `format`, `build`, `manifest`, `lock` and `targets`. These are not supported in the inspected Stage-2 CLI. The script is not a trustworthy passing Stage-2 test until its scope is separated from the historical compiler. |
 | WEB-04 | High | Bootstrap prerequisite | `scripts/build.sh` invokes `$NOQERI_STAGE0 check` and `$NOQERI_STAGE0 web`. A trusted seed with these commands must exist; the build cannot start from source alone on a fresh host. |
-| WEB-05 | Medium | Source/docs drift | `README.md` describes a Stage-1 `noqeri-stage1.nqo` output and only the older command subset. Current `scripts/build.sh` actually names `noqeri-stage2.nqo` and the CLI has additional commands. |
+| WEB-05 | Medium | Source/docs drift | `README.md` describes a Stage-1 `noqeri-stage1.nqri` output and only the older command subset. Current `scripts/build.sh` actually names `noqeri-stage2.nqri` and the CLI has additional commands. |
 | WEB-06 | High | Unverified | DOM host ABI linkage and JavaScript emitter correctness require running emitted modules against a defined browser/host adapter; source declarations alone do not demonstrate this. |
 | WEB-07 | High | Unverified | The self-host equivalence gate in `scripts/bootstrap-stage2.mjs` requires configured builds, artifact equivalence, and conformance/hardening suites; there is no observed passing local proof in this audit. |
 
 ## Added test fixtures
 
-- `tests/web_smoke/01_exports.nqr`: named exported functions, strings and calls.
-- `tests/web_smoke/02_json.nqr`: escaped JSON string for HTTP responses.
-- `tests/web_smoke/03_dom.nqr`: browser host ABI call.
-- `tests/web_smoke/04_arithmetic.nqr`: arithmetic correctness.
-- `tests/web_smoke/05_invalid_type.nqr`: negative semantic check.
-- `tests/web_smoke/06_invalid_browser_asm.nqr`: native assembly must not compile to a browser module.
+- `tests/web_smoke/01_exports.noqeri`: named exported functions, strings and calls.
+- `tests/web_smoke/02_json.noqeri`: escaped JSON string for HTTP responses.
+- `tests/web_smoke/03_dom.noqeri`: browser host ABI call.
+- `tests/web_smoke/04_arithmetic.noqeri`: arithmetic correctness.
+- `tests/web_smoke/05_invalid_type.noqeri`: negative semantic check.
+- `tests/web_smoke/06_invalid_browser_asm.noqeri`: native assembly must not compile to a browser module.
 - `scripts/test_web_dev.mjs`: local-only runner that executes the compiler, imports emitted ES modules in Node.js, checks their real return values, and emits PASS/FAIL JSON. It fails when web generation is unsupported instead of inventing a passing result.
 
 ## How to run, with no GitHub Actions

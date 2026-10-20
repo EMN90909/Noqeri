@@ -2,24 +2,24 @@
 ---
 name: noqeri
 file_extensions: [nqr]
-scope: source.nqr
+scope: source.noqeri
 contexts:
   main:
     - match: '//.*$'
-      scope: comment.line.double-slash.nqr
+      scope: comment.line.double-slash.noqeri
     - match: '\b(let|const|function|if|else|while|return)\b'
-      scope: keyword.control.nqr
+      scope: keyword.control.noqeri
     - match: '\b(true|false|null)\b'
-      scope: constant.language.nqr
+      scope: constant.language.noqeri
     - match: '\b(void|bool|int|int64|float|float64|string)\b'
-      scope: storage.type.nqr
+      scope: storage.type.noqeri
     - match: '"'
       push: string
     - match: '\b[0-9]+(?:\.[0-9]+)?\b'
-      scope: constant.numeric.nqr
+      scope: constant.numeric.noqeri
   string:
-    - meta_scope: string.quoted.double.nqr
+    - meta_scope: string.quoted.double.noqeri
     - match: '\\.'
-      scope: constant.character.escape.nqr
+      scope: constant.character.escape.noqeri
     - match: '"'
       pop: true

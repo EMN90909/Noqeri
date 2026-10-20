@@ -19,7 +19,7 @@ export async function loadWorkspace(path = 'noqeri.workspace.json') {
   if (data.schema !== 1 || !Array.isArray(data.members) || data.members.length === 0) throw new Error('workspace requires schema: 1 and a non-empty members array')
   const root = dirname(full)
   const members = data.members.map(value => safeMember(root, value))
-  for (const member of members) if (!existsSync(resolve(member, 'project.nqr'))) throw new Error(`workspace member has no project.nqr: ${member}`)
+  for (const member of members) if (!existsSync(resolve(member, 'project.noqeri'))) throw new Error(`workspace member has no project.noqeri: ${member}`)
   return { root, members }
 }
 async function main() {
@@ -34,7 +34,7 @@ async function main() {
   const workspace = await loadWorkspace(workspacePath)
   const results = []
   for (const member of workspace.members) {
-    const commandArgs = command === 'check' ? ['check', 'project.nqr'] : [command, '.']
+    const commandArgs = command === 'check' ? ['check', 'project.noqeri'] : [command, '.']
     const result = spawnSync(binary, commandArgs, { cwd: member, stdio: 'inherit', env: process.env })
     const status = result.error ? 2 : (result.status ?? 2)
     results.push({ member, status })

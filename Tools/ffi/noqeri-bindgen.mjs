@@ -79,7 +79,7 @@ async function main() {
 
   const stem = moduleName.replaceAll('.', '_')
   const headerPath = resolve(outDir, `${stem}.h`)
-  const nqrPath = resolve(outDir, `${stem}_bindings.nqr`)
+  const nqrPath = resolve(outDir, `${stem}_bindings.noqeri`)
   await writeFile(headerPath, header)
   await writeFile(nqrPath, nqr)
   console.log(JSON.stringify({ input, header: headerPath, noqeri: nqrPath, imports: imports.length, exports: exports.length, native_export_abi: 'experimental' }, null, 2))

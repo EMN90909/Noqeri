@@ -50,7 +50,7 @@ function byteArrayLiteral(buffer) {
 }
 function parserHarness(buffer) {
   const literal = byteArrayLiteral(buffer)
-  return `import "../../Lib/std/sql.nqr"\nimport "../../Lib/std/url.nqr"\nimport "../../Lib/std/http.nqr"\nimport "../../Lib/std/dns.nqr"\n\nlet data: [u8; ${buffer.length}] = [${literal}]\nlet view: []u8 = slice(data)\nlet decoded: [u8; ${Math.max(8, buffer.length * 3 + 8)}]\nsql_count_placeholders(view)\nsql_has_unterminated_quote(view)\nsql_identifier_valid(view)\nurl_has_scheme(view)\nurl_percent_encoded_len(view)\nurl_percent_decode(view, slice(decoded))\ndns_name_valid(view)\nlet i: usize = 0 as usize\nwhile i < len(view) { http_is_token_char(view[i]) i = i + 1 as usize }\nprint(0)\n`
+  return `import "../../Lib/std/sql.noqeri"\nimport "../../Lib/std/url.noqeri"\nimport "../../Lib/std/http.noqeri"\nimport "../../Lib/std/dns.noqeri"\n\nlet data: [u8; ${buffer.length}] = [${literal}]\nlet view: []u8 = slice(data)\nlet decoded: [u8; ${Math.max(8, buffer.length * 3 + 8)}]\nsql_count_placeholders(view)\nsql_has_unterminated_quote(view)\nsql_identifier_valid(view)\nurl_has_scheme(view)\nurl_percent_encoded_len(view)\nurl_percent_decode(view, slice(decoded))\ndns_name_valid(view)\nlet i: usize = 0 as usize\nwhile i < len(view) { http_is_token_char(view[i]) i = i + 1 as usize }\nprint(0)\n`
 }
 function formatAwareObject() {
   const out = nonEmptyBytes(1024)
@@ -79,11 +79,11 @@ function run(label, args, expected = new Set([0, 1])) {
 
 const sourceSeed = 'module fuzz.seed\nrecord Pair { left: int, right: int }\nfunction add(a: int, b: int): int { return a + b }\nlet x: int = add(1, 2)\nprint(x)\n'
 const nqdSeed = 'table users { id: int key, name: text required }\ndelete users\ninsert users { id: 1, name: "Ada" }\nselect users\n'
-const manifestSeed = 'package { name: "fuzz/project" version: "0.0.1" edition: "2026" entry: "main.nqr" profile: "application" target: "x86_64-unknown-none" }\n'
+const manifestSeed = 'package { name: "fuzz/project" version: "0.0.1" edition: "2026" entry: "main.noqeri" profile: "application" target: "x86_64-unknown-none" }\n'
 
 try {
   for (let i = 0; i < cases; i++) {
-    const source = join(root, `case-${i}.nqr`)
+    const source = join(root, `case-${i}.noqeri`)
     writeFileSync(source, mutateText(sourceSeed))
     run('lexer', ['lex', source])
     run('parser+type-checker+borrow+safety', ['check', source])
@@ -95,7 +95,7 @@ try {
     writeFileSync(nqd, nqdText)
     run('database/.nqd parser', ['db', nqd, db])
 
-    const manifest = join(root, `project-${i}.nqr`)
+    const manifest = join(root, `project-${i}.noqeri`)
     writeFileSync(manifest, mutateText(manifestSeed))
     run('package manifest parser', ['manifest', manifest])
 
@@ -103,7 +103,7 @@ try {
     // covers protocol input. The generated file lives under build/ so relative
     // imports resolve against the checked-out repository.
     const parserInput = i % 2 === 0 ? Buffer.from(mutateText("SELECT * FROM users WHERE name = '?' https://example.test/a%20b"), 'utf8') : nonEmptyBytes(384)
-    const parserSource = join(generatedRoot, `parsers-${i}.nqr`)
+    const parserSource = join(generatedRoot, `parsers-${i}.noqeri`)
     writeFileSync(parserSource, parserHarness(parserInput))
     run('sql+url+dns+http parsers', ['run', parserSource])
 

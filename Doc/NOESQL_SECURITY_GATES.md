@@ -12,7 +12,7 @@ Reproduce locally (without GitHub Actions):
 node --test tests/noesql-*.test.mjs
 ```
 
-46 local reference tests passed in the development environment (Linux, Node 22), including five new security/concurrency regression tests. These are **not compiled native .nqr tests**, security certifications, or production performance benchmarks.
+46 local reference tests passed in the development environment (Linux, Node 22), including five new security/concurrency regression tests. These are **not compiled native .noqeri tests**, security certifications, or production performance benchmarks.
 
 ## Known risks and release blockers
 
@@ -21,11 +21,11 @@ node --test tests/noesql-*.test.mjs
 3. O_NOFOLLOW may be unavailable on some platforms, and the parent directories, checkpoint rename path, and writer lock acquisition still need a complete symlink/path-traversal and hostile-filesystem threat model. Never use the experimental store across untrusted directories.
 4. The SHA-256 checksum is unkeyed. It detects accidental corruption, not deliberate rewriting by an attacker with disk write access. Authentication, authorization, encryption, audit records and key rotation are unimplemented.
 5. No cross-process stress test, multi-host lease fencing, cancellation/deadlines, query memory/time quota enforcement beyond source/read bounds, fault-injected native recovery, fuzzing or security audit has been performed.
-6. No native Noqeri Stage-2 bootstrap/compiler proof or integrated .nqr storage engine exists. SQLite/PostgreSQL adapters have separate operational/security models.
+6. No native Noqeri Stage-2 bootstrap/compiler proof or integrated .noqeri storage engine exists. SQLite/PostgreSQL adapters have separate operational/security models.
 
 ## Next mandatory gates
 
-- Establish a trusted Noqeri compiler seed, compile native .nqr modules, then integrate AST → typed NoeIR → executor → page store/WAL.
+- Establish a trusted Noqeri compiler seed, compile native .noqeri modules, then integrate AST → typed NoeIR → executor → page store/WAL.
 - Document and prove transactional durability, serializability/isolation, deadlock/timeout behavior, bounded query memory and query cancellation.
 - Add adversarial parser and corrupted-file fuzzers, sanitizer/memory safety tests, independent restart/crash interleavings and security audit.
 - Benchmark indexed lookups, scan throughput, write throughput, P95/P99 latency, memory growth and concurrent readers/writers against SQLite/PostgreSQL on the same machines and datasets.

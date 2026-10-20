@@ -1,7 +1,7 @@
 module noqeri.compiler.selfhost.record_layout
-import "ast.nqr"
-import "type_ref.nqr"
-import "types.nqr"
+import "ast.noqeri"
+import "type_ref.noqeri"
+import "types.noqeri"
 
 record NqRecordInfo {
     symbol: u64

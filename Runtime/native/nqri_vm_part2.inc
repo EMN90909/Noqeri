@@ -8,11 +8,11 @@ static PointerPtr pointerAdd(const PointerPtr& base, std::int64_t index, std::si
 }
 
 static std::uint32_t u32(const std::vector<std::uint8_t>& b, std::size_t o) {
-    if (o > b.size() || b.size() - o < 4) throw RuntimeError("truncated NQO2 u32");
+    if (o > b.size() || b.size() - o < 4) throw RuntimeError("truncated NQRI u32");
     return static_cast<std::uint32_t>(b[o]) | (static_cast<std::uint32_t>(b[o+1])<<8) | (static_cast<std::uint32_t>(b[o+2])<<16) | (static_cast<std::uint32_t>(b[o+3])<<24);
 }
 static std::uint64_t u64(const std::vector<std::uint8_t>& b, std::size_t o) {
-    if (o > b.size() || b.size() - o < 8) throw RuntimeError("truncated NQO2 u64");
+    if (o > b.size() || b.size() - o < 8) throw RuntimeError("truncated NQRI u64");
     std::uint64_t v=0; for(std::size_t i=0;i<8;++i)v|=static_cast<std::uint64_t>(b[o+i])<<(i*8); return v;
 }
 static std::int64_t i64(const std::vector<std::uint8_t>& b, std::size_t o) { auto v=u64(b,o); std::int64_t out; std::memcpy(&out,&v,sizeof(out)); return out; }
@@ -32,13 +32,13 @@ static std::string spanText(const Module& module, const Instruction& ins) {
     if (ins.sourceEnd <= ins.sourceStart || ins.sourceEnd > module.source.size()) return {};
     return std::string(reinterpret_cast<const char*>(module.source.data()+ins.sourceStart), static_cast<std::size_t>(ins.sourceEnd-ins.sourceStart));
 }
-static Module loadNqo2(const std::vector<std::uint8_t>& bytes) {
-    if (bytes.size()<32 || bytes[0]!='N'||bytes[1]!='Q'||bytes[2]!='O'||bytes[3]!='2') throw RuntimeError("not an NQO2 module");
-    const auto version=u32(bytes,4); if(version!=2)throw RuntimeError("unsupported NQO version "+std::to_string(version));
+static Module loadNqri2(const std::vector<std::uint8_t>& bytes) {
+    if (bytes.size()<32 || bytes[0]!='N'||bytes[1]!='Q'||bytes[2]!='R'||bytes[3]!='I') throw RuntimeError("not an NQRI module");
+    const auto version=u32(bytes,4); if(version!=2)throw RuntimeError("unsupported NQRI version "+std::to_string(version));
     const auto sourceBytes=u32(bytes,8), functionCount=u32(bytes,12), instructionCount=u32(bytes,16), functionBytes=u32(bytes,20), instructionBytes=u32(bytes,24);
-    if(functionBytes!=40||instructionBytes!=96)throw RuntimeError("unsupported NQO2 record layout");
+    if(functionBytes!=40||instructionBytes!=96)throw RuntimeError("unsupported NQRI record layout");
     const std::uint64_t required=32ull+sourceBytes+static_cast<std::uint64_t>(functionCount)*40ull+static_cast<std::uint64_t>(instructionCount)*96ull;
-    if(required!=bytes.size())throw RuntimeError("invalid NQO2 length");
+    if(required!=bytes.size())throw RuntimeError("invalid NQRI length");
     Module m; m.bytes=bytes; m.source.assign(bytes.begin()+32,bytes.begin()+32+sourceBytes); m.sourceText.assign(reinterpret_cast<const char*>(m.source.data()),m.source.size());
     std::size_t off=32+sourceBytes;
     for(std::uint32_t n=0;n<functionCount;++n,off+=40){Function f;f.symbol=u64(bytes,off);f.nameStart=u32(bytes,off+8);f.nameEnd=u32(bytes,off+12);f.firstInstruction=u32(bytes,off+16);f.instructionCount=u32(bytes,off+20);f.parameterCount=u32(bytes,off+24);f.flags=u32(bytes,off+28);if(f.symbol==0||f.nameEnd<=f.nameStart||f.nameEnd>m.source.size()||static_cast<std::uint64_t>(f.firstInstruction)+f.instructionCount>instructionCount)throw RuntimeError("invalid function record");f.name.assign(reinterpret_cast<const char*>(m.source.data()+f.nameStart),f.nameEnd-f.nameStart);m.bySymbol[f.symbol]=m.functions.size();m.byName[f.name]=m.functions.size();m.functions.push_back(std::move(f));}

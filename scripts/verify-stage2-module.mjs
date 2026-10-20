@@ -15,6 +15,6 @@ try {
  console.log('Stage-2 ESM ABI validated: '+required.join(', '))
 } catch(e) {
  console.error('Stage-2 verification failed: '+e.message)
- console.error('The Noqeri Stage-2 host needs an executable ES module; raw binary NQO2 cannot be imported as JS.')
+ console.error('The Noqeri Stage-2 host needs an executable ES module; raw binary NQRI cannot be imported as JS.')
  process.exitCode=1
 }

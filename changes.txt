@@ -56,7 +56,7 @@ D. Query safety:
   sqlite3_bind or libpq PQexecParams parameter binding for user input.
 
 E. Tests added:
-- tests/noqerisql_policy.nqr: dialect and placeholder policy.
+- tests/noqerisql_policy.noqeri: dialect and placeholder policy.
 - tests/noqerisql_smoke.sql and noqerisql_rollback.sql: SQLite SQL and failure.
 - tests/noqerisql_integration.mjs: 64 parallel writer processes; uniqueness
   rollback; blocked COMMIT; prepared placeholder rejection; PRAGMA/BEGIN
@@ -126,18 +126,18 @@ NOESQL 1.0 CANDIDATE ADDENDUM — 2026-10-15
 DESIGN SOURCE
 User supplied 'NoeSQL 1.0 Hybrid Query Language & Typed Database API —
 Design Specification v0.1'. This implementation follows its separate .noe
-script and .nqr typed-query concepts, but does NOT claim full spec completion.
+script and .noqeri typed-query concepts, but does NOT claim full spec completion.
 
 COMPILER DECISION
-The normal main build is already Noqeri self-hosted in Compiler/selfhost/*.nqr;
-scripts/build.sh requires a trusted NOQERI_STAGE0 seed and emits .nqo.
+The normal main build is already Noqeri self-hosted in Compiler/selfhost/*.noqeri;
+scripts/build.sh requires a trusted NOQERI_STAGE0 seed and emits .nqri.
 Retain archived C++ bootstrap provenance until fixed-point reproducible
 compiler bootstrapping passes. No C++ removal is justified by current evidence.
-Web remains .nqo. No actual full-stack/OS runtime readiness is established.
+Web remains .nqri. No actual full-stack/OS runtime readiness is established.
 
 FILE FORMAT DECISION
-.nqr = Noqeri main source
-.nqo = portable Noqeri compiler/web output
+.noqeri = Noqeri main source
+.nqri = portable Noqeri compiler/web output
 .noe = new NoeSQL query/schema script
 .nqd = new NoeSQL reference DB snapshot (NOED1 JSON/checksum)
 Legacy NoqeriDB .nqd *script* and .nqdb *database* continue on separate
@@ -145,11 +145,11 @@ compatibility command and are NOT automatically migrated to NoeSQL.
 SQLite and PostgreSQL use distinct formats and independent host adapters.
 
 IMPLEMENTED IN THIS FEATURE BRANCH
-- Database/noesql_lexer.nqr: native token scanner with spans/diagnostics.
-- Database/noesql_parser.nqr: native bounded precedence expression parser.
-- Database/noesql_ir.nqr: native typed query/catalog record contracts,
+- Database/noesql_lexer.noqeri: native token scanner with spans/diagnostics.
+- Database/noesql_parser.noqeri: native bounded precedence expression parser.
+- Database/noesql_ir.noqeri: native typed query/catalog record contracts,
   lookup helpers, schema-version and predicate safety validation.
-- Database/noesql.nqr: native module facade.
+- Database/noesql.noqeri: native module facade.
 - Runtime/noesql/compiler.mjs: runnable JS reference lexer, recursive-descent
   declarations, precedence expressions, line/column diagnostics and AST.
 - Runtime/noesql/engine.mjs: reference catalog, typed semantic validation,
@@ -157,7 +157,7 @@ IMPLEMENTED IN THIS FEATURE BRANCH
   insert, update, delete; foreign keys/unique and checksummed snapshots.
 - Runtime/noesql/cli.mjs and Runtime/stage2-cli.mjs: new 'noqeri noe'
   reference command with .noe / .nqd paths.
-- tests/noesql.test.mjs (16 offline tests), tests/noesql_ir.nqr (unverified),
+- tests/noesql.test.mjs (16 offline tests), tests/noesql_ir.noqeri (unverified),
   tests/noesql_fixture.noe and scripts/test-noesql.sh (no GitHub Actions).
 - Doc/NOESQL.md documentation.
 
@@ -167,11 +167,11 @@ node --check compiler.mjs, engine.mjs, cli.mjs: success.
 Local .noe fixture parsed and executed using a .nqd reference file.
 The test run was made from an identical locally constructed reference source
 tree before its contents were committed to this feature branch.
-These are NOT a full Noqeri compiler build and no native .nqr compiler
+These are NOT a full Noqeri compiler build and no native .noqeri compiler
 conformance test was executed (no trusted Stage-0 seed available).
 
 MISSING RELEASE REQUIREMENTS / HONEST LIMITS
-- NoeSQL native compiler in .nqr is only groundwork; full recursive-descent
+- NoeSQL native compiler in .noqeri is only groundwork; full recursive-descent
   statement/catalog parser, typed API generation and native executor are OPEN.
 - Named queries are validated/stored but not invocable; declared indexes
   are catalog metadata rather than optimized physical lookup.

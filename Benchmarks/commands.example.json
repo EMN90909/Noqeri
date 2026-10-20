@@ -3,13 +3,13 @@
   "note": "Copy to Benchmarks/commands.json for the machine under test. Only point entries at implementations that perform equivalent work and produce the same validation output. Missing entries remain unmeasured; never substitute a toy workload for a missing comparison.",
   "implementations": {
     "noqeri": {
-      "json": { "command": ["build/noqeri", "run", "Benchmarks/workloads/json.nqr"], "binary": "build/noqeri" },
-      "regex": { "command": ["build/noqeri", "run", "Benchmarks/workloads/regex.nqr"], "binary": "build/noqeri" },
-      "matrix": { "command": ["build/noqeri", "run", "Benchmarks/workloads/matrix.nqr"], "binary": "build/noqeri" },
-      "strings": { "command": ["build/noqeri", "run", "Benchmarks/workloads/strings.nqr"], "binary": "build/noqeri" },
-      "sorting": { "command": ["build/noqeri", "run", "Benchmarks/workloads/sorting.nqr"], "binary": "build/noqeri" },
-      "startup": { "command": ["build/noqeri", "run", "Benchmarks/workloads/startup.nqr"], "binary": "build/noqeri" },
-      "compilation": { "command": ["build/noqeri", "check", "tests/noqeri_library_suite.nqr"], "binary": "build/noqeri" }
+      "json": { "command": ["build/noqeri", "run", "Benchmarks/workloads/json.noqeri"], "binary": "build/noqeri" },
+      "regex": { "command": ["build/noqeri", "run", "Benchmarks/workloads/regex.noqeri"], "binary": "build/noqeri" },
+      "matrix": { "command": ["build/noqeri", "run", "Benchmarks/workloads/matrix.noqeri"], "binary": "build/noqeri" },
+      "strings": { "command": ["build/noqeri", "run", "Benchmarks/workloads/strings.noqeri"], "binary": "build/noqeri" },
+      "sorting": { "command": ["build/noqeri", "run", "Benchmarks/workloads/sorting.noqeri"], "binary": "build/noqeri" },
+      "startup": { "command": ["build/noqeri", "run", "Benchmarks/workloads/startup.noqeri"], "binary": "build/noqeri" },
+      "compilation": { "command": ["build/noqeri", "check", "tests/noqeri_library_suite.noqeri"], "binary": "build/noqeri" }
     },
     "c": {},
     "cpp": {},

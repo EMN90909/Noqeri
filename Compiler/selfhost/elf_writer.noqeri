@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.elf_writer
-import "targets.nqr"
-import "object_formats.nqr"
+import "targets.noqeri"
+import "object_formats.noqeri"
 
 export function nqElfHeaderBytes64(): usize { return 64 as usize }
 export function nqElfSectionHeaderBytes64(): usize { return 64 as usize }

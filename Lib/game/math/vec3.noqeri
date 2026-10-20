@@ -1,5 +1,5 @@
 module noqeri.game.math.vec3
-import "../../std/math.nqr"
+import "../../std/math.noqeri"
 
 // Right-handed Cartesian coordinates, unitless, allocation-free.
 // `float` is Noqeri's documented 64-bit floating-point scalar.

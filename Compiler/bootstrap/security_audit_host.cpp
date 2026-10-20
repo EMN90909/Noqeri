@@ -34,7 +34,7 @@ bool validateLockedDependency(const std::string&lock,bool v3,const std::string&a
 } // namespace
 
 int runSecurityAudit(const std::filesystem::path&root){
-    int integrityFailures=0;std::size_t reviews=0;Diagnostics diagnostics;auto manifestPath=root/"project.nqr";auto manifest=PackageManager{}.loadManifest(manifestPath,diagnostics);
+    int integrityFailures=0;std::size_t reviews=0;Diagnostics diagnostics;auto manifestPath=root/"project.noqeri";auto manifest=PackageManager{}.loadManifest(manifestPath,diagnostics);
     if(!manifest){++integrityFailures;diagnostics.print(manifestPath.string());}else{
         auto lockPath=root/"noqeri.lock";auto lock=readOptional(lockPath);
         const bool lock2=lock.rfind("noqeri-lock 2\n",0)==0;
@@ -43,7 +43,7 @@ int runSecurityAudit(const std::filesystem::path&root){
         else for(const auto&[alias,spec]:manifest->dependencySpecs)if(!validateLockedDependency(lock,lock3,alias,spec))++integrityFailures;
     }
     const std::vector<Capability>capabilities={{"asm(\"","inline assembly"},{"intrinsic(\"","target intrinsic"},{"*volatile ","volatile memory"},{"host(\"","host service"},{"abi(\"","ABI service"},{" as *","pointer cast"}};
-    std::error_code ec;if(std::filesystem::exists(root,ec))for(const auto&entry:std::filesystem::recursive_directory_iterator(root,ec)){if(ec)break;if(!entry.is_regular_file())continue;auto path=entry.path();if(path.extension()!=".nqr")continue;auto generic=path.generic_string();if(generic.find("/.git/")!=std::string::npos||generic.find("/build/")!=std::string::npos||generic.find("/.noqeri/vendor-home/")!=std::string::npos)continue;auto source=readOptional(path);for(const auto&cap:capabilities){std::size_t pos=0,count=0;while((pos=source.find(cap.needle,pos))!=std::string::npos){++count;++reviews;pos+=std::char_traits<char>::length(cap.needle);}if(count)std::cout<<"review "<<cap.label<<" count="<<count<<" file="<<path.string()<<"\n";}}
+    std::error_code ec;if(std::filesystem::exists(root,ec))for(const auto&entry:std::filesystem::recursive_directory_iterator(root,ec)){if(ec)break;if(!entry.is_regular_file())continue;auto path=entry.path();if(path.extension()!=".noqeri")continue;auto generic=path.generic_string();if(generic.find("/.git/")!=std::string::npos||generic.find("/build/")!=std::string::npos||generic.find("/.noqeri/vendor-home/")!=std::string::npos)continue;auto source=readOptional(path);for(const auto&cap:capabilities){std::size_t pos=0,count=0;while((pos=source.find(cap.needle,pos))!=std::string::npos){++count;++reviews;pos+=std::char_traits<char>::length(cap.needle);}if(count)std::cout<<"review "<<cap.label<<" count="<<count<<" file="<<path.string()<<"\n";}}
     if(ec){std::cerr<<"fail source audit traversal: "<<ec.message()<<"\n";++integrityFailures;}
     std::cout<<"audit integrity="<<(integrityFailures?"failed":"ok")<<" capability-review="<<reviews<<"\n";
     std::cout<<"note native audit checks source capabilities and lock integrity; stage-1 `noqeri audit` additionally checks the registry advisory feed\n";

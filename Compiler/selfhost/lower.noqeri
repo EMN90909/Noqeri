@@ -1,7 +1,7 @@
 module noqeri.compiler.selfhost.lower
-import "ast.nqr"
-import "nir.nqr"
-import "types.nqr"
+import "ast.noqeri"
+import "nir.noqeri"
+import "types.noqeri"
 
 record NqLowerState {
     instructionCount: usize

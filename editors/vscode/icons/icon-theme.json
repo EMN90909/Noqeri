@@ -1,5 +1,5 @@
 {
   "iconDefinitions": {"_noqeri": {"iconPath": "../assets/noqeri-mark.png"}},
   "fileExtensions": {"nqr": "_noqeri"},
-  "fileNames": {"project.nqr": "_noqeri", "noqeri.lock": "_noqeri"}
+  "fileNames": {"project.noqeri": "_noqeri", "noqeri.lock": "_noqeri"}
 }

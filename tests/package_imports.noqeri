@@ -1,5 +1,5 @@
-import "../Compiler/selfhost/imports.nqr"
-import "../Compiler/selfhost/package_policy.nqr"
+import "../Compiler/selfhost/imports.noqeri"
+import "../Compiler/selfhost/package_policy.noqeri"
 
 function require(ok: bool): void {
     if !ok {

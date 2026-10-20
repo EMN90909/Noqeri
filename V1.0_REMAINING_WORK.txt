@@ -21,7 +21,7 @@ P0 — RELEASE BLOCKERS
 
 1. Establish the actual compiler path
 -------------------------------------
-[ ] Document the exact command and stages used to compile a .nqr program.
+[ ] Document the exact command and stages used to compile a .noqeri program.
 [ ] Verify whether the current main-branch compiler can compile a complete
     program into a runnable executable without silently delegating language
     semantics or compilation to the archival C++ compiler.
@@ -33,7 +33,7 @@ P0 — RELEASE BLOCKERS
 
 Acceptance evidence:
 - A clean-checkout build log.
-- A real .nqr program compiled and executed using the documented release path.
+- A real .noqeri program compiled and executed using the documented release path.
 - A record of which compiler stages and external tools were used.
 
 2. End-to-end compiler correctness
@@ -179,7 +179,7 @@ P1 — REQUIRED FOR A USABLE STABLE RELEASE
 [ ] Ensure failed builds provide clear recovery instructions.
 [ ] Verify release artifacts and publish checksums.
 [ ] Document whether Node.js 20+ is required for the reference portable host
-    and distinguish that host requirement from the .nqo format itself.
+    and distinguish that host requirement from the .nqri format itself.
 
 11. Documentation and examples
 ------------------------------

@@ -26,7 +26,7 @@ function walk(directory) {
   for (const entry of entries) {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...walk(absolute));
-    else if (entry.isFile() && entry.name.endsWith('.nqr')) files.push(absolute);
+    else if (entry.isFile() && entry.name.endsWith('.noqeri')) files.push(absolute);
   }
   return files.sort();
 }

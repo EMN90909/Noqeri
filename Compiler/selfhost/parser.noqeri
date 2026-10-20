@@ -1,8 +1,8 @@
 module noqeri.compiler.selfhost.parser
-import "lexer.nqr"
-import "syntax.nqr"
-import "imports.nqr"
-import "ast.nqr"
+import "lexer.noqeri"
+import "syntax.noqeri"
+import "imports.noqeri"
+import "ast.noqeri"
 
 record NqParserCursor {
     offset: usize

@@ -1,6 +1,6 @@
-import "../Lib/std/duration.nqr"
-import "../Lib/std/calendar.nqr"
-import "../Lib/std/clock.nqr"
+import "../Lib/std/duration.noqeri"
+import "../Lib/std/calendar.noqeri"
+import "../Lib/std/clock.noqeri"
 
 function main(): int {
     // Duration: amount-of-time arithmetic and normalization.

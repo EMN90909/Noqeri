@@ -2,7 +2,7 @@
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 *.cmd text eol=crlf
-*.nqr text eol=lf
+*.noqeri text eol=lf
 *.svg text eol=lf
 *.png binary
 *.jpg binary

@@ -148,7 +148,7 @@ module graphics.raster
 Files are imported by relative path:
 
 ```nqr
-import "math.nqr"
+import "math.noqeri"
 ```
 
 File-backed compiler commands recursively resolve imports relative to the importing file, deduplicate loaded files and compile the resulting declaration graph together.

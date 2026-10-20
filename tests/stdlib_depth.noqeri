@@ -1,13 +1,13 @@
-import "../Lib/std/regex.nqr"
-import "../Lib/std/archive.nqr"
-import "../Lib/std/collections.nqr"
-import "../Lib/std/benchmark.nqr"
-import "../Lib/std/test.nqr"
-import "../Lib/std/profile.nqr"
-import "../Lib/std/debug.nqr"
-import "../Lib/std/reflect.nqr"
-import "../Lib/std/sql.nqr"
-import "../Lib/std/database.nqr"
+import "../Lib/std/regex.noqeri"
+import "../Lib/std/archive.noqeri"
+import "../Lib/std/collections.noqeri"
+import "../Lib/std/benchmark.noqeri"
+import "../Lib/std/test.noqeri"
+import "../Lib/std/profile.noqeri"
+import "../Lib/std/debug.noqeri"
+import "../Lib/std/reflect.noqeri"
+import "../Lib/std/sql.noqeri"
+import "../Lib/std/database.noqeri"
 
 function main(): int {
     let p1: [u8; 4] = [97 as u8,98 as u8,42 as u8,99 as u8]

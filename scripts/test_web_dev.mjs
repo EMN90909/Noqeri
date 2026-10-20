@@ -37,25 +37,25 @@ try{
   const v=invoke(['--version'])
   record('CLI launch',v.ok,v.stdout.trim()||v.error)
   if(!v.ok)throw Error('No working compiler binary; set NOQERI_BIN')
-  check('web exports source','tests/web_smoke/01_exports.nqr',true)
-  check('JSON source','tests/web_smoke/02_json.nqr',true)
-  check('DOM host source','tests/web_smoke/03_dom.nqr',true)
-  check('arithmetic source','tests/web_smoke/04_arithmetic.nqr',true)
-  check('invalid type rejected','tests/web_smoke/05_invalid_type.nqr',false)
-  await compile('exports','tests/web_smoke/01_exports.nqr',m=>m.apiStatus?.()==='ok'&&m.greeting?.('Ada')==='hello Ada')
-  await compile('json','tests/web_smoke/02_json.nqr',m=>JSON.parse(m.response?.()||'null')?.status==='ok')
-  await compile('arithmetic','tests/web_smoke/04_arithmetic.nqr',m=>m.add?.(8,13)===21&&m.multiply?.(6,7)===42)
+  check('web exports source','tests/web_smoke/01_exports.noqeri',true)
+  check('JSON source','tests/web_smoke/02_json.noqeri',true)
+  check('DOM host source','tests/web_smoke/03_dom.noqeri',true)
+  check('arithmetic source','tests/web_smoke/04_arithmetic.noqeri',true)
+  check('invalid type rejected','tests/web_smoke/05_invalid_type.noqeri',false)
+  await compile('exports','tests/web_smoke/01_exports.noqeri',m=>m.apiStatus?.()==='ok'&&m.greeting?.('Ada')==='hello Ada')
+  await compile('json','tests/web_smoke/02_json.noqeri',m=>JSON.parse(m.response?.()||'null')?.status==='ok')
+  await compile('arithmetic','tests/web_smoke/04_arithmetic.noqeri',m=>m.add?.(8,13)===21&&m.multiply?.(6,7)===42)
   const prior=globalThis.NoqeriHost
   try{
     globalThis.NoqeriHost={domText:(selector,value)=>selector==='#app'&&value==='Hello from Noqeri'}
-    await compile('dom','tests/web_smoke/03_dom.nqr',m=>m.render?.()===true)
+    await compile('dom','tests/web_smoke/03_dom.noqeri',m=>m.render?.()===true)
   }finally{
     if(prior===undefined)delete globalThis.NoqeriHost
     else globalThis.NoqeriHost=prior
   }
-  const invalidSource=invoke(['check','tests/web_smoke/06_invalid_browser_asm.nqr'])
+  const invalidSource=invoke(['check','tests/web_smoke/06_invalid_browser_asm.noqeri'])
   if(invalidSource.ok){
-    const invalid=invoke(['web','tests/web_smoke/06_invalid_browser_asm.nqr',join(temp,'invalid.mjs')])
+    const invalid=invoke(['web','tests/web_smoke/06_invalid_browser_asm.noqeri',join(temp,'invalid.mjs')])
     const webSupported=!results.some(r=>['exports','json','arithmetic','dom'].includes(r.name)&&r.details.startsWith('web compiler unavailable'))
     record('reject native assembly in browser',webSupported&&!invalid.ok,'webSupported='+webSupported+' exit='+invalid.status)
   }else{

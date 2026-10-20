@@ -4,11 +4,11 @@
 **Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.nqr`, project manifests use `project.nqr`, portable compiled objects use `.nqo`, and NoqeriDB uses `.nqd` / `.nqdb`.
+Noqeri source uses `.noqeri`, project manifests use `project.noqeri`, portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`.
 
 ## Compiler architecture
 
-`main` now uses a staged self-host model. The normal build no longer invokes CMake or a C++17 compiler. Compiler rules being migrated live in `Compiler/selfhost/*.nqr`; the first stage owns lexical scanning, structural syntax checks, primitive type-width/sign policy, token counting and source fingerprinting.
+`main` now uses a staged self-host model. The normal build no longer invokes CMake or a C++17 compiler. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`; the first stage owns lexical scanning, structural syntax checks, primitive type-width/sign policy, token counting and source fingerprinting.
 
 The last known-good C++17 bootstrap was preserved unchanged on branch **`bootstrap/cpp17-stage0`**. It is a provenance/seed compiler, not the production implementation path on `main`. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact trust boundary and remaining parity work.
 
@@ -21,7 +21,7 @@ Linux/macOS/POSIX:
 ```sh
 NOQERI_STAGE0=/path/to/noqeri ./scripts/build.sh
 ./build/noqeri selftest
-./build/noqeri check examples/hello.nqr
+./build/noqeri check examples/hello.noqeri
 ```
 
 Windows PowerShell:
@@ -32,15 +32,15 @@ $env:NOQERI_STAGE0 = 'C:\path\to\noqeri.exe'
 .\build\noqeri.cmd selftest
 ```
 
-The build emits a portable `build/noqeri-stage2.mjs` and a platform launcher. The current reference host requires Node.js 20+ and an **ES-module** Stage-2 compiler export. Portable binary NQO2 is a distinct artifact format and cannot be loaded by JavaScript dynamic import without a decoder or runner. The bootstrap build fails closed unless its trusted seed produces a valid Stage-2 ES module; the restricted web compiler is **not** a drop-in self-host compiler bootstrap.
+The build emits a portable `build/noqeri-stage2.mjs` and a platform launcher. The current reference host requires Node.js 20+ and an **ES-module** Stage-2 compiler export. Portable binary NQRI is a distinct artifact format and cannot be loaded by JavaScript dynamic import without a decoder or runner. The bootstrap build fails closed unless its trusted seed produces a valid Stage-2 ES module; the restricted web compiler is **not** a drop-in self-host compiler bootstrap.
 
 ## Active Stage-2 CLI commands
 
 ```text
 noqeri --version
-noqeri check <file.nqr>
-noqeri lex-count <file.nqr>
-noqeri fingerprint <file.nqr>
+noqeri check <file.noqeri>
+noqeri lex-count <file.noqeri>
+noqeri fingerprint <file.noqeri>
 noqeri selftest
 ```
 
@@ -48,7 +48,7 @@ The historical compiler contains additional native/NIR/package/database/formatte
 
 ## Language capabilities already present
 
-The current language supports fixed-width integers, arrays/slices, records, raw pointers, volatile memory, imports, register-value generics, checked status propagation, atomics, explicit casts, extern/export linkage, target intrinsics and constrained inline assembly. Reusable standard/security/test/database/platform functionality is already implemented under `.nqr` directories.
+The current language supports fixed-width integers, arrays/slices, records, raw pointers, volatile memory, imports, register-value generics, checked status propagation, atomics, explicit casts, extern/export linkage, target intrinsics and constrained inline assembly. Reusable standard/security/test/database/platform functionality is already implemented under `.noqeri` directories.
 
 ## Optional game development SDK
 

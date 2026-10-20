@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.types
-import "ast.nqr"
+import "ast.noqeri"
 
 export function nqCompilerPrimitiveTypeWidth(code: int): usize {
     if code == nqAstTypeBool() || code == nqAstTypeI8() || code == nqAstTypeU8() { return 1 as usize }

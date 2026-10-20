@@ -1,5 +1,5 @@
 module noqeri.compiler.selfhost.race
-import "nir.nqr"
+import "nir.noqeri"
 
 record NqRaceAccessInfo {
     kind: int

@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.type_ref
-import "ast.nqr"
-import "types.nqr"
+import "ast.noqeri"
+import "types.noqeri"
 
 record NqTypeRef {
     code: int

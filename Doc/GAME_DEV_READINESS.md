@@ -45,12 +45,12 @@ Product Design input for developer experience: the first user should encounter o
 
 ## Initial implementation
 
-- `Lib/game/math/vec3.nqr`: pure `float` vector operations, cross/dot, normalization and interpolation.
-- `Lib/game/core/fixed_step.nqr`: bounded deterministic step planning, dropped-time accounting and render alpha.
-- `Lib/game/physics/aabb.nqr`: AABB overlap, point and ray tests.
-- `Lib/game/input/button.nqr`: backend-independent button transitions.
+- `Lib/game/math/vec3.noqeri`: pure `float` vector operations, cross/dot, normalization and interpolation.
+- `Lib/game/core/fixed_step.noqeri`: bounded deterministic step planning, dropped-time accounting and render alpha.
+- `Lib/game/physics/aabb.noqeri`: AABB overlap, point and ray tests.
+- `Lib/game/input/button.noqeri`: backend-independent button transitions.
 - `Tools/game/validate-obj.mjs`: bounded position-only OBJ vertex/face loading and triangulation.
-- `tests/game_foundations.nqr`: Noqeri native language conformance fixture, execution unverified.
+- `tests/game_foundations.noqeri`: Noqeri native language conformance fixture, execution unverified.
 - `tests/game-obj.test.mjs`: Node executable geometry validation tests.
 - `scripts/check-game-sdk.mjs`: source-only test mode and fail-closed native/GPU release checks.
 

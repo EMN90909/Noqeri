@@ -12,24 +12,24 @@ for(const bad of ['../x','/x','a\\b','a//b']){let rejected=false;try{safeRelativ
 
 const root=await mkdtemp(join(tmpdir(),'noqeri-package-host-'))
 try{
-  await writeFile(join(root,'project.nqr'),'project { name: "host-test" version: "1.0.0" entry: "main.nqr" }\ndependencies { a: "noqeri/a@1.0.0" }\n')
-  await writeFile(join(root,'main.nqr'),'import package "noqeri/a"\n')
+  await writeFile(join(root,'project.noqeri'),'project { name: "host-test" version: "1.0.0" entry: "main.noqeri" }\ndependencies { a: "noqeri/a@1.0.0" }\n')
+  await writeFile(join(root,'main.noqeri'),'import package "noqeri/a"\n')
   const index={packages:[
     {namespace:'noqeri',name:'a',versions:[{version:'1.0.0',path:'packages/noqeri/a/1.0.0',yanked:false}]},
     {namespace:'noqeri',name:'b',versions:[{version:'1.0.0',path:'packages/noqeri/b/1.0.0',yanked:false}]}
   ]}
   const files={
     'https://registry.test/index.json':JSON.stringify(index),
-    'mem://a-manifest':'package { name: "noqeri/a" version: "1.0.0" entry: "src/a.nqr" }\ndependencies { b: "noqeri/b@1.0.0" }\n',
+    'mem://a-manifest':'package { name: "noqeri/a" version: "1.0.0" entry: "src/a.noqeri" }\ndependencies { b: "noqeri/b@1.0.0" }\n',
     'mem://a-src':'module a\nexport function a(): int { return 1 }\n',
-    'mem://b-manifest':'package { name: "noqeri/b" version: "1.0.0" entry: "src/b.nqr" }\n',
+    'mem://b-manifest':'package { name: "noqeri/b" version: "1.0.0" entry: "src/b.noqeri" }\n',
     'mem://b-src':'module b\nexport function b(): int { return 2 }\n'
   }
   const lists={
-    'https://api.test/packages/noqeri/a/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/a/1.0.0/package.nqr',download_url:'mem://a-manifest'},{type:'dir',path:'packages/noqeri/a/1.0.0/src'}],
-    'https://api.test/packages/noqeri/a/1.0.0/src?ref=main':[{type:'file',path:'packages/noqeri/a/1.0.0/src/a.nqr',download_url:'mem://a-src'}],
-    'https://api.test/packages/noqeri/b/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/package.nqr',download_url:'mem://b-manifest'},{type:'dir',path:'packages/noqeri/b/1.0.0/src'}],
-    'https://api.test/packages/noqeri/b/1.0.0/src?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/src/b.nqr',download_url:'mem://b-src'}]
+    'https://api.test/packages/noqeri/a/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/a/1.0.0/package.noqeri',download_url:'mem://a-manifest'},{type:'dir',path:'packages/noqeri/a/1.0.0/src'}],
+    'https://api.test/packages/noqeri/a/1.0.0/src?ref=main':[{type:'file',path:'packages/noqeri/a/1.0.0/src/a.noqeri',download_url:'mem://a-src'}],
+    'https://api.test/packages/noqeri/b/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/package.noqeri',download_url:'mem://b-manifest'},{type:'dir',path:'packages/noqeri/b/1.0.0/src'}],
+    'https://api.test/packages/noqeri/b/1.0.0/src?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/src/b.noqeri',download_url:'mem://b-src'}]
   }
   const encoder=new TextEncoder()
   const response=text=>{const bytes=encoder.encode(text);return{ok:true,status:200,headers:{get(){return String(bytes.length)}},async arrayBuffer(){return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)}}}
@@ -42,7 +42,7 @@ try{
     require(installed.length===2,'transitive dependency not installed')
     const lock=await readFile(join(root,'noqeri.lock'),'utf8')
     require(lock.includes('noqeri/a')&&lock.includes('noqeri/b'),'transitive lock entries missing')
-    const resolved=await manager.resolvePackageImports(join(root,'main.nqr'))
+    const resolved=await manager.resolvePackageImports(join(root,'main.noqeri'))
     require(resolved.length===1&&resolved[0].coordinate==='noqeri/a','source package resolution failed')
     const entry=resolved[0].entry
     await writeFile(entry,(await readFile(entry,'utf8'))+'// tamper\n')

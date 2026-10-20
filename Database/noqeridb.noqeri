@@ -1,16 +1,16 @@
 module noqeri.database.core
-import "status.nqr"
-import "limits.nqr"
-import "security.nqr"
-import "index.nqr"
-import "transaction.nqr"
-import "wal.nqr"
-import "recovery.nqr"
-import "migration.nqr"
-import "query.nqr"
-import "planner.nqr"
-import "storage.nqr"
-import "engine.nqr"
+import "status.noqeri"
+import "limits.noqeri"
+import "security.noqeri"
+import "index.noqeri"
+import "transaction.noqeri"
+import "wal.noqeri"
+import "recovery.noqeri"
+import "migration.noqeri"
+import "query.noqeri"
+import "planner.noqeri"
+import "storage.noqeri"
+import "engine.noqeri"
 
 export function dbFindIntKey(keys: *i64, count: usize, key: i64): isize {
     let index: usize = 0 as usize

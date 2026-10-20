@@ -1,7 +1,7 @@
-import "../Lib/std/semver.nqr"
-import "../Lib/std/uuid.nqr"
-import "../Lib/std/querystring.nqr"
-import "../Lib/std/glob.nqr"
+import "../Lib/std/semver.noqeri"
+import "../Lib/std/uuid.noqeri"
+import "../Lib/std/querystring.noqeri"
+import "../Lib/std/glob.noqeri"
 
 function test_semver(): int {
     let stable: [u8; 5] = [49 as u8,46 as u8,50 as u8,46 as u8,51 as u8]

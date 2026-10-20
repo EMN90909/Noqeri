@@ -2,7 +2,7 @@ project {
     name: "corpus-game-tool"
     version: "1.0.0"
     edition: "2026"
-    entry: "main.nqr"
+    entry: "main.noqeri"
     profile: "application"
     target: "x86_64-unknown-none"
 }

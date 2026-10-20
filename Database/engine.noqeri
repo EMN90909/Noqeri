@@ -1,9 +1,9 @@
 module noqeri.database.engine
-import "status.nqr"
-import "limits.nqr"
-import "security.nqr"
-import "transaction.nqr"
-import "storage.nqr"
+import "status.noqeri"
+import "limits.noqeri"
+import "security.noqeri"
+import "transaction.noqeri"
+import "storage.noqeri"
 
 export function dbEngineOpen(path: string, readOnly: bool, pageSize: usize): isize {
     if !dbPageSizeValid(pageSize) { return dbStatusInvalid() }

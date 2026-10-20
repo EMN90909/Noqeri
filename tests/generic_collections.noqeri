@@ -1,9 +1,9 @@
-import "../Lib/std/list.nqr"
-import "../Lib/std/map.nqr"
-import "../Lib/std/set.nqr"
-import "../Lib/std/queue.nqr"
-import "../Lib/std/stack.nqr"
-import "../Lib/std/pair.nqr"
+import "../Lib/std/list.noqeri"
+import "../Lib/std/map.noqeri"
+import "../Lib/std/set.noqeri"
+import "../Lib/std/queue.noqeri"
+import "../Lib/std/stack.noqeri"
+import "../Lib/std/pair.noqeri"
 
 record User {
     id: i64

@@ -1,7 +1,7 @@
 module noqeri.compiler.selfhost.generic_metadata
-import "lexer.nqr"
-import "ast.nqr"
-import "type_ref.nqr"
+import "lexer.noqeri"
+import "ast.noqeri"
+import "type_ref.noqeri"
 
 export function nqGenericMetadataOk(): isize { return 0 }
 export function nqGenericMetadataMalformed(): isize { return -320 }

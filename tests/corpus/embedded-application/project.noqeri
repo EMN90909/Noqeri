@@ -2,7 +2,7 @@ project {
     name: "corpus-embedded-control"
     version: "1.0.0"
     edition: "2026"
-    entry: "main.nqr"
+    entry: "main.noqeri"
     profile: "freestanding"
     target: "x86_64-unknown-none"
 }

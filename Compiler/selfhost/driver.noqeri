@@ -1,7 +1,7 @@
 module noqeri.compiler.selfhost.driver
-import "lexer.nqr"
-import "syntax.nqr"
-import "../../Lib/std/checksum.nqr"
+import "lexer.noqeri"
+import "syntax.noqeri"
+import "../../Lib/std/checksum.noqeri"
 
 export function nqCompilerVersionMajor(): int { return 0 }
 export function nqCompilerVersionMinor(): int { return 7 }

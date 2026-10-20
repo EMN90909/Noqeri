@@ -1,5 +1,5 @@
 // Experimental reference write-ahead log; owned engine will implement the same
-// documented wire format in .nqr. This is not a replacement for native WAL.
+// documented wire format in .noqeri. This is not a replacement for native WAL.
 import { createHash, randomBytes } from 'node:crypto'
 const MAGIC = Buffer.from('NWAL')
 const VERSION = 1, HEADER = 56, MAX_IMAGE = 16 * 1024 * 1024

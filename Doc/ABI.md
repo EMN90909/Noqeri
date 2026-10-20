@@ -35,7 +35,7 @@ That is part of the Noqeri native target contract, not a promise that the surrou
 
 ## Freestanding build flow
 
-`noqeri build source.nqr build/program.s` emits freestanding assembly only. It deliberately does not run `as`, `ld`, or an OS linker automatically.
+`noqeri build source.noqeri build/program.s` emits freestanding assembly only. It deliberately does not run `as`, `ld`, or an OS linker automatically.
 
 To assemble for a chosen object format, configure an adapter command:
 

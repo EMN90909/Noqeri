@@ -195,10 +195,10 @@ export function createPackageManager(options = {}) {
     try { return await verifyCachedPackage(target, coordinate, release.version) } catch {}
     const files = [], state = { files: 0, bytes: 0 }
     await listPackageFiles(release.path, release.path, files, state)
-    if (!files.some(file => file.name === 'package.nqr')) throw new Error('package.nqr missing')
+    if (!files.some(file => file.name === 'package.noqeri')) throw new Error('package.noqeri missing')
     const integrity = packageDigest(files)
     if (release.integrity && release.integrity !== integrity) throw new Error(`registry integrity mismatch: ${coordinate}@${release.version}`)
-    const manifest = new TextDecoder().decode(files.find(file => file.name === 'package.nqr').bytes)
+    const manifest = new TextDecoder().decode(files.find(file => file.name === 'package.noqeri').bytes)
     const entry = manifest.match(/\bentry\s*:\s*"([^"]+)"/)?.[1]
     if (!entry) throw new Error('package entry missing')
     safeRelative(entry)
@@ -211,10 +211,10 @@ export function createPackageManager(options = {}) {
   async function findProject(start = process.cwd()) {
     let current = resolve(start)
     for (;;) {
-      const candidate = join(current, 'project.nqr')
+      const candidate = join(current, 'project.noqeri')
       try { await stat(candidate); return candidate } catch {}
       const parent = dirname(current)
-      if (parent === current) throw new Error('project.nqr not found')
+      if (parent === current) throw new Error('project.noqeri not found')
       current = parent
     }
   }
@@ -260,7 +260,7 @@ export function createPackageManager(options = {}) {
   }
 
   async function packageDependencies(pkg) {
-    const manifest = await readFile(join(pkg.path, 'package.nqr'), 'utf8')
+    const manifest = await readFile(join(pkg.path, 'package.noqeri'), 'utf8')
     return dependencies(manifest)
   }
 
@@ -309,7 +309,7 @@ export function createPackageManager(options = {}) {
     const resolved = []
     for (const coordinate of imports) {
       const dep = deps.find(item => item.coordinate === coordinate)
-      if (!dep) throw new Error(`package import ${coordinate} is not declared in project.nqr; run noqeri add ${coordinate}`)
+      if (!dep) throw new Error(`package import ${coordinate} is not declared in project.noqeri; run noqeri add ${coordinate}`)
       const pkg = await fetchPackage(coordinate, dep.version)
       const entry = join(pkg.path, ...safeRelative(pkg.entry).split('/'))
       await stat(entry)

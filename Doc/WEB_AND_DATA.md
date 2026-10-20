@@ -4,8 +4,8 @@ Noqeri keeps these capabilities in libraries rather than adding special-purpose 
 
 ## Artifact extensions
 
-- `.nqr` — Noqeri source.
-- `.nqo` — portable Noqeri web object. It contains ECMAScript-module compatible output and should be served as `text/javascript`.
+- `.noqeri` — Noqeri source.
+- `.nqri` — portable Noqeri web object. It contains ECMAScript-module compatible output and should be served as `text/javascript`.
 - `.nqd` — NoqeriDB data/schema script.
 - `.nqdb` — durable NoqeriDB data file produced by the runtime.
 
@@ -31,4 +31,4 @@ The whole script is a transaction. Schema/type/unique/key validation occurs befo
 
 ## Web/server capability model
 
-Browser-only facilities (DOM) and server-only facilities (filesystem, sockets, database drivers) are library capabilities. Portable `.nqo` code can use browser facilities directly and server facilities through a host runtime. This keeps the language semantics independent from Node, a browser, Linux or another specific environment.
+Browser-only facilities (DOM) and server-only facilities (filesystem, sockets, database drivers) are library capabilities. Portable `.nqri` code can use browser facilities directly and server facilities through a host runtime. This keeps the language semantics independent from Node, a browser, Linux or another specific environment.

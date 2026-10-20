@@ -1,5 +1,5 @@
-import "../Lib/std/crc.nqr"
-import "../Lib/std/hash.nqr"
+import "../Lib/std/crc.noqeri"
+import "../Lib/std/hash.noqeri"
 
 function main(): int {
     let digits: [u8; 9] = [49 as u8,50 as u8,51 as u8,52 as u8,53 as u8,54 as u8,55 as u8,56 as u8,57 as u8]

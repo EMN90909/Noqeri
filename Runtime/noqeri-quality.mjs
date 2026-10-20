@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 
 const raw = process.argv.slice(2)
 if (raw.length === 0 || raw.includes('--help')) {
-  console.log(`Noqeri quality driver\n\nExamples:\n  noqeri-quality run --check-memory app.nqr\n  noqeri-quality test --race tests\n  noqeri-quality test --overflow tests\n\nHeavy diagnostics are opt-in. --check-memory and --race use instrumented host builds; --overflow enables checked Noqeri integer execution.`)
+  console.log(`Noqeri quality driver\n\nExamples:\n  noqeri-quality run --check-memory app.noqeri\n  noqeri-quality test --race tests\n  noqeri-quality test --overflow tests\n\nHeavy diagnostics are opt-in. --check-memory and --race use instrumented host builds; --overflow enables checked Noqeri integer execution.`)
   process.exit(0)
 }
 

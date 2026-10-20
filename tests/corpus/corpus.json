@@ -15,8 +15,8 @@
       "profile": "application",
       "behavior": "Runs ten deterministic update ticks, prints final position 55, then exercises an invalid-score path and prints -1.",
       "checks": [
-        {"name":"compile","args":["check","main.nqr"],"expect_exit":0},
-        {"name":"run-positive-and-negative","args":["run","main.nqr"],"expect_exit":0,"expect_stdout":"55\n-1\n"}
+        {"name":"compile","args":["check","main.noqeri"],"expect_exit":0},
+        {"name":"run-positive-and-negative","args":["run","main.noqeri"],"expect_exit":0,"expect_stdout":"55\n-1\n"}
       ]
     },
     {

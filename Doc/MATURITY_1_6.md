@@ -57,11 +57,11 @@ Atomic operations default to sequential consistency. Standard read-modify-write 
 
 The bundled standard library now contains more than one hundred modules. Core maturity work is concentrated in math and big integers, checked arithmetic, random, strings/text/Unicode/UTF-8/bytes/formatting, generic collections, IO/file/filesystem/path/process/environment, time/date, JSON/CSV/XML, HTTP/TCP/UDP/DNS/WebSocket/TLS, SQL/database, concurrency/task/thread, testing/debug/profile, and provider-backed cryptography.
 
-Cryptographic primitives are deliberately not handwritten in `.nqr`. AES-GCM, SHA-2/HMAC, RSA-OAEP/PSS and Ed25519 APIs validate parameters in Noqeri and delegate primitives to audited platform/runtime providers.
+Cryptographic primitives are deliberately not handwritten in `.noqeri`. AES-GCM, SHA-2/HMAC, RSA-OAEP/PSS and Ed25519 APIs validate parameters in Noqeri and delegate primitives to audited platform/runtime providers.
 
 ## Tests
 
-`tests/generic_records.nqr` and `tests/generic_collections.nqr` cover aggregate generics. `tests/stdlib_maturity.nqr` exercises pure standard-library behavior, including checked arithmetic, big integers, inverse trigonometry, UTF-8/Unicode, parsing/formatting, JSON/CSV/XML helpers and validation policies. `scripts/test_maturity.sh` also contains negative programs that must be rejected by the compiler for lifetime/null/static-bounds violations.
+`tests/generic_records.noqeri` and `tests/generic_collections.noqeri` cover aggregate generics. `tests/stdlib_maturity.noqeri` exercises pure standard-library behavior, including checked arithmetic, big integers, inverse trigonometry, UTF-8/Unicode, parsing/formatting, JSON/CSV/XML helpers and validation policies. `scripts/test_maturity.sh` also contains negative programs that must be rejected by the compiler for lifetime/null/static-bounds violations.
 
 The normal `scripts/test_core.sh` path invokes the maturity suite after building the compiler.
 

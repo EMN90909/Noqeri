@@ -1,7 +1,7 @@
 module noqeri.compiler.selfhost.parser_expr
-import "lexer.nqr"
-import "ast.nqr"
-import "parser.nqr"
+import "lexer.noqeri"
+import "ast.noqeri"
+import "parser.noqeri"
 
 function nqExprOperatorCode(token: *NqToken): u32 {
     if token == null { return 0 as u32 }

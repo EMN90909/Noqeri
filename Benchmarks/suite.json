@@ -21,13 +21,13 @@
     {"id":"sorting","group":"collections","threshold_percent":8},
     {"id":"startup","group":"runtime","threshold_percent":5},
     {"id":"compilation","group":"compiler","threshold_percent":5},
-    {"id":"bitset","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.nqr"},
-    {"id":"bloom","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.nqr"},
-    {"id":"deque","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.nqr"},
-    {"id":"heap","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.nqr"},
-    {"id":"priority-queue","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.nqr"},
-    {"id":"ring","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.nqr"},
-    {"id":"pool","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.nqr"},
-    {"id":"cache-lru","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.nqr"}
+    {"id":"bitset","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
+    {"id":"bloom","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
+    {"id":"deque","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
+    {"id":"heap","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
+    {"id":"priority-queue","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
+    {"id":"ring","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.noqeri"},
+    {"id":"pool","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.noqeri"},
+    {"id":"cache-lru","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.noqeri"}
   ]
 }

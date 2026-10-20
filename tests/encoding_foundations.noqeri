@@ -1,6 +1,6 @@
-import "../Lib/std/endian.nqr"
-import "../Lib/std/varint.nqr"
-import "../Lib/std/encoding.nqr"
+import "../Lib/std/endian.noqeri"
+import "../Lib/std/varint.noqeri"
+import "../Lib/std/encoding.noqeri"
 
 function test_endian(): int {
     let bytes: [u8; 16] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]

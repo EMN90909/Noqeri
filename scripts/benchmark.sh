@@ -7,7 +7,7 @@ if [ ! -x ./build/noqeri ]; then
 fi
 
 mkdir -p build
-bench=build/compiler_benchmark.nqr
+bench=build/compiler_benchmark.noqeri
 {
   echo 'module benchmark.compiler'
   echo 'function seed(value: int): int { return value + 1 }'

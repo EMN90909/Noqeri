@@ -1,6 +1,6 @@
 module noqeri.compiler.selfhost.zero_init
-import "ast.nqr"
-import "parser.nqr"
+import "ast.noqeri"
+import "parser.noqeri"
 
 // Internal-only AST marker. Typed declarations without an explicit initializer
 // are safe-zero-initialized; const declarations are rejected earlier by parser.

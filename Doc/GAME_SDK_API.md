@@ -4,7 +4,7 @@ All examples use the documented `float` type and explicit, borrowed output point
 
 ## Vector math
 
-`Lib/game/math/vec3.nqr` defines `Vec3 { x: float, y: float, z: float }`.
+`Lib/game/math/vec3.noqeri` defines `Vec3 { x: float, y: float, z: float }`.
 
 - `vec3Set(out, x, y, z)`, `vec3Zero(out)`
 - `vec3Add(out, a, b)`, `vec3Subtract(out, a, b)`, `vec3Scale(out, a, scale)`
@@ -17,7 +17,7 @@ Inputs and output may alias for binary vector operations; intermediate scalar va
 
 ## Fixed-step planning
 
-`Lib/game/core/fixed_step.nqr` defines `FixedStep` and `FramePlan`.
+`Lib/game/core/fixed_step.noqeri` defines `FixedStep` and `FramePlan`.
 
 - `fixedStepInit(clock, stepNs, maxFrameNs, maxSteps)`
 - `fixedStepValid(clock)`: rejects zero step, zero max steps, invalid accumulator and max frame greater than one second
@@ -28,11 +28,11 @@ A host supplies elapsed nanoseconds from a monotonic clock. The caller performs 
 
 ## Collision
 
-`Lib/game/physics/aabb.nqr` exposes `aabbValid`, `aabbContainsPoint`, `aabbOverlaps`, and `aabbRayHit`. The ray direction must be nonzero. Ray maxDistance is a parameter along that direction; normalize direction for world-unit distances.
+`Lib/game/physics/aabb.noqeri` exposes `aabbValid`, `aabbContainsPoint`, `aabbOverlaps`, and `aabbRayHit`. The ray direction must be nonzero. Ray maxDistance is a parameter along that direction; normalize direction for world-unit distances.
 
 ## Input transition
 
-`Lib/game/input/button.nqr` exposes `buttonInit`, `buttonBeginFrame`, `buttonSetDown`, `buttonIsDown`, `buttonWasPressed` and `buttonWasReleased`. Call `buttonBeginFrame` once per frame, then feed host events.
+`Lib/game/input/button.noqeri` exposes `buttonInit`, `buttonBeginFrame`, `buttonSetDown`, `buttonIsDown`, `buttonWasPressed` and `buttonWasReleased`. Call `buttonBeginFrame` once per frame, then feed host events.
 
 ## Asset boundary
 

@@ -4,10 +4,10 @@ Noqeri's design target is not "more syntax than Go". It is **less ceremony per u
 
 ## The simplicity contract
 
-1. One source language: `.nqr`.
-2. One local import form: `import "./file.nqr"`.
+1. One source language: `.noqeri`.
+2. One local import form: `import "./file.noqeri"`.
 3. One package import form: `import package "noqeri/forge"`.
-4. Versions live in `project.nqr`; exact versions and SHA-256 identities live in `noqeri.lock`.
+4. Versions live in `project.noqeri`; exact versions and SHA-256 identities live in `noqeri.lock`.
 5. Common work should have a short path. Advanced work should not require a different language.
 6. No hidden C/C++ dependency in normal compiler source.
 7. Host capabilities such as files, sockets, TLS and clocks are explicit `extern` boundaries.
@@ -25,7 +25,7 @@ function main(): int {
 }
 ```
 
-Add a package once with `noqeri add noqeri/forge`; `noqeri install` is deterministic and `noqeri check app.nqr` resolves the locked package.
+Add a package once with `noqeri add noqeri/forge`; `noqeri install` is deterministic and `noqeri check app.noqeri` resolves the locked package.
 
 ## Advanced without becoming noisy
 

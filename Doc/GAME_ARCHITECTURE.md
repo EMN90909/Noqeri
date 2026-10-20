@@ -4,8 +4,8 @@ Noqeri remains a general-purpose language. Pure gameplay primitives live in `Lib
 
 ## Layers
 
-1. Gameplay code and templates (`.nqr`).
-2. Pure SDK math, fixed-timestep simulation, input action transitions and collision queries (`.nqr`).
+1. Gameplay code and templates (`.noqeri`).
+2. Pure SDK math, fixed-timestep simulation, input action transitions and collision queries (`.noqeri`).
 3. Noqeri compiler, NIR, runtime and ownership checks.
 4. Versioned native host ABI (existing ABI v2; native C compatibility **not yet proven**).
 5. Future optional SDL3 window/event adapter and OpenGL 3.3 core renderer, followed by additional APIs only after conformance.
