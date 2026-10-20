@@ -36,7 +36,8 @@ void usage() {
               << "  doctor [dir]                      verify repository health\n"
               << "  release-check [dir]               repository production checks\n"
               << "  lsp                               run JSON-RPC language server\n\n"
-              << "optimization: -O0 -O1 -O2 -O3 -Os -Oz\n";
+              << "optimization: -O0 -O1 -O2 -O3 -Os -Oz\n"
+              << "safety: --unsafe permits raw-memory operations for trusted systems/bootstrap builds\n";
 }
 
 std::optional<OptimizationLevel> parseOptimization(const std::string& arg) {
@@ -54,6 +55,7 @@ CompileOptions optionsFromArgs(int argc, char** argv, const std::string& target)
     options.target = target.empty() ? NOQERI_DEFAULT_TARGET : target;
     for (int i = 2; i < argc; ++i) {
         if (auto level = parseOptimization(argv[i])) options.optimization = *level;
+        else if (std::string(argv[i]) == "--unsafe") options.allowUnsafe = true;
     }
     return options;
 }
