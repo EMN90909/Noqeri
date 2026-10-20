@@ -323,7 +323,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         if end <= node.extra as usize { return nqSemanticInvalidCast() }
         nqSemanticNormalizeRef(nodes, context.currentFunction, &target)
         let fromCode: int = nodes[node.left as usize].typeCode
-        if !nqSemanticExplicitCastValid(fromCode, target.code) { return nqSemanticInvalidCast() }
+        if !nqSemanticExplicitCastValid(fromCode, target.code) { context.errorStart = node.start return nqSemanticInvalidCast() }
         if nqSemanticCastRequiresUnsafe(fromCode, target.code) && !context.unsafeAllowed { return nqSemanticUnsafeRequired() }
         nqSemanticApplyRef(node, &target)
         return nqSemanticOk()
