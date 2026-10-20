@@ -379,7 +379,7 @@ export function nqParserParseProgram(source: []u8, nodes: []NqAstNode, count: *u
     while cursor < len(source) {
         let end: usize = cursor
         let declaration: isize = nqStmtParseDeclaration(source, cursor, nodes, count, &end, true)
-        if declaration < 0 as isize || end <= cursor { return nqParseBadDeclaration() }
+        if declaration < 0 as isize || end <= cursor { if count[0] >= len(nodes) { return nqParseProgramCapacity() } return nqParseBadDeclaration() }
         if !nqAstAppend(nodes, &first, &last, declaration) { return nqParseProgramCapacity() }
         cursor = nqCompilerSkipTrivia(source, end)
     }
@@ -396,7 +396,7 @@ export function nqParserProgramValid(source: []u8): bool {
 
 
 export function nqParserFirstErrorOffset(source: []u8): usize {
-    let nodes: [NqAstNode; 4096]
+    let nodes: [NqAstNode; 32768]
     let count: usize = 0 as usize
     let cursor: usize = nqCompilerSkipTrivia(source, 0 as usize)
     while cursor < len(source) {
