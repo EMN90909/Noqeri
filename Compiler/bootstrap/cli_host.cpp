@@ -21,7 +21,8 @@ void usage() {
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
-              << "  web [file] [module.nqri]           emit checked portable Noqeri web module\n"
+              << "  nqri [file] [module.nqri]          emit portable self-host/bootstrap module\n"
+              << "  web [file] [module.mjs]            emit checked browser ES module\n"
               << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
@@ -373,13 +374,30 @@ int main(int argc, char** argv) {
         }
         if (cmd == "nir") { std::cout << printNir(compilation.nir); return 0; }
         if (cmd == "run") return Interpreter{}.run(compilation.nir);
-        if (cmd == "web") {
+        if (cmd == "nqri") {
             std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".nqri");
             if (output.extension().empty()) output += ".nqri";
+            if (output.extension() != ".nqri") {
+                std::cerr << "NQR-B9028: nqri output must use the .nqri extension\n";
+                return 1;
+            }
+            std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
+            Diagnostics d;
+            if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
+            std::cout << "emitted portable NQRI module: " << output << "\n";
+            return 0;
+        }
+        if (cmd == "web") {
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".mjs");
+            if (output.extension().empty()) output += ".mjs";
+            if (output.extension() != ".mjs") {
+                std::cerr << "NQR-W7005: web output must use the .mjs extension\n";
+                return 1;
+            }
             std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
             Diagnostics d;
             if (!WebBackend{}.emitModule(compilation.ast, output, d)) { d.print(path.string()); return 1; }
-            std::cout << "emitted Noqeri web object: " << output << "\n";
+            std::cout << "emitted Noqeri browser ES module: " << output << "\n";
             return 0;
         }
         if (cmd == "build") {
