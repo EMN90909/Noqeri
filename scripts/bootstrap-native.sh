@@ -6,6 +6,7 @@ BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 HOST_BUILD="${NOQERI_HOST_BUILD:-$BUILD_DIR/bootstrap-host}"
 RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
 SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
+SEED_COMPILER="${NOQERI_STAGE0_CPP:-}"
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
 STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
 STAGE3="$BUILD_DIR/noqeri-stage3.nqri"
@@ -43,7 +44,7 @@ if [ -z "$RUNTIME" ]; then
     exit 2
   }
   cmake -S "$ROOT" -B "$HOST_BUILD" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
-  cmake --build "$HOST_BUILD" --target noqeri-nqri --config Release
+  cmake --build "$HOST_BUILD" --target noqeri-nqri noqeri --config Release
   for candidate in "$HOST_BUILD/noqeri-nqri" "$HOST_BUILD/Release/noqeri-nqri"; do
     if [ -x "$candidate" ]; then RUNTIME="$candidate"; break; fi
   done
@@ -53,12 +54,28 @@ if [ -z "$RUNTIME" ] || [ ! -x "$RUNTIME" ]; then
   exit 2
 fi
 if [ ! -f "$SEED" ]; then
-  cat >&2 <<MSG
-A trusted Stage-1 NQRI compiler seed is required.
-Set NOQERI_STAGE1_NQRI to the seed artifact. After this trust boundary, Stage 1
-builds Stage 2 and Stage 2 rebuilds Stage 3 entirely through the native NQRI host.
-MSG
-  exit 2
+  if [ -z "$SEED_COMPILER" ]; then
+    for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
+      if [ -x "$candidate" ]; then SEED_COMPILER="$candidate"; break; fi
+    done
+  fi
+  if [ -z "$SEED_COMPILER" ] || [ ! -x "$SEED_COMPILER" ]; then
+    command -v cmake >/dev/null 2>&1 || {
+      echo "cmake is required to build the trusted C++ Stage-0 seed compiler." >&2
+      exit 2
+    }
+    cmake -S "$ROOT" -B "$HOST_BUILD" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$HOST_BUILD" --target noqeri noqeri-nqri --config Release
+    for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
+      if [ -x "$candidate" ]; then SEED_COMPILER="$candidate"; break; fi
+    done
+  fi
+  if [ -z "$SEED_COMPILER" ] || [ ! -x "$SEED_COMPILER" ]; then
+    echo "trusted C++ Stage-0 compiler was not produced; set NOQERI_STAGE0_CPP." >&2
+    exit 2
+  fi
+  echo "Generating trusted Stage-1 NQRI seed with C++ Stage-0 compiler..."
+  "$SEED_COMPILER" nqri "$ROOT/Compiler/selfhost/main.noqeri" "$SEED" --unsafe
 fi
 
 "$RUNTIME" --selftest
@@ -76,13 +93,20 @@ fi
 
 seed_bytes=$(wc -c < "$SEED" | tr -d ' ')
 stage_bytes=$(wc -c < "$STAGE2" | tr -d ' ')
+seed_sha256=$(sha256sum "$SEED" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$SEED" | awk '{print $1}')
+stage2_sha256=$(sha256sum "$STAGE2" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$STAGE2" | awk '{print $1}')
+stage3_sha256=$(sha256sum "$STAGE3" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$STAGE3" | awk '{print $1}')
 {
   echo "verified=true"
   echo "runtime=$RUNTIME"
   echo "seed=$SEED"
   echo "seed_bytes=$seed_bytes"
+  echo "seed_sha256=$seed_sha256"
+  echo "seed_compiler=$SEED_COMPILER"
   echo "stage2=$STAGE2"
+  echo "stage2_sha256=$stage2_sha256"
   echo "stage3=$STAGE3"
+  echo "stage3_sha256=$stage3_sha256"
   echo "stage_bytes=$stage_bytes"
   echo "target=$TARGET"
   echo "equivalent=true"
