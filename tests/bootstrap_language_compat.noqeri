@@ -1,0 +1,17 @@
+function later(value: int): int
+
+function callForward(): int {
+    return later(39)
+}
+
+function later(value: int): int {
+    return value + 3
+}
+
+export function contextualNames(): int {
+    let record: int = 1
+    let function: int = 2
+    let module: int = 3
+    record = record + function
+    return callForward() + record + module
+}
