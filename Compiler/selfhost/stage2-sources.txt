@@ -1,7 +1,7 @@
 Compiler/selfhost/ast.noqeri
 Compiler/selfhost/lexer.noqeri
 Compiler/selfhost/syntax.noqeri
-Lib/std/checksum.noqeri
+Compiler/selfhost/checksum.noqeri
 Compiler/selfhost/driver.noqeri
 Compiler/selfhost/types.noqeri
 Compiler/selfhost/package_policy.noqeri
