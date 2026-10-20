@@ -70,7 +70,7 @@ Type TypeChecker::resolveType(const std::string& name,Span span){
     if(name.rfind("[]",0)==0){Type t;t.kind=TypeKind::Slice;t.element=std::make_shared<Type>(resolveType(name.substr(2),span));return t;}
     if(name.size()>3&&name.front()=='['&&name.back()==']'){
         auto semi=name.rfind(';');
-        if(semi!=std::string::npos){Type t;t.kind=TypeKind::Array;t.element=std::make_shared<Type>(resolveType(name.substr(1,semi-1),span));try{t.count=static_cast<std::size_t>(std::stoull(name.substr(semi+1,name.size()-semi-2),nullptr,0));}catch(...){t.count=0;}if(t.count==0)diagnostics_.error("NOE-T3030",span,"fixed array length must be greater than zero");return t;}
+        if(semi!=std::string::npos){Type t;t.kind=TypeKind::Array;t.element=std::make_shared<Type>(resolveType(name.substr(1,semi-1),span));try{t.count=static_cast<std::size_t>(std::stoull(name.substr(semi+1,name.size()-semi-2),nullptr,0));}catch(...){t.count=0;}return t;}
     }
     Type t=typeFromName(name);
     if(t.kind==TypeKind::Record){
@@ -137,19 +137,42 @@ bool TypeChecker::check(const Program&program){
 
 void TypeChecker::checkStmt(const StmtPtr&stmt){
     if(std::dynamic_pointer_cast<RecordStmt>(stmt)||std::dynamic_pointer_cast<ImportStmt>(stmt)||std::dynamic_pointer_cast<ModuleStmt>(stmt))return;
-    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){if(s->zeroInitialized){if(!s->annotation){diagnostics_.error("NOE-T3055",s->span,"zero-initialized local requires a type annotation");define(s->name,simple(TypeKind::Unknown),s->isConst,s->span);return;}Type declared=resolveType(*s->annotation,s->span);if(declared.kind==TypeKind::Void){diagnostics_.error("NOE-T3056",s->span,"void cannot be used as a local variable type");}s->zeroRequiresStorage=declared.kind==TypeKind::Array||declared.kind==TypeKind::Record;s->zeroStorageBytes=s->zeroRequiresStorage?std::max<std::size_t>(1,declared.size()):0;define(s->name,declared,s->isConst,s->span);return;}Type init=checkExpr(s->initializer);Type declared=s->annotation?resolveType(*s->annotation,s->span):init;if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");define(s->name,declared,s->isConst,s->span);return;}
+    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){
+        if(s->zeroInitialized){
+            if(!s->annotation){diagnostics_.error("NOE-T3055",s->span,"zero-initialized local requires a type annotation");define(s->name,simple(TypeKind::Unknown),s->isConst,s->span);return;}
+            Type declared=resolveType(*s->annotation,s->span);
+            if(declared.kind==TypeKind::Void)diagnostics_.error("NOE-T3056",s->span,"void cannot be used as a local variable type");
+            s->zeroRequiresStorage=declared.kind==TypeKind::Array||declared.kind==TypeKind::Record;
+            s->zeroStorageBytes=s->zeroRequiresStorage?std::max<std::size_t>(1,declared.size()):0;
+            define(s->name,declared,s->isConst,s->span);return;
+        }
+        if(s->annotation){
+            Type declared=resolveType(*s->annotation,s->span);
+            if(auto array=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);array&&array->elements.empty()&&declared.kind==TypeKind::Array&&declared.element){
+                if(declared.count!=0)diagnostics_.error("NOE-T3034",array->span,"empty array literal can initialize only a zero-length fixed array");
+                array->elementSize=std::max<std::size_t>(1,declared.element->size());
+                define(s->name,declared,s->isConst,s->span);return;
+            }
+            Type init=checkExpr(s->initializer);
+            if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");
+            define(s->name,declared,s->isConst,s->span);return;
+        }
+        Type init=checkExpr(s->initializer);define(s->name,init,s->isConst,s->span);return;
+    }
     if(auto s=std::dynamic_pointer_cast<ExprStmt>(stmt)){checkExpr(s->expr);return;}
     if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){pushScope();for(const auto&x:s->statements)checkStmt(x);popScope();return;}
     if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){Type c=checkExpr(s->condition);if(c.kind!=TypeKind::Bool&&c.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3004",s->condition->span,"if condition must be bool, found "+c.name());checkStmt(s->thenBranch);if(s->elseBranch)checkStmt(s->elseBranch);return;}
-    if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){Type c=checkExpr(s->condition);if(c.kind!=TypeKind::Bool&&c.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3004",s->condition->span,"while condition must be bool, found "+c.name());checkStmt(s->body);return;}
+    if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){Type c=checkExpr(s->condition);if(c.kind!=TypeKind::Bool&&c.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3004",s->condition->span,"while condition must be bool, found "+c.name());++loopDepth_;checkStmt(s->body);--loopDepth_;return;}
+    if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){if(loopDepth_==0)diagnostics_.error("NOE-T3057",s->span,"break is only valid inside a loop");return;}
+    if(auto s=std::dynamic_pointer_cast<ContinueStmt>(stmt)){if(loopDepth_==0)diagnostics_.error("NOE-T3058",s->span,"continue is only valid inside a loop");return;}
     if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){Type v=s->value?checkExpr(s->value):simple(TypeKind::Void);if(!canAssignValue(currentReturn_,v,s->value))diagnostics_.error("NOE-T3005",s->span,"return type mismatch: expected "+currentReturn_.name()+", found "+v.name());return;}
     if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){Type code=checkExpr(s->value);if(!insideFunction_)diagnostics_.error("NOE-T3031",s->span,"throw is only valid inside a function");if(!code.isInteger()&&code.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3032",s->span,"throw requires an integer error code");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3033",s->span,"throw requires an integer-returning function","use an integer status return such as isize when using lightweight try/throw");return;}
     if(auto s=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
         auto sig=functions_[s->name];if(s->isExtern||s->isForward)return;
-        Type saved=currentReturn_;bool savedInside=insideFunction_;auto savedGenerics=activeGenericParams_;
-        currentReturn_=sig.result;insideFunction_=true;activeGenericParams_.clear();for(const auto&g:s->genericParams)activeGenericParams_.insert(g);
+        Type saved=currentReturn_;bool savedInside=insideFunction_;auto savedGenerics=activeGenericParams_;const auto savedLoopDepth=loopDepth_;
+        currentReturn_=sig.result;insideFunction_=true;loopDepth_=0;activeGenericParams_.clear();for(const auto&g:s->genericParams)activeGenericParams_.insert(g);
         pushScope();for(std::size_t i=0;i<s->params.size();++i)define(s->params[i].name,sig.params[i],false,s->params[i].span);for(const auto&x:s->body->statements)checkStmt(x);popScope();
-        currentReturn_=saved;insideFunction_=savedInside;activeGenericParams_=std::move(savedGenerics);return;
+        currentReturn_=saved;insideFunction_=savedInside;loopDepth_=savedLoopDepth;activeGenericParams_=std::move(savedGenerics);return;
     }
 }
 
@@ -186,11 +209,18 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
         if(name=="host"||name=="abi"){if(e->args.empty()){diagnostics_.error("NOE-T3015",e->span,name+" requires a service name");return simple(TypeKind::Unknown);}Type service=checkExpr(e->args[0]);if(service.kind!=TypeKind::String&&service.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3016",e->args[0]->span,"service name must be a string");for(std::size_t i=1;i<e->args.size();++i)checkExpr(e->args[i]);return simple(TypeKind::Unknown);}
         if(name=="len"){
-            if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array)e->builtinCount=t.count;else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array or slice");return simple(TypeKind::Usize);
+            if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array or slice");return simple(TypeKind::Usize);
         }
         if(name=="slice"){
-            if(e->args.size()==1){Type a=checkExpr(e->args[0]);if(a.kind!=TypeKind::Array||!a.element){diagnostics_.error("NOE-T3042",e->span,"slice(array) expects a fixed array");return simple(TypeKind::Unknown);}e->builtinCount=a.count;e->builtinWidth=a.element->size();Type s;s.kind=TypeKind::Slice;s.element=a.element;return s;}
-            if(e->args.size()==2){Type p=checkExpr(e->args[0]),n=checkExpr(e->args[1]);if(p.kind!=TypeKind::Pointer||!p.pointee){diagnostics_.error("NOE-T3043",e->args[0]->span,"slice(pointer, length) expects a pointer");return simple(TypeKind::Unknown);}if(!n.isInteger()&&n.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3044",e->args[1]->span,"slice length must be an integer");e->builtinWidth=p.pointee->size();Type s;s.kind=TypeKind::Slice;s.element=p.pointee;return s;}
+            if(e->args.size()==1){Type a=checkExpr(e->args[0]);if(a.kind!=TypeKind::Array||!a.element){diagnostics_.error("NOE-T3042",e->span,"slice(array) expects a fixed array");return simple(TypeKind::Unknown);}e->builtinCount=a.count;e->builtinCountKnown=true;e->builtinWidth=std::max<std::size_t>(1,a.element->size());Type s;s.kind=TypeKind::Slice;s.element=a.element;return s;}
+            if(e->args.size()==2){
+                Type p=checkExpr(e->args[0]),n=checkExpr(e->args[1]);
+                if(!n.isInteger()&&n.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3044",e->args[1]->span,"slice length must be an integer");
+                Type s;s.kind=TypeKind::Slice;
+                if(p.kind==TypeKind::Pointer&&p.pointee){e->builtinWidth=std::max<std::size_t>(1,p.pointee->size());s.element=p.pointee;return s;}
+                if(p.kind==TypeKind::Array&&p.element){e->builtinWidth=std::max<std::size_t>(1,p.element->size());s.element=p.element;return s;}
+                diagnostics_.error("NOE-T3043",e->args[0]->span,"slice(value, length) expects a pointer or fixed array");return simple(TypeKind::Unknown);
+            }
             diagnostics_.error("NOE-T3045",e->span,"slice expects either an array or pointer plus length");return simple(TypeKind::Unknown);
         }
         if(name=="atomic.load"||name=="atomicLoad"||name=="atomic.store"||name=="atomicStore"||name=="atomic.exchange"||name=="atomicExchange"||name=="atomic.compareExchange"||name=="atomicCompareExchange"){
