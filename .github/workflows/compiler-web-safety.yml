@@ -35,4 +35,5 @@ jobs:
           ./build/noqeri check Compiler/selfhost/main.nqr
           ./build/noqeri run tests/compiler_stage2_core.nqr
       - name: Compiler regression tests
-        run: ctest --test-dir build -R '^(noqeri-check-hello|noqeri-tests|noqeri-noqeri-owned-components|noqeri-library-suite|noqeri-general-capabilities|noqeri-module-imports)$' --output-on-failure
+        run: ctest --test-dir build -R '^(noqeri-check-hello|noqeri-bootstrap-multiline-types|noqeri-bootstrap-zero-init-run|noqeri-tests|noqeri-noqeri-owned-components|noqeri-library-suite|noqeri-general-capabilities|noqeri-module-imports) --output-on-failure
+ --output-on-failure
