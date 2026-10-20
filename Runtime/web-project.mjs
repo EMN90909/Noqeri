@@ -10,7 +10,8 @@ function inside(root, file) {
   const rel = relative(root, file)
   return rel === '' || (rel !== '..' && !rel.startsWith('..'+sep))
 }
-export async function buildWebProject({source='web',out='dist'}={}) {
+export async function buildWebProject({source='web',out='dist',checkSource=null}={}) {
+  if (checkSource !== null && typeof checkSource !== 'function') throw new TypeError('checkSource must be a function')
   const input = await realpath(resolve(source))
   const output = resolve(out)
   if (inside(input,output) || inside(output,input)) throw Error('source and output directories must not contain one another')
@@ -59,7 +60,9 @@ export async function buildWebProject({source='web',out='dist'}={}) {
     const target=join(output,relative(input,file))
     await mkdir(dirname(target),{recursive:true})
     if(extname(file).toLowerCase()==='.nqr') {
-      const compiled=compileWeb(await readFile(file,'utf8'))
+      const sourceText=await readFile(file,'utf8')
+      if (checkSource) await checkSource(file,new TextEncoder().encode(sourceText))
+      const compiled=compileWeb(sourceText)
       await writeFile(target.replace(/\.nqr$/i,'.mjs'),compiled)
     } else if(['.html','.htm'].includes(extname(file).toLowerCase())) {
       const html=await readFile(file,'utf8')
