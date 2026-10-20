@@ -78,7 +78,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE '\.nqr([^i]|$)|\.nqo([^a-zA-Z]|$)' -- ':!*.png' ':!*.webp' ':!*.jpg' ':!*.jpeg'; then
+          if git grep -nE '\.nqr([^i]|$)|\.nqo([^a-zA-Z]|$)' -- ':!.github/**' ':!*.png' ':!*.webp' ':!*.jpg' ':!*.jpeg'; then
             echo "legacy extension references remain" >&2
             exit 1
           fi
