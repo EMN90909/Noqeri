@@ -41,13 +41,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if find . -path ./.git -prune -o -type f \( -name '*.nqr' -o -name '*.nqo' \) -print | grep -q .; then
-            echo 'legacy .nqr/.nqo files remain in the repository' >&2
-            find . -path ./.git -prune -o -type f \( -name '*.nqr' -o -name '*.nqo' \) -print >&2
+          old_source='.'n''qr
+          old_module='.'n''qo
+          old_manifest='project.'n''qr
+          if find . -path ./.git -prune -o -type f \( -name "*$old_source" -o -name "*$old_module" \) -print | grep -q .; then
+            echo 'legacy source or portable-module files remain in the repository' >&2
+            find . -path ./.git -prune -o -type f \( -name "*$old_source" -o -name "*$old_module" \) -print >&2
             exit 1
           fi
-          if git grep -n -E '\.nqr([^iA-Za-z0-9_]|$)|\.nqo([^A-Za-z0-9_]|$)|project\.nqr([^iA-Za-z0-9_]|$)' -- ':!*.png' ':!*.webp'; then
-            echo 'legacy .nqr/.nqo textual references remain; use .noqeri/.nqri' >&2
+          pattern="\\${old_source}([^iA-Za-z0-9_]|$)|\\${old_module}([^A-Za-z0-9_]|$)|${old_manifest}([^iA-Za-z0-9_]|$)"
+          if git grep -n -E "$pattern" -- ':!*.png' ':!*.webp'; then
+            echo 'legacy extension references remain; use the current Noqeri source and NQRI extensions' >&2
             exit 1
           fi
       - name: Configure
