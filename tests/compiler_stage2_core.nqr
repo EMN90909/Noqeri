@@ -78,6 +78,11 @@ function main(): int {
     let webCode: [NqNirInstruction; 1]
     nqNirMakeConst(&webCode[0], 0 as isize, 42 as i64, nqAstTypeI64())
     if nqWebProgramCheck(slice(webCode)) != nqWebOk() { return 32 }
+    let webAddressCode: [NqNirInstruction; 1]
+    nqNirInstructionInit(&webAddressCode[0], nqNirPtrAdd(), 2 as isize)
+    webAddressCode[0].left = 0 as isize
+    webAddressCode[0].right = 1 as isize
+    if nqWebProgramCheck(slice(webAddressCode)) != nqWebOk() { return 33 }
 
     // Stage 2 cannot be declared complete by an empty proof.
     let proof: NqStage2Proof
