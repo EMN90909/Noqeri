@@ -23,7 +23,7 @@ NirProgram Lowerer::lower(const Program&program){
     NirInstruction r;r.op=NirOp::Return;out.entry.code.push_back(r);return out;
 }
 void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
-    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){Reg r=lowerExpr(fn,s->initializer);NirInstruction i;i.op=NirOp::Store;i.text=s->name;i.args={r};emit(fn,std::move(i));return;}
+    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){Reg r=0;if(s->zeroInitialized){NirInstruction z;if(s->zeroRequiresStorage){z.op=NirOp::StackAlloc;z.dest=fn.nextReg++;z.width=std::max<std::size_t>(1,s->zeroStorageBytes);}else{z.op=NirOp::Call;z.dest=fn.nextReg++;z.text=s->annotation.value_or("int");}emit(fn,z);r=*z.dest;}else r=lowerExpr(fn,s->initializer);NirInstruction i;i.op=NirOp::Store;i.text=s->name;i.args={r};emit(fn,std::move(i));return;}
     if(auto s=std::dynamic_pointer_cast<ExprStmt>(stmt)){lowerExpr(fn,s->expr);return;}
     if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){for(auto&x:s->statements)lowerStmt(fn,x);return;}
     if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){NirInstruction i;i.op=NirOp::Return;if(s->value)i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
