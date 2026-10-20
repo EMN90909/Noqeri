@@ -271,7 +271,16 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         else if node.flags == 62 as u32 * 256 as u32 + 61 as u32 { op = nqSemanticOpGe() }
         else if node.flags == 38 as u32 * 256 as u32 + 38 as u32 { op = nqSemanticOpAnd() }
         else if node.flags == 124 as u32 * 256 as u32 + 124 as u32 { op = nqSemanticOpOr() }
-        let result: int = nqSemanticBinaryResult(op, nodes[node.left as usize].typeCode, nodes[node.right as usize].typeCode)
+        let leftNode: *NqAstNode = &nodes[node.left as usize]
+        let rightNode: *NqAstNode = &nodes[node.right as usize]
+        let result: int = nqSemanticBinaryResult(op, leftNode.typeCode, rightNode.typeCode)
+        if result == nqAstTypeUnknown() && op >= nqSemanticOpAdd() && op <= nqSemanticOpMod() && nqCompilerTypeIsInteger(leftNode.typeCode) && nqCompilerTypeIsInteger(rightNode.typeCode) {
+            // Ordinary integer literals adopt the concrete integer type of the
+            // peer operand. This matches the C++ seed compiler without allowing
+            // arbitrary same-width signed/unsigned variables to mix implicitly.
+            if leftNode.tag == nqAstInteger() && rightNode.tag != nqAstInteger() { result = rightNode.typeCode }
+            else if rightNode.tag == nqAstInteger() && leftNode.tag != nqAstInteger() { result = leftNode.typeCode }
+        }
         if result == nqAstTypeUnknown() { return nqSemanticInvalidBinary() }
         node.typeCode = result
         return nqSemanticOk()
