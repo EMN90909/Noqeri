@@ -12,6 +12,7 @@ import "targets.nqr"
 import "backend.nqr"
 import "linker.nqr"
 import "security.nqr"
+import "web_policy.nqr"
 
 record NqCompilePlan {
     target: int
@@ -150,4 +151,27 @@ export function nqPipelineCompileCheck(source: []u8, target: int, unsafeAllowed:
     let functions: [NqNirFunction; 512]
     let result: NqCompileResult
     return nqPipelineCompileToNir(source, target, true, unsafeAllowed, slice(nodes), slice(instructions), slice(functions), &result)
+}
+
+export function nqPipelineWebCheck(source: []u8): isize {
+    let policy: NqSecurityPolicy
+    nqSecurityProductionPolicy(&policy)
+    if !nqSecuritySourceAllowed(&policy, len(source)) { return nqSecurityLimitExceeded() }
+    let nodes: [NqAstNode; 4096]
+    let instructions: [NqNirInstruction; 8192]
+    let functions: [NqNirFunction; 512]
+    let astCount: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &astCount, &first)
+    if parseStatus < 0 as isize { return parseStatus }
+    let zeroStatus: isize = nqZeroInitNormalize(source, slice(nodes), &astCount, first)
+    if zeroStatus < 0 as isize { return zeroStatus }
+    let semanticStatus: isize = nqSemanticAnalyzeProgram(source, slice(nodes), &astCount, first, false)
+    if semanticStatus < 0 as isize { return semanticStatus }
+    let instructionCount: usize = 0 as usize
+    let functionCount: usize = 0 as usize
+    let lowerState: isize = nqLowerProgram(source, slice(nodes), first, slice(instructions), slice(functions), &instructionCount, &functionCount)
+    if lowerState < 0 as isize { return lowerState }
+    if !nqSecurityInstructionCountAllowed(&policy, instructionCount) { return nqSecurityLimitExceeded() }
+    return nqWebProgramCheck(slice(instructions, instructionCount))
 }
