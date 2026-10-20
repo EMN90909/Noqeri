@@ -43,7 +43,7 @@ struct ArrayExpr final : Expr { std::vector<ExprPtr> elements; std::size_t eleme
 struct Stmt { virtual ~Stmt()=default; Span span; };
 using StmtPtr = std::shared_ptr<Stmt>;
 struct ExprStmt final : Stmt { ExprPtr expr; };
-struct LetStmt final : Stmt { bool isConst=false; std::string name; std::optional<std::string> annotation; ExprPtr initializer; };
+struct LetStmt final : Stmt { bool isConst=false; std::string name; std::optional<std::string> annotation; ExprPtr initializer; bool zeroInitialized=false; bool zeroRequiresStorage=false; std::size_t zeroStorageBytes=0; };
 struct BlockStmt final : Stmt { std::vector<StmtPtr> statements; bool isUnsafe=false; };
 struct IfStmt final : Stmt { ExprPtr condition; StmtPtr thenBranch; StmtPtr elseBranch; };
 struct WhileStmt final : Stmt { ExprPtr condition; StmtPtr body; };
