@@ -1,0 +1,35 @@
+module noqeri.compiler.selfhost.web_policy
+import "nir.nqr"
+
+// Browser execution is a platform policy, not a fake native target. The web
+// host may represent safe arrays/slices in JavaScript, but raw addresses,
+// atomics, inline assembly and CPU intrinsics have no portable browser meaning.
+export function nqWebOk(): isize { return 0 as isize }
+export function nqWebInvalidNir(): isize { return -700 as isize }
+export function nqWebNativeOnly(): isize { return -701 as isize }
+export function nqWebUnsafeDenied(): isize { return -702 as isize }
+
+export function nqWebOpcodeAllowed(opcode: int): bool {
+    if !nqNirOpcodeValid(opcode) { return false }
+    if opcode == nqNirAddr() || opcode == nqNirPtrAdd() { return false }
+    if opcode >= nqNirAtomicLoad() && opcode <= nqNirFence() { return false }
+    if opcode == nqNirIntrinsic() || opcode == nqNirAsm() { return false }
+    return true
+}
+
+export function nqWebInstructionCheck(instruction: *NqNirInstruction): isize {
+    if !nqNirInstructionValid(instruction) { return nqWebInvalidNir() }
+    if !nqWebOpcodeAllowed(instruction.opcode) { return nqWebNativeOnly() }
+    if (instruction.flags / nqNirFlagUnsafe()) % 2 as u32 == 1 as u32 { return nqWebUnsafeDenied() }
+    return nqWebOk()
+}
+
+export function nqWebProgramCheck(instructions: []NqNirInstruction): isize {
+    let index: usize = 0 as usize
+    while index < len(instructions) {
+        let status: isize = nqWebInstructionCheck(&instructions[index])
+        if status < 0 as isize { return status }
+        index = index + 1 as usize
+    }
+    return nqWebOk()
+}
