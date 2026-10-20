@@ -4,7 +4,7 @@ Noqeri is a compact statically checked language with an application-friendly sur
 
 ## Variables and everyday types
 
-```nqr
+```noqeri
 let count = 3
 const name = "Noqeri"
 let enabled: bool = true
@@ -25,7 +25,7 @@ Portable-width integer types are:
 
 Parentheses around an `if` condition are optional:
 
-```nqr
+```noqeri
 if score >= 50 {
     print("pass")
 } else {
@@ -41,7 +41,7 @@ Noqeri has two simple beginner-facing loop ideas.
 
 Use `repeat` when the number of iterations is the idea:
 
-```nqr
+```noqeri
 let total = 0
 repeat 4 {
     total = total + 3
@@ -52,7 +52,7 @@ repeat 4 {
 
 Use `while` when the condition is the idea:
 
-```nqr
+```noqeri
 let remaining = 3
 while remaining > 0 {
     remaining = remaining - 1
@@ -63,7 +63,7 @@ Parentheses around a `while` condition are also optional.
 
 ## Functions
 
-```nqr
+```noqeri
 function square(value: int): int {
     return value * value
 }
@@ -73,7 +73,7 @@ Parameters and return values are statically checked. `export function` exposes a
 
 ## Records
 
-```nqr
+```noqeri
 record User {
     id: u64
     active: bool
@@ -84,7 +84,7 @@ Records use declaration-order layout with natural alignment. Field offsets are r
 
 A pointer to a record uses the same field syntax:
 
-```nqr
+```noqeri
 function deactivate(user: *User): void {
     user.active = false
 }
@@ -96,7 +96,7 @@ No separate `->` operator is needed.
 
 Generic function and record syntax stays deliberately small:
 
-```nqr
+```noqeri
 record Cell<T> {
     value: T
 }
@@ -114,7 +114,7 @@ Call-site type arguments are normally inferred from values. Aggregate specializa
 
 Fixed arrays use `[T; N]`:
 
-```nqr
+```noqeri
 let values: [u32; 4] = [1 as u32, 2 as u32, 3 as u32, 4 as u32]
 print(values[2])
 ```
@@ -123,7 +123,7 @@ Array literals infer one element type. Noqeri does not silently narrow an ordina
 
 Slices use `[]T` and carry data plus length:
 
-```nqr
+```noqeri
 let view: []u32 = slice(values)
 print(len(view))
 print(view[0])
@@ -131,7 +131,7 @@ print(view[0])
 
 A slice can also be created from raw storage:
 
-```nqr
+```noqeri
 let view: []u8 = slice(bufferPointer, bufferLength)
 ```
 
@@ -141,13 +141,13 @@ Dynamic safe indexing lowers through explicit runtime bounds checks when it cann
 
 A source file can declare an organizational module name:
 
-```nqr
+```noqeri
 module graphics.raster
 ```
 
 Files are imported by relative path:
 
-```nqr
+```noqeri
 import "math.noqeri"
 ```
 
@@ -157,7 +157,7 @@ File-backed compiler commands recursively resolve imports relative to the import
 
 Low-level/freestanding functions can use integer status propagation without exceptions or allocation:
 
-```nqr
+```noqeri
 function readValue(): isize {
     if device_failed {
         throw 3
@@ -177,7 +177,7 @@ function caller(): isize {
 
 Ordinary arrays/slices are checked. Operations that bypass ordinary memory guarantees must be visually explicit:
 
-```nqr
+```noqeri
 let value: u32 = 42 as u32
 let raw: *u32 = &value
 
@@ -196,7 +196,7 @@ The current safety suite separately exercises runtime dynamic bounds failure, nu
 
 Explicit pointer/integer conversion uses `as`:
 
-```nqr
+```noqeri
 let address: usize = 0x1000
 let mmio: *u32 = address as *u32
 let raw: usize = mmio as usize
@@ -208,7 +208,7 @@ Implicit integer-to-pointer conversion is not performed.
 
 Volatile is attached to the pointer:
 
-```nqr
+```noqeri
 let status: *volatile u32 = 0xF0000000 as *volatile u32
 ```
 
@@ -218,7 +218,7 @@ Loads/stores through `*volatile T` lower to volatile NIR memory operations. `vol
 
 Atomic operations are typed calls:
 
-```nqr
+```noqeri
 let counter: u64 = 0 as u64
 let p: *u64 = &counter
 
@@ -235,7 +235,7 @@ The bootstrap supports integer, boolean and pointer values up to eight bytes for
 
 Architecture-specific operations use an explicit named escape hatch:
 
-```nqr
+```noqeri
 intrinsic("x86.pause")
 let cycles: u64 = intrinsic("x86.rdtsc")
 intrinsic("compiler.fence")
@@ -245,7 +245,7 @@ Unsupported intrinsic names are compile-time errors rather than hidden host call
 
 ## Inline assembly
 
-```nqr
+```noqeri
 asm("nop")
 ```
 
@@ -257,7 +257,7 @@ The current x86-64 backend restricts this escape hatch to one instruction string
 
 ## Linkage and ABI
 
-```nqr
+```noqeri
 extern function device_write(data: *u8, count: usize): isize
 
 export function library_entry(data: *u8, count: usize): isize {
