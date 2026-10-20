@@ -11,6 +11,7 @@ on:
       - 'scripts/build.*'
       - 'CMakeLists.txt'
       - 'tests/zero_init.noqeri'
+      - 'tests/bootstrap_language_compat.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
   pull_request:
     paths:
@@ -60,6 +61,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $result = (& .\build-native\Release\noqeri-nqri.exe build-native\zero-init.nqri zeroInitCheck).Trim()
           if ($LASTEXITCODE -ne 0 -or $result -ne '10') { throw "zero-init NQRI check returned '$result'" }
+      - name: Verify bootstrap language compatibility (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check tests/bootstrap_language_compat.noqeri
+          ./build-native/noqeri nqri tests/bootstrap_language_compat.noqeri build-native/bootstrap-language.nqri
+          result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri contextualNames)
+          test "$result" = "48"
+      - name: Verify bootstrap language compatibility (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri.exe check tests\bootstrap_language_compat.noqeri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri.exe nqri tests\bootstrap_language_compat.noqeri build-native\bootstrap-language.nqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $result = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri contextualNames).Trim()
+          if ($LASTEXITCODE -ne 0 -or $result -ne '48') { throw "bootstrap language compatibility returned '$result'" }
       - name: Build trusted Stage-1 NQRI seed (Linux)
         if: runner.os == 'Linux'
         shell: bash
