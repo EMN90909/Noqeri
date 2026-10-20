@@ -70,6 +70,8 @@ if (-not (Test-Path $Seed)) {
 
 & $Runtime --selftest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $Runtime has-export $Seed stage2CompileToNqo
+if ($LASTEXITCODE -ne 0) { throw "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqo." }
 & $Runtime compile-manifest $Seed $Root $Manifest $Stage2 $Target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Runtime compile-manifest $Stage2 $Root $Manifest $Stage3 $Target
