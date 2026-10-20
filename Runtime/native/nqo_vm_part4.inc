@@ -2,8 +2,74 @@
     Module module_;std::uint64_t maxSteps_,steps_=0;std::size_t maxDepth_;
 };
 
-static std::vector<std::uint8_t> makeSelftestModule(){std::string source="main";std::vector<std::uint8_t>b(32+source.size()+40+2*96,0);auto w32=[&](std::size_t o,std::uint32_t v){for(int i=0;i<4;++i)b[o+i]=static_cast<std::uint8_t>((v>>(i*8))&0xff);};auto w64=[&](std::size_t o,std::uint64_t v){for(int i=0;i<8;++i)b[o+i]=static_cast<std::uint8_t>((v>>(i*8))&0xff);};b[0]='N';b[1]='Q';b[2]='O';b[3]='2';w32(4,2);w32(8,source.size());w32(12,1);w32(16,2);w32(20,40);w32(24,96);std::copy(source.begin(),source.end(),b.begin()+32);std::size_t f=32+source.size();w64(f,1);w32(f+8,0);w32(f+12,4);w32(f+16,0);w32(f+20,2);std::size_t i=f+40;w32(i,1);w64(i+16,0);w64(i+40,42);i+=96;w32(i,22);w64(i+24,0);return b;}
-static int selftest(){auto m=loadNqo2(makeSelftestModule());Vm vm(std::move(m));auto result=vm.invoke("main");if(!std::holds_alternative<std::int64_t>(result)||std::get<std::int64_t>(result)!=42)throw RuntimeError("selftest returned wrong value");std::cout<<"native NQO2 selftest passed\n";return 0;}
+static std::vector<std::uint8_t> makeSelftestModule() {
+    const std::string source = "addmainmemoryslicecheck";
+    constexpr std::uint32_t functionCount = 4;
+    constexpr std::uint32_t instructionCount = 20;
+    std::vector<std::uint8_t> b(32 + source.size() + functionCount * 40 + instructionCount * 96, 0);
+    auto w32=[&](std::size_t o,std::uint32_t v){for(int i=0;i<4;++i)b[o+i]=static_cast<std::uint8_t>((v>>(i*8))&0xff);};
+    auto w64=[&](std::size_t o,std::uint64_t v){for(int i=0;i<8;++i)b[o+i]=static_cast<std::uint8_t>((v>>(i*8))&0xff);};
+    auto wi64=[&](std::size_t o,std::int64_t v){std::uint64_t raw=0;std::memcpy(&raw,&v,sizeof(raw));w64(o,raw);};
+    auto function=[&](std::size_t o,std::uint64_t symbol,std::uint32_t nameStart,std::uint32_t nameEnd,std::uint32_t first,std::uint32_t count,std::uint32_t params){
+        w64(o,symbol);w32(o+8,nameStart);w32(o+12,nameEnd);w32(o+16,first);w32(o+20,count);w32(o+24,params);
+    };
+    auto instruction=[&](std::size_t index,std::uint32_t opcode,std::int64_t dest,std::int64_t left,std::int64_t right,std::int64_t immediate,std::uint64_t symbol,std::uint64_t width,std::uint32_t typeCode=0){
+        const std::size_t o=32+source.size()+functionCount*40+index*96;
+        w32(o,opcode);w32(o+4,typeCode);wi64(o+16,dest);wi64(o+24,left);wi64(o+32,right);wi64(o+40,immediate);w64(o+48,symbol);w64(o+56,width);
+    };
+    b[0]='N';b[1]='Q';b[2]='O';b[3]='2';w32(4,2);w32(8,static_cast<std::uint32_t>(source.size()));w32(12,functionCount);w32(16,instructionCount);w32(20,40);w32(24,96);
+    std::copy(source.begin(),source.end(),b.begin()+32);
+    std::size_t f=32+source.size();
+    function(f+0*40,1,0,3,0,4,2);
+    function(f+1*40,2,3,7,4,6,0);
+    function(f+2*40,3,7,13,10,5,0);
+    function(f+3*40,4,13,23,15,5,0);
+
+    instruction(0,47,0,-1,-1,0,101,0);
+    instruction(1,47,1,-1,-1,1,102,0);
+    instruction(2,6,2,0,1,0,0,0);
+    instruction(3,22,-1,2,-1,0,0,0);
+
+    instruction(4,1,0,-1,-1,20,0,0);
+    instruction(5,1,1,-1,-1,22,0,0);
+    instruction(6,46,-1,0,-1,0,0,0);
+    instruction(7,46,-1,1,-1,1,0,0);
+    instruction(8,21,2,-1,-1,0,1,2);
+    instruction(9,22,-1,2,-1,0,0,0);
+
+    instruction(10,37,0,-1,-1,0,0,8);
+    instruction(11,1,1,-1,-1,42,0,0);
+    instruction(12,39,-1,0,1,0,0,8);
+    instruction(13,38,2,0,-1,0,0,8,3);
+    instruction(14,22,-1,2,-1,0,0,0);
+
+    instruction(15,37,0,-1,-1,0,0,16);
+    instruction(16,1,1,-1,-1,2,0,0);
+    instruction(17,42,2,0,1,0,0,0);
+    instruction(18,41,3,2,-1,0,0,0);
+    instruction(19,22,-1,3,-1,0,0,0);
+    return b;
+}
+static int selftest() {
+    {
+        auto invalid=makeSelftestModule();
+        invalid[0]='X';
+        bool rejected=false;
+        try { (void)loadNqo2(invalid); } catch(const RuntimeError&) { rejected=true; }
+        if(!rejected) throw RuntimeError("selftest accepted corrupt NQO2 magic");
+    }
+    auto m=loadNqo2(makeSelftestModule());
+    Vm vm(std::move(m));
+    auto expectInt=[&](const char* name,std::int64_t expected){
+        auto result=vm.invoke(name);
+        if(!std::holds_alternative<std::int64_t>(result)||std::get<std::int64_t>(result)!=expected)throw RuntimeError(std::string("selftest failed for ")+name);
+    };
+    expectInt("main",42);
+    expectInt("memory",42);
+    expectInt("slicecheck",2);
+    std::cout<<"native NQO2 selftest passed\n";
+    return 0;
+}
 static std::string valueText(const Value&v){if(auto i=std::get_if<std::int64_t>(&v))return std::to_string(*i);if(auto d=std::get_if<double>(&v)){std::ostringstream s;s<<*d;return s.str();}if(std::holds_alternative<std::monostate>(v))return"null";if(std::holds_alternative<PointerPtr>(v))return"<pointer>";return"<slice>";}
 
 } // namespace noqeri::nqo
