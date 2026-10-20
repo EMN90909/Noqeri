@@ -137,6 +137,36 @@ function nqSemanticFunctionReturnRef(source: []u8, nodes: []NqAstNode, functionI
     return true
 }
 
+function nqSemanticFunctionForward(node: *NqAstNode): bool {
+    if node == null { return false }
+    return node.extra < 0 as isize && (node.flags / nqAstFlagExtern()) % 2 as u32 == 0 as u32
+}
+
+function nqSemanticTypeRefSame(left: *NqTypeRef, right: *NqTypeRef): bool {
+    if left == null || right == null { return false }
+    return left.code == right.code &&
+        left.nameSymbol == right.nameSymbol &&
+        left.elementCode == right.elementCode &&
+        left.elementSymbol == right.elementSymbol &&
+        left.arrayLength == right.arrayLength
+}
+
+function nqSemanticParameterRef(source: []u8, nodes: []NqAstNode, functionIndex: isize, parameter: *NqAstNode, out: *NqTypeRef): bool {
+    if parameter == null || out == null { return false }
+    if parameter.extra >= 0 as isize {
+        let end: usize = nqTypeRefParse(source, parameter.extra as usize, out)
+        if end <= parameter.extra as usize { return false }
+        nqSemanticNormalizeRef(nodes, functionIndex, out)
+        return true
+    }
+    out.code = nqAstTypeUnknown()
+    out.nameSymbol = 0 as u64
+    out.elementCode = nqAstTypeUnknown()
+    out.elementSymbol = 0 as u64
+    out.arrayLength = 0 as usize
+    return true
+}
+
 export function nqSemanticBuildFunctions(source: []u8, nodes: []NqAstNode, first: isize, functions: []NqFunctionInfo, functionCount: *usize, parameters: []NqFunctionParameterInfo, parameterCount: *usize): isize {
     if functionCount == null || parameterCount == null { return nqSemanticProgramCapacity() }
     functionCount[0] = 0 as usize
@@ -146,51 +176,90 @@ export function nqSemanticBuildFunctions(source: []u8, nodes: []NqAstNode, first
         if cursor as usize >= len(nodes) { return nqSemanticBadFunction() }
         let fn: *NqAstNode = &nodes[cursor as usize]
         if fn.tag == nqAstFunction() {
-            if fn.left < 0 as isize || functionCount[0] >= len(functions) { return nqSemanticProgramCapacity() }
+            if fn.left < 0 as isize { return nqSemanticBadFunction() }
             let name: *NqAstNode = &nodes[fn.left as usize]
             let symbol: u64 = nqTypeNameSymbol(source, name.start, name.end)
-            if nqSemanticFunctionFind(functions, functionCount[0], symbol) >= 0 as isize { return nqSemanticDuplicateName() }
             let returnRef: NqTypeRef
             if !nqSemanticFunctionReturnRef(source, nodes, cursor, &returnRef) { return nqSemanticBadFunction() }
-            let fi: usize = functionCount[0]
-            functions[fi].symbol = symbol
-            functions[fi].nameStart = name.start
-            functions[fi].nameEnd = name.end
-            functions[fi].firstParameter = parameterCount[0]
-            functions[fi].parameterCount = 0 as usize
-            functions[fi].returnCode = returnRef.code
-            functions[fi].returnSymbol = returnRef.nameSymbol
-            functions[fi].returnElementCode = returnRef.elementCode
-            functions[fi].returnElementSymbol = returnRef.elementSymbol
-            functions[fi].flags = fn.flags
-            functions[fi].astIndex = cursor
-            let paramNode: isize = fn.right
-            let paramIndex: usize = 0 as usize
-            while paramNode >= 0 as isize {
-                if parameterCount[0] >= len(parameters) || paramNode as usize >= len(nodes) { return nqSemanticProgramCapacity() }
-                let p: *NqAstNode = &nodes[paramNode as usize]
-                let ref: NqTypeRef
-                if p.extra >= 0 as isize {
-                    let end: usize = nqTypeRefParse(source, p.extra as usize, &ref)
-                    if end <= p.extra as usize { return nqSemanticBadFunction() }
-                    nqSemanticNormalizeRef(nodes, cursor, &ref)
-                } else {
-                    ref.code = nqAstTypeUnknown() ref.nameSymbol = 0 as u64 ref.elementCode = nqAstTypeUnknown() ref.elementSymbol = 0 as u64 ref.arrayLength = 0 as usize
+            let existingIndex: isize = nqSemanticFunctionFind(functions, functionCount[0], symbol)
+            if existingIndex >= 0 as isize {
+                let existing: *NqFunctionInfo = &functions[existingIndex as usize]
+                let existingNode: *NqAstNode = &nodes[existing.astIndex as usize]
+                let existingReturn: NqTypeRef
+                existingReturn.code = existing.returnCode
+                existingReturn.nameSymbol = existing.returnSymbol
+                existingReturn.elementCode = existing.returnElementCode
+                existingReturn.elementSymbol = existing.returnElementSymbol
+                existingReturn.arrayLength = 0 as usize
+                let signatureMatches: bool = existing.returnCode == returnRef.code &&
+                    existing.returnSymbol == returnRef.nameSymbol &&
+                    existing.returnElementCode == returnRef.elementCode &&
+                    existing.returnElementSymbol == returnRef.elementSymbol
+                let paramNode: isize = fn.right
+                let paramIndex: usize = 0 as usize
+                while signatureMatches && paramNode >= 0 as isize {
+                    if paramIndex >= existing.parameterCount || paramNode as usize >= len(nodes) { signatureMatches = false }
+                    else {
+                        let p: *NqAstNode = &nodes[paramNode as usize]
+                        let parsed: NqTypeRef
+                        if !nqSemanticParameterRef(source, nodes, cursor, p, &parsed) { return nqSemanticBadFunction() }
+                        let prior: *NqFunctionParameterInfo = &parameters[existing.firstParameter + paramIndex]
+                        if parsed.code != prior.typeCode ||
+                           parsed.nameSymbol != prior.typeSymbol ||
+                           parsed.elementCode != prior.elementTypeCode ||
+                           parsed.elementSymbol != prior.elementTypeSymbol ||
+                           parsed.arrayLength != prior.arrayLength { signatureMatches = false }
+                        paramNode = p.next
+                        paramIndex = paramIndex + 1 as usize
+                    }
                 }
-                let pi: usize = parameterCount[0]
-                parameters[pi].functionSymbol = symbol
-                parameters[pi].index = paramIndex
-                parameters[pi].typeCode = ref.code
-                parameters[pi].typeSymbol = ref.nameSymbol
-                parameters[pi].elementTypeCode = ref.elementCode
-                parameters[pi].elementTypeSymbol = ref.elementSymbol
-                parameters[pi].arrayLength = ref.arrayLength
-                parameterCount[0] = pi + 1 as usize
-                functions[fi].parameterCount = functions[fi].parameterCount + 1 as usize
-                paramIndex = paramIndex + 1 as usize
-                paramNode = p.next
+                if paramIndex != existing.parameterCount { signatureMatches = false }
+                if !signatureMatches { return nqSemanticBadFunction() }
+                let priorForward: bool = nqSemanticFunctionForward(existingNode)
+                let nextForward: bool = nqSemanticFunctionForward(fn)
+                if !priorForward && !nextForward { return nqSemanticDuplicateName() }
+                if priorForward && !nextForward {
+                    existing.flags = fn.flags
+                    existing.astIndex = cursor
+                    existing.nameStart = name.start
+                    existing.nameEnd = name.end
+                }
+            } else {
+                if functionCount[0] >= len(functions) { return nqSemanticProgramCapacity() }
+                let fi: usize = functionCount[0]
+                functions[fi].symbol = symbol
+                functions[fi].nameStart = name.start
+                functions[fi].nameEnd = name.end
+                functions[fi].firstParameter = parameterCount[0]
+                functions[fi].parameterCount = 0 as usize
+                functions[fi].returnCode = returnRef.code
+                functions[fi].returnSymbol = returnRef.nameSymbol
+                functions[fi].returnElementCode = returnRef.elementCode
+                functions[fi].returnElementSymbol = returnRef.elementSymbol
+                functions[fi].flags = fn.flags
+                functions[fi].astIndex = cursor
+                let paramNode: isize = fn.right
+                let paramIndex: usize = 0 as usize
+                while paramNode >= 0 as isize {
+                    if parameterCount[0] >= len(parameters) || paramNode as usize >= len(nodes) { return nqSemanticProgramCapacity() }
+                    let p: *NqAstNode = &nodes[paramNode as usize]
+                    let ref: NqTypeRef
+                    if !nqSemanticParameterRef(source, nodes, cursor, p, &ref) { return nqSemanticBadFunction() }
+                    let pi: usize = parameterCount[0]
+                    parameters[pi].functionSymbol = symbol
+                    parameters[pi].index = paramIndex
+                    parameters[pi].typeCode = ref.code
+                    parameters[pi].typeSymbol = ref.nameSymbol
+                    parameters[pi].elementTypeCode = ref.elementCode
+                    parameters[pi].elementTypeSymbol = ref.elementSymbol
+                    parameters[pi].arrayLength = ref.arrayLength
+                    parameterCount[0] = pi + 1 as usize
+                    functions[fi].parameterCount = functions[fi].parameterCount + 1 as usize
+                    paramIndex = paramIndex + 1 as usize
+                    paramNode = p.next
+                }
+                functionCount[0] = fi + 1 as usize
             }
-            functionCount[0] = fi + 1 as usize
         }
         cursor = fn.next
     }
