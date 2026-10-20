@@ -1,38 +1,55 @@
 # Web development status
 
-## Working capability
+## Current capability
 
-The Stage-2 CLI provides `noqeri web-project <source-dir> <output-dir>`, a **static asset packager** for HTML, CSS, JavaScript modules, and common browser resources. It preserves directories, checks local HTML references for traversal, rejects symlinks and unsupported files, and prevents source/output overlap. It does not minify, bundle npm imports, or execute scripts. Run its regression tests locally with:
-
-```sh
-node --test tests/web-project.test.mjs
-node Runtime/web-project.mjs examples/web_project /tmp/noqeri-web-output
-# Or via a working Stage-2 launcher:
-noqeri web-project examples/web_project /tmp/noqeri-web-output
-```
-
-The CLI command can package regular HTML/CSS/JS projects without loading the compiler module. The direct Node entrypoint likewise runs without a Stage-2 seed.
-
-## Important limitations
-
-- **Noqeri .nqr-to-JavaScript compilation is not implemented in the Stage-2 CLI.** The tool errors if a source tree contains .nqr; it does not silently copy uncompiled code or translate with string substitutions.
-- The archived C++ `Compiler/web_backend.cpp` is a reference implementation and not integrated with Stage-2. The Stage-2 self-hosted compiler uses an NIR/NQO2 pipeline. Browser codegen should consume verified typed NIR and emit standards-compliant ES modules, with enforced restrictions on native pointers, assembly, arbitrary host capabilities and unsafe DOM sinks.
-- The initial five static packaging regression tests were executed locally on a Node.js server and passed. **Compiler-to-browser smoke tests have not run successfully** because there is no seed compiler and the current runtime does not implement `web`.
-- Browser execution tests should compile .nqr fixtures, import generated ES modules, verify exported functions and host-capability boundaries, check JSON and DOM integration, and test in at least Chromium and Firefox.
-- The source import mechanism must explicitly specify interoperability rules for importing JavaScript modules and CSS assets; copying JS and CSS is not equivalent to integrating them with .nqr syntax.
-
-No GitHub Actions are required or used.
-
-## October 17 web compiler progress
-
-The Stage-2 CLI now exposes `noqeri web input.nqr output.mjs`, which first invokes Stage-2 semantic checking and then emits ES modules using `Runtime/web-compiler.mjs`. This is **an intentionally restricted implementation**, not full language parity: functions, typed parameters, exports, returns, basic expressions, scalar local declarations, if/while, and explicit extern host calls are its initial supported syntax. Unsupported imports, arrays, property access, raw native constructs, complex types and advanced constructs are rejected, not silently miscompiled.
-
-Browser interaction is explicit: `Runtime/browser-host.mjs` installs limited safe text/class DOM operations and caller-supplied JavaScript functions through `NoqeriHost`. HTML, CSS and JS are still ordinary web assets via `web-project`. For example:
+The Stage-2 CLI provides two browser-oriented commands:
 
 ```sh
-noqeri web tests/web_smoke/01_exports.nqr dist/app.mjs
-noqeri web-project examples/web_project dist-static
-node --test tests/web-compiler.test.mjs
+noqeri web input.nqr output.mjs
+noqeri web-project web dist
 ```
 
-**Verification scope:** The initial restricted compiler prototype was exercised on a local Node.js server with eight focused smoke checks passing after one test expectation correction. The checked-in implementation was reviewed through the GitHub connector but was not executed from a full repository checkout. The normal Stage-2 compiler CLI and its browser integration have not been exercised end-to-end here: the checkout failed due DNS and a trusted compiler seed is unavailable. Do not claim production maturity, type-system completeness, browser compatibility or security certification from this test coverage. To reach mature status, replace the restricted source parser with code generation from typed compiler NIR, bootstrap and run the full language suite, test browser imports, and add end-to-end Chromium/Firefox coverage.
+`noqeri web` now requires the self-hosted Stage-2 compiler module to expose `stage2WebCheck`. Browser acceptance is owned by Noqeri source in `Compiler/selfhost/web_policy.nqr`: source is parsed, zero-initialized, semantically checked with unsafe mode disabled, lowered to NIR, checked against production instruction limits, and rejected when the lowered program requires atomics, inline assembly, CPU intrinsics, or explicitly unsafe NIR.
+
+`noqeri web-project` compiles `.nqr` files instead of rejecting them. It preserves static web assets, rewrites HTML references such as `<script src="app.nqr">` to standards-compatible ES module references, compiles local Noqeri import graphs, resolves pinned package imports through the package resolver, rejects source/output overlap, rejects symlinks, validates HTML traversal, and prevents local `.nqr` imports from escaping the project root.
+
+The portable JavaScript host in `Runtime/web-compiler.mjs` is an emission/packaging adapter. It is not the semantic authority: Stage-2 Noqeri validation must pass first when invoked through the CLI. Its current browser emission coverage includes functions, exports, extern host capabilities, typed parameters and locals, conditionals, loops, arrays, indexing, slices, casts, member access, assignments, local imports, and common scalar expressions.
+
+## Verification
+
+Focused host tests:
+
+```sh
+node --check Runtime/web-compiler.mjs
+node --check Runtime/web-project.mjs
+node --test tests/web-compiler.test.mjs tests/web-project.test.mjs
+```
+
+The October 20 regression set covers executable generated modules, arithmetic, annotations, control flow, arrays/slices/casts, host capability calls, dynamic/native-only rejection, local import graphs, static asset packaging, HTML rewriting, filesystem traversal, symlinks, nested output rejection, required HTML, and local Noqeri import containment.
+
+Pull requests are additionally gated by `.github/workflows/compiler-web-safety.yml`, which builds the bootstrap compiler, checks the self-host compiler source, runs `tests/compiler_stage2_core.nqr`, and executes selected compiler regressions.
+
+## Architecture and limits
+
+The compiler frontend, semantic analysis, lowering, browser capability policy, and Stage-2 ABI are Noqeri-owned. Browser code is emitted as JavaScript because JavaScript modules are the deployment artifact for this target. The portable host emitter still walks source syntax to serialize JavaScript; it must not make independent type or capability decisions. Long-term architectural parity is to have emission consume compiler-owned AST/NIR data directly so there is no duplicated grammar surface in the host.
+
+Local project imports are intentionally contained to the web project root. Package imports may resolve outside that root only through the package resolver and lock/pinning rules.
+
+Browser host access remains explicit through `NoqeriHost`; arbitrary global-object access and dynamic execution are rejected by the portable emitter. Web output should still be tested in real browsers for DOM integration, CSP behavior, module MIME configuration, and engine compatibility before a production web-readiness claim.
+
+## Example
+
+```html
+<div id="app"></div>
+<script src="app.nqr"></script>
+```
+
+```nqr
+extern function domText(selector: string, text: string): bool
+
+export function render(): bool {
+    return domText("#app", "Hello from Noqeri")
+}
+```
+
+Building the project emits `app.js` and rewrites the HTML script to `type="module"`.
