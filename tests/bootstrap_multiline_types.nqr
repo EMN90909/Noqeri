@@ -1,0 +1,16 @@
+module noqeri.tests.bootstrap_multiline_types
+
+record NqBootstrapToken {
+    kind: int
+    start: usize
+    end: usize
+    first: u8
+}
+
+function typedValue(input: usize): usize {
+    let current: usize = input
+    if current > 0 as usize { return current }
+    return 0 as usize
+}
+
+function main(): int { return typedValue(1 as usize) as int }
