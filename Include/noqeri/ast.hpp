@@ -1,5 +1,6 @@
 #pragma once
 #include "diagnostics.hpp"
+#include "types.hpp"
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -31,7 +32,7 @@ using Literal = std::variant<std::monostate,std::int64_t,double,bool,std::string
 struct Expr { virtual ~Expr()=default; Span span; };
 using ExprPtr = std::shared_ptr<Expr>;
 struct LiteralExpr final : Expr { Literal value; };
-struct NameExpr final : Expr { std::string name; };
+struct NameExpr final : Expr { std::string name; bool aggregateStorage=false; };
 struct UnaryExpr final : Expr { TokenKind op; ExprPtr operand; std::size_t memoryWidth=8; bool volatileAccess=false; };
 struct BinaryExpr final : Expr { ExprPtr left; TokenKind op; ExprPtr right; };
 struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; std::string builtinText; };
@@ -43,7 +44,7 @@ struct ArrayExpr final : Expr { std::vector<ExprPtr> elements; std::size_t eleme
 struct Stmt { virtual ~Stmt()=default; Span span; };
 using StmtPtr = std::shared_ptr<Stmt>;
 struct ExprStmt final : Stmt { ExprPtr expr; };
-struct LetStmt final : Stmt { bool isConst=false; std::string name; std::optional<std::string> annotation; ExprPtr initializer; };
+struct LetStmt final : Stmt { bool isConst=false; bool zeroInitialized=false; std::string name; std::optional<std::string> annotation; Type resolvedType{}; ExprPtr initializer; };
 struct BlockStmt final : Stmt { std::vector<StmtPtr> statements; bool isUnsafe=false; };
 struct IfStmt final : Stmt { ExprPtr condition; StmtPtr thenBranch; StmtPtr elseBranch; };
 struct WhileStmt final : Stmt { ExprPtr condition; StmtPtr body; };
