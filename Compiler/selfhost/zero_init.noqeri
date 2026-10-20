@@ -9,29 +9,75 @@ export function nqZeroInitOk(): isize { return 0 as isize }
 export function nqZeroInitCapacity(): isize { return -330 as isize }
 export function nqZeroInitMalformed(): isize { return -331 as isize }
 
-export function nqZeroInitNormalize(source: []u8, nodes: []NqAstNode, count: *usize, first: isize): isize {
-    if count == null { return nqZeroInitCapacity() }
+function nqZeroInitNode(source: []u8, nodes: []NqAstNode, count: *usize, nodeIndex: isize): isize
+function nqZeroInitChain(source: []u8, nodes: []NqAstNode, count: *usize, first: isize): isize
+
+function nqZeroInitBinding(source: []u8, nodes: []NqAstNode, count: *usize, nodeIndex: isize): isize {
+    if nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return nqZeroInitMalformed() }
+    let node: *NqAstNode = &nodes[nodeIndex as usize]
+    if node.tag != nqAstBinding() || node.right >= 0 as isize { return nqZeroInitOk() }
+    if node.extra < 0 as isize { return nqZeroInitMalformed() }
+
+    let typeStart: usize = node.extra as usize
+    let typeEnd: usize = nqParserScanType(source, typeStart)
+    if typeEnd <= typeStart { return nqZeroInitMalformed() }
+
+    let typeName: isize = nqAstArenaPush(nodes, count, nqAstName(), typeStart, typeEnd)
+    if typeName < 0 as isize { return nqZeroInitCapacity() }
+    let zeroCall: isize = nqAstArenaPush(nodes, count, nqAstCall(), typeStart, typeEnd)
+    if zeroCall < 0 as isize { return nqZeroInitCapacity() }
+
+    nodes[zeroCall as usize].left = typeName
+    nodes[zeroCall as usize].right = nqAstNoNode()
+    nodes[zeroCall as usize].extra = 0 as isize
+    nodes[zeroCall as usize].flags = nqZeroInitFlag()
+    node.right = zeroCall
+    node.flags = node.flags + nqZeroInitFlag()
+    return nqZeroInitOk()
+}
+
+function nqZeroInitNode(source: []u8, nodes: []NqAstNode, count: *usize, nodeIndex: isize): isize {
+    if nodeIndex < 0 as isize { return nqZeroInitOk() }
+    if nodeIndex as usize >= len(nodes) { return nqZeroInitMalformed() }
+    let node: *NqAstNode = &nodes[nodeIndex as usize]
+
+    if node.tag == nqAstBinding() {
+        return nqZeroInitBinding(source, nodes, count, nodeIndex)
+    }
+    if node.tag == nqAstFunction() {
+        if node.extra >= 0 as isize { return nqZeroInitNode(source, nodes, count, node.extra) }
+        return nqZeroInitOk()
+    }
+    if node.tag == nqAstBlock() {
+        return nqZeroInitChain(source, nodes, count, node.left)
+    }
+    if node.tag == nqAstIf() {
+        let thenStatus: isize = nqZeroInitNode(source, nodes, count, node.right)
+        if thenStatus < 0 as isize { return thenStatus }
+        if node.extra >= 0 as isize { return nqZeroInitNode(source, nodes, count, node.extra) }
+        return nqZeroInitOk()
+    }
+    if node.tag == nqAstWhile() {
+        return nqZeroInitNode(source, nodes, count, node.right)
+    }
+    return nqZeroInitOk()
+}
+
+function nqZeroInitChain(source: []u8, nodes: []NqAstNode, count: *usize, first: isize): isize {
     let cursor: isize = first
     while cursor >= 0 as isize {
         if cursor as usize >= len(nodes) { return nqZeroInitMalformed() }
-        let node: *NqAstNode = &nodes[cursor as usize]
-        if node.tag == nqAstBinding() && node.right < 0 as isize {
-            if node.extra < 0 as isize { return nqZeroInitMalformed() }
-            let typeStart: usize = node.extra as usize
-            let typeEnd: usize = nqParserScanType(source, typeStart)
-            if typeEnd <= typeStart { return nqZeroInitMalformed() }
-            let typeName: isize = nqAstArenaPush(nodes, count, nqAstName(), typeStart, typeEnd)
-            if typeName < 0 as isize { return nqZeroInitCapacity() }
-            let zeroCall: isize = nqAstArenaPush(nodes, count, nqAstCall(), typeStart, typeEnd)
-            if zeroCall < 0 as isize { return nqZeroInitCapacity() }
-            nodes[zeroCall as usize].left = typeName
-            nodes[zeroCall as usize].right = nqAstNoNode()
-            nodes[zeroCall as usize].extra = 0 as isize
-            nodes[zeroCall as usize].flags = nqZeroInitFlag()
-            node.right = zeroCall
-            node.flags = node.flags + nqZeroInitFlag()
-        }
-        cursor = node.next
+        // Preserve the original sibling link before normalization appends
+        // synthetic type/call nodes to the same fixed arena.
+        let next: isize = nodes[cursor as usize].next
+        let status: isize = nqZeroInitNode(source, nodes, count, cursor)
+        if status < 0 as isize { return status }
+        cursor = next
     }
     return nqZeroInitOk()
+}
+
+export function nqZeroInitNormalize(source: []u8, nodes: []NqAstNode, count: *usize, first: isize): isize {
+    if count == null { return nqZeroInitCapacity() }
+    return nqZeroInitChain(source, nodes, count, first)
 }
