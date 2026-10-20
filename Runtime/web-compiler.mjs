@@ -28,7 +28,9 @@ function lex(source) {
 
 function isIdentifier(value) { return /^[A-Za-z_$][\w$]*$/.test(value) && !keywords.has(value) }
 function quote(value) { return JSON.stringify(value) }
-function replaceExtension(path, extension='.js') { return path.replace(/\.nqr(?=([?#]|$))/i, extension) }\nfunction inside(root,file){ const rel=relative(resolve(root),resolve(file)); return rel===''||(rel!=='..'&&!rel.startsWith('..'+sep)) }\nfunction commentPath(file){ return String(file).replace(/[\r\n\u2028\u2029]/g,' ') }
+function replaceExtension(path, extension='.js') { return path.replace(/\.nqr(?=([?#]|$))/i, extension) }
+function inside(root,file){ const rel=relative(resolve(root),resolve(file)); return rel===''||(rel!=='..'&&!rel.startsWith('..'+sep)) }
+function commentPath(file){ return String(file).replace(/[\r\n\u2028\u2029]/g,' ') }
 
 class Parser {
   constructor(source,{modulePath='<memory>'}={}) {
@@ -286,7 +288,10 @@ async function loadGraph(entry,{readSource=async path=>readFile(path,'utf8'),res
       if(imp.package) {
         if(!resolvePackage) throw Error(`${absolute}: package import ${imp.spec} has no resolver`)
         child=await resolvePackage(imp.spec,absolute)
-      } else child=resolve(dirname(absolute),imp.spec)
+      } else {
+        child=resolve(dirname(absolute),imp.spec)
+        if(root && !inside(root,child)) throw Error(`${absolute}: local import escapes web project: ${imp.spec}`)
+      }
       if(extname(child).toLowerCase()!=='.nqr') throw Error(`${absolute}: Noqeri imports must resolve to .nqr source: ${imp.spec}`)
       await visit(child)
     }
