@@ -436,19 +436,19 @@ export function nqSemanticAnalyzeProgram(source: []u8, nodes: []NqAstNode, nodeC
     if nodeCount == null { return nqSemanticProgramCapacity() }
     let genericStatus: isize = nqGenericMetadataAttach(source, nodes, nodeCount, first)
     if genericStatus < 0 as isize { return genericStatus }
-    let records: [NqRecordInfo; 1024]
-    let fields: [NqFieldInfo; 8192]
+    let records: [NqRecordInfo; 4096]
+    let fields: [NqFieldInfo; 32768]
     let recordCount: usize = 0 as usize
     let fieldCount: usize = 0 as usize
     let layoutStatus: isize = nqRecordBuild(source, nodes, first, slice(records), &recordCount, slice(fields), &fieldCount, 8 as usize)
     if layoutStatus < 0 as isize { return nqSemanticBadRecord() }
-    let functions: [NqFunctionInfo; 4096]
-    let parameters: [NqFunctionParameterInfo; 16384]
+    let functions: [NqFunctionInfo; 8192]
+    let parameters: [NqFunctionParameterInfo; 65536]
     let functionCount: usize = 0 as usize
     let parameterCount: usize = 0 as usize
     let functionStatus: isize = nqSemanticBuildFunctions(source, nodes, first, slice(functions), &functionCount, slice(parameters), &parameterCount)
     if functionStatus < 0 as isize { return functionStatus }
-    let symbols: [NqSymbol; 32768]
+    let symbols: [NqSymbol; 131072]
     let context: NqSemanticContext
     context.symbolCount = 0 as usize
     context.functionCount = functionCount
