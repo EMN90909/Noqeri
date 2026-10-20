@@ -229,7 +229,7 @@ StmtPtr Parser::repeatStatement(){
     auto assign=std::make_shared<BinaryExpr>();assign->span=start.span;assign->left=indexLeft;assign->op=TokenKind::Equal;assign->right=add;
     auto increment=std::make_shared<ExprStmt>();increment->span=start.span;increment->expr=assign;
 
-    auto loopBody=std::make_shared<BlockStmt>();loopBody->span=userBody->span;loopBody->statements=userBody->statements;loopBody->statements.push_back(increment);
+    auto loopBody=std::make_shared<BlockStmt>();loopBody->span=userBody->span;loopBody->statements.push_back(increment);loopBody->statements.insert(loopBody->statements.end(),userBody->statements.begin(),userBody->statements.end());
     auto loop=std::make_shared<WhileStmt>();loop->span=start.span;loop->condition=condition;loop->body=loopBody;
 
     auto outer=std::make_shared<BlockStmt>();outer->span=start.span;outer->statements.push_back(limit);outer->statements.push_back(index);outer->statements.push_back(loop);
