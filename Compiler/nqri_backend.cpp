@@ -330,6 +330,66 @@ void writeI64(std::vector<std::uint8_t>& out, std::size_t offset, std::int64_t v
     std::uint64_t raw=0; std::memcpy(&raw,&value,sizeof(raw)); writeU64(out,offset,raw);
 }
 
+std::uint32_t readU32(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
+    if (offset > bytes.size() || bytes.size() - offset < 4) throw std::runtime_error("truncated NQRI u32");
+    return static_cast<std::uint32_t>(bytes[offset]) |
+           (static_cast<std::uint32_t>(bytes[offset + 1]) << 8) |
+           (static_cast<std::uint32_t>(bytes[offset + 2]) << 16) |
+           (static_cast<std::uint32_t>(bytes[offset + 3]) << 24);
+}
+
+std::uint64_t readU64(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
+    if (offset > bytes.size() || bytes.size() - offset < 8) throw std::runtime_error("truncated NQRI u64");
+    std::uint64_t value = 0;
+    for (std::size_t i = 0; i < 8; ++i) value |= static_cast<std::uint64_t>(bytes[offset + i]) << (i * 8);
+    return value;
+}
+
+bool validateSerializedNqri(const std::vector<std::uint8_t>& bytes, std::string& error) {
+    if (bytes.size() < kHeaderBytes || bytes[0] != 'N' || bytes[1] != 'Q' || bytes[2] != 'R' || bytes[3] != 'I') {
+        error = "invalid NQRI magic/header";
+        return false;
+    }
+    if (readU32(bytes, 4) != kVersion || readU32(bytes, 20) != kFunctionBytes || readU32(bytes, 24) != kInstructionBytes) {
+        error = "unsupported NQRI version or record size";
+        return false;
+    }
+    const auto sourceBytes = readU32(bytes, 8);
+    const auto functionCount = readU32(bytes, 12);
+    const auto instructionCount = readU32(bytes, 16);
+    const std::uint64_t expected = kHeaderBytes + static_cast<std::uint64_t>(sourceBytes) +
+        static_cast<std::uint64_t>(functionCount) * kFunctionBytes +
+        static_cast<std::uint64_t>(instructionCount) * kInstructionBytes;
+    if (expected != bytes.size()) {
+        error = "NQRI serialized length mismatch";
+        return false;
+    }
+    std::size_t offset = kHeaderBytes + sourceBytes;
+    std::unordered_set<std::uint64_t> symbols;
+    for (std::uint32_t i = 0; i < functionCount; ++i, offset += kFunctionBytes) {
+        const auto symbol = readU64(bytes, offset);
+        const auto nameStart = readU32(bytes, offset + 8);
+        const auto nameEnd = readU32(bytes, offset + 12);
+        const auto firstInstruction = readU32(bytes, offset + 16);
+        const auto count = readU32(bytes, offset + 20);
+        if (!symbol || !symbols.insert(symbol).second || nameEnd <= nameStart || nameEnd > sourceBytes ||
+            static_cast<std::uint64_t>(firstInstruction) + count > instructionCount) {
+            error = "invalid NQRI function record";
+            return false;
+        }
+    }
+    for (std::uint32_t i = 0; i < instructionCount; ++i, offset += kInstructionBytes) {
+        const auto opcode = readU32(bytes, offset);
+        const auto sourceStart = readU64(bytes, offset + 64);
+        const auto sourceEnd = readU64(bytes, offset + 72);
+        if (opcode > 47 || sourceEnd < sourceStart || sourceEnd > sourceBytes) {
+            error = "invalid NQRI instruction record";
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 bool NqriBackend::emitModule(const NirProgram& program,
@@ -433,10 +493,35 @@ bool NqriBackend::emitModule(const NirProgram& program,
             offset+=kInstructionBytes;
         }
 
-        std::ofstream file(output,std::ios::binary|std::ios::trunc);
-        if(!file){diagnostics.error("NQR-B9025",{},"cannot write NQRI output: "+output.string());return false;}
-        file.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));
-        if(!file){diagnostics.error("NQR-B9026",{},"failed writing NQRI output: "+output.string());return false;}
+        std::string validationError;
+        if (!validateSerializedNqri(bytes, validationError)) {
+            diagnostics.error("NQR-B9038", {}, "refusing to publish invalid NQRI output: " + validationError);
+            return false;
+        }
+
+        const auto temporary = output.string() + ".tmp";
+        {
+            std::ofstream file(temporary,std::ios::binary|std::ios::trunc);
+            if(!file){diagnostics.error("NQR-B9025",{},"cannot write temporary NQRI output: "+temporary);return false;}
+            file.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));
+            file.flush();
+            if(!file){
+                std::error_code removeError;
+                std::filesystem::remove(temporary, removeError);
+                diagnostics.error("NQR-B9026",{},"failed writing temporary NQRI output: "+temporary);
+                return false;
+            }
+        }
+        std::error_code ec;
+        std::filesystem::remove(output, ec);
+        ec.clear();
+        std::filesystem::rename(temporary, output, ec);
+        if (ec) {
+            std::error_code removeError;
+            std::filesystem::remove(temporary, removeError);
+            diagnostics.error("NQR-B9039", {}, "failed publishing NQRI output atomically: " + ec.message());
+            return false;
+        }
         return true;
     } catch(const std::exception& error) {
         diagnostics.error("NQR-B9027",{},std::string("NQRI serialization failed: ")+error.what());
