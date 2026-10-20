@@ -16,7 +16,7 @@ set(NOQERI_FRONTEND_SOURCES
  Compiler/bootstrap/lexer_host.cpp Compiler/bootstrap/parser_host.cpp Compiler/bootstrap/abi_runtime_host.cpp Compiler/bootstrap/interpreter_host.cpp
  Compiler/bootstrap/noqeridb_host.cpp)
 set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
- Compiler/native_backend.cpp Compiler/web_backend.cpp Compiler/linker.cpp
+ Compiler/native_backend.cpp Compiler/web_backend.cpp Compiler/nqri_backend.cpp Compiler/linker.cpp
  Compiler/bootstrap/cli_host.cpp Compiler/bootstrap/formatter_host.cpp Compiler/bootstrap/package_host.cpp Compiler/bootstrap/lsp_host.cpp
  Compiler/bootstrap/test_runner_host.cpp Compiler/bootstrap/production_doctor_host.cpp
  Compiler/bootstrap/security_audit_host.cpp)
