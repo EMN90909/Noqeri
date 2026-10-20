@@ -49,7 +49,7 @@ export async function buildWebProject({source='web',out='dist',compileNoqeri=com
     if(extension==='.nqr'){
       if(typeof validateNoqeri==='function')await validateNoqeri(file)
       const target=webOutputFor(input,output,file)
-      await compileNoqeri(file,target,{resolvePackage})
+      await compileNoqeri(file,target,{resolvePackage,root:input})
       compiled++
       continue
     }
