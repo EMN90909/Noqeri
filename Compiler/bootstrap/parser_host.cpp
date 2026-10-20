@@ -136,8 +136,20 @@ StmtPtr Parser::letDeclaration(bool isConst){
     const Token& name=consume(TokenKind::Identifier,"expected variable name");
     std::optional<std::string> annotation;
     if(match({TokenKind::Colon}))annotation=parseTypeName();
-    consume(TokenKind::Equal,"expected '=' after variable name");
-    auto s=std::make_shared<LetStmt>();s->span=name.span;s->isConst=isConst;s->name=name.lexeme;s->annotation=annotation;s->initializer=expression();
+    auto s=std::make_shared<LetStmt>();s->span=name.span;s->isConst=isConst;s->name=name.lexeme;s->annotation=annotation;
+    if(match({TokenKind::Equal})){
+        s->initializer=expression();
+    }else{
+        if(!annotation){
+            diagnostics_.error("NOE-P2011",name.span,"uninitialized variable requires an explicit type annotation","write 'let name: Type' or provide '= value'");
+            throw ParseError("parse");
+        }
+        if(isConst){
+            diagnostics_.error("NOE-P2012",name.span,"const declarations require an initializer","use 'let' for a zero-initialized typed local");
+            throw ParseError("parse");
+        }
+        s->zeroInitialized=true;
+    }
     match({TokenKind::Semicolon});return s;
 }
 
