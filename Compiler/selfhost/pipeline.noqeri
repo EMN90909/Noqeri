@@ -53,7 +53,7 @@ export function nqPipelineSemanticCheckMerged(source: []u8, unsafeAllowed: bool)
     let policy: NqSecurityPolicy
     nqSecurityProductionPolicy(&policy)
     if !nqSecuritySourceAllowed(&policy, len(source)) { return nqSecurityLimitExceeded() }
-    let nodes: [NqAstNode; 4096]
+    let nodes: [NqAstNode; 32768]
     let count: usize = 0 as usize
     let first: isize = nqAstNoNode()
     let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &count, &first)
@@ -145,7 +145,7 @@ export function nqPipelineCompileToNir(source: []u8, target: int, debug: bool, u
 }
 
 export function nqPipelineCompileCheck(source: []u8, target: int, unsafeAllowed: bool): isize {
-    let nodes: [NqAstNode; 4096]
+    let nodes: [NqAstNode; 32768]
     let instructions: [NqNirInstruction; 65536]
     let functions: [NqNirFunction; 4096]
     let result: NqCompileResult
