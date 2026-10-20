@@ -170,7 +170,7 @@ export function nqPipelineCompileCheck(source: []u8, target: int, unsafeAllowed:
 }
 
 // Diagnostic-only helper. A positive result packs the first malformed NIR
-// instruction as (index + 1) * 64 + opcode. Zero means the lowered NIR is
+// instruction as (index + 1) * 4096 + opcode * 64 + reason. Zero means the lowered NIR is
 // structurally valid; negative values are failures before NIR validation.
 export function nqPipelineInvalidNirDiagnostic(source: []u8, target: int, unsafeAllowed: bool): isize {
     let nodes: [NqAstNode; 131072]
@@ -190,8 +190,9 @@ export function nqPipelineInvalidNirDiagnostic(source: []u8, target: int, unsafe
     if lowerStatus < 0 as isize { return lowerStatus }
     let index: usize = 0 as usize
     while index < instructionCount {
-        if !nqNirInstructionValid(&instructions[index]) {
-            return ((index + 1 as usize) * 64 as usize + instructions[index].opcode as usize) as isize
+        let reason: int = nqNirInstructionInvalidReason(&instructions[index])
+        if reason != 0 {
+            return ((index + 1 as usize) * 4096 as usize + instructions[index].opcode as usize * 64 as usize + reason as usize) as isize
         }
         index = index + 1 as usize
     }
