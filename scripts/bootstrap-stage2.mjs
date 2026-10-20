@@ -122,7 +122,10 @@ if (stage1.passed && stage2.passed && outputEquivalent) {
 const suiteMap = Object.fromEntries(suites.map(x => [x.name, x.passed]))
 const releaseNeedsCpp = config.release_needs_cpp !== false
 const allSuitesPassed = suites.every(x => x.passed)
-const verified = stage1.passed && stage2.passed && outputEquivalent && allSuitesPassed && !releaseNeedsCpp
+const stage0BuiltStage1 = config.stage0_built_stage1 === true && Array.isArray(config.commands?.stage0_builds_stage1) && config.commands.stage0_builds_stage1.length > 0
+const stage0 = runStep(root, 'stage0-builds-stage1', config.commands?.stage0_builds_stage1, timeout)
+stages.unshift(stage0)
+const verified = stage0BuiltStage1 && stage0.passed && stage1.passed && stage2.passed && outputEquivalent && allSuitesPassed && !releaseNeedsCpp
 
 const proof = {
   schema: 1,
@@ -132,7 +135,7 @@ const proof = {
   source_closure_sha256: sourceClosure.sha256,
   source_files: sourceClosure.files,
   release_needs_cpp: releaseNeedsCpp,
-  stage0_built_stage1: Boolean(config.stage0_built_stage1),
+  stage0_built_stage1: stage0BuiltStage1 && stage0.passed,
   stage1_built_stage2: stage1.passed,
   stage2_rebuilt_compiler: stage2.passed,
   stage2_output_sha256: stage2Sha256,
