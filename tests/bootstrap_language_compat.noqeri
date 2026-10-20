@@ -23,3 +23,13 @@ export function castComparison(): int {
     if index as usize < limit { return 1 }
     return 0
 }
+
+
+export function integerLiteralPromotion(): usize {
+    let index: usize = 4 as usize
+    let doubled: usize = index * 2
+    let advanced: usize = doubled + 1
+    let narrowedLiteral: u32 = 3 as u32
+    let widened: u32 = narrowedLiteral + 2
+    return advanced + widened as usize
+}
