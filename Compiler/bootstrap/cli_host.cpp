@@ -69,10 +69,21 @@ struct SourceSelection {
 
 std::optional<SourceSelection> selectSource(int argc, char** argv, Diagnostics& d) {
     if (argc >= 3 && argv[2][0] != '-') {
-        return SourceSelection{argv[2], std::filesystem::path(argv[2]).stem().string(), NOQERI_DEFAULT_TARGET};
+        const std::filesystem::path source = argv[2];
+        if (source.extension() != ".noqeri") {
+            d.error("NQR-C0003", {}, "Noqeri source files must use the .noqeri extension: " + source.string(),
+                    "rename the source file to .noqeri; portable compiled modules use .nqri");
+            return std::nullopt;
+        }
+        return SourceSelection{source, source.stem().string(), NOQERI_DEFAULT_TARGET};
     }
     auto manifest = PackageManager{}.loadManifest("project.noqeri", d);
     if (!manifest) return std::nullopt;
+    if (manifest->entry.extension() != ".noqeri") {
+        d.error("NQR-P3014", {}, "project entry must use the .noqeri extension: " + manifest->entry.string(),
+                "update project.noqeri so entry points at a .noqeri source file");
+        return std::nullopt;
+    }
     return SourceSelection{manifest->entry, manifest->name, manifest->target};
 }
 
