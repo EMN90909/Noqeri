@@ -5,7 +5,8 @@ on:
     branches: [main]
     paths:
       - 'Runtime/native/**'
-      - 'Compiler/selfhost/**'
+      - 'Compiler/**'
+      - 'Include/noqeri/**'
       - 'scripts/bootstrap-native.*'
       - 'scripts/build.*'
       - 'CMakeLists.txt'
@@ -13,7 +14,8 @@ on:
   pull_request:
     paths:
       - 'Runtime/native/**'
-      - 'Compiler/selfhost/**'
+      - 'Compiler/**'
+      - 'Include/noqeri/**'
       - 'scripts/bootstrap-native.*'
       - 'scripts/build.*'
       - 'CMakeLists.txt'
@@ -23,7 +25,7 @@ permissions:
   contents: read
 
 jobs:
-  native-nqri-runtime:
+  native-selfhost:
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +35,54 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure
         run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
-      - name: Build native NQRI runtime
-        run: cmake --build build-native --target noqeri-nqri --config Release
+      - name: Build C++ seed compiler and native NQRI runtime
+        run: cmake --build build-native --target noqeri noqeri-nqri --config Release
       - name: Run native NQRI self-test
         run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqri-selftest$'
+      - name: Build trusted Stage-1 NQRI seed (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check Compiler/selfhost/main.noqeri
+          ./build-native/noqeri nqri Compiler/selfhost/main.noqeri build-native/noqeri-stage1.nqri
+          ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
+      - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-selfhost" \
+          NOQERI_STAGE1_NQRI="$PWD/build-native/noqeri-stage1.nqri" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
+          ./scripts/bootstrap-native.sh
+      - name: Build trusted Stage-1 NQRI seed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri.exe check Compiler\selfhost\main.noqeri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri.exe nqri Compiler\selfhost\main.noqeri build-native\noqeri-stage1.nqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri-nqri.exe has-export build-native\noqeri-stage1.nqri stage2CompileToNqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:BUILD_DIR = Join-Path $PWD 'build-selfhost'
+          $env:NOQERI_STAGE1_NQRI = Join-Path $PWD 'build-native\noqeri-stage1.nqri'
+          $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
+          .\scripts\bootstrap-native.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload trusted Stage-1 seed and proof
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-stage1-nqri-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build-native/noqeri-stage1.nqri
+            build-selfhost/noqeri-stage2.nqri
+            build-selfhost/noqeri-stage3.nqri
+            build-selfhost/native-selfhost-proof.txt
