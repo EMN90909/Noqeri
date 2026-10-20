@@ -58,6 +58,14 @@ bool canAssignValue(const Type& target,const Type& value,const ExprPtr& expr){
 }
 
 TypeChecker::TypeChecker(Diagnostics& diagnostics):diagnostics_(diagnostics){pushScope();currentReturn_=simple(TypeKind::Void);}
+Type TypeChecker::checkExprAgainst(const ExprPtr&expr,const Type&expected){
+    if(auto array=std::dynamic_pointer_cast<ArrayExpr>(expr);array&&array->elements.empty()&&expected.kind==TypeKind::Array&&expected.element){
+        if(expected.count!=0)diagnostics_.error("NOE-T3034",array->span,"empty array literal can initialize only a zero-length fixed array");
+        array->elementSize=std::max<std::size_t>(1,expected.element->size());
+        return expected;
+    }
+    return checkExpr(expr);
+}
 void TypeChecker::pushScope(){scopes_.push_back({});constScopes_.push_back({});}
 void TypeChecker::popScope(){scopes_.pop_back();constScopes_.pop_back();}
 void TypeChecker::define(const std::string&name,Type type,bool isConst,Span span){auto&scope=scopes_.back();auto&cs=constScopes_.back();if(scope.count(name))diagnostics_.error("NOE-T3003",span,"symbol '"+name+"' is already defined in this scope");else{scope[name]=std::move(type);cs[name]=isConst;}}
@@ -148,12 +156,7 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
         }
         if(s->annotation){
             Type declared=resolveType(*s->annotation,s->span);
-            if(auto array=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);array&&array->elements.empty()&&declared.kind==TypeKind::Array&&declared.element){
-                if(declared.count!=0)diagnostics_.error("NOE-T3034",array->span,"empty array literal can initialize only a zero-length fixed array");
-                array->elementSize=std::max<std::size_t>(1,declared.element->size());
-                define(s->name,declared,s->isConst,s->span);return;
-            }
-            Type init=checkExpr(s->initializer);
+            Type init=checkExprAgainst(s->initializer,declared);
             if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");
             define(s->name,declared,s->isConst,s->span);return;
         }
@@ -165,7 +168,7 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
     if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){Type c=checkExpr(s->condition);if(c.kind!=TypeKind::Bool&&c.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3004",s->condition->span,"while condition must be bool, found "+c.name());++loopDepth_;checkStmt(s->body);--loopDepth_;return;}
     if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){if(loopDepth_==0)diagnostics_.error("NOE-T3057",s->span,"break is only valid inside a loop");return;}
     if(auto s=std::dynamic_pointer_cast<ContinueStmt>(stmt)){if(loopDepth_==0)diagnostics_.error("NOE-T3058",s->span,"continue is only valid inside a loop");return;}
-    if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){Type v=s->value?checkExpr(s->value):simple(TypeKind::Void);if(!canAssignValue(currentReturn_,v,s->value))diagnostics_.error("NOE-T3005",s->span,"return type mismatch: expected "+currentReturn_.name()+", found "+v.name());return;}
+    if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){Type v=s->value?checkExprAgainst(s->value,currentReturn_):simple(TypeKind::Void);if(!canAssignValue(currentReturn_,v,s->value))diagnostics_.error("NOE-T3005",s->span,"return type mismatch: expected "+currentReturn_.name()+", found "+v.name());return;}
     if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){Type code=checkExpr(s->value);if(!insideFunction_)diagnostics_.error("NOE-T3031",s->span,"throw is only valid inside a function");if(!code.isInteger()&&code.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3032",s->span,"throw requires an integer error code");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3033",s->span,"throw requires an integer-returning function","use an integer status return such as isize when using lightweight try/throw");return;}
     if(auto s=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
         auto sig=functions_[s->name];if(s->isExtern||s->isForward)return;
@@ -202,7 +205,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     }
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Type from=checkExpr(e->value),to=resolveType(e->typeName,e->span);bool ok=(from.isNumeric()&&to.isNumeric())||(from.kind==TypeKind::Pointer&&to.kind==TypeKind::Pointer)||(from.kind==TypeKind::Pointer&&(to.kind==TypeKind::Usize||to.kind==TypeKind::Isize))||(to.kind==TypeKind::Pointer&&(from.kind==TypeKind::Usize||from.kind==TypeKind::Isize||from.kind==TypeKind::Int))||(from.kind==TypeKind::Null&&to.kind==TypeKind::Pointer);if(!ok&&from.kind!=TypeKind::Unknown&&to.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3027",e->span,"cannot cast "+from.name()+" to "+to.name());return to;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
-        if(e->op==TokenKind::Equal){Type lhs=checkExpr(e->left),rhs=checkExpr(e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left))if(isConstSymbol(n->name))diagnostics_.error("NOE-T3014",e->span,"cannot assign to const '"+n->name+"'");if(!canAssignValue(lhs,rhs,e->right))diagnostics_.error("NOE-T3001",e->span,"cannot assign "+rhs.name()+" to "+lhs.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");return lhs;}
+        if(e->op==TokenKind::Equal){Type lhs=checkExpr(e->left),rhs=checkExprAgainst(e->right,lhs);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left))if(isConstSymbol(n->name))diagnostics_.error("NOE-T3014",e->span,"cannot assign to const '"+n->name+"'");if(!canAssignValue(lhs,rhs,e->right))diagnostics_.error("NOE-T3001",e->span,"cannot assign "+rhs.name()+" to "+lhs.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");return lhs;}
         Type l=checkExpr(e->left),r=checkExpr(e->right);switch(e->op){case TokenKind::Plus:if(l.kind==TypeKind::String&&r.kind==TypeKind::String)return simple(TypeKind::String);if(l.kind==TypeKind::Pointer&&r.isInteger())return l;if(r.kind==TypeKind::Pointer&&l.isInteger())return r;[[fallthrough]];case TokenKind::Minus:case TokenKind::Star:case TokenKind::Slash:case TokenKind::Percent:
             if((!l.isNumeric()||!r.isNumeric())&&l.kind!=TypeKind::Unknown&&r.kind!=TypeKind::Unknown&&l.kind!=TypeKind::Generic&&r.kind!=TypeKind::Generic){diagnostics_.error("NOE-T3007",e->span,"arithmetic operator requires numeric operands");return simple(TypeKind::Unknown);}
             if(l.kind==TypeKind::Float||r.kind==TypeKind::Float)return simple(TypeKind::Float);
@@ -249,7 +252,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         }
         auto it=functions_.find(name);if(it==functions_.end()){diagnostics_.error("NOE-T3011",e->span,"unknown function '"+name+"'");return simple(TypeKind::Unknown);}const auto&sig=it->second;if(name!="print"&&e->args.size()!=sig.params.size())diagnostics_.error("NOE-T3012",e->span,"wrong argument count for '"+name+"'");
         std::unordered_map<std::string,Type> bindings;
-        for(std::size_t i=0;i<e->args.size();++i){Type a=checkExpr(e->args[i]);if(i<sig.params.size()){if(!sig.genericParams.empty()){if(!bindGeneric(sig.params[i],a,bindings))diagnostics_.error("NOE-T3054",e->args[i]->span,"generic argument does not match parameter "+sig.params[i].name());}else if(!canAssignValue(sig.params[i],a,e->args[i]))diagnostics_.error("NOE-T3013",e->args[i]->span,"argument type mismatch: expected "+sig.params[i].name()+", found "+a.name());}}
+        for(std::size_t i=0;i<e->args.size();++i){Type a=(i<sig.params.size()&&sig.genericParams.empty())?checkExprAgainst(e->args[i],sig.params[i]):checkExpr(e->args[i]);if(i<sig.params.size()){if(!sig.genericParams.empty()){if(!bindGeneric(sig.params[i],a,bindings))diagnostics_.error("NOE-T3054",e->args[i]->span,"generic argument does not match parameter "+sig.params[i].name());}else if(!canAssignValue(sig.params[i],a,e->args[i]))diagnostics_.error("NOE-T3013",e->args[i]->span,"argument type mismatch: expected "+sig.params[i].name()+", found "+a.name());}}
         return substituteGeneric(sig.result,bindings);
     }
     return simple(TypeKind::Unknown);
