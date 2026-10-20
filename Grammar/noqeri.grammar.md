@@ -52,7 +52,7 @@ recordField    := IDENT ":" type ("," | terminator)?
 
 There are deliberately two import forms and no third module-resolution syntax:
 
-```nqr
+```noqeri
 import "./local_file.noqeri"
 import package "noqeri/supabase"
 ```
@@ -168,7 +168,7 @@ Noqeri distinguishes **provably safe implicit conversion** from **explicit conve
 
 Examples:
 
-```nqr
+```noqeri
 let port: u16 = 8080       // valid: literal fits
 let small: u8 = 42
 let wide: u32 = small      // valid: safe widening
@@ -184,7 +184,7 @@ The explicit cast communicates that truncation or signedness reinterpretation is
 
 Array literals infer their element type from their elements. `slice(array)` or `slice(pointer, length)` creates a slice, and `len(value)` accepts arrays and slices.
 
-```nqr
+```noqeri
 let values: [int; 4] = [1, 2, 3, 4]
 let view: []int = slice(values)
 print(len(view))
@@ -197,7 +197,7 @@ print(view[2])
 
 Generic functions use inferred register-value type parameters:
 
-```nqr
+```noqeri
 function identity<T>(value: T): T {
     return value
 }
@@ -209,7 +209,7 @@ The bootstrap currently limits generics to values supported by the register-orie
 
 `throw code` and `try expression` provide allocation-free status propagation for integer-returning functions.
 
-```nqr
+```noqeri
 function openDevice(): isize {
     throw 3
 }
