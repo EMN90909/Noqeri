@@ -9,7 +9,7 @@ record NqBootstrapToken {
 
 function typedValue(input: usize): usize {
     let current: usize = input
-    if current > 0 as usize { return current }
+    if (current == 0 as usize) || (current > 0 as usize) { return current }
     return 0 as usize
 }
 
