@@ -76,7 +76,12 @@ catch (error) { console.error(`bootstrap-stage2: invalid config: ${error.message
 
 const sourceClosure = sha256CompilerSources(root, sourceManifest)
 const stages = []
-const stage1 = runStep(root, 'stage1-builds-stage2', config.commands?.stage1_builds_stage2, timeout)
+const stage0Configured = config.stage0_built_stage1 === true && Array.isArray(config.commands?.stage0_builds_stage1) && config.commands.stage0_builds_stage1.length > 0
+const stage0 = runStep(root, 'stage0-builds-stage1', config.commands?.stage0_builds_stage1, timeout)
+stages.push(stage0)
+const stage1 = stage0Configured && stage0.passed
+  ? runStep(root, 'stage1-builds-stage2', config.commands?.stage1_builds_stage2, timeout)
+  : { name: 'stage1-builds-stage2', passed: false, skipped: true, stderr: 'stage0 provenance has not passed' }
 stages.push(stage1)
 const stage2 = stage1.passed ? runStep(root, 'stage2-rebuilds-compiler', config.commands?.stage2_rebuilds_compiler, timeout) : { name: 'stage2-rebuilds-compiler', passed: false, configured: Array.isArray(config.commands?.stage2_rebuilds_compiler), skipped: true, stderr: 'stage1 build failed' }
 stages.push(stage2)
@@ -122,10 +127,7 @@ if (stage1.passed && stage2.passed && outputEquivalent) {
 const suiteMap = Object.fromEntries(suites.map(x => [x.name, x.passed]))
 const releaseNeedsCpp = config.release_needs_cpp !== false
 const allSuitesPassed = suites.every(x => x.passed)
-const stage0BuiltStage1 = config.stage0_built_stage1 === true && Array.isArray(config.commands?.stage0_builds_stage1) && config.commands.stage0_builds_stage1.length > 0
-const stage0 = runStep(root, 'stage0-builds-stage1', config.commands?.stage0_builds_stage1, timeout)
-stages.unshift(stage0)
-const verified = stage0BuiltStage1 && stage0.passed && stage1.passed && stage2.passed && outputEquivalent && allSuitesPassed && !releaseNeedsCpp
+const verified = stage0Configured && stage0.passed && stage1.passed && stage2.passed && outputEquivalent && allSuitesPassed && !releaseNeedsCpp
 
 const proof = {
   schema: 1,
@@ -135,7 +137,7 @@ const proof = {
   source_closure_sha256: sourceClosure.sha256,
   source_files: sourceClosure.files,
   release_needs_cpp: releaseNeedsCpp,
-  stage0_built_stage1: stage0BuiltStage1 && stage0.passed,
+  stage0_built_stage1: stage0Configured && stage0.passed,
   stage1_built_stage2: stage1.passed,
   stage2_rebuilt_compiler: stage2.passed,
   stage2_output_sha256: stage2Sha256,
