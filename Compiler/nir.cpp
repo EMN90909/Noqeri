@@ -29,7 +29,22 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
     if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){NirInstruction i;i.op=NirOp::Return;if(s->value)i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
     if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){NirInstruction i;i.op=NirOp::Throw;i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
     if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){Reg c=lowerExpr(fn,s->condition);NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};auto jp=fn.code.size();emit(fn,std::move(j));lowerStmt(fn,s->thenBranch);if(s->elseBranch){NirInstruction end;end.op=NirOp::Jump;auto ep=fn.code.size();emit(fn,std::move(end));fn.code[jp].target=fn.code.size();lowerStmt(fn,s->elseBranch);fn.code[ep].target=fn.code.size();}else fn.code[jp].target=fn.code.size();return;}
-    if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){auto start=fn.code.size();Reg c=lowerExpr(fn,s->condition);NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};auto jp=fn.code.size();emit(fn,std::move(j));lowerStmt(fn,s->body);NirInstruction back;back.op=NirOp::Jump;back.target=start;emit(fn,std::move(back));fn.code[jp].target=fn.code.size();}
+    if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!breakJumps_.empty())breakJumps_.back().push_back(pos);return;}
+    if(auto s=std::dynamic_pointer_cast<ContinueStmt>(stmt)){NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!continueJumps_.empty())continueJumps_.back().push_back(pos);return;}
+    if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){
+        const auto start=fn.code.size();
+        Reg c=lowerExpr(fn,s->condition);
+        NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};const auto exitJump=fn.code.size();emit(fn,std::move(j));
+        breakJumps_.push_back({});continueJumps_.push_back({});
+        lowerStmt(fn,s->body);
+        for(const auto pos:continueJumps_.back())fn.code[pos].target=start;
+        NirInstruction back;back.op=NirOp::Jump;back.target=start;emit(fn,std::move(back));
+        const auto end=fn.code.size();
+        fn.code[exitJump].target=end;
+        for(const auto pos:breakJumps_.back())fn.code[pos].target=end;
+        breakJumps_.pop_back();continueJumps_.pop_back();
+        return;
+    }
 }
 Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
     if(auto n=std::dynamic_pointer_cast<NameExpr>(expr)){NirInstruction i;i.op=NirOp::AddressOf;i.dest=fn.nextReg++;i.text=n->name;emit(fn,i);return*i.dest;}
@@ -84,7 +99,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
         std::string name=calleeName(e->callee);
         if(name=="len"){
-            if(e->builtinCount){NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;i.literal=static_cast<std::int64_t>(e->builtinCount);emit(fn,i);return*i.dest;}
+            if(e->builtinCountKnown){NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;i.literal=static_cast<std::int64_t>(e->builtinCount);emit(fn,i);return*i.dest;}
             Reg slice=lowerExpr(fn,e->args[0]);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={slice};emit(fn,check);NirInstruction i;i.op=NirOp::SliceLen;i.dest=fn.nextReg++;i.args={slice};emit(fn,i);return*i.dest;
         }
         if(name=="slice"){
