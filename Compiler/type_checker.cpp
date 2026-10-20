@@ -218,8 +218,8 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
                 if(!n.isInteger()&&n.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3044",e->args[1]->span,"slice length must be an integer");
                 Type s;s.kind=TypeKind::Slice;
                 if(p.kind==TypeKind::Pointer&&p.pointee){e->builtinWidth=std::max<std::size_t>(1,p.pointee->size());s.element=p.pointee;return s;}
-                if(p.kind==TypeKind::Array&&p.element){e->builtinWidth=std::max<std::size_t>(1,p.element->size());s.element=p.element;return s;}
-                diagnostics_.error("NOE-T3043",e->args[0]->span,"slice(value, length) expects a pointer or fixed array");return simple(TypeKind::Unknown);
+                if(p.kind==TypeKind::Array&&p.element){e->builtinWidth=std::max<std::size_t>(1,p.element->size());s.element=p.element;return s;}if(p.kind==TypeKind::Slice&&p.element){e->builtinWidth=std::max<std::size_t>(1,p.element->size());e->builtinSliceSource=true;s.element=p.element;return s;}
+                diagnostics_.error("NOE-T3043",e->args[0]->span,"slice(value, length) expects a pointer, fixed array, or slice");return simple(TypeKind::Unknown);
             }
             diagnostics_.error("NOE-T3045",e->span,"slice expects either an array or pointer plus length");return simple(TypeKind::Unknown);
         }
