@@ -61,7 +61,6 @@ function nqTypeParseLength(source: []u8, start: usize, out: *usize): usize {
         value = value * 10 as usize + digit
         index = index + 1 as usize
     }
-    if value == 0 as usize { return start }
     out[0] = value
     return index
 }
