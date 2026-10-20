@@ -61,6 +61,16 @@ function nqSemanticFunctionFind(functions: []NqFunctionInfo, count: usize, symbo
     return -1 as isize
 }
 
+function nqSemanticNameEqual(source: []u8, node: *NqAstNode, text: []u8): bool {
+    if node == null || node.end < node.start || node.end - node.start != len(text) { return false }
+    let index: usize = 0 as usize
+    while index < len(text) {
+        if source[node.start + index] != text[index] { return false }
+        index = index + 1 as usize
+    }
+    return true
+}
+
 function nqSemanticGenericNode(nodes: []NqAstNode, functionIndex: isize, symbol: u64): isize {
     if functionIndex < 0 as isize { return nqAstNoNode() }
     return nqGenericMetadataFind(nodes, functionIndex, symbol)
@@ -372,6 +382,23 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             node.typeSymbol = fn.returnSymbol
             node.elementTypeCode = fn.returnElementCode
             node.elementTypeSymbol = fn.returnElementSymbol
+        } else if nqSemanticNameEqual(source, callee, slice([108 as u8,101 as u8,110 as u8])) {
+            if argumentIndex != 1 as usize || node.right < 0 as isize { return nqSemanticBadCall() }
+            let base: *NqAstNode = &nodes[node.right as usize]
+            if base.typeCode != nqAstTypeArray() && base.typeCode != nqAstTypeSlice() && base.typeCode != nqAstTypeString() { return nqSemanticTypeMismatch() }
+            node.typeCode = nqAstTypeUsize()
+        } else if nqSemanticNameEqual(source, callee, slice([115 as u8,108 as u8,105 as u8,99 as u8,101 as u8])) {
+            if (argumentIndex != 1 as usize && argumentIndex != 2 as usize) || node.right < 0 as isize { return nqSemanticBadCall() }
+            let base: *NqAstNode = &nodes[node.right as usize]
+            if argumentIndex == 1 as usize && base.typeCode != nqAstTypeArray() { return nqSemanticTypeMismatch() }
+            if argumentIndex == 2 as usize {
+                let lengthNode: isize = base.next
+                if lengthNode < 0 as isize || !nqCompilerTypeIsInteger(nodes[lengthNode as usize].typeCode) { return nqSemanticTypeMismatch() }
+                if base.typeCode != nqAstTypePointer() && base.typeCode != nqAstTypeArray() && base.typeCode != nqAstTypeSlice() { return nqSemanticTypeMismatch() }
+            }
+            node.typeCode = nqAstTypeSlice()
+            node.elementTypeCode = base.elementTypeCode
+            node.elementTypeSymbol = base.elementTypeSymbol
         } else { node.typeCode = nqAstTypeUnknown() }
         return nqSemanticOk()
     }
