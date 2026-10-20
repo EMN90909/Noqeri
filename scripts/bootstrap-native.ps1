@@ -5,6 +5,7 @@ $BuildDir = if ($env:BUILD_DIR) { $env:BUILD_DIR } else { Join-Path $Root 'build
 $HostBuild = if ($env:NOQERI_HOST_BUILD) { $env:NOQERI_HOST_BUILD } else { Join-Path $BuildDir 'bootstrap-host' }
 $Runtime = $env:NOQERI_NQRI_RUNTIME
 $Seed = if ($env:NOQERI_STAGE1_NQRI) { $env:NOQERI_STAGE1_NQRI } else { Join-Path $BuildDir 'noqeri-stage1.nqri' }
+$SeedCompiler = $env:NOQERI_STAGE0_CPP
 $Manifest = Join-Path $Root 'Compiler\selfhost\stage2-sources.txt'
 $Stage2 = Join-Path $BuildDir 'noqeri-stage2.nqri'
 $Stage3 = Join-Path $BuildDir 'noqeri-stage3.nqri'
@@ -50,7 +51,7 @@ if (-not $Runtime) {
     }
     & cmake -S $Root -B $HostBuild -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & cmake --build $HostBuild --target noqeri-nqri --config Release
+    & cmake --build $HostBuild --target noqeri-nqri noqeri --config Release
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     foreach ($candidate in @(
         (Join-Path $HostBuild 'noqeri-nqri.exe'),
@@ -90,6 +91,8 @@ $proofData = [ordered]@{
     runtime = $Runtime
     seed = $Seed
     seed_sha256 = $SeedHash
+    seed_compiler = $SeedCompiler
+    seed_compiler_sha256 = if ($SeedCompiler -and (Test-Path $SeedCompiler)) { (Get-FileHash -Algorithm SHA256 $SeedCompiler).Hash.ToLowerInvariant() } else { $null }
     stage2 = $Stage2
     stage3 = $Stage3
     stage2_sha256 = $Stage2Hash
