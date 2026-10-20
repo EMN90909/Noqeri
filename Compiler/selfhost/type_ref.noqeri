@@ -171,7 +171,6 @@ export function nqTypeRefParse(source: []u8, start: usize, out: *NqTypeRef): usi
 
 export function nqTypeRefValid(value: *NqTypeRef): bool {
     if value == null || value.end <= value.start || !nqCompilerTypeValid(value.code) { return false }
-    if value.code == nqAstTypeArray() && value.arrayLength == 0 as usize { return false }
     if (value.code == nqAstTypePointer() || value.code == nqAstTypeSlice() || value.code == nqAstTypeArray()) && value.elementCode == nqAstTypeUnknown() { return false }
     return true
 }
