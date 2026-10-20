@@ -97,7 +97,10 @@ export function nqParserScanType(source: []u8, start: usize): usize {
     }
     let nameEnd: usize = nqParserScanQualifiedName(source, index)
     if nameEnd <= index { return start }
-    index = nqCompilerSkipTrivia(source, nameEnd)
+    // Generic application is lexical: the '<' must be adjacent to the type
+    // name. A spaced '<' belongs to the surrounding expression, e.g.
+    // "value as usize < limit", and must not be consumed as "usize<limit>".
+    index = nameEnd
     if index < len(source) && source[index] == 60 as u8 {
         index = nqCompilerSkipTrivia(source, index + 1 as usize)
         let argumentEnd: usize = nqParserScanType(source, index)
