@@ -58,6 +58,7 @@ export function stage1MachTargetValid(target: int): bool { return nqMachTargetVa
 // Stage-2-facing entry points keep parsing, generic inference, lowering,
 // optimisation, diagnostics instrumentation and portable module emission in Noqeri.
 export function stage2Plan(source: []u8, target: int, debug: bool, unsafeAllowed: bool, out: *NqCompilePlan): isize { return nqPipelinePlan(source, target, debug, unsafeAllowed, out) }
+export function stage2SyntaxErrorOffset(source: []u8): usize { return nqParserFirstErrorOffset(source) }
 export function stage2ParseExpression(source: []u8, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize { return nqParserParseExpression(source, 0 as usize, nodes, count, outEnd) }
 export function stage2ParseProgram(source: []u8, nodes: []NqAstNode, count: *usize, first: *isize): isize { return nqParserParseProgram(source, nodes, count, first) }
 export function stage2SemanticCheck(source: []u8, unsafeAllowed: bool): isize { return nqPipelineSemanticCheckMerged(source, unsafeAllowed) }
