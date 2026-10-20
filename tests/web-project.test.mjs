@@ -20,11 +20,18 @@ test('packages HTML, CSS, JS and subfolders',()=>fixture(async root=>{
  assert.equal(await readFile(join(dist,'assets/site.css'),'utf8'),'body { color: red }')
  assert.match(await readFile(join(dist,'index.html'),'utf8'),/app.js/)
 }))
-test('fails closed on .nqr until a real compiler backend exists',()=>fixture(async root=>{
+test('compiles .nqr modules and rewrites HTML references',()=>fixture(async root=>{
  const src=join(root,'src'); await mkdir(src)
- await writeFile(join(src,'index.html'),'hello')
- await writeFile(join(src,'app.nqr'),'function main(): int { return 0 }')
- await assert.rejects(buildWebProject({source:src,out:join(root,'dist')}),/compilation unavailable/)
+ await writeFile(join(src,'index.html'),'<script type="module" src="app.nqr"></script>')
+ await writeFile(join(src,'app.nqr'),'export function main(): int { return 42 }')
+ const dist=join(root,'dist')
+ const result=await buildWebProject({source:src,out:dist})
+ assert.equal(result.compiled,1)
+ assert.match(await readFile(join(dist,'index.html'),'utf8'),/src="app.mjs"/)
+ assert.match(await readFile(join(dist,'app.mjs'),'utf8'),/export function main/)
+ assert.equal((await import('node:url')).pathToFileURL!==undefined,true)
+ const module=await import((await import('node:url')).pathToFileURL(join(dist,'app.mjs')).href)
+ assert.equal(module.main(),42)
 }))
 test('rejects path traversal and symlinks',()=>fixture(async root=>{
  const src=join(root,'src');await mkdir(src)
@@ -41,4 +48,18 @@ test('rejects nested output',()=>fixture(async root=>{
 test('requires HTML entry point',()=>fixture(async root=>{
  const src=join(root,'src');await mkdir(src);await writeFile(join(src,'app.js'),'ok')
  await assert.rejects(buildWebProject({source:src,out:join(root,'dist')}),/at least one HTML/)
+}))
+
+test('rejects unsupported Noqeri web constructs without silently copying source',()=>fixture(async root=>{
+ const src=join(root,'src');await mkdir(src)
+ await writeFile(join(src,'index.html'),'<script src="app.nqr"></script>')
+ await writeFile(join(src,'app.nqr'),'export function run(): int { return eval("1") }')
+ await assert.rejects(buildWebProject({source:src,out:join(root,'dist')}),/Unsafe/)
+}))
+test('rejects output collision between a Noqeri module and a prebuilt module',()=>fixture(async root=>{
+ const src=join(root,'src');await mkdir(src)
+ await writeFile(join(src,'index.html'),'ok')
+ await writeFile(join(src,'app.nqr'),'export function run(): int { return 1 }')
+ await writeFile(join(src,'app.mjs'),'export const run = 1')
+ await assert.rejects(buildWebProject({source:src,out:join(root,'dist')}),/duplicate output asset/)
 }))
