@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  native-nqo-runtime:
+  native-nqri-runtime:
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure
         run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
-      - name: Build native NQO runtime
-        run: cmake --build build-native --target noqeri-nqo --config Release
-      - name: Run native NQO self-test
-        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqo-selftest$'
+      - name: Build native NQRI runtime
+        run: cmake --build build-native --target noqeri-nqri --config Release
+      - name: Run native NQRI self-test
+        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqri-selftest$'
