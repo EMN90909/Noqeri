@@ -87,7 +87,9 @@ export function nqNirHasSideEffect(opcode: int): bool {
     return opcode == nqNirStore() || opcode == nqNirStoreMemory() || opcode == nqNirCall() || opcode == nqNirCallArg() || opcode == nqNirParameter() || opcode == nqNirReturn() || opcode == nqNirJump() || opcode == nqNirBranch() || opcode == nqNirTry() || opcode == nqNirThrow() || opcode == nqNirBoundsCheck() || opcode == nqNirOverflowCheck() || (opcode >= nqNirAtomicStore() && opcode <= nqNirAsm())
 }
 export function nqNirIsTerminator(opcode: int): bool { return opcode == nqNirJump() || opcode == nqNirBranch() || opcode == nqNirReturn() || opcode == nqNirThrow() }
-export function nqNirIsPureArithmetic(opcode: int): bool { return opcode >= nqNirAdd() && opcode <= nqNirGe() }
+export function nqNirIsPureArithmetic(opcode: int): bool {
+    return (opcode >= nqNirAdd() && opcode <= nqNirMod()) || (opcode >= nqNirEq() && opcode <= nqNirGe())
+}
 export function nqNirDefinesValue(opcode: int): bool {
     return opcode == nqNirConstI64() || opcode == nqNirConstF64() || opcode == nqNirConstString() || opcode == nqNirMove() || opcode == nqNirLoad() || nqNirIsPureArithmetic(opcode) || opcode == nqNirNeg() || opcode == nqNirNot() || opcode == nqNirPhi() || opcode == nqNirAddr() || opcode == nqNirPtrAdd() || opcode == nqNirAtomicLoad() || opcode == nqNirAtomicExchange() || opcode == nqNirCmpXchg() || opcode == nqNirIntrinsic() || opcode == nqNirTry() || opcode == nqNirStackAlloc() || opcode == nqNirLoadMemory() || opcode == nqNirSliceData() || opcode == nqNirSliceLen() || opcode == nqNirMakeSlice() || opcode == nqNirCast() || opcode == nqNirParameter()
 }
