@@ -62,6 +62,7 @@ export function stage2SyntaxErrorOffset(source: []u8): usize { return nqParserFi
 export function stage2ParseExpression(source: []u8, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize { return nqParserParseExpression(source, 0 as usize, nodes, count, outEnd) }
 export function stage2ParseProgram(source: []u8, nodes: []NqAstNode, count: *usize, first: *isize): isize { return nqParserParseProgram(source, nodes, count, first) }
 export function stage2SemanticCheck(source: []u8, unsafeAllowed: bool): isize { return nqPipelineSemanticCheckMerged(source, unsafeAllowed) }
+export function stage2SemanticErrorOffset(source: []u8, unsafeAllowed: bool): usize { return nqPipelineSemanticErrorOffset(source, unsafeAllowed) }
 export function stage2InferGenerics(parameterTypes: []int, parameterSlots: []int, argumentTypes: []int, bindings: []int): isize { return nqGenericInfer(parameterTypes, parameterSlots, argumentTypes, bindings) }
 export function stage2LowerExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize, instructions: []NqNirInstruction, state: *NqLowerState): isize { return nqLowerExpression(source, nodes, nodeIndex, instructions, state) }
 export function stage2CompileToNir(source: []u8, target: int, debug: bool, unsafeAllowed: bool, nodes: []NqAstNode, instructions: []NqNirInstruction, functions: []NqNirFunction, out: *NqCompileResult): isize { return nqPipelineCompileToNir(source, target, debug, unsafeAllowed, nodes, instructions, functions, out) }
