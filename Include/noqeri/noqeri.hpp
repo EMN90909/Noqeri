@@ -11,6 +11,7 @@
 #include "database.hpp"
 #include "runtime.hpp"
 #include "compiler.hpp"
+#include "nqri.hpp"
 #include "tools.hpp"
 
 namespace noqeri = noe;
