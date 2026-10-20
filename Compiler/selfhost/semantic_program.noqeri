@@ -276,6 +276,69 @@ function nqSemanticFail(context: *NqSemanticContext, node: *NqAstNode, status: i
     return status
 }
 
+function nqSemanticLiteralMagnitude(source: []u8, nodes: []NqAstNode, nodeIndex: isize, out: *u64): int {
+    if out == null || nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return 0 }
+    let node: *NqAstNode = &nodes[nodeIndex as usize]
+    if node.tag == nqAstUnary() && (node.flags == 43 as u32 || node.flags == 45 as u32) {
+        let sign: int = nqSemanticLiteralMagnitude(source, nodes, node.left, out)
+        if sign == 0 { return 0 }
+        if node.flags == 45 as u32 { return -sign }
+        return sign
+    }
+    if node.tag != nqAstInteger() || node.start >= node.end || node.end > len(source) { return 0 }
+    let cursor: usize = node.start
+    let base: u64 = 10 as u64
+    if cursor + 2 as usize <= node.end && source[cursor] == 48 as u8 && (source[cursor + 1 as usize] == 120 as u8 || source[cursor + 1 as usize] == 88 as u8) {
+        base = 16 as u64
+        cursor = cursor + 2 as usize
+    }
+    if cursor >= node.end { return 0 }
+    let value: u64 = 0 as u64
+    while cursor < node.end {
+        let byte: u8 = source[cursor]
+        let digit: u64 = 0 as u64
+        if byte >= 48 as u8 && byte <= 57 as u8 { digit = (byte - 48 as u8) as u64 }
+        else if base == 16 as u64 && byte >= 65 as u8 && byte <= 70 as u8 { digit = (byte - 65 as u8 + 10 as u8) as u64 }
+        else if base == 16 as u64 && byte >= 97 as u8 && byte <= 102 as u8 { digit = (byte - 97 as u8 + 10 as u8) as u64 }
+        else { return 0 }
+        if digit >= base { return 0 }
+        if value > (18446744073709551615 as u64 - digit) / base { return 0 }
+        value = value * base + digit
+        cursor = cursor + 1 as usize
+    }
+    out[0] = value
+    return 1
+}
+
+function nqSemanticLiteralFitsInteger(source: []u8, nodes: []NqAstNode, nodeIndex: isize, targetCode: int): bool {
+    if !nqCompilerTypeIsInteger(targetCode) { return false }
+    let magnitude: u64 = 0 as u64
+    let sign: int = nqSemanticLiteralMagnitude(source, nodes, nodeIndex, &magnitude)
+    if sign == 0 { return false }
+    if sign > 0 {
+        if targetCode == nqAstTypeU8() { return magnitude <= 255 as u64 }
+        if targetCode == nqAstTypeU16() { return magnitude <= 65535 as u64 }
+        if targetCode == nqAstTypeU32() { return magnitude <= 4294967295 as u64 }
+        if targetCode == nqAstTypeU64() || targetCode == nqAstTypeUsize() { return true }
+        if targetCode == nqAstTypeI8() { return magnitude <= 127 as u64 }
+        if targetCode == nqAstTypeI16() { return magnitude <= 32767 as u64 }
+        if targetCode == nqAstTypeI32() { return magnitude <= 2147483647 as u64 }
+        return magnitude <= 9223372036854775807 as u64
+    }
+    if nqCompilerTypeIsUnsigned(targetCode) { return false }
+    if targetCode == nqAstTypeI8() { return magnitude <= 128 as u64 }
+    if targetCode == nqAstTypeI16() { return magnitude <= 32768 as u64 }
+    if targetCode == nqAstTypeI32() { return magnitude <= 2147483648 as u64 }
+    return magnitude <= 9223372036854775808 as u64
+}
+
+function nqSemanticExpressionAssignable(source: []u8, nodes: []NqAstNode, nodeIndex: isize, targetCode: int): bool {
+    if nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return false }
+    let actual: int = nodes[nodeIndex as usize].typeCode
+    if nqSemanticAssignable(actual, targetCode) { return true }
+    return nqCompilerTypeIsInteger(actual) && nqCompilerTypeIsInteger(targetCode) && nqSemanticLiteralFitsInteger(source, nodes, nodeIndex, targetCode)
+}
+
 function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize, symbols: []NqSymbol, context: *NqSemanticContext, functions: []NqFunctionInfo, functionParameters: []NqFunctionParameterInfo, records: []NqRecordInfo, recordCount: usize, fields: []NqFieldInfo): isize {
     if nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return nqSemanticTypeMismatch() }
     let node: *NqAstNode = &nodes[nodeIndex as usize]
@@ -366,14 +429,14 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         else if node.flags == 124 as u32 * 256 as u32 + 124 as u32 { op = nqSemanticOpOr() }
         let leftNode: *NqAstNode = &nodes[node.left as usize]
         let rightNode: *NqAstNode = &nodes[node.right as usize]
-        let result: int = nqSemanticBinaryResult(op, leftNode.typeCode, rightNode.typeCode)
-        if result == nqAstTypeUnknown() && op >= nqSemanticOpAdd() && op <= nqSemanticOpMod() && nqCompilerTypeIsInteger(leftNode.typeCode) && nqCompilerTypeIsInteger(rightNode.typeCode) {
-            // Ordinary integer literals adopt the concrete integer type of the
-            // peer operand. This matches the C++ seed compiler without allowing
-            // arbitrary same-width signed/unsigned variables to mix implicitly.
-            if leftNode.tag == nqAstInteger() && rightNode.tag != nqAstInteger() { result = rightNode.typeCode }
-            else if rightNode.tag == nqAstInteger() && leftNode.tag != nqAstInteger() { result = leftNode.typeCode }
+        let result: int = nqAstTypeUnknown()
+        if op >= nqSemanticOpAdd() && op <= nqSemanticOpMod() && nqCompilerTypeIsInteger(leftNode.typeCode) && nqCompilerTypeIsInteger(rightNode.typeCode) {
+            // Match the seed compiler: a provably in-range integer literal
+            // adopts its concrete peer's integer type before ordinary widening.
+            if nqSemanticLiteralFitsInteger(source, nodes, node.right, leftNode.typeCode) { result = leftNode.typeCode }
+            else if nqSemanticLiteralFitsInteger(source, nodes, node.left, rightNode.typeCode) { result = rightNode.typeCode }
         }
+        if result == nqAstTypeUnknown() { result = nqSemanticBinaryResult(op, leftNode.typeCode, rightNode.typeCode) }
         if result == nqAstTypeUnknown() { context.errorStart = node.start return nqSemanticInvalidBinary() }
         node.typeCode = result
         return nqSemanticOk()
@@ -386,14 +449,14 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             let found: isize = nqSymbolsLookup(source, symbols, context.symbolCount, target.start, target.end, context.scopeDepth)
             if found < 0 as isize { return nqSemanticFail(context, node, nqSemanticUnknownName()) }
             if nqSymbolConst(&symbols[found as usize]) { return nqSemanticFail(context, node, nqSemanticConstWrite()) }
-            if !nqSemanticAssignable(nodes[node.right as usize].typeCode, symbols[found as usize].typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+            if !nqSemanticExpressionAssignable(source, nodes, node.right, symbols[found as usize].typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             nqSemanticCopySymbolType(node, &symbols[found as usize])
             nqSemanticCopySymbolType(target, &symbols[found as usize])
             return nqSemanticOk()
         }
         let targetStatus: isize = nqSemanticExpression(source, nodes, node.left, symbols, context, functions, functionParameters, records, recordCount, fields)
         if targetStatus < 0 as isize { return targetStatus }
-        if !nqSemanticAssignable(nodes[node.right as usize].typeCode, target.typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+        if !nqSemanticExpressionAssignable(source, nodes, node.right, target.typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
         nqAstApplyType(node, target.typeCode, target.typeSymbol, target.elementTypeCode, target.elementTypeSymbol, target.arrayLength)
         return nqSemanticOk()
     }
@@ -452,7 +515,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
                 let fn: *NqFunctionInfo = &functions[functionIndex as usize]
                 if argumentIndex >= fn.parameterCount { return nqSemanticFail(context, node, nqSemanticBadCall()) }
                 let expected: *NqFunctionParameterInfo = &functionParameters[fn.firstParameter + argumentIndex]
-                if expected.typeCode != nqAstTypeGeneric() && expected.typeCode != nqAstTypeUnknown() && !nqSemanticAssignable(nodes[argument as usize].typeCode, expected.typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+                if expected.typeCode != nqAstTypeGeneric() && expected.typeCode != nqAstTypeUnknown() && !nqSemanticExpressionAssignable(source, nodes, argument, expected.typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             }
             argument = nodes[argument as usize].next
             argumentIndex = argumentIndex + 1 as usize
@@ -498,7 +561,7 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
             let end: usize = nqTypeRefParse(source, node.extra as usize, &declared)
             if end <= node.extra as usize { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             nqSemanticNormalizeRef(nodes, context.currentFunction, &declared)
-            if !nqSemanticAssignable(value.typeCode, declared.code) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+            if !nqSemanticExpressionAssignable(source, nodes, node.right, declared.code) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
             if declared.code == nqAstTypeArray() {
                 if value.typeCode != nqAstTypeArray() || value.arrayLength != declared.arrayLength { return nqSemanticFail(context, value, nqSemanticInvalidArrayElement()) }
                 if value.arrayLength == 0 as usize && value.elementTypeCode == nqAstTypeUnknown() {
@@ -527,7 +590,11 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
             if status < 0 as isize { return status }
             actual = nodes[node.left as usize].typeCode
         }
-        if !nqSemanticReturnValid(actual, context.currentReturnCode) { return nqSemanticInvalidReturn() }
+        if context.currentReturnCode == nqAstTypeVoid() {
+            if actual != nqAstTypeVoid() { return nqSemanticInvalidReturn() }
+        } else if node.left < 0 as isize || !nqSemanticExpressionAssignable(source, nodes, node.left, context.currentReturnCode) {
+            return nqSemanticInvalidReturn()
+        }
         return nqSemanticOk()
     }
     if node.tag == nqAstThrow() {
