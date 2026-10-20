@@ -1,0 +1,39 @@
+name: Native self-host runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Runtime/native/**'
+      - 'Compiler/selfhost/**'
+      - 'scripts/bootstrap-native.*'
+      - 'scripts/build.*'
+      - 'CMakeLists.txt'
+      - '.github/workflows/native-selfhost-runtime.yml'
+  pull_request:
+    paths:
+      - 'Runtime/native/**'
+      - 'Compiler/selfhost/**'
+      - 'scripts/bootstrap-native.*'
+      - 'scripts/build.*'
+      - 'CMakeLists.txt'
+      - '.github/workflows/native-selfhost-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-nqo-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build native NQO runtime
+        run: cmake --build build-native --target noqeri-nqo --config Release
+      - name: Run native NQO self-test
+        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqo-selftest$'
