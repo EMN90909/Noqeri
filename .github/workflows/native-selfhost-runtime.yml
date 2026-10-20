@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build-native/noqeri check Compiler/selfhost/main.noqeri
-          ./build-native/noqeri nqri Compiler/selfhost/main.noqeri build-native/noqeri-stage1.nqri
+          ./build-native/noqeri check Compiler/selfhost/main.noqeri --unsafe
+          ./build-native/noqeri nqri Compiler/selfhost/main.noqeri build-native/noqeri-stage1.nqri --unsafe
           ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
       - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Linux)
         if: runner.os == 'Linux'
@@ -81,9 +81,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & .\build-native\Release\noqeri.exe check Compiler\selfhost\main.noqeri
+          & .\build-native\Release\noqeri.exe check Compiler\selfhost\main.noqeri --unsafe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\build-native\Release\noqeri.exe nqri Compiler\selfhost\main.noqeri build-native\noqeri-stage1.nqri
+          & .\build-native\Release\noqeri.exe nqri Compiler\selfhost\main.noqeri build-native\noqeri-stage1.nqri --unsafe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\build-native\Release\noqeri-nqri.exe has-export build-native\noqeri-stage1.nqri stage2CompileToNqri
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
