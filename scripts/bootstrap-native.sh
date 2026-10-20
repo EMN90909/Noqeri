@@ -75,7 +75,7 @@ if [ ! -f "$SEED" ]; then
     exit 2
   fi
   echo "Generating trusted Stage-1 NQRI seed with C++ Stage-0 compiler..."
-  "$SEED_COMPILER" nqri "$ROOT/Compiler/selfhost/main.noqeri" "$SEED" --unsafe
+  "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$SEED"
 fi
 
 "$RUNTIME" --selftest
