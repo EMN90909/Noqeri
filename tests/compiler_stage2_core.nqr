@@ -12,6 +12,7 @@ import "../Compiler/selfhost/coff_writer.nqr"
 import "../Compiler/selfhost/elf_writer.nqr"
 import "../Compiler/selfhost/macho_writer.nqr"
 import "../Compiler/selfhost/security.nqr"
+import "../Compiler/selfhost/web_policy.nqr"
 import "../Compiler/selfhost/stage2.nqr"
 import "../Lib/std/array.nqr"
 import "../Lib/std/slice.nqr"
@@ -73,6 +74,10 @@ function main(): int {
     let unsafeCode: [NqNirInstruction; 1]
     nqNirInstructionInit(&unsafeCode[0], nqNirAsm(), nqNirNoValue())
     if nqSecurityProgramCheck(&policy, nqTargetLinuxX64(), slice(unsafeCode)) != nqSecurityUnsafeDenied() { return 26 }
+    if nqWebProgramCheck(slice(unsafeCode)) != nqWebNativeOnly() { return 31 }
+    let webCode: [NqNirInstruction; 1]
+    nqNirMakeConst(&webCode[0], 0 as isize, 42 as i64, nqAstTypeI64())
+    if nqWebProgramCheck(slice(webCode)) != nqWebOk() { return 32 }
 
     // Stage 2 cannot be declared complete by an empty proof.
     let proof: NqStage2Proof
