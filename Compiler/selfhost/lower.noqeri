@@ -443,6 +443,7 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         // slot immediately after evaluating its expression lets a nested call
         // erase or overwrite previously evaluated arguments of the outer call.
         let argumentRegisters: [isize; 256]
+        let argumentTypes: [int; 256]
         let argument: isize = node.right
         let argumentIndex: usize = 0 as usize
         while argument >= 0 as isize && argumentIndex < node.extra as usize {
@@ -450,6 +451,7 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
             let value: isize = nqLowerExpressionInternal(source, nodes, argument, instructions, state)
             if value < 0 as isize { return value }
             argumentRegisters[argumentIndex] = value
+            argumentTypes[argumentIndex] = nodes[argument as usize].typeCode
             argument = nodes[argument as usize].next
             argumentIndex = argumentIndex + 1 as usize
         }
@@ -459,6 +461,7 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
             if arg < 0 as isize { return arg }
             instructions[arg as usize].left = argumentRegisters[emitIndex]
             instructions[arg as usize].immediate = emitIndex as i64
+            instructions[arg as usize].typeCode = argumentTypes[emitIndex]
             emitIndex = emitIndex + 1 as usize
         }
         let reg: isize = nqLowerAllocRegister(state)
@@ -608,6 +611,7 @@ export function nqLowerFunction(source: []u8, nodes: []NqAstNode, nodeIndex: isi
         instructions[emitted as usize].immediate = parameterIndex as i64
         instructions[emitted as usize].sourceStart = paramName.start
         instructions[emitted as usize].sourceEnd = paramName.end
+        instructions[emitted as usize].typeCode = paramName.typeCode
         let store: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
         if store < 0 as isize { return store }
         instructions[store as usize].symbol = instructions[emitted as usize].symbol
