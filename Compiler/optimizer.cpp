@@ -442,6 +442,10 @@ bool hoistLoopLiteral(NirFunction& fn) {
 }
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
+    // Eliminate duplicate expressions before conventional DCE discards their
+    // first (temporarily unused) producer. Pass order is observable here.
+    if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
+       level==OptimizationLevel::Oz) localGvn(fn);
     const int rounds = level == OptimizationLevel::O3 ? 3 :
                        level == OptimizationLevel::O2 ? 2 : 1;
     for (int r = 0; r < rounds; ++r) {
