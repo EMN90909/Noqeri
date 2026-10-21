@@ -368,5 +368,57 @@ int main() {
             if(op.op==noe::NirOp::Store)++stores;
         if(!check(stores==1,"no loop unroll with external body entry"))return 1;
     }
+    {
+        // IPO evaluates a bounded pure integer expression in a zero-arg
+        // function, replaces the call and preserves the original result.
+        noe::NirFunction sum;
+        sum.name="compile_time_sum";
+        auto plus=withArgs(noe::NirOp::Binary,{1,2});
+        plus.dest=3;plus.text="+";plus.type.kind=noe::TypeKind::Int;
+        sum.code={constant(1,19),constant(2,23),plus,
+                  withArgs(noe::NirOp::Return,{3})};
+        noe::NirProgram p;
+        p.functions.push_back(sum);
+        auto call=withArgs(noe::NirOp::Call,{});call.dest=9;
+        call.text="compile_time_sum";
+        p.entry.code={call,withArgs(noe::NirOp::Return,{9})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        if(!check(p.entry.code.front().op==noe::NirOp::Const &&
+                  std::get<std::int64_t>(p.entry.code.front().literal)==42,
+                  "pure IPO integer expression evaluated"))return 1;
+    }
+    {
+        // An ambiguous function name must not be inferred pure just because
+        // one of its definitions returns a constant.
+        noe::NirFunction pure;
+        pure.name="overloaded";
+        pure.code={constant(1,42),withArgs(noe::NirOp::Return,{1})};
+        noe::NirFunction impure=pure;
+        impure.code={withArgs(noe::NirOp::Call,{}),
+                     withArgs(noe::NirOp::Return,{})};
+        noe::NirProgram p;
+        p.functions={pure,impure};
+        auto call=withArgs(noe::NirOp::Call,{});call.dest=2;
+        call.text="overloaded";
+        p.entry.code={call,withArgs(noe::NirOp::Return,{2})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        if(!check(p.entry.code.front().op==noe::NirOp::Call,
+                  "ambiguous IPO symbol is not folded"))return 1;
+    }
+    {
+        // Inlining does not bypass an effectful provider, even if a matching
+        // pure zero-argument function exists elsewhere in the call graph.
+        noe::NirFunction side;
+        side.name="side_effect";
+        auto store=withArgs(noe::NirOp::Store,{1});store.text="audit";
+        side.code={constant(1,5),store,withArgs(noe::NirOp::Return,{1})};
+        noe::NirProgram p;p.functions={side};
+        auto call=withArgs(noe::NirOp::Call,{});call.dest=3;
+        call.text="side_effect";
+        p.entry.code={call,withArgs(noe::NirOp::Return,{3})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        if(!check(p.entry.code.front().op==noe::NirOp::Call,
+                  "effectful IPO remains dynamic"))return 1;
+    }
     return 0;
 }
