@@ -40,7 +40,7 @@ export function decodeArchive(bytes,expectedIntegrity){
     const rawSize=block.toString('ascii',124,136).replace(/\0.*$/s,'').trim()
     if(!/^[0-7]+$/.test(rawSize))throw new Error('invalid tar size')
     const size=parseInt(rawSize,8)
-    if(size>MAX_ARCHIVE-total||++total<0||files.length>=MAX_FILES)throw new Error('archive size/file limit exceeded')
+    if(size>MAX_ARCHIVE-total||files.length>=MAX_FILES)throw new Error('archive size/file limit exceeded')
     total+=size; if(total>MAX_ARCHIVE)throw new Error('archive unpacked size exceeds limit')
     const padded=Math.ceil(size/512)*512
     if(position+padded>input.length)throw new Error('truncated archive')
