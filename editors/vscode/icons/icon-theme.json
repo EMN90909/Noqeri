@@ -1,5 +1,15 @@
 {
-  "iconDefinitions": {"_noqeri": {"iconPath": "../assets/noqeri-icon.svg"}},
-  "fileExtensions": {"noqeri": "_noqeri", "nqri": "_noqeri"},
-  "fileNames": {"project.nqon": "_noqeri", "noqeri.lock": "_noqeri"}
+  "iconDefinitions": {
+    "_noqeri": {
+      "iconPath": "../assets/noqeri-icon.svg"
+    }
+  },
+  "fileExtensions": {
+    "noqeri": "_noqeri",
+    "nqri": "_noqeri"
+  },
+  "fileNames": {
+    "project.nqon": "_noqeri",
+    "noqeri.lock": "_noqeri"
+  }
 }
