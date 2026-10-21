@@ -4,7 +4,32 @@
 **Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.noqeri`, project manifests use portable `project.nqon`, portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`. Legacy `project.noqeri` manifests remain readable during the 0.7 migration.
+Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and native portable bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main is still version **0.7.0**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
+
+## Reactive web development (experimental, implemented on `main`)
+
+Build a simple application in **one Noqeri source** with markup, reactive state, components, optional CSS, JavaScript interop and local Noqeri UI packages:
+
+```noqeri
+let count = 0
+view {
+    h1 { "Hello from Noqeri" }
+    button on.click { count = count + 1 } { "Count: " + count }
+}
+```
+
+```sh
+node Runtime/web-project.mjs examples/web_view dist-web
+node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
+```
+
+The web builder creates a minimal `index.html`, ES modules and a browser DOM runtime. `import js "gsap" as gsap` requires an explicit local ES module or import map, while `import ui/badge as ui` resolves a local `ui/badge.noqeri` package. See [Web Views](Doc/WEB_VIEWS_V1.md).
+
+**Important:** This is a separately tested restricted web-view compiler, **not** the typed self-hosted Stage-2 NIR backend, and not production-qualified SSR, hydration, routing, or a universal JavaScript replacement. Existing HTML/CSS/JS web projects continue to build through the original compatibility path.
+
+## Database and Registry integration
+
+The private NoeSQL repository has migrated 21 language sources to `.noqeri`, and the public Registry repository now has a NoeSQL-backed HTTP v1 service. Those repositories **do not yet provide a proven production-ready native compiler/database integration**. The default Noqeri CLI package manager still uses a historical GitHub-content adapter until the deployed Registry endpoint and cross-repository durability tests are verified. Do not label a changed protocol file as a completed production migration.
 
 ## Beginner surface
 
@@ -31,7 +56,7 @@ NQON is specified independently of the compiler and can be converted to/from JSO
 
 `main` now uses a staged self-host model. The normal build no longer invokes CMake or a C++17 compiler. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`; the first stage owns lexical scanning, structural syntax checks, primitive type-width/sign policy, token counting and source fingerprinting.
 
-The last known-good C++17 bootstrap was preserved unchanged on branch **`bootstrap/cpp17-stage0`**. It is a provenance/seed compiler, not the production implementation path on `main`. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact trust boundary and remaining parity work.
+The C++17 Stage-0 bootstrap remains a provenance/seed dependency, not a separately verified production implementation. Historical bootstrap branches may exist but are not a release-certification mechanism. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact trust boundary and remaining parity work.
 
 ## Build locally
 
