@@ -395,11 +395,14 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
     if node.tag == nqAstArray() {
         let count: usize = node.extra as usize
         let elementWidth: usize = nqLowerNodeWidth(node)
+        if elementWidth == 0 as usize || count > 9223372036854775807 as usize / elementWidth { return nqLowerCapacity() }
         let bytes: usize = count * elementWidth
         let base: isize = nqLowerAllocRegister(state)
         let alloc: isize = nqLowerEmit(instructions, state, nqNirStackAlloc(), base)
         if alloc < 0 as isize { return alloc }
         instructions[alloc as usize].width = bytes
+        instructions[alloc as usize].flags = nqNirFlagArrayLength()
+        instructions[alloc as usize].immediate = count as i64
         let element: isize = node.right
         let index: usize = 0 as usize
         while element >= 0 as isize && index < count {
