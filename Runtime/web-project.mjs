@@ -15,6 +15,18 @@ export async function buildWebProject({source='web',out='dist',checkSource=null}
   const input = await realpath(resolve(source))
   const output = resolve(out)
   if (inside(input,output) || inside(output,input)) throw Error('source and output directories must not contain one another')
+  // Noqeri-only app: main.noqeri owns markup, state, components and events.
+  // The view compiler is a bounded separate frontend until Stage-2 NIR parity.
+  let viewSource=null
+  try{viewSource=await readFile(join(input,'main.noqeri'),'utf8')}
+  catch(error){if(error.code!=='ENOENT')throw error}
+  if(viewSource!==null){
+    const {isViewSource}=await import('./web-view-compiler.mjs')
+    if(isViewSource(viewSource)){
+      const {buildViewProject}=await import('./web-view-project.mjs')
+      return buildViewProject({source:input,out:output,checkSource})
+    }
+  }
   const entries=[]
   async function walk(dir) {
     for (const entry of await readdir(dir,{withFileTypes:true})) {
