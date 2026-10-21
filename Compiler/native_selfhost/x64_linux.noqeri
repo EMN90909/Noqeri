@@ -515,7 +515,8 @@ function nqNativeEmitInstruction(out: []u8, cursor: *usize, source: []u8, instru
     }
 
     if instruction.opcode == nqNirNeg() {
-        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeBadNir() }
+        if instruction.left < minimum { return nqNativeBadNir() }
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeCapacity() }
         let sourceType: int = nqNativeProducerType(instructions, function, instruction.left)
         if sourceType == nqAstTypeFloat() {
             if !nqa_xor_float_sign(out, cursor) { return nqNativeCapacity() }
