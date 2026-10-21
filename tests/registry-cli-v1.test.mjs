@@ -49,7 +49,7 @@ test('CLI installs Registry /v1 archived dependencies, verifies integrity and re
   assert.ok(fetched.every(url=>url.startsWith('https://registry.test/v1/')))
   const fetchedBefore=fetched.length
   await pm.addPackage('noqeri/demo@0.4.0')
-  assert.equal(fetched.length,fetchedBefore+1) // index queried; cached package reused
+  assert.equal(fetched.length,fetchedBefore) // pinned release and its dependency graph reuse verified local cache
   const lock=await readFile(join(dir,'noqeri.lock'),'utf8')
   assert.match(lock,/noqeri\/demo 0\.4\.0/)
   const actual=join(installed.path,'src','main.noqeri')
