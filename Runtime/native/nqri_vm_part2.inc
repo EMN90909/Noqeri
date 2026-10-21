@@ -67,13 +67,26 @@ static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, con
     merged << "module noqeri.compiler.selfhost.bundle\n";
     std::unordered_set<std::string> seen;
     std::string relative;
+    std::size_t sourceCount = 0;
     while (std::getline(manifest, relative)) {
         relative = trim(relative);
         if (relative.empty() || relative[0] == '#') continue;
-        if (!seen.insert(relative).second) throw RuntimeError("duplicate source in manifest: " + relative);
-        fs::path candidate = fs::weakly_canonical(root / fs::path(relative));
+        const fs::path listed(relative);
+        if (listed.is_absolute() || listed.has_root_name() || listed.has_root_directory())
+            throw RuntimeError("source manifest requires repository-relative paths: " + relative);
+        if (listed.extension() != ".noqeri")
+            throw RuntimeError("source manifest accepts only .noqeri files: " + relative);
+        const fs::path candidate = fs::weakly_canonical(root / listed);
         const auto rel = candidate.lexically_relative(root);
-        if (rel.empty() || (!rel.empty() && *rel.begin() == "..")) throw RuntimeError("source manifest escapes repository root: " + relative);
+        if (rel.empty() || *rel.begin() == ".." || rel == ".")
+            throw RuntimeError("source manifest escapes repository root: " + relative);
+        std::error_code sourceError;
+        if (!fs::is_regular_file(candidate, sourceError) || sourceError)
+            throw RuntimeError("source manifest entry is not a regular file: " + relative);
+        // Compare canonical names so aliases and symlinks cannot include one file twice.
+        if (!seen.insert(candidate.generic_string()).second)
+            throw RuntimeError("duplicate source in manifest: " + relative);
+        ++sourceCount;
         std::ifstream input(candidate, std::ios::binary);
         if (!input) throw RuntimeError("cannot open compiler source " + candidate.string());
         std::string line;
@@ -89,6 +102,8 @@ static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, con
         }
         merged << '\n';
     }
+    if (manifest.bad()) throw RuntimeError("failed reading source manifest " + manifestPath);
+    if (sourceCount == 0) throw RuntimeError("source manifest contains no .noqeri files: " + manifestPath);
     const auto text = merged.str();
     return std::vector<std::uint8_t>(text.begin(), text.end());
 }
