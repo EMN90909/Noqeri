@@ -130,17 +130,32 @@ export function nqOptimizerAlgebraicSimplify(instructions: []NqNirInstruction): 
 }
 
 export function nqOptimizerDeadCodeEliminate(instructions: []NqNirInstruction): usize {
+    // One reverse liveness traversal replaces a quadratic forward search for
+    // every defined register. Registers are monotone and SSA-like in the
+    // self-hosted lowerer; the arena is bounded by the NIR instruction cap.
+    let live: [u8; 262144]
     let changes: usize = 0 as usize
-    let index: usize = 0 as usize
-    while index < len(instructions) {
+    let index: usize = len(instructions)
+    while index > 0 as usize {
+        index = index - 1 as usize
         let item: *NqNirInstruction = &instructions[index]
-        if item.dest >= 0 as isize && nqOptimizerCanEliminate(item.opcode, nqOptimizerValueUsedAfter(instructions, index, item.dest)) {
-            item.opcode = nqNirNop()
-            item.left = nqNirNoValue()
-            item.right = nqNirNoValue()
-            changes = changes + 1 as usize
+        let keep: bool = true
+        if item.dest >= 0 as isize {
+            let dest: usize = item.dest as usize
+            let resultUsed: bool = dest >= len(live)
+            if dest < len(live) && live[dest] != 0 as u8 { resultUsed = true }
+            if nqOptimizerCanEliminate(item.opcode, resultUsed) {
+                item.opcode = nqNirNop()
+                item.left = nqNirNoValue()
+                item.right = nqNirNoValue()
+                changes = changes + 1 as usize
+                keep = false
+            } else if dest < len(live) { live[dest] = 0 as u8 }
         }
-        index = index + 1 as usize
+        if keep {
+            if item.left >= 0 as isize && item.left as usize < len(live) { live[item.left as usize] = 1 as u8 }
+            if item.right >= 0 as isize && item.right as usize < len(live) { live[item.right as usize] = 1 as u8 }
+        }
     }
     return changes
 }
