@@ -24,6 +24,13 @@ jobs:
         run: cmake -S . -B build-opt -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - name: Build native compiler
         run: cmake --build build-opt --config Release --target noqeri noqeri-lto-ir-test --parallel 3
+      - name: Validate self-hosted Noqeri GVN source and effects
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-opt/noqeri check tests/selfhost_optimizer_gvn.noqeri
+          output=$(./build-opt/noqeri run tests/selfhost_optimizer_gvn.noqeri)
+          test "$output" = "PASS: selfhost GVN"
       - name: Verify link-time NIR CTest
         run: ctest --test-dir build-opt -C Release --output-on-failure -R noqeri-lto-ir
       - name: Compare original and optimized observable output
