@@ -5,6 +5,14 @@ import "ast.noqeri"
 import "nir.noqeri"
 import "nqri_writer.noqeri"
 
+export function stage2SemanticErrorOffset(source: []u8, unsafeAllowed: bool): usize {
+    return nqPipelineSemanticErrorOffset(source, unsafeAllowed)
+}
+
+export function stage2CompileCheck(source: []u8, target: int, unsafeAllowed: bool): isize {
+    return nqPipelineCompileCheck(source, target, unsafeAllowed)
+}
+
 // Preserve the established bootstrap ABI so Stage-0 refuses neither this
 // transition seed nor future recovery/bootstrap tooling.
 export function stage2CompileToNqri(source: []u8, target: int, debug: bool, unsafeAllowed: bool, out: []u8): isize {
