@@ -49,19 +49,25 @@ function nqLowerHexDigit(c: u8): int {
 
 export function nqLowerParseI64(source: []u8, start: usize, end: usize, out: *i64): bool {
     if out == null || start >= end || end > len(source) { return false }
-    let base: i64 = 10 as i64
+    let base: u64 = 10 as u64
     let index: usize = start
-    if end - start > 2 as usize && source[start] == 48 as u8 && (source[start + 1 as usize] == 120 as u8 || source[start + 1 as usize] == 88 as u8) { base = 16 as i64 index = start + 2 as usize }
+    if end - start > 2 as usize && source[start] == 48 as u8 && (source[start + 1 as usize] == 120 as u8 || source[start + 1 as usize] == 88 as u8) { base = 16 as u64 index = start + 2 as usize }
     if index >= end { return false }
-    let value: i64 = 0 as i64
+    // NQRI carries integer immediates as a 64-bit bit-pattern. Parse as
+    // unsigned to permit the complete u64 range, then preserve those bits
+    // in the signed transport field. A signed-only accumulator rejected
+    // the compiler's own checksum constants above INT64_MAX.
+    let limit: u64 = 9223372036854775807 as u64 * 2 as u64 + 1 as u64
+    let value: u64 = 0 as u64
     while index < end {
         let digit: int = nqLowerHexDigit(source[index])
-        if digit < 0 || digit as i64 >= base { return false }
-        if value > (9223372036854775807 as i64 - digit as i64) / base { return false }
-        value = value * base + digit as i64
+        if digit < 0 || digit as u64 >= base { return false }
+        let udigit: u64 = digit as u64
+        if value > (limit - udigit) / base { return false }
+        value = value * base + udigit
         index = index + 1 as usize
     }
-    out[0] = value
+    out[0] = value as i64
     return true
 }
 
