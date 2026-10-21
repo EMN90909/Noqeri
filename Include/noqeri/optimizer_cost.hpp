@@ -52,5 +52,6 @@ private:
     std::unordered_map<Reg,Reg> roots_;
     std::unordered_set<Reg> escapingRoots_;
     bool hasBackedge_=false;
+    bool ssaValid_=false;
 };
 } // namespace noe
