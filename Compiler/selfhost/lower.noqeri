@@ -422,17 +422,28 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let callee: *NqAstNode = &nodes[node.left as usize]
         let symbol: u64 = nqNirSymbolId(source, callee.start, callee.end)
         if symbol == 0 as u64 { return nqLowerBadAst() }
+        // Evaluate all arguments before pushing any call-argument instruction.
+        // Nested calls consume the VM's pending argument slots. Emitting each
+        // slot immediately after evaluating its expression lets a nested call
+        // erase or overwrite previously evaluated arguments of the outer call.
+        let argumentRegisters: [isize; 256]
         let argument: isize = node.right
         let argumentIndex: usize = 0 as usize
         while argument >= 0 as isize && argumentIndex < node.extra as usize {
+            if argumentIndex >= 256 as usize { return nqLowerCapacity() }
             let value: isize = nqLowerExpressionInternal(source, nodes, argument, instructions, state)
             if value < 0 as isize { return value }
-            let arg: isize = nqLowerEmit(instructions, state, nqNirCallArg(), nqNirNoValue())
-            if arg < 0 as isize { return arg }
-            instructions[arg as usize].left = value
-            instructions[arg as usize].immediate = argumentIndex as i64
+            argumentRegisters[argumentIndex] = value
             argument = nodes[argument as usize].next
             argumentIndex = argumentIndex + 1 as usize
+        }
+        let emitIndex: usize = 0 as usize
+        while emitIndex < argumentIndex {
+            let arg: isize = nqLowerEmit(instructions, state, nqNirCallArg(), nqNirNoValue())
+            if arg < 0 as isize { return arg }
+            instructions[arg as usize].left = argumentRegisters[emitIndex]
+            instructions[arg as usize].immediate = emitIndex as i64
+            emitIndex = emitIndex + 1 as usize
         }
         let reg: isize = nqLowerAllocRegister(state)
         let call: isize = nqLowerEmit(instructions, state, nqNirCall(), reg)
