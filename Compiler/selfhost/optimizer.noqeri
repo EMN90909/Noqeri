@@ -129,6 +129,65 @@ export function nqOptimizerAlgebraicSimplify(instructions: []NqNirInstruction): 
     return changes
 }
 
+// Stage-2's own bounded register-SSA local GVN. No Phi, branch, exception,
+// checked or volatile operation can enter this pass. Unlike Stage-0's NIR,
+// this IR has a Move opcode, so redundant results retain their register ids.
+export function nqOptimizerLocalGvn(instructions: []NqNirInstruction): usize {
+    let count: usize = len(instructions)
+    if count > 512 as usize { return 0 as usize }
+    // Prove one straight-line region and unique virtual definitions first.
+    let index: usize = 0 as usize
+    while index < count {
+        let current: *NqNirInstruction = &instructions[index]
+        if nqNirIsTerminator(current.opcode) && index + 1 as usize < count { return 0 as usize }
+        if current.opcode == nqNirJump() || current.opcode == nqNirBranch() ||
+           current.opcode == nqNirPhi() || current.opcode == nqNirLabel() ||
+           current.opcode == nqNirTry() || current.opcode == nqNirThrow() ||
+           current.opcode == nqNirAsm() { return 0 as usize }
+        if current.dest >= 0 as isize && nqNirDefinesValue(current.opcode) {
+            let previous: usize = 0 as usize
+            while previous < index {
+                if instructions[previous].dest == current.dest &&
+                   nqNirDefinesValue(instructions[previous].opcode) { return 0 as usize }
+                previous = previous + 1 as usize
+            }
+        }
+        index = index + 1 as usize
+    }
+    let changes: usize = 0 as usize
+    index = 0 as usize
+    while index < count {
+        let current: *NqNirInstruction = &instructions[index]
+        let eligible: bool = (current.opcode == nqNirAdd() ||
+            current.opcode == nqNirSub() || current.opcode == nqNirMul()) &&
+            current.flags == 0 as u32 && current.dest >= 0 as isize &&
+            current.left >= 0 as isize && current.right >= 0 as isize
+        if eligible {
+            let previous: usize = 0 as usize
+            let found: bool = false
+            while previous < index && !found {
+                let other: *NqNirInstruction = &instructions[previous]
+                if other.opcode == current.opcode && other.flags == 0 as u32 &&
+                   other.dest >= 0 as isize && other.typeCode == current.typeCode {
+                    let same: bool = other.left == current.left && other.right == current.right
+                    if (current.opcode == nqNirAdd() || current.opcode == nqNirMul()) &&
+                       other.left == current.right && other.right == current.left { same = true }
+                    if same {
+                        current.opcode = nqNirMove()
+                        current.left = other.dest
+                        current.right = nqNirNoValue()
+                        changes = changes + 1 as usize
+                        found = true
+                    }
+                }
+                previous = previous + 1 as usize
+            }
+        }
+        index = index + 1 as usize
+    }
+    return changes
+}
+
 export function nqOptimizerDeadCodeEliminate(instructions: []NqNirInstruction): usize {
     // One reverse liveness traversal replaces a quadratic forward search for
     // every defined register. Registers are monotone and SSA-like in the
@@ -168,6 +227,7 @@ export function nqOptimizerRun(instructions: []NqNirInstruction, level: int): us
     while round < budget {
         let changed: usize = nqOptimizerConstantFold(instructions)
         changed = changed + nqOptimizerAlgebraicSimplify(instructions)
+        if level >= nqOptLevelSpeed() { changed = changed + nqOptimizerLocalGvn(instructions) }
         changed = changed + nqOptimizerDeadCodeEliminate(instructions)
         total = total + changed
         if changed == 0 as usize { return total }
