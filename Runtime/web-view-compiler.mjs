@@ -109,7 +109,8 @@ export function parseView(source) {
           const attrs=[],events=[];
           while(!is('{')){
             if(accept('on')){need('.');const type=ident();if(!EVENTS.has(type))fail('unsupported event '+type);if(events.some(e=>e[0]===type))fail('duplicate event '+type);events.push([type,parseActions()]);continue}
-            const name=ident();if(!ATTRS.has(name)&&!/^aria_[a-z_]+$/.test(name)&&!/^data_[a-z_]+$/.test(name))fail('unsupported attribute '+name);
+            const attr=take(),name=attr.value;
+            if(attr.kind!=='id'||(!ATTRS.has(name)&&!/^aria_[a-z_]+$/.test(name)&&!/^data_[a-z_]+$/.test(name)))fail('unsupported attribute '+name);
             need(':');attrs.push([name,expr()]);
           }
           list.push({kind:'element',tag,attrs,events,children:children()});accept(';');continue;
