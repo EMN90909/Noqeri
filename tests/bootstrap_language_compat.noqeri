@@ -54,3 +54,16 @@ export function nestedLoopControl(): int {
     }
     return total
 }
+
+
+function nestedIncrement(value: int): int {
+    return value + 1
+}
+
+function nestedDigits(a: int, b: int, c: int): int {
+    return a * 100 + b * 10 + c
+}
+
+export function nestedCallArguments(): int {
+    return nestedDigits(1, nestedIncrement(2), 4)
+}
