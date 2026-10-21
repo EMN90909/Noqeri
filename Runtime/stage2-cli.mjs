@@ -151,14 +151,27 @@ try {
     process.exit(problems.length || (args.includes('--strict') && warnings.length) ? 1 : 0)
   }
   if (command === 'web-project') {
-    const { buildWebProject } = await import('./web-project.mjs')
-    const compiler = await compilerModule()
-    const result = await buildWebProject({ source: args[1] || 'web', out: args[2] || 'dist', checkSource: async (file, bytes) => {
-      await resolveAndCheckPackages(file, compiler)
-      await checkBytes(compiler, bytes, file)
-    } })
-    console.log(`Built ${result.files} web assets (${result.html} HTML, ${result.compiled} checked Noqeri modules)`)
-    process.exit(0)
+    const sourceDir=args[1]||'web',outDir=args[2]||'dist';
+    const entry=resolve(sourceDir,'main.noqeri');
+    let sourceText=null;
+    try{sourceText=await readFile(entry,'utf8')}catch(error){if(error.code!=='ENOENT')throw error}
+    const {isViewSource}=await import('./web-view-compiler.mjs');
+    const viewProject=sourceText!==null&&isViewSource(sourceText);
+    // Explicit experimental view compiler route. It is not represented as
+    // typed Stage-2/NIR compilation until the language frontend supports it.
+    const compiler=viewProject?null:await compilerModule();
+    const {buildWebProject}=await import('./web-project.mjs');
+    const result=await buildWebProject({
+      source:sourceDir,out:outDir,
+      checkSource:compiler?async(file,bytes)=>{
+        await resolveAndCheckPackages(file,compiler);
+        await checkBytes(compiler,bytes,file);
+      }:null
+    });
+    console.log('Built '+result.files+' web assets ('+result.html+' HTML, '+result.compiled+
+      ' Noqeri modules; view subset='+Boolean(viewProject)+
+      (viewProject?', experimental and not typed Stage-2 NIR':'')+')');
+    process.exit(0);
   }
   if (command === 'add') { if (!args[1]) throw new Error('noqeri add needs namespace/name[@version]'); await (await packages()).addPackage(args[1]); process.exit(0) }
   if (command === 'install') { await (await packages()).installProject(); process.exit(0) }
