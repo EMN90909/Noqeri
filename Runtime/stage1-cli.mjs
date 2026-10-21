@@ -21,7 +21,7 @@ Usage:
   noqeri doctor [--json] [--strict]
   noqeri selftest
 
-Registry source uses import package "namespace/name". Packages are cached immutably and re-hashed before use.
+Registry v1 URL: NOQERI_REGISTRY_URL (default localhost:8080; remote URLs must use HTTPS).\nRegistry source uses import package "namespace/name". Packages are cached immutably and re-hashed before use.
 Vendoring copies the lockfile's verified packages into .noqeri/vendor-home for NOQERI_OFFLINE=1 builds.
 Audit returns 2 when advisory data is unavailable, 1 when a locked dependency is vulnerable, and 0 only after a successful advisory check.
 Doctor does not require a working compiler module unless --strict is supplied.`)
@@ -45,7 +45,7 @@ function environmentSnapshot() {
     compilerModule: modulePath, compilerModuleExists: existsSync(modulePath),
     projectManifestExists: existsSync(resolve(process.cwd(), 'project.noqeri')), lockfileExists: existsSync(resolve(process.cwd(), 'noqeri.lock')),
     offline: process.env.NOQERI_OFFLINE === '1', home: process.env.NOQERI_HOME || null,
-    registryIndex: process.env.NOQERI_REGISTRY_INDEX || 'https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json'
+    registryIndex: (process.env.NOQERI_REGISTRY_URL || 'http://127.0.0.1:8080') + '/v1/index'
   }
 }
 function printEnvironment(snapshot, json) {
