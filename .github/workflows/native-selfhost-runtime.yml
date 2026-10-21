@@ -191,6 +191,18 @@ jobs:
           Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
           .\scripts\bootstrap-native.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve failed Stage-2 compiler for diagnosis
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-stage2-nqri-${{ matrix.os }}-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            build-selfhost/noqeri-stage2.nqri
+            build-selfhost/noqeri-stage3.nqri
+            build-selfhost/native-selfhost-proof.txt
+            build-selfhost/native-selfhost-proof.json
       - name: Upload trusted Stage-1 seed and proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
