@@ -99,8 +99,16 @@ for (const workload of suite.workloads || []) {
     const cwd = resolve(root, entry.cwd || '.')
     const command = entry.command.map(x => `${x}`)
     const executable = entry.binary ? resolve(root, entry.binary) : null
-    const isNoqeriRuntime = language === 'noqeri' && workload.id !== 'compilation'
+    const isRuntime = workload.id !== 'compilation'
+    const isNoqeriRuntime = language === 'noqeri' && isRuntime
     let provenance = null
+
+    if (isRuntime && typeof entry.expected_stdout !== 'string') {
+      const failed = failResult(language, workload.id, workload.threshold_percent, 'runtime benchmark requires deterministic expected_stdout')
+      failures.push(failed)
+      results.push(failed)
+      continue
+    }
 
     if (isNoqeriRuntime) {
       const violations = []
@@ -160,6 +168,22 @@ for (const workload of suite.workloads || []) {
       }
     }
 
+    let validatedStdout = null
+    if (isRuntime) {
+      const validation = run(command, cwd, timeout)
+      const expectedStdout = entry.expected_stdout.trim()
+      if (validation.status !== 0 || validation.stdout !== expectedStdout) {
+        const reason = validation.status !== 0
+          ? (validation.error || validation.stderr || `validation exited ${validation.status}`)
+          : `validation output mismatch: expected ${JSON.stringify(expectedStdout)}, got ${JSON.stringify(validation.stdout)}`
+        const failed = failResult(language, workload.id, workload.threshold_percent, reason, 'validation')
+        failures.push({ ...failed, ...validation })
+        results.push(failed)
+        continue
+      }
+      validatedStdout = validation.stdout
+    }
+
     const versionKey = command[0]
     if (!versionCache.has(versionKey)) {
       versionCache.set(versionKey, isNoqeriRuntime ? (provenance?.compiler_version || null) : toolVersion(command, cwd))
@@ -196,6 +220,7 @@ for (const workload of suite.workloads || []) {
       compiler_provenance: provenance?.compiler_provenance || null,
       self_hosted_compiler: provenance?.self_hosted_compiler ?? null,
       artifact_sha256: provenance?.artifact_sha256 || null,
+      validated_stdout: validatedStdout,
       median_ms: median(raw),
       p95_ms: percentile(raw, 0.95),
       min_ms: Math.min(...raw),
