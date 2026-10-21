@@ -60,6 +60,14 @@ jobs:
         run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build C++ seed compiler and native NQRI runtime
         run: cmake --build build-native --target noqeri noqeri-nqri --config Release
+      - name: Upload native NQRI runner for reproducible diagnostics (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-nqri-runner-${{ github.sha }}
+          path: build-native/noqeri-nqri
+          if-no-files-found: error
+          retention-days: 14
       - name: Run native NQRI self-test
         run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqri-selftest$'
       - name: Verify zero initialization through C++ -> NQRI (Linux)
