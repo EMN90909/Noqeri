@@ -370,7 +370,6 @@ bool integerStrengthReduction(NirFunction&fn) {
         const bool l0=left!=values.end()&&left->second==0;
         const bool r0=right!=values.end()&&right->second==0;
         const bool r1=right!=values.end()&&right->second==1;
-        const bool l1=left!=values.end()&&left->second==1;
         const bool knownZero=(in.text=="*"&&(l0||r0))||
                              (in.text=="%"&&r1);
         if(!knownZero)continue;
