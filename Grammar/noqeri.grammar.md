@@ -96,6 +96,7 @@ letDecl        := ("let" | "const") IDENT (":" type)? "=" expression terminator?
 
 statement      := ifStmt
                 | whileStmt
+                | repeatStmt
                 | returnStmt
                 | throwStmt
                 | block
@@ -103,6 +104,7 @@ statement      := ifStmt
 
 ifStmt         := "if" expression block ("else" (ifStmt | block))?
 whileStmt      := "while" expression block
+repeatStmt     := "repeat" expression block
 returnStmt     := "return" expression? terminator?
 throwStmt      := "throw" expression terminator?
 block          := "{" declaration* "}"
@@ -110,6 +112,8 @@ exprStmt       := expression terminator?
 ```
 
 `const` bindings cannot be assigned after initialization. `if` and `while` conditions must be `bool`; integers are not silently treated as booleans.
+
+`repeat count { ... }` is the beginner-friendly counted-loop form. The count must be an integer, is evaluated once before the loop begins, and values less than or equal to zero execute the body zero times. It lowers to the existing control-flow model rather than introducing a second loop runtime.
 
 ## Expressions
 
