@@ -2,6 +2,8 @@
 
 ## 0.7.0-development — 2026-10-18 (not yet released)
 
+- Added NQON (`.nqon`), a language-neutral configuration/data format with a standalone reference parser and JSON conversion tool; new projects prefer `project.nqon` while legacy `project.noqeri` remains readable during migration.
+- Made the documented `repeat count { ... }` beginner loop a real self-hosted compiler feature with integer validation, single count evaluation and zero/negative-count skip semantics.
 - Normalized active compiler and project version declarations to a 0.7.0 development track. This is a deliberate pre-1.0 version reset; the older 1.x changelog entries remain historical, not evidence of a production release.
 - Added an initial game SDK for 3D vector math, bounded fixed-step simulation, action-button state and axis-aligned collision/ray queries, with a conformance fixture.
 - Added evidence-driven game release criteria. Native executable/graphics support and end-to-end compiler qualification are **not verified**.
