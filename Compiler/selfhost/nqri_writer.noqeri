@@ -65,10 +65,51 @@ function nqNqriWriteI64(out: []u8, offset: usize, value: i64): bool {
     return true
 }
 
+// Encode finite IEEE-754 binary64 exactly from a numeric float, without
+// pointer-alias bitcasts. Bitcasting *float as *u64 gave different results
+// in the C++-seeded VM and the Noqeri-generated Stage-2 VM, and did not
+// represent ordinary literals such as 10.0 correctly.
 function nqNqriFloatBits(value: *float): u64 {
     if value == null { return 0 as u64 }
-    let bits: *u64 = value as *u64
-    return bits[0]
+    let number: float = value[0]
+    if number == 0.0 { return 0 as u64 }
+    if number < 0.0 { number = -number }
+    let exponent: int = 0
+    let steps: usize = 0 as usize
+    while number >= 2.0 && steps < 1024 as usize {
+        number = number / 2.0
+        exponent = exponent + 1
+        steps = steps + 1 as usize
+    }
+    while number < 1.0 && steps < 2100 as usize {
+        number = number * 2.0
+        exponent = exponent - 1
+        steps = steps + 1 as usize
+    }
+    if exponent > 1023 { return 9218868437227405312 as u64 }
+    if number == 0.0 { return 0 as u64 }
+    let fraction: float = number - 1.0
+    let mantissa: u64 = 0 as u64
+    let place: u64 = 2251799813685248 as u64
+    let index: usize = 0 as usize
+    while index < 52 as usize {
+        fraction = fraction * 2.0
+        if fraction >= 1.0 {
+            mantissa = mantissa + place
+            fraction = fraction - 1.0
+        }
+        place = place / 2 as u64
+        index = index + 1 as usize
+    }
+    if exponent < -1022 {
+        let shift: int = -1022 - exponent
+        while shift > 0 {
+            mantissa = mantissa / 2 as u64
+            shift = shift - 1
+        }
+        return mantissa
+    }
+    return (exponent + 1023) as u64 * 4503599627370496 as u64 + mantissa
 }
 
 function nqNqriCheckedAdd(a: usize, b: usize, out: *usize): bool {
@@ -158,6 +199,7 @@ export function nqNqriWrite(source: []u8, functions: []NqNirFunction, instructio
         let floatBits: u64 = 0 as u64
         if instruction.opcode == nqNirConstF64() { floatBits = nqNqriFloatBits(&instruction.floatImmediate) }
         if !nqNqriWriteU64(out, offset + 80 as usize, floatBits) { return nqNqriCapacity() }
+        if instruction.opcode == nqNirConstF64() && instruction.floatImmediate < 0.0 { out[offset + 87 as usize] = out[offset + 87 as usize] + 128 as u8 }
         if !nqNqriWriteU64(out, offset + 88 as usize, 0 as u64) { return nqNqriCapacity() }
         offset = offset + nqNqriInstructionBytes()
         instructionIndex = instructionIndex + 1 as usize
