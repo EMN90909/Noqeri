@@ -44,6 +44,9 @@ try{
     require(lock.includes('noqeri/a')&&lock.includes('noqeri/b'),'transitive lock entries missing')
     const resolved=await manager.resolvePackageImports(join(root,'main.noqeri'))
     require(resolved.length===1&&resolved[0].coordinate==='noqeri/a','source package resolution failed')
+    await manager.addPackage('noqeri/b@1.0.0')
+    const project=await readFile(join(root,'project.nqon'),'utf8')
+    require(project.includes('b = "noqeri/b@1.0.0"'),'noqeri add did not update project.nqon')
     const entry=resolved[0].entry
     await writeFile(entry,(await readFile(entry,'utf8'))+'// tamper\n')
     const offlineManager=createPackageManager({home,offline:true})
