@@ -23,7 +23,7 @@ Published comparative runs target Noqeri, C, C++, Rust, Zig, and Go. Versions, o
 1. Record git revision, Noqeri compiler revision, peer compiler versions, OS/kernel, CPU model/count, memory, power mode, and relevant environment variables.
 2. Build release artifacts before timing runtime workloads. Compilation is measured separately.
 3. For Noqeri runtime workloads, retain the generated `.native.json` provenance and verify the timed executable SHA-256 matches it.
-4. Verify output correctness before collecting samples.
+4. Every runtime command must declare deterministic `expected_stdout`. The harness runs one untimed validation execution and rejects the workload before warm-ups if the output differs.
 5. Perform at least three warm-ups, then at least fifteen timed samples unless a workload documents why that is impractical.
 6. Report the raw sample list plus median and p95. Record peak RSS and binary size where meaningful.
 7. Pin server/client topology and concurrency for network tests. Do not compare a loopback single-request microbenchmark to a production server configuration.
