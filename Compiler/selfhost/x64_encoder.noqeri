@@ -370,7 +370,7 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
             let variableOffset: usize = nqX64VariableOffset(slice(variableSymbols),variableCount,regCount,ins.symbol)
             if variableOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLeaRaxSlot(out,cursor,variableOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64InvalidAt(index,ins.opcode) }
         }
-        else if ins.opcode >= nqNirAdd() && ins.opcode <= nqNirGe() {
+        else if (ins.opcode >= nqNirAdd() && ins.opcode <= nqNirMod()) || (ins.opcode >= nqNirEq() && ins.opcode <= nqNirGe()) {
             if leftOffset == 0 as usize || rightOffset == 0 as usize || destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
             let isFloat: bool = nqX64IsFloat(ins.typeCode)
             if isFloat {
