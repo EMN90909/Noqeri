@@ -7,6 +7,7 @@ This is an implementation status matrix, **not** a promise of mature optimizatio
 | Constant propagation/folding | Basic block-local constant folding in `Compiler/optimizer.cpp`; control-flow joins conservatively clear facts |
 | Dead-code elimination | Register liveness elimination for side-effect-free instructions; control flow preserved |
 | Bounds-check elimination | Only checks with proven compile-time in-range integer index/length are eliminated |
+| CFG simplification | Basic-block-local boolean branch folding and instruction reachability pruning at O2+, with exceptional control flow conservatively excluded; native CI qualification pending |
 | Register allocation | Linear-scan intervals with spill slots in `Compiler/register_alloc.cpp`; not a verified global allocator |
 | Inlining | Not qualified |
 | Loop optimization | Not qualified |
