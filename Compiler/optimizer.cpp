@@ -189,4 +189,42 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     }
     if (level == OptimizationLevel::Oz) dce(fn);
 }
-} void PassManager::optimize(NirProgram&p)const{pipeline(p.entry,level_);for(auto&f:p.functions)pipeline(f,level_);}void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
+}
+// This deliberately narrow inliner substitutes *only* a side-effect-free,
+// zero-argument function consisting of one constant and its return.
+// It must never convert a potentially throwing or effectful call.
+void PassManager::optimize(NirProgram& p) const {
+    if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
+        level_ == OptimizationLevel::Oz) {
+        std::unordered_map<std::string, NirValue> candidates;
+        std::unordered_set<std::string> ambiguous;
+        for (const auto& fn : p.functions) {
+            if (fn.name.empty() || fn.isExtern || !fn.params.empty() ||
+                !fn.paramTypes.empty() || fn.code.size() != 2) continue;
+            const auto& a = fn.code[0];
+            const auto& b = fn.code[1];
+            if (a.op != NirOp::Const || !a.dest ||
+                std::holds_alternative<std::monostate>(a.literal) ||
+                b.op != NirOp::Return || b.args.size() != 1 ||
+                b.args.front() != *a.dest) continue;
+            if (!candidates.emplace(fn.name, a.literal).second)
+                ambiguous.insert(fn.name);
+        }
+        for (const auto& name : ambiguous) candidates.erase(name);
+        auto inlineConstants = [&](NirFunction& fn) {
+            for (auto& in : fn.code) {
+                if (in.op != NirOp::Call || !in.dest || !in.args.empty()) continue;
+                auto found = candidates.find(in.text);
+                if (found == candidates.end()) continue;
+                in.op = NirOp::Const;
+                in.literal = found->second;
+                in.text.clear();
+            }
+        };
+        inlineConstants(p.entry);
+        for (auto& fn : p.functions) inlineConstants(fn);
+    }
+    pipeline(p.entry, level_);
+    for (auto& fn : p.functions) pipeline(fn, level_);
+}
+void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
