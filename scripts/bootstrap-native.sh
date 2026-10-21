@@ -8,7 +8,7 @@ SEED_COMPILER="${NOQERI_SEED_COMPILER:-}"
 NQRI_RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
 CXX="${CXX:-c++}"
 MANIFEST="$ROOT/Compiler/selfhost/native-stage-sources.txt"
-NATIVE_DRIVER="$ROOT/Compiler/selfhost/native_driver.noqeri"
+NATIVE_SEED="$ROOT/Compiler/selfhost/native_seed.noqeri"
 HOST_SOURCE="$ROOT/Compiler/bootstrap/native_compiler_host.cpp"
 
 if [ "$(uname -s 2>/dev/null || true)" != "Linux" ]; then
@@ -62,7 +62,7 @@ sha256_file() {
 }
 
 echo "[1/8] Building current-source Stage-1 NQRI seed..."
-"$SEED_COMPILER" bootstrap-seed "$NATIVE_DRIVER" "$STAGE1"
+"$SEED_COMPILER" bootstrap-seed "$NATIVE_SEED" "$STAGE1"
 "$NQRI_RUNTIME" has-export "$STAGE1" stage2CompileToNativeAssembly
 
 echo "[2/8] Stage-1 NQRI seed emits native Stage-2 assembly..."
