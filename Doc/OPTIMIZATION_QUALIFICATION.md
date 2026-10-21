@@ -9,7 +9,7 @@ This is an implementation status matrix, **not** a promise of mature optimizatio
 | Bounds-check elimination | Only checks with proven compile-time in-range integer index/length are eliminated |
 | CFG simplification | Basic-block-local boolean branch folding and instruction reachability pruning at O2+, with exceptional control flow conservatively excluded; native CI qualification pending |
 | Register allocation | Linear-scan intervals with spill slots in `Compiler/register_alloc.cpp`; not a verified global allocator |
-| Inlining | Not qualified |
+| Inlining | Proven side-effect-free zero-argument literal-return calls are specialized at O2+, with unknown/external/effectful calls left intact; general inlining is not qualified |
 | Loop optimization | Not qualified |
 | SIMD/vectorization | Not qualified |
 | Escape analysis | Not qualified |
