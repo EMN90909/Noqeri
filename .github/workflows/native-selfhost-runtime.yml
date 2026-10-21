@@ -69,8 +69,19 @@ jobs:
           fi
       - name: Configure
         run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Validate Noqeri 1.0.0 version and platform contract
+        run: node Tools/release/verify-v1-contract.mjs
       - name: Build C++ seed compiler and native NQRI runtime
         run: cmake --build build-native --target noqeri noqeri-nqri noqeri-optimizer-test --config Release
+      - name: Verify C++ Stage-0 reports the candidate compiler version (Linux)
+        if: runner.os == 'Linux'
+        run: ./build-native/noqeri --version | grep -F '1.0.0'
+      - name: Verify C++ Stage-0 reports the candidate compiler version (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (& .\build-native\Release\noqeri.exe --version | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '1\.0\.0') { throw 'C++ Stage-0 version contract mismatch' }
       - name: Run native NQRI self-test
         run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)$'
       - name: Verify zero initialization through C++ -> NQRI (Linux)
