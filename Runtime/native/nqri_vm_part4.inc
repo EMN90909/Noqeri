@@ -58,6 +58,23 @@ static int selftest() {
         try { (void)loadNqri2(invalid); } catch(const RuntimeError&) { rejected=true; }
         if(!rejected) throw RuntimeError("selftest accepted corrupt NQRI magic");
     }
+    {
+        // Verify both addressable-cell and block-backed f64 bit reinterprets.
+        constexpr std::int64_t expectedBits = INT64_C(0x4024000000000000);
+        auto memory = blockPtr(std::make_shared<MemoryBlock>(8));
+        writeScalar(memory, Value{10.0});
+        if (asInt(readScalar(memory, 8, 13)) != expectedBits ||
+            asDouble(readScalar(memory, 8, 4)) != 10.0)
+            throw RuntimeError("selftest failed: IEEE-754 block bitcast");
+        auto floatCell = std::make_shared<Cell>();
+        floatCell->value = 10.0;
+        if (asInt(readScalar(cellPtr(floatCell), 8, 13)) != expectedBits)
+            throw RuntimeError("selftest failed: IEEE-754 cell bitcast");
+        auto bitCell = std::make_shared<Cell>();
+        bitCell->value = expectedBits;
+        if (asDouble(readScalar(cellPtr(bitCell), 8, 4)) != 10.0)
+            throw RuntimeError("selftest failed: reverse IEEE-754 bitcast");
+    }
     auto m=loadNqri2(makeSelftestModule());
     Vm vm(std::move(m));
     auto expectInt=[&](const char* name,std::int64_t expected){
