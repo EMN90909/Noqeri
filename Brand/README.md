@@ -1,8 +1,8 @@
 # Noqeri brand assets
 
-The new canonical Noqeri identity is the silver-and-lavender geometric fox mark on a dark background, based on the supplied October 2026 reference image.
+The canonical Noqeri icon is the original user-supplied SVG (October 2026), a geometric silver-and-lavender fox emblem on a dark background.
 
-- `noqeri-icon.svg` — vector rendition of the new emblem, used by the repository README and project site.
-- `noqeri-logo.webp` and `noqeri-mark.png` — legacy raster assets retained for compatibility with existing integrations until their icon formats are migrated.
+- `noqeri-icon.svg` — original SVG, used by the repository README, project site, and VS Code language/file icon theme.
+- `noqeri-logo.webp` and `noqeri-mark.png` — legacy raster assets retained for compatibility with older integrations. The VS Code Marketplace extension package still requires a raster PNG for its `icon` manifest field.
 
-Keep the sharp, symmetrical fox head, silver highlights, purple edges, and dark background recognizable. The vector artwork is a recreation of the provided reference, not the source raster itself.
+Do not recreate or substitute this artwork; use the supplied SVG for SVG-capable surfaces.
