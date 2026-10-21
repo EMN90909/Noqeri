@@ -512,6 +512,47 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::Oz) dce(fn);
 }
 }
+NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
+    const auto cfg=graphOf(fn);
+    if(!cfg.uniqueDefs||!cfg.validDominance)return;
+    for(std::size_t b=0;b<cfg.edges.size();++b)
+        for(auto to:cfg.edges[b])if(to<=b)hasBackedge_=true;
+    for(const auto& i:fn.code)
+        if(i.op==NirOp::StackAlloc&&i.dest)roots_[*i.dest]=*i.dest;
+    bool changed=true;
+    while(changed){
+        changed=false;
+        for(const auto& i:fn.code){
+            if(!i.dest||i.args.empty()||roots_.count(*i.dest))continue;
+            if(i.op!=NirOp::PtrOffset&&i.op!=NirOp::MakeSlice&&i.op!=NirOp::SliceData)continue;
+            const auto it=roots_.find(i.args[0]);
+            if(it!=roots_.end()){roots_[*i.dest]=it->second;changed=true;}
+        }
+    }
+    for(const auto& i:fn.code) {
+        for(std::size_t p=0;p<i.args.size();++p){
+            const auto it=roots_.find(i.args[p]);
+            if(it==roots_.end())continue;
+            if(p==0&&(i.op==NirOp::LoadMemory||i.op==NirOp::CheckNonNull||
+                i.op==NirOp::StoreMemory||i.op==NirOp::PtrOffset||
+                i.op==NirOp::MakeSlice||i.op==NirOp::SliceData))continue;
+            escapingRoots_.insert(it->second);
+        }
+    }
+}
+bool NirAliasAnalysis::escapes(Reg pointer) const {
+    const auto it=roots_.find(pointer);
+    return it==roots_.end() || escapingRoots_.count(it->second)>0;
+}
+AliasRelation NirAliasAnalysis::query(Reg a, Reg b) const {
+    if(a==b)return AliasRelation::MustAlias;
+    const auto left=roots_.find(a),right=roots_.find(b);
+    if(left==roots_.end()||right==roots_.end()||hasBackedge_)
+        return AliasRelation::MayAlias;
+    if(left->second!=right->second && !escapingRoots_.count(left->second) &&
+       !escapingRoots_.count(right->second))return AliasRelation::NoAlias;
+    return AliasRelation::MayAlias;
+}
 // Read-only optimizer readiness evidence: candidate counts never claim a pass
 // actually vectorized, removed an allocation or changed a target schedule.
 OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
