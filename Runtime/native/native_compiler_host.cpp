@@ -106,7 +106,20 @@ int main(int argc, char** argv) {
         if (pthread_join(thread, nullptr) != 0) throw std::runtime_error("cannot join native compiler thread");
 
         if (job.result < 0) {
-            std::cerr << "noqeri-native: compile failed with status " << job.result << "\n";
+            std::cerr << "noqeri-native: compile failed with status " << job.result;
+            const std::int64_t raw = -job.result;
+            if (raw >= 1000000000000000ll) {
+                auto payload = raw - 1000000000000000ll;
+                const auto kind = payload / 100000000000000ll;
+                payload %= 100000000000000ll;
+                const auto functionIndex = payload / 1000000000ll;
+                payload %= 1000000000ll;
+                const auto pc = payload / 64ll;
+                const auto opcode = payload % 64ll;
+                std::cerr << " kind=" << kind << " function=" << functionIndex
+                          << " pc=" << pc << " opcode=" << opcode;
+            }
+            std::cerr << "\n";
             return 1;
         }
         const auto written = static_cast<std::uint64_t>(job.result);
