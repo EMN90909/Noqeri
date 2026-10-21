@@ -24,7 +24,7 @@ void usage() {
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
-              << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
+              << "  db <script.nqd> [data.nqdb]       LEGACY compatibility; new projects use NoeSQL .noedb\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
               << "  link <output> <object...>          run explicit linker adapter\n"
