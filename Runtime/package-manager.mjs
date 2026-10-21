@@ -250,6 +250,7 @@ export function createPackageManager(options = {}) {
     for (;;) {
       const candidate = join(current, 'project.noqeri')
       try { await stat(candidate); return candidate } catch {}
+      try { await stat(join(current, 'project.nqon')); throw new Error('project.nqon is reserved but its parser has not been qualified; use project.noqeri') } catch (e) { if (e.code !== 'ENOENT') throw e }
       const parent = dirname(current)
       if (parent === current) throw new Error('project.noqeri not found')
       current = parent
