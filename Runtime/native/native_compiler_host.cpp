@@ -24,12 +24,13 @@ struct CompileJob {
     NqSlice source{};
     NqSlice output{};
     std::int64_t target{3};
+    std::int64_t unsafeAllowed{0};
     std::int64_t result{-1};
 };
 
 void* compileOnLargeStack(void* opaque) {
     auto* job = static_cast<CompileJob*>(opaque);
-    job->result = nativeCompileToAssembly(&job->source, job->target, 0, 0, &job->output);
+    job->result = nativeCompileToAssembly(&job->source, job->target, 0, job->unsafeAllowed, &job->output);
     return nullptr;
 }
 
@@ -65,7 +66,12 @@ int main(int argc, char** argv) {
             return 2;
         }
 
-        const std::int64_t target = argc == 4 ? std::stoll(argv[3]) : 3;
+        const std::int64_t target = argc >= 4 ? std::stoll(argv[3]) : 3;
+        const std::int64_t unsafeAllowed = argc >= 5 ? std::stoll(argv[4]) : 0;
+        if (unsafeAllowed != 0 && unsafeAllowed != 1) {
+            std::cerr << "noqeri-native: unsafe must be 0 or 1\\n";
+            return 2;
+        }
         if (target != 3) {
             std::cerr << "noqeri-native: qualified native target is currently Linux x86-64 (target 3)\n";
             return 2;
@@ -82,6 +88,7 @@ int main(int argc, char** argv) {
         job.source = {source.data(), static_cast<std::uint64_t>(source.size())};
         job.output = {output.data(), static_cast<std::uint64_t>(output.size())};
         job.target = target;
+        job.unsafeAllowed = unsafeAllowed;
 
         pthread_attr_t attr;
         if (pthread_attr_init(&attr) != 0) throw std::runtime_error("pthread_attr_init failed");
