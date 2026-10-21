@@ -1,0 +1,19 @@
+name: Noqeri SSA and GVN qualification
+on:
+  push:
+    branches: [feature/optimizer-gvn-ssa-v1]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  optimizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native optimizer regressions
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer-ssa
+      - name: Verify correctness and conservatism
+        run: /tmp/noqeri-optimizer-ssa
