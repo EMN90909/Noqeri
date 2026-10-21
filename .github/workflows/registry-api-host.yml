@@ -14,3 +14,7 @@ jobs:
         with: {node-version: '22'}
       - run: node tests/package_manager_host.mjs
       - run: node --test tests/nqon.test.mjs
+      - name: Compile and execute optimizer CFG regressions
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer-cfg
+          /tmp/noqeri-optimizer-cfg
