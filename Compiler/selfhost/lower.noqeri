@@ -524,7 +524,9 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         let zero: isize = nqLowerEmitConst(instructions, state, 0 as i64, counterType)
         if zero < 0 as isize { return zero }
         let condition: isize = nqLowerAllocRegister(state)
-        let compare: isize = nqLowerEmit(instructions, state, nqNirGt(), condition)
+        let compareOpcode: int = nqNirGt()
+        if nqCompilerTypeIsUnsigned(counterType) { compareOpcode = nqNirNe() }
+        let compare: isize = nqLowerEmit(instructions, state, compareOpcode, condition)
         if compare < 0 as isize { return compare }
         instructions[compare as usize].left = current
         instructions[compare as usize].right = zero
