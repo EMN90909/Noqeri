@@ -1,0 +1,46 @@
+name: NQON portability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Runtime/nqon.mjs'
+      - 'Runtime/nqon-cli.mjs'
+      - 'Runtime/package-manager.mjs'
+      - 'Runtime/stage1-cli.mjs'
+      - 'Runtime/stage2-cli.mjs'
+      - 'tests/nqon.test.mjs'
+      - 'tests/package_manager_host.mjs'
+      - 'tests/stage1_cli_host.mjs'
+      - 'project.nqon'
+      - '.github/workflows/nqon.yml'
+  pull_request:
+    paths:
+      - 'Runtime/nqon.mjs'
+      - 'Runtime/nqon-cli.mjs'
+      - 'Runtime/package-manager.mjs'
+      - 'Runtime/stage1-cli.mjs'
+      - 'Runtime/stage2-cli.mjs'
+      - 'tests/nqon.test.mjs'
+      - 'tests/package_manager_host.mjs'
+      - 'tests/stage1_cli_host.mjs'
+      - 'project.nqon'
+      - '.github/workflows/nqon.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  portable-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: NQON parser and converter
+        run: node --test tests/nqon.test.mjs
+      - name: Package manager NQON compatibility
+        run: node tests/package_manager_host.mjs
+      - name: Portable CLI manifest discovery
+        run: node tests/stage1_cli_host.mjs
