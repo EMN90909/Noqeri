@@ -123,6 +123,10 @@ function nqLowerNodeSymbol(source: []u8, nodes: []NqAstNode, index: isize): u64 
 
 function nqLowerNodeWidth(node: *NqAstNode): usize {
     if node == null { return 8 as usize }
+    // Semantic layout sets storageBytes for record index/member expressions.
+    // Falling back to a pointer-width stride for a record corrupts arrays of
+    // AST nodes, parser nodes and user-defined data structures.
+    if node.storageBytes > 0 as usize { return node.storageBytes }
     let width: usize = nqCompilerPrimitiveTypeWidth(node.typeCode)
     if width == 0 as usize { return 8 as usize }
     return width
