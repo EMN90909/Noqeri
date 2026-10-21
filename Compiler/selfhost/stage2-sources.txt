@@ -23,6 +23,8 @@ Compiler/selfhost/targets.noqeri
 Compiler/selfhost/object_formats.noqeri
 Compiler/selfhost/abi.noqeri
 Compiler/selfhost/backend.noqeri
+Compiler/selfhost/x64_encoder.noqeri
+Compiler/selfhost/elf_native_writer.noqeri
 Compiler/selfhost/linker.noqeri
 Compiler/selfhost/security.noqeri
 Compiler/selfhost/pipeline.noqeri
