@@ -625,3 +625,18 @@ function nqa_zero_nl(out: []u8, cursor: *usize): bool {
     return nqAsmAppend(out, cursor, slice(value))
 }
 
+function nqa_push_slot(out: []u8, cursor: *usize): bool {
+    let value: [u8; 24] = [32 as u8,32 as u8,32 as u8,32 as u8,112 as u8,117 as u8,115 as u8,104 as u8,32 as u8,81 as u8,87 as u8,79 as u8,82 as u8,68 as u8,32 as u8,80 as u8,84 as u8,82 as u8,32 as u8,91 as u8,114 as u8,98 as u8,112 as u8,45 as u8]
+    return nqAsmAppend(out, cursor, slice(value))
+}
+
+function nqa_add_rsp(out: []u8, cursor: *usize): bool {
+    let value: [u8; 13] = [32 as u8,32 as u8,32 as u8,32 as u8,97 as u8,100 as u8,100 as u8,32 as u8,114 as u8,115 as u8,112 as u8,44 as u8,32 as u8]
+    return nqAsmAppend(out, cursor, slice(value))
+}
+
+function nqa_mov_rax_stack_arg(out: []u8, cursor: *usize): bool {
+    let value: [u8; 28] = [32 as u8,32 as u8,32 as u8,32 as u8,109 as u8,111 as u8,118 as u8,32 as u8,114 as u8,97 as u8,120 as u8,44 as u8,32 as u8,81 as u8,87 as u8,79 as u8,82 as u8,68 as u8,32 as u8,80 as u8,84 as u8,82 as u8,32 as u8,91 as u8,114 as u8,98 as u8,112 as u8,43 as u8]
+    return nqAsmAppend(out, cursor, slice(value))
+}
+
