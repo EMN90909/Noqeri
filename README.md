@@ -4,7 +4,28 @@
 **Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.noqeri`, project manifests use `project.noqeri`, portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`.
+Noqeri source uses `.noqeri`, project manifests use portable `project.nqon`, portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`. Legacy `project.noqeri` manifests remain readable during the 0.7 migration.
+
+## Beginner surface
+
+A single file needs no project ceremony:
+
+```noqeri
+let name = "Noqeri"
+
+if name == "Noqeri" {
+    print("Hello")
+}
+```
+
+Types are inferred for initialized local values, semicolons are optional, and condition parentheses are unnecessary. `noqeri new demo` creates a two-line `project.nqon` plus a one-line starter program. Explicit types remain available where they communicate an API or systems boundary.
+
+```nqon
+name = demo
+version = "0.1.0"
+```
+
+NQON is specified independently of the compiler and can be converted to/from JSON with the standalone reference tooling. See [NQON](Doc/NQON.md) and the [syntax simplicity contract](Doc/SYNTAX_SIMPLICITY.md).
 
 ## Compiler architecture
 

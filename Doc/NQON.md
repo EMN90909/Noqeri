@@ -110,16 +110,20 @@ Other languages should implement this specification directly. NQON is a data for
 
 ## Project manifests
 
-New Noqeri projects use `project.nqon`:
+New Noqeri projects keep compiler defaults implicit:
 
 ```nqon
 name = demo
 version = "0.1.0"
-edition = "2026"
-entry = src/main.noqeri
-profile = app
+```
+
+Override conventional settings only when the project actually needs to change them:
+
+```nqon
+name = demo
+version = "0.1.0"
+entry = src/server.noqeri
 target = x86_64-unknown-none
-registry = "https://github.com/EMN90909/noqeri-registry"
 
 packages {
     forge = "noqeri/forge@1.2.0"

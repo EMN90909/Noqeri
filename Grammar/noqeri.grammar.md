@@ -57,7 +57,7 @@ import "./local_file.noqeri"
 import package "noqeri/supabase"
 ```
 
-A quoted import resolves relative to the importing source file. `import package` resolves an installed registry package by its `namespace/name` coordinate. Package coordinates may contain ASCII letters, digits, `_` and `-` in each segment and contain exactly one `/`. Versions do not appear in source code: `project.noqeri` declares the acceptable version and `noqeri.lock` pins the exact artifact and integrity identity. Compilation never silently changes a dependency version. Network access belongs to `noqeri add` / `noqeri install`; the compiler resolves imports from the immutable package cache and can therefore build offline.
+A quoted import resolves relative to the importing source file. `import package` resolves an installed registry package by its `namespace/name` coordinate. Package coordinates may contain ASCII letters, digits, `_` and `-` in each segment and contain exactly one `/`. Versions do not appear in source code: `project.nqon` declares the acceptable version and `noqeri.lock` pins the exact artifact and integrity identity. Compilation never silently changes a dependency version. Network access belongs to `noqeri add` / `noqeri install`; the compiler resolves imports from the immutable package cache and can therefore build offline.
 
 This syntax exists to delete ambiguity between a local file and a registry dependency. It does not introduce aliases, URL imports, install-time scripts, or a second module system.
 
@@ -110,6 +110,8 @@ exprStmt       := expression terminator?
 ```
 
 `const` bindings cannot be assigned after initialization. `if` and `while` conditions must be `bool`; integers are not silently treated as booleans.
+
+The 0.7 self-host transition intentionally does not treat a syntax spelling as qualified until the self-host parser, semantic analysis, lowering and regression suite agree on it. The bootstrap parser's `repeat count { ... }` compatibility syntax remains a beginner-surface target while Stage-2 parity is completed.
 
 ## Expressions
 

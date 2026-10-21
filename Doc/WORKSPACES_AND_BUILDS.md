@@ -1,6 +1,6 @@
 # Workspaces, conditional sources and offline builds
 
-These tools keep platform conditions out of ordinary application source. They are stage-1 repository tooling today; native compiler integration should converge on the same small manifests rather than introducing a second syntax.
+These tools keep platform conditions out of ordinary application source. Project manifests now use NQON. The older workspace/build JSON files remain stage-1 tooling contracts for compatibility and should converge on NQON only when their native consumers migrate together, rather than creating competing config syntaxes.
 
 ## Workspaces
 
@@ -13,7 +13,7 @@ A multi-package repository can declare `noqeri.workspace.json`:
 }
 ```
 
-Each member must contain `project.noqeri`. Run one public command over members:
+Each member must contain canonical `project.nqon`; the 0.7 runner also accepts legacy `project.noqeri` during migration. Run one public command over members:
 
 ```sh
 node Tools/workspace/noqeri-workspace.mjs check

@@ -2,6 +2,16 @@
 
 The beginner track deliberately teaches ordinary application programming before systems mechanisms. A learner should be able to build useful software without first understanding pointers, ABI details, atomics, assembly, native object formats or compiler IR.
 
+## Start without setup ceremony
+
+Your first file can be only:
+
+```noqeri
+print("Hello from Noqeri")
+```
+
+Run a single file without learning manifests first. When a learner is ready for a multi-file project, `noqeri new demo` creates a minimal `project.nqon` with only the project name and version; conventional compiler settings remain implicit.
+
 ## Core track
 
 1. **Print** — run one file, print text and numbers, read an error message.

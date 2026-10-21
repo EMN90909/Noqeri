@@ -237,7 +237,58 @@ registry = "https://github.com/EMN90909/noqeri-registry"
 EOF
 ./build/noqeri manifest build/manifest-test/project.nqon | grep -q 'edition=2026'
 ./build/noqeri lock build/manifest-test/project.nqon >/dev/null
-grep -q '^noqeri-lock 2$' build/manifest-test/noqeri.lock
+grep -q '^noqeri-lock 2if grep -qi 'fnv' build/manifest-test/noqeri.lock; then
+  echo "legacy non-content lock hash returned" >&2
+  exit 1
+fi
+
+./build/noqeri targets | grep -q '^x86_64-unknown-none '
+./build/noqeri targets | grep -q '^aarch64-unknown-none '
+./build/noqeri --version | grep -q '^edition=2026$'
+
+./build/noqeri build examples/native_hello.noqeri build/native_hello.s
+test -s build/native_hello.s
+grep -q '^\.global noqeri_entry$' build/native_hello.s
+grep -q '^noqeri_entry:$' build/native_hello.s
+
+./build/noqeri build tests/systems_types.noqeri build/systems_types.s
+test -s build/systems_types.s
+grep -q '^\.global kernel_main$' build/systems_types.s
+grep -q '^kernel_main:$' build/systems_types.s
+grep -q 'mov DWORD PTR \[rax\], ebx' build/systems_types.s
+
+./build/noqeri build examples/general_systems.noqeri build/general_systems.s
+test -s build/general_systems.s
+grep -q 'xchg QWORD PTR \[rax\], rbx' build/general_systems.s
+grep -q 'pause' build/general_systems.s
+grep -q '^exercise:$' build/general_systems.s
+
+if grep -Eq '\bsyscall\b|\b_start\b|elf_x86_64|\.note\.GNU-stack' build/native_hello.s build/systems_types.s build/general_systems.s; then
+  echo "freestanding native output contains a platform-specific runtime assumption" >&2
+  exit 1
+fi
+
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64)
+    ${CXX:-c++} -c build/native_hello.s -o build/native_hello.o
+    ${CXX:-c++} -c build/systems_types.s -o build/systems_types.o
+    ${CXX:-c++} -c build/general_systems.s -o build/general_systems.o
+    test -s build/native_hello.o
+    test -s build/systems_types.o
+    test -s build/general_systems.o
+    ;;
+esac
+
+echo "semantic, type-safety, constrained-generics, string, web, NoqeriDB, lifetime, package, formatter, target, and native codegen tests passed"
+ build/manifest-test/noqeri.lock
+
+# New projects expose only beginner-owned settings; compiler defaults stay implicit.
+rm -rf build/new-project
+./build/noqeri new starter build/new-project >/dev/null
+grep -qx 'name = starter' build/new-project/project.nqon
+grep -qx 'version = "0.1.0"' build/new-project/project.nqon
+test "$(wc -l < build/new-project/project.nqon | tr -d ' ')" = "2"
+grep -qx 'print("Hello from Noqeri")' build/new-project/src/main.noqeri
 if grep -qi 'fnv' build/manifest-test/noqeri.lock; then
   echo "legacy non-content lock hash returned" >&2
   exit 1

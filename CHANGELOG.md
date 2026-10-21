@@ -2,6 +2,10 @@
 
 ## 0.7.0-development — 2026-10-18 (not yet released)
 
+- Added portable NQON (`.nqon`) with a standalone parser/serializer, validation, comments, JSON conversion and canonical `project.nqon` manifests; legacy `project.noqeri` remains readable during migration.
+- Simplified `noqeri new`: generated projects now expose only `name` and `version` in `project.nqon`, while the compiler supplies conventional defaults, and the starter source begins directly with `print(...)`.
+- Added an explicit beginner-syntax simplicity contract and a 9.7/10 internal design target. The number is not an empirical usability claim; comparative claims still require the repository usability-study evidence.
+
 - Normalized active compiler and project version declarations to a 0.7.0 development track. This is a deliberate pre-1.0 version reset; the older 1.x changelog entries remain historical, not evidence of a production release.
 - Added an initial game SDK for 3D vector math, bounded fixed-step simulation, action-button state and axis-aligned collision/ray queries, with a conformance fixture.
 - Added evidence-driven game release criteria. Native executable/graphics support and end-to-end compiler qualification are **not verified**.

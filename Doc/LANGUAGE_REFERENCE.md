@@ -37,7 +37,7 @@ The parenthesized form remains accepted for compatibility.
 
 ## Loops
 
-Noqeri has two simple beginner-facing loop ideas.
+Noqeri's beginner surface has a conditional loop and a counted-loop target.
 
 Use `repeat` when the number of iterations is the idea:
 
@@ -48,7 +48,7 @@ repeat 4 {
 }
 ```
 
-`repeat count { ... }` evaluates the count once, converts it to `int`, creates compiler-private limit/index bindings and lowers to the existing `while` AST. Zero and negative counts execute zero iterations. There is no separate repeat runtime or NIR operation.
+`repeat count { ... }` is implemented by the bootstrap compiler as counted-loop sugar that evaluates the count once and lowers to ordinary control flow. During the 0.7 self-host migration, Stage-2 `repeat` parity is still a qualification gate, so release claims must not treat it as fully self-hosted until the self-host parser/lowering tests pass. Zero and negative counts are specified to execute zero iterations.
 
 Use `while` when the condition is the idea:
 
@@ -269,6 +269,6 @@ export function library_entry(data: *u8, count: usize): isize {
 
 ## NIR model
 
-The lower-level NIR keeps important semantics explicit, including address-of, width-carrying memory access, volatile access, pointer offsets, stack allocation, slice construction/data/length, casts, dynamic bounds/non-null checks, atomics, intrinsics, inline assembly and try/throw flow. `repeat` is intentionally absent from this list because it is already reduced to ordinary control flow in the parser.
+The lower-level NIR keeps important semantics explicit, including address-of, width-carrying memory access, volatile access, pointer offsets, stack allocation, slice construction/data/length, casts, dynamic bounds/non-null checks, atomics, intrinsics, inline assembly and try/throw flow. `repeat` does not require a dedicated runtime instruction; qualified implementations lower it to ordinary control flow.
 
 See `Doc/ABI.md`, `Doc/FFI.md`, `Doc/FREESTANDING.md` and `Doc/NATIVE_TARGETS.md` for systems/embedding details.
