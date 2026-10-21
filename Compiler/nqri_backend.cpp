@@ -420,6 +420,10 @@ bool NqriBackend::emitModule(const NirProgram& program,
             record.symbol = symbol;
             record.name = source.append(fn->name);
             record.firstInstruction = static_cast<std::uint32_t>(instructions.size());
+            if (fn->params.size() > std::numeric_limits<std::uint32_t>::max()) {
+                diagnostics.error("NQR-B9040", {}, "NQRI parameter table exceeds 32-bit format limit: " + fn->name);
+                return false;
+            }
             record.parameterCount = static_cast<std::uint32_t>(fn->params.size());
             record.flags = fn->isExport ? 1u : 0u;
             const auto before = instructions.size();

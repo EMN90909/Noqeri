@@ -1,0 +1,1 @@
+function main(): int { let invalid: int = 0x; return invalid; }

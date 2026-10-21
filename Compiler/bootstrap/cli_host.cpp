@@ -408,7 +408,7 @@ int main(int argc, char** argv) {
             std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
             Diagnostics d;
             if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
-            std::cout << "emitted trusted Stage-1 NQRI seed: " << output << "\n";
+            std::cout << "emitted Stage-1 NQRI seed candidate (provenance not yet verified): " << output << "\n";
             return 0;
         }
         if (cmd == "nqri") {
