@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for sample in examples/hello.noqeri tests/short_circuit.noqeri tests/loop_control.noqeri; do
+          for sample in examples/hello.noqeri tests/optimizer_equivalence.noqeri; do
             ./build-opt/noqeri check "$sample" -O0
             ./build-opt/noqeri check "$sample" -O3
             ./build-opt/noqeri run "$sample" -O0 > /tmp/semantics-O0.txt
