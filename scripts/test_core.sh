@@ -11,6 +11,7 @@ fi
 "$NQ" stage2-status
 "$NQ" selftest
 "$NQ" check examples/hello.noqeri
+"$NQ" check tests/repeat_loop.noqeri
 "$NQ" check tests/compiler_stage2_core.noqeri
 "$NQ" check tests/generic_records.noqeri
 "$NQ" check tests/generic_collections.noqeri
