@@ -105,6 +105,8 @@ function nqLowerNodeSymbol(source: []u8, nodes: []NqAstNode, index: isize): u64 
 
 function nqLowerNodeWidth(node: *NqAstNode): usize {
     if node == null { return 8 as usize }
+    // Use the semantic record layout instead of treating every record as eight bytes.
+    if node.storageBytes > 0 as usize { return node.storageBytes }
     let width: usize = nqCompilerPrimitiveTypeWidth(node.typeCode)
     if width == 0 as usize { return 8 as usize }
     return width
