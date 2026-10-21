@@ -1,15 +1,119 @@
 {
-  "schema": 1,
-  "note": "Copy to Benchmarks/commands.json for the machine under test. Only point entries at implementations that perform equivalent work and produce the same validation output. Missing entries remain unmeasured; never substitute a toy workload for a missing comparison.",
+  "schema": 3,
+  "note": "Copy to Benchmarks/commands.json. Runtime entries must declare deterministic expected_stdout and are validated before timing. Noqeri runtime entries are standalone native AOT executables; the harness rejects noqeri run, noqeri-nqri, and .nqri artifacts as runtime performance evidence.",
   "implementations": {
     "noqeri": {
-      "json": { "command": ["build/noqeri", "run", "Benchmarks/workloads/json.noqeri"], "binary": "build/noqeri" },
-      "regex": { "command": ["build/noqeri", "run", "Benchmarks/workloads/regex.noqeri"], "binary": "build/noqeri" },
-      "matrix": { "command": ["build/noqeri", "run", "Benchmarks/workloads/matrix.noqeri"], "binary": "build/noqeri" },
-      "strings": { "command": ["build/noqeri", "run", "Benchmarks/workloads/strings.noqeri"], "binary": "build/noqeri" },
-      "sorting": { "command": ["build/noqeri", "run", "Benchmarks/workloads/sorting.noqeri"], "binary": "build/noqeri" },
-      "startup": { "command": ["build/noqeri", "run", "Benchmarks/workloads/startup.noqeri"], "binary": "build/noqeri" },
-      "compilation": { "command": ["build/noqeri", "check", "tests/noqeri_library_suite.noqeri"], "binary": "build/noqeri" }
+      "json": {
+        "prepare": [
+          "node",
+          "scripts/native-build.mjs",
+          "Benchmarks/workloads/json.noqeri",
+          "build/benchmarks/native/json",
+          "--compiler=build/noqeri",
+          "--opt=-O3"
+        ],
+        "command": [
+          "build/benchmarks/native/json"
+        ],
+        "binary": "build/benchmarks/native/json",
+        "provenance": "build/benchmarks/native/json.native.json",
+        "execution_model": "native-aot",
+        "expected_stdout": "5600000"
+      },
+      "regex": {
+        "prepare": [
+          "node",
+          "scripts/native-build.mjs",
+          "Benchmarks/workloads/regex.noqeri",
+          "build/benchmarks/native/regex",
+          "--compiler=build/noqeri",
+          "--opt=-O3"
+        ],
+        "command": [
+          "build/benchmarks/native/regex"
+        ],
+        "binary": "build/benchmarks/native/regex",
+        "provenance": "build/benchmarks/native/regex.native.json",
+        "execution_model": "native-aot",
+        "expected_stdout": "200000"
+      },
+      "matrix": {
+        "prepare": [
+          "node",
+          "scripts/native-build.mjs",
+          "Benchmarks/workloads/matrix.noqeri",
+          "build/benchmarks/native/matrix",
+          "--compiler=build/noqeri",
+          "--opt=-O3"
+        ],
+        "command": [
+          "build/benchmarks/native/matrix"
+        ],
+        "binary": "build/benchmarks/native/matrix",
+        "provenance": "build/benchmarks/native/matrix.native.json",
+        "execution_model": "native-aot",
+        "expected_stdout": "29971\n28448"
+      },
+      "strings": {
+        "prepare": [
+          "node",
+          "scripts/native-build.mjs",
+          "Benchmarks/workloads/strings.noqeri",
+          "build/benchmarks/native/strings",
+          "--compiler=build/noqeri",
+          "--opt=-O3"
+        ],
+        "command": [
+          "build/benchmarks/native/strings"
+        ],
+        "binary": "build/benchmarks/native/strings",
+        "provenance": "build/benchmarks/native/strings.native.json",
+        "execution_model": "native-aot",
+        "expected_stdout": "1000000"
+      },
+      "sorting": {
+        "prepare": [
+          "node",
+          "scripts/native-build.mjs",
+          "Benchmarks/workloads/sorting.noqeri",
+          "build/benchmarks/native/sorting",
+          "--compiler=build/noqeri",
+          "--opt=-O3"
+        ],
+        "command": [
+          "build/benchmarks/native/sorting"
+        ],
+        "binary": "build/benchmarks/native/sorting",
+        "provenance": "build/benchmarks/native/sorting.native.json",
+        "execution_model": "native-aot",
+        "expected_stdout": "64\n65032"
+      },
+      "startup": {
+        "prepare": [
+          "node",
+          "scripts/native-build.mjs",
+          "Benchmarks/workloads/startup.noqeri",
+          "build/benchmarks/native/startup",
+          "--compiler=build/noqeri",
+          "--opt=-O3"
+        ],
+        "command": [
+          "build/benchmarks/native/startup"
+        ],
+        "binary": "build/benchmarks/native/startup",
+        "provenance": "build/benchmarks/native/startup.native.json",
+        "execution_model": "native-aot",
+        "expected_stdout": "0"
+      },
+      "compilation": {
+        "command": [
+          "build/noqeri",
+          "check",
+          "tests/noqeri_library_suite.noqeri"
+        ],
+        "binary": "build/noqeri",
+        "execution_model": "compiler-stage0"
+      }
     },
     "c": {},
     "cpp": {},

@@ -1,4 +1,4 @@
-name: Native self-host runtime
+name: NQRI self-host and native AOT qualification
 
 on:
   push:
@@ -8,12 +8,18 @@ on:
       - 'Compiler/**'
       - 'Include/noqeri/**'
       - 'scripts/bootstrap-native.*'
+      - 'scripts/bootstrap-nqri.*'
+      - 'scripts/native-build.mjs'
       - 'scripts/build.*'
       - 'CMakeLists.txt'
       - 'tests/zero_init.noqeri'
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
+      - 'tests/native_benchmark_policy.test.mjs'
+      - 'Benchmarks/commands.example.json'
+      - 'Benchmarks/METHODOLOGY.md'
+      - 'Benchmarks/workloads/**'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -27,19 +33,25 @@ on:
       - 'Compiler/**'
       - 'Include/noqeri/**'
       - 'scripts/bootstrap-native.*'
+      - 'scripts/bootstrap-nqri.*'
+      - 'scripts/native-build.mjs'
       - 'scripts/build.*'
       - 'CMakeLists.txt'
       - 'tests/zero_init.noqeri'
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
+      - 'tests/native_benchmark_policy.test.mjs'
+      - 'Benchmarks/commands.example.json'
+      - 'Benchmarks/METHODOLOGY.md'
+      - 'Benchmarks/workloads/**'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
   contents: read
 
 jobs:
-  native-selfhost:
+  execution-qualification:
     strategy:
       fail-fast: false
       matrix:
@@ -73,10 +85,37 @@ jobs:
           fi
       - name: Configure
         run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
-      - name: Build C++ seed compiler and native NQRI runtime
+      - name: Build C++ seed compiler and NQRI VM
         run: cmake --build build-native --target noqeri noqeri-nqri noqeri-optimizer-test --config Release
-      - name: Run native NQRI self-test
+      - name: Run NQRI VM self-test
         run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)$'
+      - name: Enforce native benchmark policy
+        if: runner.os == 'Linux'
+        run: node --test tests/native_benchmark_policy.test.mjs
+      - name: Verify representative standalone native AOT workloads
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_aot() {
+            source="$1"
+            name="$2"
+            expected="$3"
+            output_path="build-native/aot-$name"
+            node scripts/native-build.mjs "$source" "$output_path" --compiler=build-native/noqeri --cxx=c++ --opt=-O3
+            actual=$("$output_path")
+            if [ "$actual" != "$expected" ]; then
+              printf 'AOT workload %s mismatch\nexpected:\n%s\nactual:\n%s\n' "$name" "$expected" "$actual" >&2
+              exit 1
+            fi
+            node -e "const p=require('./$output_path.native.json'); if(p.execution_model!=='native-aot'||p.self_hosted_compiler!==false||p.target!=='linux-x86_64-sysv'||!p.artifact_sha256||!p.compiler_sha256) process.exit(1)"
+          }
+          check_aot Benchmarks/workloads/startup.noqeri startup "0"
+          check_aot Benchmarks/workloads/matrix.noqeri matrix "$(printf '29971\n28448')"
+          check_aot Benchmarks/workloads/strings.noqeri strings "1000000"
+          check_aot Benchmarks/workloads/sorting.noqeri sorting "$(printf '64\n65032')"
+          check_aot Benchmarks/workloads/json.noqeri json "5600000"
+          check_aot Benchmarks/workloads/regex.noqeri regex "200000"
       - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -187,19 +226,22 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           path: build-native/noqeri-stage1.nqri
-      - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Linux)
+      - name: Verify NQRI Stage-1 -> Stage-2 -> Stage-3 (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           BUILD_DIR="$PWD/build-selfhost" \
           NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
-          sh ./scripts/bootstrap-native.sh
-          grep -qx 'seed_origin=repository-committed' build-selfhost/native-selfhost-proof.txt
-          grep -qx 'stage1_pin_verified=true' build-selfhost/native-selfhost-proof.txt
-          grep -qx 'stage1_independently_trusted=false' build-selfhost/native-selfhost-proof.txt
-          grep -qx 'byte_equal=true' build-selfhost/native-selfhost-proof.txt
-          grep -qx 'equivalent=true' build-selfhost/native-selfhost-proof.txt
+          sh ./scripts/bootstrap-nqri.sh
+          grep -qx 'seed_origin=repository-committed' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'stage1_pin_verified=true' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'execution_model=nqri-vm' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'native_codegen=false' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'native_selfhost=false' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'stage1_independently_trusted=false' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'byte_equal=true' build-selfhost/nqri-selfhost-proof.txt
+          grep -qx 'equivalent=true' build-selfhost/nqri-selfhost-proof.txt
       - name: Build Stage-1 NQRI seed candidate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -216,7 +258,7 @@ jobs:
             & .\build-native\Release\noqeri-nqri.exe syntax build-native\noqeri-stage1.nqri $source
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Windows)
+      - name: Verify NQRI Stage-1 -> Stage-2 -> Stage-3 (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -224,11 +266,11 @@ jobs:
           $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
           Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
           Remove-Item Env:NOQERI_STAGE1_SHA256 -ErrorAction SilentlyContinue
-          .\scripts\bootstrap-native.ps1
+          .\scripts\bootstrap-nqri.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $proof = Get-Content (Join-Path $env:BUILD_DIR 'native-selfhost-proof.json') -Raw | ConvertFrom-Json
-          if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false) {
-            throw 'bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality without asserting independent attestation'
+          $proof = Get-Content (Join-Path $env:BUILD_DIR 'nqri-selfhost-proof.json') -Raw | ConvertFrom-Json
+          if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false -or $proof.execution_model -ne 'nqri-vm' -or $proof.native_codegen -ne $false -or $proof.native_selfhost -ne $false) {
+            throw 'NQRI bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality while explicitly rejecting native qualification'
           }
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
@@ -240,11 +282,11 @@ jobs:
             build-native/noqeri-stage1.nqri
             build-selfhost/noqeri-stage2.nqri
             build-selfhost/noqeri-stage3.nqri
-            build-selfhost/native-selfhost-proof.txt
+            build-selfhost/nqri-selfhost-proof.txt
 
   stage1-cross-compiler:
     name: Stage-1 pin reproducibility (GCC versus Clang)
-    needs: native-selfhost
+    needs: execution-qualification
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

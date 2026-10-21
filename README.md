@@ -4,7 +4,7 @@
 **Version on `main`: 0.7.0 (development, not production-qualified).** The `1.0.0` proposal is **not** a published stable compiler version. `CMakeLists.txt`, `Include/noqeri/version.hpp`, and `Compiler/selfhost/driver.noqeri` still report 0.7.0 on this branch. Do not claim `v1.0.0` solely from documentation. Release readiness requires native Stage-2 parity, reviewed bootstrap provenance, a passing platform matrix, and actual NoeSQL/Registry cross-repository tests.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and native portable bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main is still version **0.7.0**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
+Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and portable compiler bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main is still version **0.7.0**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
 
 ## Reactive web development (experimental, implemented on `main`)
 
@@ -75,11 +75,26 @@ The C++ Stage-0 NIR pipeline implements local integer value numbering (GVN), SSA
 
 The native [optimization CI](.github/workflows/advanced-optimizer.yml) builds the complete C++ compiler, executes the optimizer and register allocation tests, and compares O0 versus O3 output for valid Noqeri programs. These are Stage-0 tests, **not** proof of self-hosted Stage-2 backend parity or production-wide performance.
 
+## Native runtime benchmarking
+
+For runtime comparisons, Noqeri now has a fail-closed AOT qualification path on Linux x86-64. Build the Stage-0 native compiler explicitly, then produce the standalone executable:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target noqeri --config Release
+node scripts/native-build.mjs Benchmarks/workloads/startup.noqeri build/benchmarks/native/startup --compiler=build/noqeri --opt=-O3
+./build/benchmarks/native/startup
+```
+
+The helper compiles through the Stage-0 native backend, assembles and links a standalone ELF executable with the minimal C ABI host, and writes a `.native.json` provenance record. `scripts/benchmark-suite.mjs` rejects `noqeri run`, `noqeri-nqri`, and `.nqri` artifacts as Noqeri runtime-performance evidence.
+
+This makes native program comparisons measurable without pretending the compiler is already natively self-hosted. Current provenance explicitly records `self_hosted_compiler: false`. A claim such as "Noqeri is 1.1x C" remains invalid until equivalent C/Noqeri workloads are measured under [the benchmark methodology](Benchmarks/METHODOLOGY.md) and the raw evidence bundle supports that exact statement.
+
 ## Compiler architecture
 
-`main` now uses a staged self-host model. The normal build no longer invokes CMake or a C++17 compiler. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`; the first stage owns lexical scanning, structural syntax checks, primitive type-width/sign policy, token counting and source fingerprinting.
+`main` uses a staged self-host model. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`. The pinned self-rebuild path currently produces NQRI bytecode and executes it through the C++ `noqeri-nqri` VM. That is valid NQRI self-reproduction evidence, but it is **not** native-code self-hosting.
 
-The C++17 Stage-0 bootstrap remains a provenance/seed dependency, not a separately verified production implementation. Historical bootstrap branches may exist but are not a release-certification mechanism. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact trust boundary and remaining parity work.
+The C++17 Stage-0 compiler remains the implementation that owns today's qualified x86-64 AOT code generation. The Noqeri-written backend already owns NIR/target/ABI validation, but its object-format modules do not yet form a complete machine-code, symbol and relocation emitter. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact native qualification gate.
 
 ## Build locally
 
@@ -97,9 +112,13 @@ Windows PowerShell:
 .\bootstrap.ps1
 ```
 
-A fresh checkout builds the audited C++ Stage-0 bootstrap compiler and the native `noqeri-nqri` runtime, emits `build/noqeri-stage1.nqri`, then uses that Noqeri compiler artifact to build Stage 2 and Stage 3. The bootstrap succeeds only when the Stage-2 and Stage-3 `.nqri` files are byte-identical. An externally audited Stage-1 binary can be supplied with both `NOQERI_STAGE1_NQRI` and its independently checked `NOQERI_STAGE1_SHA256`. No independently trusted Stage-1 seed is currently committed; Stage-2/Stage-3 byte equality does not eliminate the C++/native-host trust boundary.
+A fresh checkout verifies the committed, SHA-256-pinned `Compiler/selfhost/trusted-stage1.nqri`, builds or locates the C++ `noqeri-nqri` VM, then uses Stage 1 to build `noqeri-stage2.nqri` and Stage 2 to rebuild `noqeri-stage3.nqri`. The bootstrap succeeds only when Stage 2 and Stage 3 are byte-identical. Its proof is explicitly marked `execution_model=nqri-vm`, `native_codegen=false`, and `native_selfhost=false`.
 
-Node.js is no longer part of the compiler self-rebuild path. JavaScript remains only in optional ecosystem/browser/reference tooling.
+An externally audited Stage-1 NQRI artifact can be supplied with both `NOQERI_STAGE1_NQRI` and its independently checked `NOQERI_STAGE1_SHA256`. No independently trusted Stage-1 seed is currently committed. NQRI byte equality does not eliminate the VM/bootstrap trust boundary.
+
+`scripts/bootstrap-native.*` intentionally fails until a Noqeri-written backend can produce and execute native Stage-2/Stage-3 compiler artifacts. Use `scripts/bootstrap-nqri.*` for the current self-rebuild proof.
+
+Node.js is not part of the compiler self-rebuild executor. It remains in optional ecosystem, benchmark, browser and reference tooling.
 
 ## Active Stage-2 CLI commands
 

@@ -5,7 +5,7 @@ let text: [u8; 24] = [110 as u8,111 as u8,113 as u8,101 as u8,114 as u8,105 as u
 let matched: usize = 0 as usize
 let round: usize = 0 as usize
 while round < 200000 as usize {
-    if regex_search(slice(pattern), slice(text)) { matched = matched + 1 as usize }
+    if regex_search(slice(pattern), slice(text)) >= 0 as isize { matched = matched + 1 as usize }
     round = round + 1 as usize
 }
 print(matched)
