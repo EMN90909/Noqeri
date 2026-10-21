@@ -305,7 +305,8 @@ int main(int argc, char** argv) {
     if (cmd == "lsp") return LanguageServer{}.run();
     if (cmd == "doctor" || cmd == "release-check") return runProductionDoctor(argc >= 3 ? argv[2] : ".");
     if (cmd == "audit") return runSecurityAudit(argc >= 3 ? argv[2] : ".");
-    if (cmd == "db") {
+    if (cmd == "db" || cmd == "db-legacy") {
+        std::cerr << "NQR-D8040: DEPRECATED: legacy NQDB1 .nqd/.nqdb engine. Use NoeSQL and .noedb for all new projects; this command does not create native NoeSQL databases.\\n";
         if (argc < 3) { std::cerr << "NQR-D8041: db requires a .nqd script\n"; return 1; }
         Diagnostics d;
         std::filesystem::path overridePath = argc >= 4 ? std::filesystem::path(argv[3]) : std::filesystem::path{};
