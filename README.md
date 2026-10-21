@@ -9,6 +9,20 @@ The automated `node --test tests/version-contract.test.mjs tests/v1-evidence.tes
 
 Noqeri source uses `.noqeri`, project manifests use portable `project.nqon`, portable compiled objects use `.nqri`, and the canonical NoeSQL database format uses `.noedb` (legacy `.nqd` / `.nqdb` require explicit migration). Legacy `project.noqeri` manifests remain readable during the v1 migration.
 
+## One-language web views (experimental)
+
+Noqeri can now author reactive markup, components and browser behavior in a single `main.noqeri` file without React or a handwritten HTML entry point. A small generated runtime performs DOM updates. Add local `ui/*.noqeri` components or explicit `import js "gsap" as gsap` (with an import map) for existing JavaScript libraries.
+
+```noqeri
+let count = 0
+view {
+    h1 { "Hello" }
+    button on.click { count = count + 1 } { "Count: " + count }
+}
+```
+
+Build the included example with `node Runtime/web-project.mjs examples/web_view dist-web`. See [Web Views](Doc/WEB_VIEWS_V1.md). This new view parser is a separately tested experimental subset and **not yet code-generated from the production Stage-2 typed NIR**.
+
 ## Beginner surface
 
 A single file needs no project ceremony:
