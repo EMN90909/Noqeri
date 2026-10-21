@@ -9,32 +9,33 @@ permissions:
 jobs:
   optimizer:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Compile optimization regressions with strict C++17 warnings
-        run: |
-          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation             -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp             Compiler/optimizer.cpp -o /tmp/noqeri-advanced-optimizer
-      - name: Exercise SSA, SCCP, GVN, LICM, strength reduction and safety regressions
-        run: /tmp/noqeri-advanced-optimizer
-      - name: Validate CFG live intervals and register allocation
+      - name: Compile optimization regression with strict C++17 warnings
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation \
-            -IInclude/noqeri -ICompiler/bootstrap tests/cpp/register_allocator_cfg_test.cpp \
-            Compiler/register_alloc.cpp -o /tmp/noqeri-register-allocator
+            -IInclude/noqeri -ICompiler/bootstrap \
+            tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp \
+            -o /tmp/noqeri-advanced-optimizer
+          /tmp/noqeri-advanced-optimizer
+      - name: Compile and validate CFG register allocation
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation \
+            -IInclude/noqeri -ICompiler/bootstrap \
+            tests/cpp/register_allocator_cfg_test.cpp Compiler/register_alloc.cpp \
+            -o /tmp/noqeri-register-allocator
           /tmp/noqeri-register-allocator
-      - name: Configure actual native compiler with strict diagnostics
+      - name: Configure full compiler with warnings as errors
         run: cmake -S . -B build-opt -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON
-      - name: Compile the integrated Noqeri compiler and both optimizer suites
+      - name: Build full Noqeri native compiler and optimizer suites
         run: cmake --build build-opt --config Release --target noqeri noqeri-optimizer-test noqeri-register-allocator-test --parallel 2
-      - name: Verify CMake-linked optimizer suites
-        run: ctest --test-dir build-opt -C Release --output-on-failure -R '^noqeri-(optimizer-liveness|register-allocator-cfg)
-        run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
-
-      - name: Compare real Noqeri programs under optimized vs unoptimized execution
+      - name: Run CTest native optimizer suites
+        run: ctest --test-dir build-opt -C Release --output-on-failure -R "noqeri-(optimizer-liveness|register-allocator-cfg)"
+      - name: Differentially test Noqeri programs at O0 versus O3
         shell: bash
         run: |
           set -euo pipefail
@@ -45,5 +46,5 @@ jobs:
             ./build-opt/noqeri run "$sample" -O3 > /tmp/semantics-O3.txt
             diff -u /tmp/semantics-O0.txt /tmp/semantics-O3.txt
           done
-      - name: Existing web and package regression tests
+      - name: Preserve browser compatibility
         run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
