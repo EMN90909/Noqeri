@@ -15,6 +15,7 @@ on:
       - 'tests/cpp/**'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
+      - 'tests/nested_call_args.noqeri'
       - 'tests/max_uint64_literal.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
   pull_request:
@@ -140,6 +141,14 @@ jobs:
           ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/max_uint64_literal.noqeri build-native/max-uint64.nqri 3
           result=$(./build-native/noqeri-nqri build-native/max-uint64.nqri uint64WideLiteral)
           test "$result" = "-1"
+      - name: Verify self-hosted nested-call argument ordering (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/nested_call_args.noqeri build-native/nested-call-args.nqri 3
+          result=$(./build-native/noqeri-nqri build-native/nested-call-args.nqri nestedCallArgumentOrder)
+          test "$result" = "3321"
       - name: Upload generated trusted Stage-1 seed
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
