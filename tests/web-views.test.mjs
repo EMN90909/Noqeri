@@ -80,6 +80,17 @@ test('declarative same-origin data updates without an HTTP or framework library'
   })
  }finally{globalThis.fetch=original}
 })
+test('Noqeri animation wrappers export idiomatic methods over an existing JS module',()=>fixture(async dir=>{
+ const src=join(dir,'src'),dist=join(dir,'dist')
+ await mkdir(join(src,'animation'),{recursive:true})
+ await mkdir(join(src,'vendor'),{recursive:true})
+ await writeFile(join(src,'main.noqeri'),'import animation/motion as motion\\nview { div { "Test" } }\\non.mount { motion.arrive(".card") }')
+ await writeFile(join(src,'animation/motion.noqeri'),'import js "../vendor/motion.mjs" as jsMotion\\nfunction arrive(selector: string) { return jsMotion.arrive(selector) }')
+ await writeFile(join(src,'vendor/motion.mjs'),'export function arrive(selector){return "called:"+selector}')
+ await buildWebProject({source:src,out:dist})
+ const module=await import(pathToFileURL(join(dist,'animation/motion.mjs')).href)
+ assert.equal(module.arrive('.card'),'called:.card')
+}))
 test('Noqeri view rejects arbitrary globals and unsafe constructs',()=>{
  for(const code of [
   'view { script { "evil" } }',
