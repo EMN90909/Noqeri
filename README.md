@@ -14,7 +14,7 @@ The last known-good C++17 bootstrap was preserved unchanged on branch **`bootstr
 
 ## Build locally
 
-A fresh machine needs one trusted Noqeri seed once—the same unavoidable bootstrap requirement used by self-hosting compilers generally.
+A fresh machine can build a C++ Stage-0 compiler to produce a local Stage-1 seed candidate. This enables bootstrapping, but it is not independently attested seed provenance.
 
 Linux/macOS/POSIX:
 
@@ -28,7 +28,7 @@ Windows PowerShell:
 .\bootstrap.ps1
 ```
 
-A fresh checkout builds the audited C++ Stage-0 bootstrap compiler and the native `noqeri-nqri` runtime, emits `build/noqeri-stage1.nqri`, then uses that Noqeri compiler artifact to build Stage 2 and Stage 3. The bootstrap succeeds only when the Stage-2 and Stage-3 `.nqri` files are byte-identical. An already verified Stage-1 seed can be supplied with `NOQERI_STAGE1_NQRI`.
+A fresh checkout builds the audited C++ Stage-0 bootstrap compiler and the native `noqeri-nqri` runtime, emits `build/noqeri-stage1.nqri`, then uses that Noqeri compiler artifact to build Stage 2 and Stage 3. The bootstrap succeeds only when the Stage-2 and Stage-3 `.nqri` files are byte-identical. An externally audited Stage-1 binary can be supplied with both `NOQERI_STAGE1_NQRI` and its independently checked `NOQERI_STAGE1_SHA256`. No independently trusted Stage-1 seed is currently committed; Stage-2/Stage-3 byte equality does not eliminate the C++/native-host trust boundary.
 
 Node.js is no longer part of the compiler self-rebuild path. JavaScript remains only in optional ecosystem/browser/reference tooling.
 
