@@ -503,6 +503,65 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         instructions[branch as usize].immediate = state.instructionCount as i64
         return nqLowerOk()
     }
+    if node.tag == nqAstRepeat() {
+        let initial: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
+        if initial < 0 as isize { return initial }
+        let counterType: int = nodes[node.left as usize].typeCode
+        let counterSymbol: u64 = 8589934592 as u64 + nodeIndex as u64
+
+        let initialStore: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if initialStore < 0 as isize { return initialStore }
+        instructions[initialStore as usize].symbol = counterSymbol
+        instructions[initialStore as usize].left = initial
+
+        let loopStart: usize = state.instructionCount
+        let current: isize = nqLowerAllocRegister(state)
+        let loadCurrent: isize = nqLowerEmit(instructions, state, nqNirLoad(), current)
+        if loadCurrent < 0 as isize { return loadCurrent }
+        instructions[loadCurrent as usize].symbol = counterSymbol
+        instructions[loadCurrent as usize].typeCode = counterType
+
+        let zero: isize = nqLowerEmitConst(instructions, state, 0 as i64, counterType)
+        if zero < 0 as isize { return zero }
+        let condition: isize = nqLowerAllocRegister(state)
+        let compare: isize = nqLowerEmit(instructions, state, nqNirGt(), condition)
+        if compare < 0 as isize { return compare }
+        instructions[compare as usize].left = current
+        instructions[compare as usize].right = zero
+        instructions[compare as usize].typeCode = nqAstTypeBool()
+
+        let branch: isize = nqLowerEmit(instructions, state, nqNirBranch(), nqNirNoValue())
+        if branch < 0 as isize { return branch }
+        instructions[branch as usize].left = condition
+
+        let bodyStatus: isize = nqLowerStatement(source, nodes, node.right, instructions, state)
+        if bodyStatus < 0 as isize { return bodyStatus }
+
+        let beforeDecrement: isize = nqLowerAllocRegister(state)
+        let loadBefore: isize = nqLowerEmit(instructions, state, nqNirLoad(), beforeDecrement)
+        if loadBefore < 0 as isize { return loadBefore }
+        instructions[loadBefore as usize].symbol = counterSymbol
+        instructions[loadBefore as usize].typeCode = counterType
+        let one: isize = nqLowerEmitConst(instructions, state, 1 as i64, counterType)
+        if one < 0 as isize { return one }
+        let decremented: isize = nqLowerAllocRegister(state)
+        let subtract: isize = nqLowerEmit(instructions, state, nqNirSub(), decremented)
+        if subtract < 0 as isize { return subtract }
+        instructions[subtract as usize].left = beforeDecrement
+        instructions[subtract as usize].right = one
+        instructions[subtract as usize].typeCode = counterType
+        instructions[subtract as usize].flags = nqNirFlagChecked()
+        let decrementStore: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if decrementStore < 0 as isize { return decrementStore }
+        instructions[decrementStore as usize].symbol = counterSymbol
+        instructions[decrementStore as usize].left = decremented
+
+        let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
+        if jump < 0 as isize { return jump }
+        instructions[jump as usize].immediate = loopStart as i64
+        instructions[branch as usize].immediate = state.instructionCount as i64
+        return nqLowerOk()
+    }
     return nqLowerUnsupported()
 }
 
