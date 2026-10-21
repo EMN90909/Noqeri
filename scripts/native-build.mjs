@@ -112,10 +112,12 @@ try {
     assembly_sha256: sha256File(assembly),
     compiler: compiler,
     compiler_version: version(compilerPath),
+    compiler_sha256: existsSync(compilerPath) ? sha256File(compilerPath) : null,
     compiler_provenance: 'stage0-cpp-native-backend',
     self_hosted_compiler: false,
     native_backend: 'Compiler/native_backend.cpp',
     host_adapter: 'Runtime/native/aot_runner.cpp',
+    host_adapter_sha256: sha256File(runnerSource),
     cxx,
     cxx_version: version(cxx),
     optimization
