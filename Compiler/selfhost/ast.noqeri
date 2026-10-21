@@ -54,9 +54,11 @@ export function nqAstParameter(): int { return 24 }
 export function nqAstField(): int { return 25 }
 export function nqAstExpressionStatement(): int { return 26 }
 export function nqAstNull(): int { return 27 }
+export function nqAstBreak(): int { return 28 }
+export function nqAstContinue(): int { return 29 }
 
-export function nqAstNodeTagValid(tag: int): bool { return tag >= nqAstModule() && tag <= nqAstNull() }
-export function nqAstIsStatement(tag: int): bool { return tag == nqAstBinding() || tag == nqAstBlock() || tag == nqAstIf() || tag == nqAstWhile() || tag == nqAstReturn() || tag == nqAstThrow() || tag == nqAstExpressionStatement() }
+export function nqAstNodeTagValid(tag: int): bool { return tag >= nqAstModule() && tag <= nqAstContinue() }
+export function nqAstIsStatement(tag: int): bool { return tag == nqAstBinding() || tag == nqAstBlock() || tag == nqAstIf() || tag == nqAstWhile() || tag == nqAstReturn() || tag == nqAstThrow() || tag == nqAstExpressionStatement() || tag == nqAstBreak() || tag == nqAstContinue() }
 export function nqAstIsExpression(tag: int): bool { return (tag >= nqAstAssign() && tag <= nqAstArray()) || tag == nqAstNull() }
 export function nqAstIsLiteral(tag: int): bool { return (tag >= nqAstInteger() && tag <= nqAstArray()) || tag == nqAstNull() }
 export function nqAstIsDeclaration(tag: int): bool { return tag == nqAstModule() || tag == nqAstImport() || tag == nqAstFunction() || tag == nqAstRecord() || tag == nqAstBinding() }
