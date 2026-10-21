@@ -20,4 +20,5 @@ jobs:
       - name: Compile native bootstrap and ABI
         run: cmake --build build --parallel 2
       - name: Native database safety regression suite
-        run: ctest --test-dir build -R '^(noqeri-noqeridb|noqeridb-reject-.*)$' --output-on-failure
+        run: ctest --test-dir build -R '^(noqeri-noqeridb|noqeridb-reject-.*|noqeri-check-noesql-facade)
+ --output-on-failure
