@@ -16,10 +16,16 @@ jobs:
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer
           /tmp/noqeri-optimizer
+      - name: Prove safe IR module linking and pure cross-module IPO
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/lto_ir_test.cpp Compiler/lto.cpp Compiler/optimizer.cpp -o /tmp/noqeri-lto-ir
+          /tmp/noqeri-lto-ir
       - name: Configure compiler and unit tests
         run: cmake -S . -B build-opt -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - name: Build native compiler
-        run: cmake --build build-opt --config Release --target noqeri --parallel 3
+        run: cmake --build build-opt --config Release --target noqeri noqeri-lto-ir-test --parallel 3
+      - name: Verify link-time NIR CTest
+        run: ctest --test-dir build-opt -C Release --output-on-failure -R noqeri-lto-ir
       - name: Compare original and optimized observable output
         run: |
           set -euo pipefail
