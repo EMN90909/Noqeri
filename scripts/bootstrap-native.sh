@@ -112,6 +112,10 @@ fi
 
 if ! cmp -s "$STAGE2" "$STAGE3"; then
   echo "Noqeri self-host bootstrap FAILED: Stage-2 and Stage-3 NQRI outputs differ." >&2
+  echo "Stage-2 SHA-256: $(sha256_file "$STAGE2")" >&2
+  echo "Stage-3 SHA-256: $(sha256_file "$STAGE3")" >&2
+  echo "First differing bytes (1-based offset, Stage-2 octal, Stage-3 octal):" >&2
+  cmp -l "$STAGE2" "$STAGE3" | head -n 20 >&2 || true
   exit 1
 fi
 
