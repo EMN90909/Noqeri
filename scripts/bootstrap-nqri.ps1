@@ -161,7 +161,11 @@ if (-not (Test-FilesByteEqual $Stage2 $Stage3)) {
 }
 
 $proofData = [ordered]@{
-    schema = 2
+    schema = 3
+    execution_model = 'nqri-vm'
+    artifact_format = 'nqri'
+    native_codegen = $false
+    native_selfhost = $false
     verified = $true
     runtime = $Runtime
     seed = $Seed
