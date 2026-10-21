@@ -59,16 +59,23 @@ test('benchmark harness fails closed on the old interpreter command', () => {
   }
 })
 
-test('NQRI bootstrap cannot masquerade as native self-hosting', () => {
+test('native self-host proof is distinct from the NQRI bootstrap', () => {
   const nativeSh = readFileSync(join(root, 'scripts', 'bootstrap-native.sh'), 'utf8')
   const nqriSh = readFileSync(join(root, 'scripts', 'bootstrap-nqri.sh'), 'utf8')
   const buildSh = readFileSync(join(root, 'scripts', 'build.sh'), 'utf8')
-  assert.match(nativeSh, /intentionally disabled/)
-  assert.match(nativeSh, /exit 2/)
   assert.match(buildSh, /bootstrap-nqri\.sh/)
   assert.match(nqriSh, /execution_model=nqri-vm/)
   assert.match(nqriSh, /native_codegen=false/)
   assert.match(nqriSh, /native_selfhost=false/)
+  assert.match(nativeSh, /compile-native-manifest/)
+  assert.match(nativeSh, /native_codegen=true/)
+  assert.match(nativeSh, /native_selfhost=true/)
+  assert.match(nativeSh, /native_stage2_runs_without_vm=true/)
+  assert.match(nativeSh, /stage2_stage3_byte_equal=true/)
+  assert.match(nativeSh, /stage3_stage4_byte_equal=true/)
+  const nativeLeg = nativeSh.slice(nativeSh.indexOf('"$STAGE2_BIN" compile-manifest'))
+  assert.doesNotMatch(nativeLeg, /compile-native-manifest/)
+  assert.doesNotMatch(nativeLeg, /"\$RUNTIME"/)
 })
 
 test('compiler timing is explicitly separated from runtime timing', () => {
