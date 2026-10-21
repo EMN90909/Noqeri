@@ -223,3 +223,30 @@ jobs:
             build-selfhost/noqeri-stage2.nqri
             build-selfhost/noqeri-stage3.nqri
             build-selfhost/native-selfhost-proof.txt
+
+  stage1-cross-compiler:
+    name: Stage-1 GCC versus Clang reproducibility
+    needs: native-selfhost
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Stage-1 GCC candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: noqeri-stage1-seed-${{ github.sha }}
+          path: gcc-seed
+      - name: Build Stage-0 with independent C++ compiler
+        run: |
+          set -euo pipefail
+          command -v clang++
+          cmake -S . -B build-clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build-clang --target noqeri --parallel 2 --config Release
+      - name: Compare GCC and Clang generated Stage-1 NQRI bytes
+        run: |
+          set -euo pipefail
+          ./build-clang/noqeri bootstrap-seed Compiler/selfhost/main.noqeri clang-seed.nqri
+          test -s gcc-seed/noqeri-stage1.nqri
+          test -s clang-seed.nqri
+          sha256sum gcc-seed/noqeri-stage1.nqri clang-seed.nqri
+          cmp gcc-seed/noqeri-stage1.nqri clang-seed.nqri
+          echo 'GCC/Clang Stage-1 seed bytes match; independent seed trust still requires an external audit and provenance.'
