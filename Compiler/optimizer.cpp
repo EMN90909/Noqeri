@@ -198,8 +198,20 @@ bool localGvn(NirFunction& fn) {
         // These operators are pure and have no divide-by-zero or other
         // exceptional value constraints. Floating calculations are excluded
         // until the frontend models rounding mode and FP status flags.
-        if (in.type.kind == TypeKind::Float || in.type.kind == TypeKind::F32 ||
-            in.type.kind == TypeKind::F64) continue;
+        const auto integer = [](TypeKind k) {
+            switch (k) {
+                case TypeKind::Int: case TypeKind::I8: case TypeKind::I16:
+                case TypeKind::I32: case TypeKind::I64: case TypeKind::U8:
+                case TypeKind::U16: case TypeKind::U32: case TypeKind::U64:
+                case TypeKind::Isize: case TypeKind::Usize: return true;
+                default: return false;
+            }
+        };
+        if (in.args[0] >= fn.registerTypes.size() ||
+            in.args[1] >= fn.registerTypes.size() ||
+            !integer(fn.registerTypes[in.args[0]].kind) ||
+            !integer(fn.registerTypes[in.args[1]].kind) ||
+            !(integer(in.type.kind) || in.type.kind == TypeKind::Bool)) continue;
         if (in.text != "+" && in.text != "-" && in.text != "*" &&
             in.text != "==" && in.text != "!=" && in.text != "<" &&
             in.text != "<=" && in.text != ">" && in.text != ">=" &&
