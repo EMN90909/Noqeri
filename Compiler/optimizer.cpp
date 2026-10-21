@@ -242,8 +242,11 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
                        level == OptimizationLevel::O2 ? 2 : 1;
     for (int r = 0; r < rounds; ++r) {
         const bool a = constants(fn);
+        const bool g = (level == OptimizationLevel::O2 ||
+                        level == OptimizationLevel::O3 ||
+                        level == OptimizationLevel::Oz) && localGvn(fn);
         const bool b = dce(fn);
-        if (!a && !b) break;
+        if (!a && !g && !b) break;
     }
     // Gate new branch simplification at O2+. O1 retains legacy behavior.
     if (level == OptimizationLevel::O2 || level == OptimizationLevel::O3 ||
