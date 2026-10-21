@@ -1,0 +1,6 @@
+// Noqeri wrapper around existing JavaScript animation functionality.
+import js "../vendor/motion.mjs" as motion
+
+function arrive(selector: string) {
+    return motion.arrive(selector)
+}
