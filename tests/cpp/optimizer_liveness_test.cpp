@@ -141,7 +141,9 @@ int main() {
         add1.text = "+"; add1.dest = 3; add1.type.kind = noe::TypeKind::Int;
         auto add2 = withArgs(noe::NirOp::Binary, {2, 1});
         add2.text = "+"; add2.dest = 4; add2.type.kind = noe::TypeKind::Int;
-        p.entry.code = {constant(1, 8), constant(2, 13), add1, add2,
+        auto x = withArgs(noe::NirOp::Load, {}); x.dest = 1; x.text = "x";
+        auto y = withArgs(noe::NirOp::Load, {}); y.dest = 2; y.text = "y";
+        p.entry.code = {x, y, add1, add2,
                         withArgs(noe::NirOp::Return, {4})};
         p.entry.registerTypes.resize(5);
         for (auto& type : p.entry.registerTypes) type.kind = noe::TypeKind::Int;
@@ -161,8 +163,11 @@ int main() {
         auto a = withArgs(noe::NirOp::Binary, {1, 2});
         a.text = "+"; a.dest = 3; a.type.kind = noe::TypeKind::Int;
         auto b = a; b.dest = 4;
-        p.entry.code = {constant(1, 1), constant(2, 2), a,
-                        constant(1, 8), b, withArgs(noe::NirOp::Return, {4})};
+        auto x = withArgs(noe::NirOp::Load, {}); x.dest = 1; x.text = "x";
+        auto y = withArgs(noe::NirOp::Load, {}); y.dest = 2; y.text = "y";
+        auto again = x;
+        p.entry.code = {x, y, a,
+                        again, b, withArgs(noe::NirOp::Return, {4})};
         p.entry.registerTypes.resize(5);
         for (auto& type : p.entry.registerTypes) type.kind = noe::TypeKind::Int;
         noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
@@ -178,7 +183,9 @@ int main() {
         a.text = "+"; a.dest = 3; a.type.kind = noe::TypeKind::Int;
         auto b = a; b.dest = 4;
         auto j = withArgs(noe::NirOp::JumpIfFalse, {5}); j.target = 5;
-        p.entry.code = {constant(1, 8), constant(2, 13), a, j, b,
+        auto x = withArgs(noe::NirOp::Load, {}); x.dest = 1; x.text = "x";
+        auto y = withArgs(noe::NirOp::Load, {}); y.dest = 2; y.text = "y";
+        p.entry.code = {x, y, a, j, b,
                         withArgs(noe::NirOp::Return, {4})};
         p.entry.registerTypes.resize(6);
         for (auto& type : p.entry.registerTypes) type.kind = noe::TypeKind::Int;
