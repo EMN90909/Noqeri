@@ -506,7 +506,7 @@ function nqNativeEmitInstruction(out: []u8, cursor: *usize, source: []u8, instru
         return nqNativeOk()
     }
 
-    if instruction.opcode >= nqNirAdd() && instruction.opcode <= nqNirGe() {
+    if (instruction.opcode >= nqNirAdd() && instruction.opcode <= nqNirMod()) || (instruction.opcode >= nqNirEq() && instruction.opcode <= nqNirGe()) {
         if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) { return nqNativeBadNir() }
         let leftType: int = nqNativeProducerType(instructions, function, instruction.left)
         let rightType: int = nqNativeProducerType(instructions, function, instruction.right)
