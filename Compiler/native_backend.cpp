@@ -57,7 +57,9 @@ noqeri_rt_write:
     mov rdx, rsi
     mov rsi, rdi
     mov rdi, QWORD PTR [r11 + 8]
+    sub rsp, 8
     call r10
+    add rsp, 8
     ret
 .L_noqeri_write_fail:
     mov eax, -1
@@ -141,7 +143,9 @@ noqeri_rt_clock_millis:
     test r10, r10
     jz .L_noqeri_clock_fail
     mov rdi, QWORD PTR [r11 + 8]
+    sub rsp, 8
     call r10
+    add rsp, 8
     ret
 .L_noqeri_clock_fail:
     xor eax, eax
@@ -154,7 +158,9 @@ noqeri_rt_platform:
     test r10, r10
     jz .L_noqeri_platform_fail
     mov rdi, QWORD PTR [r11 + 8]
+    sub rsp, 8
     call r10
+    add rsp, 8
     ret
 .L_noqeri_platform_fail:
     lea rax, [rip + .L_noqeri_standalone]
@@ -233,7 +239,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     std::map<std::string,std::string>strings;std::size_t sid=0;auto collect=[&](const NirFunction&f){for(const auto&i:f.code)if(i.op==NirOp::Const)if(auto s=std::get_if<std::string>(&i.literal))if(!strings.count(*s))strings[*s]=".L_noqeri_str_"+std::to_string(sid++);};collect(p.entry);for(const auto&f:p.functions)collect(f);
     std::unordered_map<std::string,ValueKind>returns;for(int pass=0;pass<3;++pass)for(const auto&f:p.functions)if(!f.isExtern)returns[f.name]=inferReturn(f,returns);
     out<<".intel_syntax noprefix\n.text\n";emitRuntime(out);if(!emitFunction(out,p,p.entry,returns,strings,diagnostics))return false;for(const auto&f:p.functions)if(!emitFunction(out,p,f,returns,strings,diagnostics))return false;
-    out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    call "<<internalSymbol("__entry")<<"\n    ret\n";
+    out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
     return !diagnostics.hasErrors();
