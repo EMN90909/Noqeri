@@ -67,3 +67,8 @@ function nestedDigits(a: int, b: int, c: int): int {
 export function nestedCallArguments(): int {
     return nestedDigits(1, nestedIncrement(2), 4)
 }
+
+
+export function literalArraySliceLength(): usize {
+    return len(slice([1 as u8, 2 as u8, 3 as u8]))
+}
