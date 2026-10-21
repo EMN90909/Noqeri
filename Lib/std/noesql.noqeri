@@ -1,0 +1,75 @@
+module noqeri.std.noesql
+
+// Beginner-facing NoeSQL session API for Noqeri source programs.
+//
+// This layer defines the ABI-facing declarations and ergonomic wrappers.
+// The Stage-1/Stage-2 native host must implement each noesqlHost... symbol
+// through the NoeSQL session v2 contract; otherwise linking must fail.
+// No SQLite or independently maintained NoqeriDB implementation belongs here.
+//
+// Stage-2 source/host qualification: PENDING. This is not a working
+// compiler-to-database end-to-end example until compiled and linked.
+
+extern function noesqlHostOpen(path: string): usize
+extern function noesqlHostClose(handle: usize): bool
+extern function noesqlHostExecute(handle: usize, source: string): string
+extern function noesqlHostQuery(handle: usize, source: string): string
+extern function noesqlHostBegin(handle: usize): bool
+extern function noesqlHostCommit(handle: usize): bool
+extern function noesqlHostRollback(handle: usize): bool
+extern function noesqlHostLastError(handle: usize): string
+
+record Database {
+    handle: usize
+    active: bool
+}
+
+export function database(path: string): Database {
+    let result: Database
+    result.handle = noesqlHostOpen(path)
+    result.active = result.handle != 0 as usize
+    return result
+}
+
+export function database_is_open(db: *Database): bool {
+    if db == null { return false }
+    return db.active && db.handle != 0 as usize
+}
+
+export function database_close(db: *Database): bool {
+    if !database_is_open(db) { return false }
+    if !noesqlHostClose(db.handle) { return false }
+    db.handle = 0 as usize
+    db.active = false
+    return true
+}
+
+export function database_execute(db: *Database, source: string): string {
+    if !database_is_open(db) { return "" }
+    return noesqlHostExecute(db.handle, source)
+}
+
+export function database_query(db: *Database, source: string): string {
+    if !database_is_open(db) { return "" }
+    return noesqlHostQuery(db.handle, source)
+}
+
+export function database_begin(db: *Database): bool {
+    if !database_is_open(db) { return false }
+    return noesqlHostBegin(db.handle)
+}
+
+export function database_commit(db: *Database): bool {
+    if !database_is_open(db) { return false }
+    return noesqlHostCommit(db.handle)
+}
+
+export function database_rollback(db: *Database): bool {
+    if !database_is_open(db) { return false }
+    return noesqlHostRollback(db.handle)
+}
+
+export function database_last_error(db: *Database): string {
+    if db == null || db.handle == 0 as usize { return "NoeSQL connection is closed" }
+    return noesqlHostLastError(db.handle)
+}
