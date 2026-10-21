@@ -1,6 +1,8 @@
-# NoqeriSQL v1.0.0 candidate — SQL adapters
+# Legacy NoqeriSQL adapters (SQLite / PostgreSQL)
 
-NoqeriSQL adds real SQL command execution using the installed SQLite3 and PostgreSQL/libpq libraries. It does not reimplement the PostgreSQL server or SQLite file format.
+**NoqeriSQL is not a separate canonical database engine.** This document describes existing external SQL compatibility adapters. NoeSQL owns native Noqeri storage and the `.noedb` format. NoqeriSQL is a historical CLI/API label only.
+
+The legacy SQL-adapter host adds SQL command execution using the installed SQLite3 and PostgreSQL/libpq libraries. It does not reimplement the PostgreSQL server or SQLite file format.
 
 ## Commands
 
