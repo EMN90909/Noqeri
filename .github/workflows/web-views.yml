@@ -1,0 +1,25 @@
+name: Noqeri reactive web views
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  views:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile and test Noqeri view frontend, runtime and web project
+        run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
+      - name: Build zero-HTML Noqeri web app
+        run: |
+          node Runtime/web-project.mjs examples/web_view /tmp/noqeri-web-view
+          test -s /tmp/noqeri-web-view/index.html
+          test -s /tmp/noqeri-web-view/__noqeri/runtime.mjs
+          test -s /tmp/noqeri-web-view/ui/badge.mjs

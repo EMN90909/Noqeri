@@ -1,3 +1,7 @@
+## Experimental Noqeri-only views integrated into main
+
+A separate bounded web-view frontend now builds a `main.noqeri` view application to standard browser ES modules, with reactive state, components, local UI wrappers and explicit JS imports. This is not the typed Stage-2 NIR backend. Run `node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs` and see [WEB_VIEWS_V1.md](WEB_VIEWS_V1.md) for scope and restrictions.
+
 # Web development status
 
 ## October 20 update: Noqeri web project integration

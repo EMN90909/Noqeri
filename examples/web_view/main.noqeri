@@ -1,0 +1,24 @@
+import animation/motion as animation
+import ui/badge as ui
+
+let count = 0
+load greeting from "/api/greeting"
+
+component Heading(label: string) {
+    h1 { label }
+}
+
+view {
+    section class: "card" {
+        Heading("A website written in Noqeri")
+        p { "Clicks: " + count }
+        button on.click {
+            count = count + 1
+        } { "Click me" }
+        ui.Badge("No React required")
+        p { greeting.data }
+    }
+}
+on.mount {
+    animation.arrive(".card")
+}
