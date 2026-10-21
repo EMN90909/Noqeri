@@ -8,8 +8,6 @@ $ExternalSeed = -not [string]::IsNullOrEmpty($env:NOQERI_STAGE1_NQRI)
 $Seed = if ($ExternalSeed) { $env:NOQERI_STAGE1_NQRI } else { Join-Path $BuildDir 'noqeri-stage1.nqri' }
 $SeedOrigin = if ($ExternalSeed) { 'externally-pinned' } else { 'local-cpp-stage0' }
 $SeedCompiler = $env:NOQERI_STAGE0_CPP
-$SeedOverride = [bool]$env:NOQERI_STAGE1_NQRI
-$ExpectedSeedHash = $env:NOQERI_STAGE1_SHA256
 $Manifest = Join-Path $Root 'Compiler\selfhost\stage2-sources.txt'
 $Stage2 = Join-Path $BuildDir 'noqeri-stage2.nqri'
 $Stage3 = Join-Path $BuildDir 'noqeri-stage3.nqri'
@@ -125,11 +123,6 @@ if ($env:NOQERI_STAGE1_SHA256) {
         throw "Stage-1 seed SHA-256 does not match the supplied pin: $SeedHash"
     }
 }
-$SeedHash = (Get-FileHash -Algorithm SHA256 $Seed).Hash.ToLowerInvariant()
-if ($SeedOverride -and $SeedHash -ne $ExpectedSeedHash.ToLowerInvariant()) {
-    throw "External Stage-1 seed checksum mismatch; refusing untrusted seed."
-}
-
 & $Runtime --selftest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Runtime has-export $Seed stage2CompileToNqri
@@ -155,7 +148,6 @@ $proofData = [ordered]@{
     stage1_independently_trusted = $false
     source_manifest_sha256 = (Get-FileHash -Algorithm SHA256 $Manifest).Hash.ToLowerInvariant()
     seed_compiler = $SeedCompiler
-    seed_origin = if ($SeedOverride) { "external-pinned" } else { "generated-stage0" }
     seed_compiler_sha256 = if ($SeedCompiler -and (Test-Path $SeedCompiler)) { (Get-FileHash -Algorithm SHA256 $SeedCompiler).Hash.ToLowerInvariant() } else { $null }
     stage2 = $Stage2
     stage3 = $Stage3
