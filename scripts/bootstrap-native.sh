@@ -8,7 +8,11 @@ RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
 SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
 EXTERNAL_SEED="${NOQERI_STAGE1_NQRI:-}"
 PIN="${NOQERI_STAGE1_SHA256:-}"
-SEED_ORIGIN="local-cpp-stage0"
+PIN_FILE="$ROOT/Compiler/selfhost/stage1-seed.sha256"
+PROVENANCE="$ROOT/Compiler/selfhost/stage1-seed.json"
+PIN_SOURCE="environment"
+SEED_ORIGIN="repository-pinned-cpp-stage0"
+SEED_PIN_VERIFIED=false
 SEED_COMPILER="${NOQERI_STAGE0_CPP:-}"
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
 STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
@@ -61,12 +65,30 @@ if [ -n "$EXTERNAL_SEED" ]; then
     echo "Supplied Stage-1 seed does not exist: $SEED" >&2
     exit 2
   fi
-  if [ -z "$PIN" ]; then
-    echo "Externally supplied Stage-1 seed requires NOQERI_STAGE1_SHA256." >&2
+  PIN=$(printf '%s' "$PIN" | tr 'ABCDEF' 'abcdef')
+  case "$PIN" in *[!0123456789abcdef]*) echo "External seed requires a valid SHA-256 pin." >&2; exit 2 ;; esac
+  if [ "${#PIN}" -ne 64 ]; then
+    echo "Externally supplied Stage-1 seed requires NOQERI_STAGE1_SHA256 (64 hex digits)." >&2
     exit 2
   fi
   SEED_ORIGIN="externally-pinned"
 else
+  if [ ! -f "$PIN_FILE" ] || [ ! -f "$PROVENANCE" ]; then
+    echo "Repository Stage-1 pin metadata is incomplete: require $PIN_FILE and $PROVENANCE" >&2
+    exit 2
+  fi
+  repo_pin=$(awk 'NF { print $1; exit }' "$PIN_FILE" | tr 'ABCDEF' 'abcdef')
+  case "$repo_pin" in *[!0123456789abcdef]*) echo "Repository Stage-1 SHA-256 pin is invalid." >&2; exit 2 ;; esac
+  if [ "${#repo_pin}" -ne 64 ]; then
+    echo "Repository Stage-1 SHA-256 pin is invalid." >&2
+    exit 2
+  fi
+  if [ -n "$PIN" ] && [ "$(printf '%s' "$PIN" | tr 'ABCDEF' 'abcdef')" != "$repo_pin" ]; then
+    echo "NOQERI_STAGE1_SHA256 cannot override the repository pin without NOQERI_STAGE1_NQRI." >&2
+    exit 2
+  fi
+  PIN="$repo_pin"
+  PIN_SOURCE="$PIN_FILE"
   rm -f "$SEED"
   if [ -z "$SEED_COMPILER" ]; then
     for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
@@ -102,16 +124,16 @@ sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
-seed_sha256=$(sha256_file "$SEED")
-if [ -n "$PIN" ]; then
-  case "$PIN" in *[!0123456789abcdefABCDEF]*) echo "Invalid SHA-256 pin." >&2; exit 2 ;; esac
-  if [ "${#PIN}" -ne 64 ] || [ "$seed_sha256" != "$(printf '%s' "$PIN" | tr 'ABCDEF' 'abcdef')" ]; then
-    echo "Stage-1 seed SHA-256 does not match the supplied pin: $seed_sha256" >&2; exit 2
-  fi
+seed_sha256=$(sha256_file "$SEED" | tr 'ABCDEF' 'abcdef')
+if [ "$seed_sha256" != "$PIN" ]; then
+  echo "Stage-1 seed SHA-256 does not match the required pin: $seed_sha256 != $PIN" >&2
+  exit 2
 fi
+SEED_PIN_VERIFIED=true
+# Never execute Stage 1 before its canonical or explicit SHA-256 pin succeeds.
 "$RUNTIME" --selftest
 if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
-  echo "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqri." >&2
+  echo "Hash-pinned Stage-1 seed is incompatible: it must export stage2CompileToNqri." >&2
   exit 2
 fi
 "$RUNTIME" compile-manifest "$SEED" "$ROOT" "$MANIFEST" "$STAGE2" "$TARGET"
@@ -134,12 +156,16 @@ stage3_sha256=$(sha256_file "$STAGE3")
 seed_compiler_sha256=""
 if [ -n "$SEED_COMPILER" ] && [ -f "$SEED_COMPILER" ]; then seed_compiler_sha256=$(sha256_file "$SEED_COMPILER"); fi
 {
+  echo "schema=2"
   echo "verified=true"
   echo "runtime=$RUNTIME"
   echo "seed=$SEED"
   echo "seed_bytes=$seed_bytes"
   echo "seed_sha256=$seed_sha256"
   echo "seed_origin=$SEED_ORIGIN"
+  echo "stage1_pin_verified=$SEED_PIN_VERIFIED"
+  echo "stage1_pin_source=$PIN_SOURCE"
+  echo "stage1_seed_provenance=$PROVENANCE"
   echo "stage1_independently_trusted=false"
   echo "source_manifest_sha256=$(sha256_file "$MANIFEST")"
   echo "seed_compiler_sha256=$seed_compiler_sha256"
@@ -151,9 +177,10 @@ if [ -n "$SEED_COMPILER" ] && [ -f "$SEED_COMPILER" ]; then seed_compiler_sha256
   echo "stage3_sha256=$stage3_sha256"
   echo "stage_bytes=$stage_bytes"
   echo "target=$TARGET"
+  echo "byte_equal=true"
   echo "equivalent=true"
 } > "$PROOF"
 
-echo "Native Stage-2/Stage-3 equivalence verified; independent Stage-1 trust NOT attested."
-echo "Stage 2 and Stage 3 are byte-identical: $STAGE2"
+echo "Stage-1 SHA-256 pin verified before execution: $seed_sha256"
+echo "Native Stage-2/Stage-3 byte-for-byte equality verified: $stage2_sha256"
 echo "Proof: $PROOF"

@@ -13,6 +13,7 @@ on:
       - 'tests/zero_init.noqeri'
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
+      - 'tests/bootstrap_seed_pin.test.mjs'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -31,6 +32,7 @@ on:
       - 'tests/zero_init.noqeri'
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
+      - 'tests/bootstrap_seed_pin.test.mjs'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -45,6 +47,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Stage-1 pin metadata
+        run: node --test tests/bootstrap_seed_pin.test.mjs
       - name: Reject legacy source and portable-module extensions
         if: runner.os == 'Linux'
         shell: bash
@@ -121,6 +125,9 @@ jobs:
         run: |
           set -euo pipefail
           ./build-native/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-native/noqeri-stage1.nqri
+          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
+          actual=$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)
+          test "$actual" = "$expected"
           ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
           while IFS= read -r source; do
             test -z "$source" && continue
@@ -181,11 +188,13 @@ jobs:
         run: |
           set -euo pipefail
           BUILD_DIR="$PWD/build-selfhost" \
-          NOQERI_STAGE1_NQRI="$PWD/build-native/noqeri-stage1.nqri" \
-          NOQERI_STAGE1_SHA256="$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)" \
+          NOQERI_STAGE0_CPP="$PWD/build-native/noqeri" \
           NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
           sh ./scripts/bootstrap-native.sh
+          grep -qx 'seed_origin=repository-pinned-cpp-stage0' build-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage1_pin_verified=true' build-selfhost/native-selfhost-proof.txt
           grep -qx 'stage1_independently_trusted=false' build-selfhost/native-selfhost-proof.txt
+          grep -qx 'byte_equal=true' build-selfhost/native-selfhost-proof.txt
           grep -qx 'equivalent=true' build-selfhost/native-selfhost-proof.txt
       - name: Build Stage-1 NQRI seed candidate (Windows)
         if: runner.os == 'Windows'
@@ -193,6 +202,9 @@ jobs:
         run: |
           & .\build-native\Release\noqeri.exe bootstrap-seed Compiler\selfhost\main.noqeri build-native\noqeri-stage1.nqri
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $expected = (((Get-Content Compiler\selfhost\stage1-seed.sha256 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1) -split '\s+')[0]).ToLowerInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 build-native\noqeri-stage1.nqri).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Stage-1 candidate hash $actual does not match repository pin $expected" }
           & .\build-native\Release\noqeri-nqri.exe has-export build-native\noqeri-stage1.nqri stage2CompileToNqri
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($source in Get-Content Compiler\selfhost\stage2-sources.txt) {
@@ -211,7 +223,9 @@ jobs:
           .\scripts\bootstrap-native.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $proof = Get-Content (Join-Path $env:BUILD_DIR 'native-selfhost-proof.json') -Raw | ConvertFrom-Json
-          if (-not $proof.equivalent -or $proof.stage1_independently_trusted -ne $false) { throw 'bootstrap evidence must not assert independent Stage-1 trust' }
+          if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-pinned-cpp-stage0' -or $proof.stage1_independently_trusted -ne $false) {
+            throw 'bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality without asserting independent attestation'
+          }
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -225,7 +239,7 @@ jobs:
             build-selfhost/native-selfhost-proof.txt
 
   stage1-cross-compiler:
-    name: Stage-1 GCC versus Clang reproducibility
+    name: Stage-1 pin reproducibility (GCC versus Clang)
     needs: native-selfhost
     runs-on: ubuntu-latest
     steps:
@@ -247,6 +261,11 @@ jobs:
           ./build-clang/noqeri bootstrap-seed Compiler/selfhost/main.noqeri clang-seed.nqri
           test -s gcc-seed/noqeri-stage1.nqri
           test -s clang-seed.nqri
-          sha256sum gcc-seed/noqeri-stage1.nqri clang-seed.nqri
+          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
+          gcc_hash=$(sha256sum gcc-seed/noqeri-stage1.nqri | cut -d ' ' -f1)
+          clang_hash=$(sha256sum clang-seed.nqri | cut -d ' ' -f1)
+          printf 'repository pin: %s\nGCC seed:      %s\nClang seed:    %s\n' "$expected" "$gcc_hash" "$clang_hash"
+          test "$gcc_hash" = "$expected"
+          test "$clang_hash" = "$expected"
           cmp gcc-seed/noqeri-stage1.nqri clang-seed.nqri
-          echo 'GCC/Clang Stage-1 seed bytes match; independent seed trust still requires an external audit and provenance.'
+          echo 'GCC and Clang reproduce the exact repository-pinned Stage-1 bytes.'
