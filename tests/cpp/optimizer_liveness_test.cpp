@@ -1,4 +1,5 @@
 #include "compiler.hpp"
+#include "optimizer_cost.hpp"
 #include <cstdint>
 #include <iostream>
 #include <vector>
@@ -132,6 +133,110 @@ int main() {
         p.entry.code = {call, withArgs(noe::NirOp::Return, {5})};
         noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
         if (!check(p.entry.code[0].op == noe::NirOp::Call, "external call kept")) return 1;
+    }
+    {
+        // Integer local GVN: second identical addition can reuse the first
+        // without rewriting uses outside its straight-line basic block.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::Load,{});a.dest=1;a.text="x";
+        auto b=withArgs(noe::NirOp::Load,{});b.dest=2;b.text="y";
+        auto sum=withArgs(noe::NirOp::Binary,{1,2});sum.dest=3;sum.text="+";
+        sum.type.kind=noe::TypeKind::Int;
+        auto duplicate=sum;duplicate.dest=4;
+        p.entry.code={a,b,sum,duplicate,withArgs(noe::NirOp::Return,{4})};
+        const auto before=noe::inspectOptimizations(p.entry);
+        if(!check(before.uniqueVirtualRegisterDefinitions && before.allDefinitionsDominateUses,
+                  "SSA eligibility for GVN"))return 1;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        int additions=0;noe::Reg returned=0;
+        for(const auto& in:p.entry.code){
+            if(in.op==noe::NirOp::Binary&&in.text=="+")++additions;
+            if(in.op==noe::NirOp::Return&&!in.args.empty())returned=in.args[0];
+        }
+        if(!check(additions==1 && returned==3,"local integer GVN"))return 1;
+    }
+    {
+        // Block boundary separates the definition from the branch: SCCP may
+        // propagate the proven boolean only when the definition dominates.
+        noe::NirProgram p;
+        auto flag=constant(1,0);flag.literal=true;
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=3;
+        auto cond=withArgs(noe::NirOp::JumpIfFalse,{1});cond.target=6;
+        p.entry.code={flag,jump,withArgs(noe::NirOp::Nop,{}),cond,
+                      constant(2,42),withArgs(noe::NirOp::Return,{2}),
+                      constant(3,999),withArgs(noe::NirOp::Return,{3})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool hasBad=false;int returned=0;
+        for(const auto& in:p.entry.code){
+            if(in.op==noe::NirOp::Const && std::holds_alternative<std::int64_t>(in.literal)
+               &&std::get<std::int64_t>(in.literal)==999)hasBad=true;
+            if(in.op==noe::NirOp::Return)++returned;
+        }
+        if(!check(!hasBad&&returned==1,"SSA SCCP across blocks"))return 1;
+    }
+    {
+        // Repeated register definitions are not in SSA form: advanced passes
+        // must not treat them as a single constant definition.
+        noe::NirProgram p;
+        p.entry.code={constant(1,8),constant(1,9),withArgs(noe::NirOp::Return,{1})};
+        const auto facts=noe::inspectOptimizations(p.entry);
+        if(!check(!facts.uniqueVirtualRegisterDefinitions,
+                  "reject non-SSA reused virtual registers"))return 1;
+    }
+    {
+        // x*0 and x%1 are integer identities; the previously computed x
+        // stays intact until proven dead by the usual liveness pass.
+        noe::NirProgram p;
+        auto x=withArgs(noe::NirOp::Load,{});x.dest=1;x.text="x";
+        auto product=withArgs(noe::NirOp::Binary,{1,2});product.dest=3;
+        product.type.kind=noe::TypeKind::I64;product.text="*";
+        p.entry.code={x,constant(2,0),product,withArgs(noe::NirOp::Return,{3})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool zero=false;
+        for(const auto& in:p.entry.code)if(in.dest&&*in.dest==3&&in.op==noe::NirOp::Const)
+          zero=std::get<std::int64_t>(in.literal)==0;
+        if(!check(zero,"safe integer strength reduction"))return 1;
+    }
+    {
+        // Minimal structured loop: loop-invariant literal executes in the
+        // preheader, while the backedge skips that literal on subsequent trips.
+        noe::NirProgram p;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="go";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{1});branch.target=7;
+        auto val=withArgs(noe::NirOp::Load,{});val.dest=3;val.text="x";
+        auto sum=withArgs(noe::NirOp::Binary,{2,3});sum.dest=4;sum.text="+";
+        sum.type.kind=noe::TypeKind::Int;
+        auto store=withArgs(noe::NirOp::Store,{4});store.text="out";
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=1;
+        p.entry.code={cond,branch,constant(2,5),val,sum,store,jump,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t literal=999,conditional=999,backedge=999;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.op==noe::NirOp::Const &&in.dest&&*in.dest==2)literal=i;
+            if(in.op==noe::NirOp::JumpIfFalse)conditional=i;
+            if(in.op==noe::NirOp::Jump)backedge=i;
+        }
+        if(!check(literal<conditional&&p.entry.code[backedge].target==conditional,
+                  "structured LICM and backedge retarget"))return 1;
+    }
+    {
+        noe::NirFunction f;
+        auto memory=withArgs(noe::NirOp::StackAlloc,{});memory.dest=7;
+        auto ptrRead=withArgs(noe::NirOp::LoadMemory,{7});ptrRead.dest=8;
+        f.code={memory,ptrRead,withArgs(noe::NirOp::Return,{8})};
+        const auto facts=noe::inspectOptimizations(f);
+        if(!check(facts.nonEscapingStackAllocations==1,
+                  "direct nonescaping stack allocation candidate"))return 1;
+        f.code[2]=withArgs(noe::NirOp::Return,{7});
+        if(!check(noe::inspectOptimizations(f).nonEscapingStackAllocations==0,
+                  "returned address escapes"))return 1;
+        const auto x86=noe::TargetCostModel::forTarget("x86_64-unknown-linux-gnu");
+        const auto arm=noe::TargetCostModel::forTarget("aarch64-unknown-linux-gnu");
+        const auto generic=noe::TargetCostModel::forTarget("unsupported-triple");
+        if(!check(x86.supportsSimd()&&arm.supportsSimd()&&!generic.supportsSimd(),
+                  "target cost model refuses unknown SIMD targets"))return 1;
     }
     return 0;
 }
