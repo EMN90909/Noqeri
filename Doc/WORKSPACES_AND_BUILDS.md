@@ -13,7 +13,7 @@ A multi-package repository can declare `noqeri.workspace.json`:
 }
 ```
 
-Each member must contain `project.noqeri`. Run one public command over members:
+Each member must contain `project.nqon` (legacy `project.noqeri` is accepted during migration). Run one public command over members:
 
 ```sh
 node Tools/workspace/noqeri-workspace.mjs check
