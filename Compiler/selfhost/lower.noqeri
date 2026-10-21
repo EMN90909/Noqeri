@@ -386,6 +386,7 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let alloc: isize = nqLowerEmit(instructions, state, nqNirStackAlloc(), base)
         if alloc < 0 as isize { return alloc }
         instructions[alloc as usize].width = bytes
+        instructions[alloc as usize].immediate = count as i64
         let element: isize = node.right
         let index: usize = 0 as usize
         while element >= 0 as isize && index < count {
