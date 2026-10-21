@@ -197,7 +197,9 @@ jobs:
           $env:BUILD_DIR = Join-Path $PWD 'build-selfhost'
           $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
           $env:NOQERI_STAGE0_CPP = Join-Path $PWD 'build-native\Release\noqeri.exe'
-          Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
+          # Compare the independently regenerated Windows Stage-1 binary to the
+          # committed SHA-256 pin before compiling Stage 2.
+          $env:NOQERI_STAGE1_NQRI = Join-Path $PWD 'build-native\noqeri-stage1.nqri'
           .\scripts\bootstrap-native.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve failed Stage-2 compiler for diagnosis
