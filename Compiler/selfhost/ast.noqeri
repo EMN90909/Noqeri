@@ -91,6 +91,8 @@ export function nqAstTypeInteger(code: int): bool { return code == nqAstTypeInt(
 export function nqAstTypeAggregate(code: int): bool { return code == nqAstTypeSlice() || code == nqAstTypeArray() || code == nqAstTypeRecord() }
 
 export function nqAstNodeInit(out: *NqAstNode, tag: int, start: usize, end: usize): void {
+    // Bounds-checked arena and null-checked raw AST pointers.
+    unsafe {
     out.tag = tag
     out.typeCode = nqAstTypeUnknown()
     out.typeSymbol = 0 as u64
@@ -107,32 +109,48 @@ export function nqAstNodeInit(out: *NqAstNode, tag: int, start: usize, end: usiz
     out.genericFirst = nqAstNoNode()
     out.genericCount = 0 as usize
     out.flags = 0 as u32
+
+    }
 }
 
 export function nqAstNodeValid(node: *NqAstNode, sourceBytes: usize): bool {
+    // Bounds-checked arena and null-checked raw AST pointers.
+    unsafe {
     if node == null || !nqAstNodeTagValid(node.tag) { return false }
     if node.start > node.end || node.end > sourceBytes { return false }
     return true
+
+    }
 }
 
 export function nqAstArenaPush(nodes: []NqAstNode, count: *usize, tag: int, start: usize, end: usize): isize {
+    // Bounds-checked arena and null-checked raw AST pointers.
+    unsafe {
     if count == null || count[0] >= len(nodes) || start > end { return nqAstNoNode() }
     let index: usize = count[0]
     nqAstNodeInit(&nodes[index], tag, start, end)
     count[0] = index + 1 as usize
     return index as isize
+
+    }
 }
 
 export function nqAstApplyType(out: *NqAstNode, code: int, symbol: u64, elementCode: int, elementSymbol: u64, arrayLength: usize): void {
+    // Bounds-checked arena and null-checked raw AST pointers.
+    unsafe {
     if out == null { return }
     out.typeCode = code
     out.typeSymbol = symbol
     out.elementTypeCode = elementCode
     out.elementTypeSymbol = elementSymbol
     out.arrayLength = arrayLength
+
+    }
 }
 
 export function nqAstAppend(nodes: []NqAstNode, first: *isize, last: *isize, node: isize): bool {
+    // Bounds-checked arena and null-checked raw AST pointers.
+    unsafe {
     if first == null || last == null || node < 0 as isize || node as usize >= len(nodes) { return false }
     if first[0] < 0 as isize { first[0] = node }
     else {
@@ -141,6 +159,8 @@ export function nqAstAppend(nodes: []NqAstNode, first: *isize, last: *isize, nod
     }
     last[0] = node
     return true
+
+    }
 }
 
 export function nqAstChainCount(nodes: []NqAstNode, first: isize): usize {
