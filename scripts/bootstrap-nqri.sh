@@ -132,7 +132,11 @@ stage3_sha256=$(sha256_file "$STAGE3")
 seed_compiler_sha256=""
 if [ -n "$SEED_COMPILER" ] && [ -f "$SEED_COMPILER" ]; then seed_compiler_sha256=$(sha256_file "$SEED_COMPILER"); fi
 {
-  echo "schema=3"\n  echo "execution_model=nqri-vm"\n  echo "artifact_format=nqri"\n  echo "native_codegen=false"\n  echo "native_selfhost=false"
+  echo "schema=3"
+  echo "execution_model=nqri-vm"
+  echo "artifact_format=nqri"
+  echo "native_codegen=false"
+  echo "native_selfhost=false"
   echo "verified=true"
   echo "runtime=$RUNTIME"
   echo "seed=$SEED"
