@@ -515,6 +515,7 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
 NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
     const auto cfg=graphOf(fn);
     if(!cfg.uniqueDefs||!cfg.validDominance)return;
+    ssaValid_=true;
     for(std::size_t b=0;b<cfg.edges.size();++b)
         for(auto to:cfg.edges[b])if(to<=b)hasBackedge_=true;
     for(const auto& i:fn.code)
@@ -545,7 +546,7 @@ bool NirAliasAnalysis::escapes(Reg pointer) const {
     return it==roots_.end() || escapingRoots_.count(it->second)>0;
 }
 AliasRelation NirAliasAnalysis::query(Reg a, Reg b) const {
-    if(a==b)return AliasRelation::MustAlias;
+    if(a==b)return ssaValid_ ? AliasRelation::MustAlias : AliasRelation::MayAlias;
     const auto left=roots_.find(a),right=roots_.find(b);
     if(left==roots_.end()||right==roots_.end()||hasBackedge_)
         return AliasRelation::MayAlias;
