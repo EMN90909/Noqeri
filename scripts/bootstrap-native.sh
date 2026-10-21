@@ -84,6 +84,10 @@ if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
   exit 2
 fi
 "$RUNTIME" compile-manifest "$SEED" "$ROOT" "$MANIFEST" "$STAGE2" "$TARGET"
+# Verify the generated compiler can process a small, known-good input before
+# asking it to rebuild the entire compiler source closure.
+"$RUNTIME" syntax "$STAGE2" "$ROOT/tests/bootstrap_language_compat.noqeri"
+"$RUNTIME" check "$STAGE2" "$ROOT/tests/bootstrap_language_compat.noqeri" "$TARGET"
 "$RUNTIME" compile-manifest "$STAGE2" "$ROOT" "$MANIFEST" "$STAGE3" "$TARGET"
 
 if ! cmp -s "$STAGE2" "$STAGE3"; then
