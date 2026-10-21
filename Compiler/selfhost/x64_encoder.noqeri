@@ -22,6 +22,10 @@ function nqX64InvalidAt(index: usize, opcode: int): isize {
     if index > 10000000 as usize || opcode < 0 || opcode > 63 { return nqX64Invalid() }
     return (0 as isize - 1000000 as isize) - (index as isize * 64 as isize) - opcode as isize
 }
+function nqX64InvalidDetail(index: usize, opcode: int, reason: int): isize {
+    if index > 10000000 as usize || opcode < 0 || opcode > 63 || reason < 0 || reason > 15 { return nqX64InvalidAt(index, opcode) }
+    return (0 as isize - 2000000 as isize) - (index as isize * 4096 as isize) - (opcode as isize * 16 as isize) - reason as isize
+}
 
 function nqX64Align8(value: usize): usize { return nqObjectAlignUp(value, 8 as usize) }
 function nqX64Align16(value: usize): usize { return nqObjectAlignUp(value, 16 as usize) }
@@ -417,7 +421,9 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
             }
         }
         else if ins.opcode == nqNirNeg() || ins.opcode == nqNirNot() {
-            if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if leftOffset == 0 as usize { return nqX64InvalidDetail(index,ins.opcode,1) }
+            if destOffset == 0 as usize { return nqX64InvalidDetail(index,ins.opcode,2) }
+            if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidDetail(index,ins.opcode,3) }
             if ins.opcode == nqNirNeg() { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xf7 as u8)||!nqX64Put8(out,cursor,0xd8 as u8) { return nqX64Capacity() } }
             else { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x94 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xb6 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
             if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
