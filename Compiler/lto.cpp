@@ -46,3 +46,5 @@ LinkTimeResult combineNirModules(
     result.ok=true;
     return result;
 }
+
+} // namespace noe
