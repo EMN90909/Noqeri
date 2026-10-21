@@ -1,0 +1,6 @@
+module noqeri.compiler.selfhost.native_seed
+import "stage2.noqeri"
+import "native_driver.noqeri"
+
+// Combined bootstrap root: preserves the proven NQRI self-host export while
+// adding the Noqeri-written native x86-64 backend entrypoints.
