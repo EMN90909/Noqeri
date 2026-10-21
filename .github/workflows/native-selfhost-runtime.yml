@@ -272,6 +272,21 @@ jobs:
           if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false -or $proof.execution_model -ne 'nqri-vm' -or $proof.native_codegen -ne $false -or $proof.native_selfhost -ne $false) {
             throw 'NQRI bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality while explicitly rejecting native qualification'
           }
+      - name: Verify native compiler Stage-2 -> Stage-3 -> Stage-4 (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-native-selfhost" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
+          sh ./scripts/bootstrap-native.sh
+          grep -qx 'execution_model=native-aot-selfhost' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_codegen=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_selfhost=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_stage2_runs_without_vm=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_stage3_runs_without_vm=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage2_stage3_byte_equal=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage3_stage4_byte_equal=true' build-native-selfhost/native-selfhost-proof.txt
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -283,6 +298,10 @@ jobs:
             build-selfhost/noqeri-stage2.nqri
             build-selfhost/noqeri-stage3.nqri
             build-selfhost/nqri-selfhost-proof.txt
+            build-native-selfhost/noqeri-stage2-native.o
+            build-native-selfhost/noqeri-stage3-native.o
+            build-native-selfhost/noqeri-stage4-native.o
+            build-native-selfhost/native-selfhost-proof.txt
 
   stage1-cross-compiler:
     name: Stage-1 pin reproducibility (GCC versus Clang)
