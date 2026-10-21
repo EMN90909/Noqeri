@@ -65,9 +65,26 @@ if (!existsSync(pinPath) || !existsSync(provenancePath)) {
     const buildCommand = process.platform === 'win32'
       ? ['powershell', ['-NoProfile', '-File', 'scripts/build.ps1']]
       : ['sh', ['scripts/build.sh']]
-    const built = run('build-selfhost', buildCommand[0], buildCommand[1])
+    const built = run('build-nqri-selfhost', buildCommand[0], buildCommand[1])
     if (built) {
-      run('stage2-abi', process.execPath, ['scripts/verify-stage2-module.mjs'])
+      const stage2Artifact = resolve(root, 'build/noqeri-stage2.nqri')
+      const runtimeCandidates = process.platform === 'win32'
+        ? [
+            resolve(root, 'build/bootstrap-host/Release/noqeri-nqri.exe'),
+            resolve(root, 'build/bootstrap-host/noqeri-nqri.exe'),
+            resolve(root, 'build/noqeri-nqri.exe')
+          ]
+        : [
+            resolve(root, 'build/bootstrap-host/noqeri-nqri'),
+            resolve(root, 'build/bootstrap-host/Release/noqeri-nqri'),
+            resolve(root, 'build/noqeri-nqri')
+          ]
+      const nqriRuntime = runtimeCandidates.find(candidate => existsSync(candidate))
+      if (nqriRuntime && existsSync(stage2Artifact)) {
+        run('stage2-nqri-abi', nqriRuntime, ['has-export', stage2Artifact, 'stage2CompileToNqri'])
+      } else {
+        blocked('stage2-nqri-abi', 'NQRI Stage-2 artifact or VM runtime is missing after bootstrap')
+      }
       if (process.platform === 'win32') {
         blocked('core-conformance', 'POSIX-only test_core.sh must be ported or run on a POSIX validation target')
         blocked('historical-regressions', 'POSIX-only test.sh must be ported or run on a POSIX validation target')
@@ -100,7 +117,7 @@ if (!existsSync(pinPath) || !existsSync(provenancePath)) {
         run('game-sdk-type-check', resolve(root, 'build/noqeri'), ['check', 'tests/game_foundations.noqeri'])
       else blocked('game-sdk-type-check', 'verified compiler executable not present')
     } else {
-      for (const name of ['stage2-abi', 'core-conformance', 'historical-regressions', 'web-smoke', 'nqri-bootstrap-proof', 'game-sdk-type-check'])
+      for (const name of ['stage2-nqri-abi', 'core-conformance', 'historical-regressions', 'web-smoke', 'nqri-bootstrap-proof', 'game-sdk-type-check'])
         blocked(name, 'blocked by failed bootstrap build')
     }
   }
