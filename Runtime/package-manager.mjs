@@ -84,8 +84,26 @@ export function createPackageManager(options = {}) {
     if (!response.ok) throw new Error(`download ${response.status}: ${url}`)
     const declared = Number(response.headers.get('content-length') || 0)
     if (declared > limit) throw new Error('download exceeds size limit')
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    if (bytes.byteLength > limit) throw new Error('download exceeds size limit')
+    // Stream-bound the payload instead of allocating untrusted response bodies.
+    if (!response.body?.getReader) {
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (bytes.byteLength > limit) throw new Error('download exceeds size limit')
+      return bytes
+    }
+    const reader = response.body.getReader(), chunks = []
+    let received = 0
+    try {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        received += value.byteLength
+        if (received > limit) throw new Error('download exceeds size limit')
+        chunks.push(value)
+      }
+    } catch (error) { await reader.cancel().catch(() => {}); throw error }
+    const bytes = new Uint8Array(received)
+    let position = 0
+    for (const part of chunks) { bytes.set(part, position); position += part.byteLength }
     return bytes
   }
 
