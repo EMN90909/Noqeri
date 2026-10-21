@@ -191,7 +191,19 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     if(fn.params.size()>6){diagnostics.error("NQR-N5004",{},"Noqeri x86-64 calling convention currently supports at most 6 parameters");return false;}
     std::string symbol=fn.isExport?safe(fn.name):internalSymbol(fn.name);
     if(fn.isExport)out<<"\n.global "<<symbol<<"\n";
-    std::size_t frame=align16((static_cast<std::size_t>(fn.nextReg)+l.variables.size())*8);
+    std::vector<std::size_t> fixedStorage(fn.code.size(),0);
+    std::size_t frameBytes=(static_cast<std::size_t>(fn.nextReg)+l.variables.size())*8;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto&i=fn.code[pc];
+        if(i.op==NirOp::StackAlloc){
+            frameBytes+=align16(std::max<std::size_t>(i.width,1));
+            fixedStorage[pc]=frameBytes;
+        }else if(i.op==NirOp::MakeSlice){
+            frameBytes+=16;
+            fixedStorage[pc]=frameBytes;
+        }
+    }
+    std::size_t frame=align16(frameBytes);
     out<<"\n"<<symbol<<":\n    push rbp\n    mov rbp, rsp\n";if(frame)out<<"    sub rsp, "<<frame<<"\n";
     for(std::size_t i=0;i<fn.params.size();++i)out<<"    mov "<<varSlot(fn,l,fn.params[i])<<", "<<args[i]<<"\n";
     auto load=[&](Reg r,const char*cpu){out<<"    mov "<<cpu<<", "<<regSlot(r)<<"\n";};auto store=[&](Reg r,const char*cpu){out<<"    mov "<<regSlot(r)<<", "<<cpu<<"\n";};
@@ -203,8 +215,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width);store(*i.dest,"rax");}break;
         case NirOp::StoreMemory:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitStoreWidth(out,i.width);}break;
         case NirOp::PtrOffset:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width!=1)out<<"    imul r10, "<<i.width<<"\n";out<<"    add rax, r10\n";}else if(i.target)out<<"    add rax, "<<i.target<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::StackAlloc:if(i.dest){out<<"    sub rsp, "<<align16(std::max<std::size_t>(i.width,1))<<"\n    mov rax, rsp\n";store(*i.dest,"rax");}break;
-        case NirOp::MakeSlice:if(i.dest&&i.args.size()==2){out<<"    sub rsp, 16\n";load(i.args[0],"rax");out<<"    mov QWORD PTR [rsp], rax\n";load(i.args[1],"rax");out<<"    mov QWORD PTR [rsp+8], rax\n    mov rax, rsp\n";store(*i.dest,"rax");}break;
+        case NirOp::StackAlloc:if(i.dest){if(pc>=fixedStorage.size()||fixedStorage[pc]==0){diagnostics.error("NQR-N5024",{},"internal native stack-allocation layout error");return false;}out<<"    lea rax, [rbp-"<<fixedStorage[pc]<<"]\n";store(*i.dest,"rax");}break;
+        case NirOp::MakeSlice:if(i.dest&&i.args.size()==2){if(pc>=fixedStorage.size()||fixedStorage[pc]<16){diagnostics.error("NQR-N5025",{},"internal native slice layout error");return false;}out<<"    lea r11, [rbp-"<<fixedStorage[pc]<<"]\n";load(i.args[0],"rax");out<<"    mov QWORD PTR [r11], rax\n";load(i.args[1],"rax");out<<"    mov QWORD PTR [r11+8], rax\n    mov rax, r11\n";store(*i.dest,"rax");}break;
         case NirOp::SliceData:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax]\n";store(*i.dest,"rax");}break;
         case NirOp::SliceLen:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax+8]\n";store(*i.dest,"rax");}break;
         case NirOp::CheckNonNull:{
