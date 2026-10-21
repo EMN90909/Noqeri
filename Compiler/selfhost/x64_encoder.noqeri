@@ -428,8 +428,12 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
         }
         else if ins.opcode == nqNirSliceData() || ins.opcode == nqNirSliceLen() {
             if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64Invalid() }
-            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x8b as u8)||!nqX64Put8(out,cursor,ins.opcode == nqNirSliceData() ? 0x00 as u8 : 0x40 as u8) { return nqX64Capacity() }
-            if ins.opcode == nqNirSliceLen() { if !nqX64Put8(out,cursor,0x08 as u8) { return nqX64Capacity() } }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x8b as u8) { return nqX64Capacity() }
+            if ins.opcode == nqNirSliceData() {
+                if !nqX64Put8(out,cursor,0x00 as u8) { return nqX64Capacity() }
+            } else {
+                if !nqX64Put8(out,cursor,0x40 as u8)||!nqX64Put8(out,cursor,0x08 as u8) { return nqX64Capacity() }
+            }
             if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
         }
         else if ins.opcode == nqNirPtrAdd() {
