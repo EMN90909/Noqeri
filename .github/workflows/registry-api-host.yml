@@ -14,6 +14,10 @@ jobs:
         with: {node-version: '22'}
       - run: node tests/package_manager_host.mjs
       - run: node --test tests/nqon.test.mjs
+      - name: Verify v1.0.0 compiler and source version contract
+        run: node --test tests/version-contract.test.mjs tests/release-qualification.test.mjs tests/v1-evidence.test.mjs
+      - name: Verify machine-readable platform contract
+        run: node Tools/release/verify-v1-contract.mjs
       - name: Compile and execute optimizer CFG regressions
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer-cfg
