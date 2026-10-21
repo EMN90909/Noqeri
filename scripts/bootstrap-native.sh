@@ -5,7 +5,13 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 HOST_BUILD="${NOQERI_HOST_BUILD:-$BUILD_DIR/bootstrap-host}"
 RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
-SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
+PINNED_SEED="$ROOT/Compiler/selfhost/trusted-stage1.nqri"
+SEED_LOCK="$ROOT/Compiler/selfhost/trusted-stage1.sha256"
+if [ -z "${NOQERI_STAGE1_NQRI:-}" ] && [ -f "$PINNED_SEED" ]; then
+  SEED="$PINNED_SEED"
+else
+  SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
+fi
 SEED_COMPILER="${NOQERI_STAGE0_CPP:-}"
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
 STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
@@ -79,6 +85,29 @@ if [ ! -f "$SEED" ]; then
 fi
 
 "$RUNTIME" --selftest
+# A checked-in seed is accepted only with its matching SHA-256 lock. An
+# alternate externally supplied seed must match the same pinned digest.
+if [ -e "$PINNED_SEED" ] || [ -e "$SEED_LOCK" ]; then
+  if [ ! -f "$PINNED_SEED" ] || [ ! -f "$SEED_LOCK" ]; then
+    echo "Incomplete trusted Stage-1 seed pin: both module and checksum are required." >&2
+    exit 2
+  fi
+  expected_seed_sha256=$(awk 'NR==1 {print $1}' "$SEED_LOCK")
+  case "$expected_seed_sha256" in
+    *[!0-9a-f]*|"") echo "Invalid pinned Stage-1 SHA-256 digest." >&2; exit 2 ;;
+  esac
+  if [ "${#expected_seed_sha256}" -ne 64 ]; then
+    echo "Pinned Stage-1 SHA-256 must be 64 hexadecimal digits." >&2
+    exit 2
+  fi
+  actual_pinned_sha256=$(sha256sum "$PINNED_SEED" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$PINNED_SEED" | awk '{print $1}')
+  actual_seed_sha256=$(sha256sum "$SEED" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$SEED" | awk '{print $1}')
+  if [ "$expected_seed_sha256" != "$actual_pinned_sha256" ] || [ "$expected_seed_sha256" != "$actual_seed_sha256" ]; then
+    echo "Stage-1 seed hash mismatch; refusing to run an unpinned compiler." >&2
+    exit 2
+  fi
+  echo "Verified pinned Stage-1 NQRI seed SHA-256: $actual_seed_sha256"
+fi
 if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
   echo "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqri." >&2
   exit 2
