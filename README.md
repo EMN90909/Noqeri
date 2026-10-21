@@ -67,6 +67,14 @@ version = "0.1.0"
 
 NQON is specified independently of the compiler and can be converted to/from JSON with the standalone reference tooling. See [NQON](Doc/NQON.md) and the [syntax simplicity contract](Doc/SYNTAX_SIMPLICITY.md).
 
+## Compiler optimizer (Stage-0, partially implemented)
+
+The C++ Stage-0 NIR pipeline implements local integer value numbering (GVN), SSA-register dominance verification, sparse constant propagation and Boolean branch pruning (SCCP subset), conservative integer strength reduction, O3 structured loop-literal hoisting (LICM subset), and effect-preserving literal instruction scheduling. The register allocator uses CFG liveness over branches and loop backedges. Conservative stack pointer alias/escape inspection and uncalibrated x86-64/ARM64 cost profiles are available for future passes.
+
+**Not implemented:** full SSA Phi construction, trip-count loop unrolling, SLP/loop/autovectorization, general memory optimization, full interprocedural specialization, target machine scheduling, LTO or PGO. The proposed vectorizer does not yet emit SIMD; the cost model is not a claim that it does. See [the detailed qualification matrix](Doc/OPTIMIZATION_QUALIFICATION.md).
+
+The native [optimization CI](.github/workflows/advanced-optimizer.yml) builds the complete C++ compiler, executes the optimizer and register allocation tests, and compares O0 versus O3 output for valid Noqeri programs. These are Stage-0 tests, **not** proof of self-hosted Stage-2 backend parity or production-wide performance.
+
 ## Compiler architecture
 
 `main` now uses a staged self-host model. The normal build no longer invokes CMake or a C++17 compiler. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`; the first stage owns lexical scanning, structural syntax checks, primitive type-width/sign policy, token counting and source fingerprinting.
