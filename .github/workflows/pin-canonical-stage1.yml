@@ -1,8 +1,8 @@
 name: Pin canonical Stage-1 NQRI seed
 
 on:
-  push:
-    branches: ['compiler/pin-stage1-a5b308be']
+  pull_request:
+    branches: [main]
     paths:
       - '.github/workflows/pin-canonical-stage1.yml'
 
@@ -11,12 +11,13 @@ permissions:
 
 jobs:
   pin-stage1:
-    if: github.repository == 'EMN90909/Noqeri' && github.ref == 'refs/heads/compiler/pin-stage1-a5b308be'
+    if: github.repository == 'EMN90909/Noqeri' && github.head_ref == 'compiler/pin-stage1-a5b308be'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           persist-credentials: true
 
       - name: Build Stage-0 and native NQRI host
