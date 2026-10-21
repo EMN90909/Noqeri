@@ -86,7 +86,20 @@ jobs:
       - name: Build C++ seed compiler and NQRI VM
         run: cmake --build build-native --target noqeri noqeri-nqri noqeri-optimizer-test --config Release
       - name: Run NQRI VM self-test
-        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)      - name: Verify zero initialization through C++ -> NQRI (Linux)
+        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)$'
+      - name: Enforce native benchmark policy
+        if: runner.os == 'Linux'
+        run: node --test tests/native_benchmark_policy.test.mjs
+      - name: Verify standalone native AOT execution
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs Benchmarks/workloads/startup.noqeri build-native/startup-aot --compiler=build-native/noqeri --cxx=c++ --opt=-O3
+          output=$(./build-native/startup-aot)
+          test "$output" = "0"
+          node -e "const p=require('./build-native/startup-aot.native.json'); if(p.execution_model!=='native-aot'||p.self_hosted_compiler!==false||p.target!=='linux-x86_64-sysv') process.exit(1)"
+      - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -241,217 +254,6 @@ jobs:
           $proof = Get-Content (Join-Path $env:BUILD_DIR 'nqri-selfhost-proof.json') -Raw | ConvertFrom-Json
           if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false -or $proof.execution_model -ne 'nqri-vm' -or $proof.native_codegen -ne $false -or $proof.native_selfhost -ne $false) {
             throw 'NQRI bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality while explicitly rejecting native qualification'
-          }
-      - name: Upload candidate seed and bootstrap proof
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bootstrap-candidate-nqri-${{ github.sha }}
-          if-no-files-found: error
-          path: |
-            build-native/noqeri-stage1.nqri
-            build-selfhost/noqeri-stage2.nqri
-            build-selfhost/noqeri-stage3.nqri
-            build-selfhost/nqri-selfhost-proof.txt
-
-  stage1-cross-compiler:
-    name: Stage-1 pin reproducibility (GCC versus Clang)
-    needs: native-selfhost
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download Stage-1 GCC candidate
-        uses: actions/download-artifact@v4
-        with:
-          name: noqeri-stage1-seed-${{ github.sha }}
-          path: gcc-seed
-      - name: Build Stage-0 with independent C++ compiler
-        run: |
-          set -euo pipefail
-          command -v clang++
-          cmake -S . -B build-clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DNOQERI_WARNINGS_AS_ERRORS=ON
-          cmake --build build-clang --target noqeri --parallel 2 --config Release
-      - name: Compare GCC and Clang generated Stage-1 NQRI bytes
-        run: |
-          set -euo pipefail
-          ./build-clang/noqeri bootstrap-seed Compiler/selfhost/main.noqeri clang-seed.nqri
-          test -s gcc-seed/noqeri-stage1.nqri
-          test -s clang-seed.nqri
-          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
-          gcc_hash=$(sha256sum gcc-seed/noqeri-stage1.nqri | cut -d ' ' -f1)
-          clang_hash=$(sha256sum clang-seed.nqri | cut -d ' ' -f1)
-          printf 'repository pin: %s\nGCC seed:      %s\nClang seed:    %s\n' "$expected" "$gcc_hash" "$clang_hash"
-          test "$gcc_hash" = "$expected"
-          test "$clang_hash" = "$expected"
-          cmp gcc-seed/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
-          cmp clang-seed.nqri Compiler/selfhost/trusted-stage1.nqri
-          cmp gcc-seed/noqeri-stage1.nqri clang-seed.nqri
-          echo 'GCC and Clang reproduce the exact repository-pinned Stage-1 bytes.'
-
-      - name: Enforce native benchmark policy
-        if: runner.os == 'Linux'
-        run: node --test tests/native_benchmark_policy.test.mjs
-      - name: Verify standalone native AOT execution
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/native-build.mjs Benchmarks/workloads/startup.noqeri build-native/startup-aot --compiler=build-native/noqeri --cxx=c++ --opt=-O3
-          output=$(./build-native/startup-aot)
-          test "$output" = "0"
-          node -e "const p=require('./build-native/startup-aot.native.json'); if(p.execution_model!=='native-aot'||p.self_hosted_compiler!==false||p.target!=='linux-x86_64-sysv') process.exit(1)"
-      - name: Verify zero initialization through C++ -> NQRI (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri check tests/zero_init.noqeri
-          ./build-native/noqeri nqri tests/zero_init.noqeri build-native/zero-init.nqri
-          result=$(./build-native/noqeri-nqri build-native/zero-init.nqri zeroInitCheck)
-          test "$result" = "10"
-      - name: Verify zero initialization through C++ -> NQRI (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & .\build-native\Release\noqeri.exe check tests\zero_init.noqeri
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\build-native\Release\noqeri.exe nqri tests\zero_init.noqeri build-native\zero-init.nqri
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $result = (& .\build-native\Release\noqeri-nqri.exe build-native\zero-init.nqri zeroInitCheck).Trim()
-          if ($LASTEXITCODE -ne 0 -or $result -ne '10') { throw "zero-init NQRI check returned '$result'" }
-      - name: Verify bootstrap language compatibility (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri check tests/bootstrap_language_compat.noqeri
-          ./build-native/noqeri nqri tests/bootstrap_language_compat.noqeri build-native/bootstrap-language.nqri
-          result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri contextualNames)
-          test "$result" = "48"
-          cast_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri castComparison)
-          test "$cast_result" = "1"
-          promotion_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri integerLiteralPromotion)
-          test "$promotion_result" = "14"
-      - name: Verify bootstrap language compatibility (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & .\build-native\Release\noqeri.exe check tests\bootstrap_language_compat.noqeri
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\build-native\Release\noqeri.exe nqri tests\bootstrap_language_compat.noqeri build-native\bootstrap-language.nqri
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $result = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri contextualNames).Trim()
-          if ($LASTEXITCODE -ne 0 -or $result -ne '48') { throw "bootstrap language compatibility returned '$result'" }
-          $castResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri castComparison).Trim()
-          if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
-          $promotionResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri integerLiteralPromotion).Trim()
-          if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
-      - name: Build Stage-1 NQRI seed candidate (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-native/noqeri-stage1.nqri
-          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
-          actual=$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)
-          test "$actual" = "$expected"
-          cmp build-native/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
-          ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
-          while IFS= read -r source; do
-            test -z "$source" && continue
-            ./build-native/noqeri-nqri syntax build-native/noqeri-stage1.nqri "$source"
-          done < Compiler/selfhost/stage2-sources.txt
-      - name: Verify self-hosted zero initialization (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri-nqri check build-native/noqeri-stage1.nqri tests/zero_init.noqeri 3
-      - name: Verify self-hosted nested break/continue (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/loop_control.noqeri build-native/loop-control.nqri 3
-          result=$(./build-native/noqeri-nqri build-native/loop-control.nqri loopControl)
-          test "$result" = "21"
-          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/max_uint64_literal.noqeri build-native/max-uint64.nqri 3
-          result=$(./build-native/noqeri-nqri build-native/max-uint64.nqri uint64WideLiteral)
-          test "$result" = "-1"
-      - name: Verify self-hosted nested-call argument ordering (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/nested_call_args.noqeri build-native/nested-call-args.nqri 3
-          result=$(./build-native/noqeri-nqri build-native/nested-call-args.nqri nestedCallArgumentOrder)
-          test "$result" = "3321"
-      - name: Verify array-literal slice lengths (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/slice_literal_len.noqeri build-native/slice-literal-len.nqri 3
-          result=$(./build-native/noqeri-nqri build-native/slice-literal-len.nqri sliceLiteralLength)
-          test "$result" = "3"
-      - name: Verify record-array strides (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/record_array_stride.noqeri build-native/record-array-stride.nqri 3
-          result=$(./build-native/noqeri-nqri build-native/record-array-stride.nqri recordArrayStride)
-          test "$result" = "41"
-      - name: Upload generated Stage-1 seed candidate
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: noqeri-stage1-seed-${{ github.sha }}
-          if-no-files-found: error
-          retention-days: 30
-          path: build-native/noqeri-stage1.nqri
-      - name: Verify NQRI Stage-1 -> Stage-2 -> Stage-3 (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          BUILD_DIR="$PWD/build-selfhost" \
-          NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
-          sh ./scripts/bootstrap-nqri.sh
-          grep -qx 'seed_origin=repository-committed' build-selfhost/nqri-selfhost-proof.txt
-          grep -qx 'stage1_pin_verified=true' build-selfhost/nqri-selfhost-proof.txt
-          grep -qx 'stage1_independently_trusted=false' build-selfhost/nqri-selfhost-proof.txt
-          grep -qx 'byte_equal=true' build-selfhost/nqri-selfhost-proof.txt
-          grep -qx 'equivalent=true' build-selfhost/nqri-selfhost-proof.txt
-      - name: Build Stage-1 NQRI seed candidate (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & .\build-native\Release\noqeri.exe bootstrap-seed Compiler\selfhost\main.noqeri build-native\noqeri-stage1.nqri
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $expected = (((Get-Content Compiler\selfhost\stage1-seed.sha256 | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1) -split '\s+')[0]).ToLowerInvariant()
-          $actual = (Get-FileHash -Algorithm SHA256 build-native\noqeri-stage1.nqri).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "Stage-1 candidate hash $actual does not match repository pin $expected" }
-          & .\build-native\Release\noqeri-nqri.exe has-export build-native\noqeri-stage1.nqri stage2CompileToNqri
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($source in Get-Content Compiler\selfhost\stage2-sources.txt) {
-            if ([string]::IsNullOrWhiteSpace($source)) { continue }
-            & .\build-native\Release\noqeri-nqri.exe syntax build-native\noqeri-stage1.nqri $source
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-      - name: Verify NQRI Stage-1 -> Stage-2 -> Stage-3 (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:BUILD_DIR = Join-Path $PWD 'build-selfhost'
-          $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
-          Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
-          Remove-Item Env:NOQERI_STAGE1_SHA256 -ErrorAction SilentlyContinue
-          .\scripts\bootstrap-nqri.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $proof = Get-Content (Join-Path $env:BUILD_DIR 'nqri-selfhost-proof.json') -Raw | ConvertFrom-Json
-          if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false) {
-            throw 'bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality without asserting independent attestation'
           }
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
