@@ -76,27 +76,31 @@ if (!existsSync(pinPath) || !existsSync(provenancePath)) {
         run('historical-regressions', 'sh', ['scripts/test.sh'])
       }
       run('web-smoke', process.execPath, ['scripts/test_web_dev.mjs'])
-      const textProof = resolve(root, 'build/native-selfhost-proof.txt')
-      const jsonProof = resolve(root, 'build/native-selfhost-proof.json')
+      const textProof = resolve(root, 'build/nqri-selfhost-proof.txt')
+      const jsonProof = resolve(root, 'build/nqri-selfhost-proof.json')
       let proofOk = false
       if (existsSync(textProof)) {
         const proof = readFileSync(textProof, 'utf8')
         proofOk = /(^|\n)stage1_pin_verified=true(\n|$)/.test(proof) &&
           /(^|\n)byte_equal=true(\n|$)/.test(proof) &&
-          /(^|\n)equivalent=true(\n|$)/.test(proof)
+          /(^|\n)equivalent=true(\n|$)/.test(proof) &&
+          /(^|\n)execution_model=nqri-vm(\n|$)/.test(proof) &&
+          /(^|\n)native_codegen=false(\n|$)/.test(proof) &&
+          /(^|\n)native_selfhost=false(\n|$)/.test(proof)
       } else if (existsSync(jsonProof)) {
         try {
           const proof = JSON.parse(readFileSync(jsonProof, 'utf8'))
-          proofOk = proof.stage1_pin_verified === true && proof.byte_equal === true && proof.equivalent === true
+          proofOk = proof.stage1_pin_verified === true && proof.byte_equal === true && proof.equivalent === true &&
+            proof.execution_model === 'nqri-vm' && proof.native_codegen === false && proof.native_selfhost === false
         } catch {}
       }
-      if (proofOk) passed('bootstrap-proof')
-      else blocked('bootstrap-proof', 'native bootstrap proof is missing the Stage-1 pin and Stage-2/Stage-3 byte-equality gates')
+      if (proofOk) passed('nqri-bootstrap-proof')
+      else blocked('nqri-bootstrap-proof', 'NQRI bootstrap proof is missing its pin/equality gates or incorrectly claims native code generation')
       if (existsSync(resolve(root, 'build/noqeri')))
         run('game-sdk-type-check', resolve(root, 'build/noqeri'), ['check', 'tests/game_foundations.noqeri'])
       else blocked('game-sdk-type-check', 'verified compiler executable not present')
     } else {
-      for (const name of ['stage2-abi', 'core-conformance', 'historical-regressions', 'web-smoke', 'bootstrap-proof', 'game-sdk-type-check'])
+      for (const name of ['stage2-abi', 'core-conformance', 'historical-regressions', 'web-smoke', 'nqri-bootstrap-proof', 'game-sdk-type-check'])
         blocked(name, 'blocked by failed bootstrap build')
     }
   }
