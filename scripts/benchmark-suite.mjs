@@ -161,7 +161,9 @@ for (const workload of suite.workloads || []) {
     }
 
     const versionKey = command[0]
-    if (!versionCache.has(versionKey)) versionCache.set(versionKey, toolVersion(command, cwd))
+    if (!versionCache.has(versionKey)) {
+      versionCache.set(versionKey, isNoqeriRuntime ? (provenance?.compiler_version || null) : toolVersion(command, cwd))
+    }
 
     let failed = null
     for (let i = 0; i < warmups; i++) {
