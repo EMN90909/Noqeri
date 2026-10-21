@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "version": "1.0.0",
+  "status": "stabilization-candidate",
+  "policy": "No platform is release-qualified without native conformance, bootstrap proof, and artifact evidence on the same revision.",
+  "platforms": [
+    {
+      "id": "linux-x86_64",
+      "os": "linux",
+      "arch": "x86_64",
+      "tier": "candidate",
+      "bootstrap_ci": "covered",
+      "native_conformance": "pending",
+      "release_required": true
+    },
+    {
+      "id": "windows-x86_64",
+      "os": "windows",
+      "arch": "x86_64",
+      "tier": "candidate",
+      "bootstrap_ci": "covered",
+      "native_conformance": "pending",
+      "release_required": true
+    },
+    {
+      "id": "linux-arm64",
+      "os": "linux",
+      "arch": "arm64",
+      "tier": "preview",
+      "bootstrap_ci": "unverified",
+      "native_conformance": "pending",
+      "release_required": false
+    },
+    {
+      "id": "macos-x86_64",
+      "os": "macos",
+      "arch": "x86_64",
+      "tier": "preview",
+      "bootstrap_ci": "unverified",
+      "native_conformance": "pending",
+      "release_required": false
+    },
+    {
+      "id": "macos-arm64",
+      "os": "macos",
+      "arch": "arm64",
+      "tier": "preview",
+      "bootstrap_ci": "unverified",
+      "native_conformance": "pending",
+      "release_required": false
+    },
+    {
+      "id": "windows-arm64",
+      "os": "windows",
+      "arch": "arm64",
+      "tier": "preview",
+      "bootstrap_ci": "unverified",
+      "native_conformance": "pending",
+      "release_required": false
+    }
+  ]
+}
