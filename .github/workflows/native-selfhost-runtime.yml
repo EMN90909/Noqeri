@@ -137,6 +137,14 @@ jobs:
         run: |
           set -euo pipefail
           ./build-native/noqeri-nqri check build-native/noqeri-stage1.nqri tests/zero_init.noqeri 3
+      - name: Execute Stage-1 generated zero-init fixture (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/zero_init.noqeri build-native/zero-init-stage1.nqri 3
+          result=$(./build-native/noqeri-nqri build-native/zero-init-stage1.nqri zeroInitCheck)
+          test "$result" = "10"
       - name: Upload generated trusted Stage-1 seed
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
