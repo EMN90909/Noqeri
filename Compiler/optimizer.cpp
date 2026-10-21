@@ -385,6 +385,8 @@ bool integerStrengthReduction(NirFunction&fn) {
 // which cannot trap, allocate, alias or change numerical behavior. Any branch
 // inside the body, exceptional operation or external entry blocks movement.
 bool hoistLoopLiteral(NirFunction& fn) {
+    const Graph analysis=graphOf(fn);
+    if(!analysis.uniqueDefs||!analysis.validDominance)return false;
     const std::size_t n=fn.code.size();
     if(n<5)return false;
     for(std::size_t back=0;back<n;++back){
@@ -395,7 +397,10 @@ bool hoistLoopLiteral(NirFunction& fn) {
             const auto& i=fn.code[k];
             if(i.op==NirOp::Try||i.op==NirOp::InlineAsm)return false;
             if(k>=header&&k<=back)continue;
-            if((i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)&&i.target==header)external=true;
+            // Entering anywhere inside the loop without traversing the
+            // preheader would violate the moved definition's dominance.
+            if((i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)&&
+               i.target>=header&&i.target<=back)external=true;
         }
         if(external)continue;
         std::size_t branch=n;bool structured=true;
