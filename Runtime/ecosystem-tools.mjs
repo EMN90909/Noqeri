@@ -4,8 +4,8 @@ import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createPackageManager, compareSemver } from './package-manager.mjs'
+import { apiBase } from './registry-client.mjs'
 
-const DEFAULT_ADVISORY_URL = 'https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/advisories/index.json'
 
 function safeCoordinate(value) {
   if (!/^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(value)) throw new Error(`invalid package coordinate in lock file: ${value}`)
@@ -99,7 +99,7 @@ async function loadAdvisories(projectDir, offline) {
   const local = configured ? resolve(configured) : vendored
   if (existsSync(local)) return { source: local, data: JSON.parse(await readFile(local, 'utf8')) }
   if (offline) throw new Error('advisory data unavailable in offline mode; set NOQERI_ADVISORY_FILE or vendor .noqeri/advisories/index.json')
-  const url = process.env.NOQERI_ADVISORY_URL || DEFAULT_ADVISORY_URL
+  const url = process.env.NOQERI_ADVISORY_URL || apiBase() + '/v1/advisories'
   const response = await fetch(url, { headers: { accept: 'application/json', 'user-agent': 'noqeri-audit/1' } })
   if (!response.ok) throw new Error(`advisory fetch failed: HTTP ${response.status}`)
   return { source: url, data: await response.json() }
