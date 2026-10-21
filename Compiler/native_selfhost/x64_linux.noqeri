@@ -13,6 +13,8 @@ export function nqNativeMissingEntry(): isize { return -904 as isize }
 export function nqNativeUnresolvedCall(): isize { return -905 as isize }
 export function nqNativeTooManyArguments(): isize { return -906 as isize }
 export function nqNativeUnsupportedBuiltin(): isize { return -907 as isize }
+export function nqNativeNegativeRegister(): isize { return -908 as isize }
+export function nqNativeBelowFrameBase(): isize { return -909 as isize }
 
 function nqNativeDiagnosticStatus(kind: int, functionIndex: usize, pc: usize, opcode: int): isize {
     // Encodes emitter failures without host-side compiler logic:
@@ -513,7 +515,8 @@ function nqNativeEmitInstruction(out: []u8, cursor: *usize, source: []u8, instru
     }
 
     if instruction.opcode == nqNirNeg() {
-        if instruction.left < minimum { return nqNativeBadNir() }
+        if instruction.left < 0 as isize { return nqNativeNegativeRegister() }
+        if instruction.left < minimum { return nqNativeBelowFrameBase() }
         if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeCapacity() }
         let sourceType: int = nqNativeProducerType(instructions, function, instruction.left)
         if sourceType == nqAstTypeFloat() {
@@ -686,7 +689,16 @@ function nqNativeEmitFunction(out: []u8, cursor: *usize, source: []u8, instructi
 
     if !nqNativeFunctionLabel(out, cursor, functionIndex) || !nqa_colon_nl(out, cursor) || !nqa_prologue(out, cursor) { return nqNativeCapacity() }
 
-    let minimum: isize = nqNativeMinRegister(instructions, function)
+    let minimum: isize = 0 as isize
+    let basePc: usize = function.firstInstruction
+    let functionEnd: usize = function.firstInstruction + function.instructionCount
+    while basePc < functionEnd {
+        if instructions[basePc].dest >= 0 as isize {
+            minimum = instructions[basePc].dest
+            break
+        }
+        basePc = basePc + 1 as usize
+    }
     let registerCount: usize = nqNativeRegisterCount(instructions, function, minimum)
     let variableCount: usize = nqNativeVariableCount(instructions, function)
     let frameBytes: usize = nqNativeAlign16((registerCount + variableCount) * 8 as usize)
@@ -705,6 +717,8 @@ function nqNativeEmitFunction(out: []u8, cursor: *usize, source: []u8, instructi
             else if status == nqNativeUnresolvedCall() { kind = 3 }
             else if status == nqNativeTooManyArguments() { kind = 4 }
             else if status == nqNativeUnsupportedBuiltin() { kind = 5 }
+            else if status == nqNativeNegativeRegister() { kind = 6 }
+            else if status == nqNativeBelowFrameBase() { kind = 7 }
             if kind != 0 { return nqNativeDiagnosticStatus(kind, functionIndex, pc, instructions[pc].opcode) }
             return status
         }
