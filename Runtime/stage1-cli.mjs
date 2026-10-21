@@ -45,7 +45,7 @@ function environmentSnapshot() {
     compilerModule: modulePath, compilerModuleExists: existsSync(modulePath),
     projectManifestExists: existsSync(resolve(process.cwd(), 'project.noqeri')), lockfileExists: existsSync(resolve(process.cwd(), 'noqeri.lock')),
     offline: process.env.NOQERI_OFFLINE === '1', home: process.env.NOQERI_HOME || null,
-    registryIndex: process.env.NOQERI_REGISTRY_INDEX || 'https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json'
+    registryApi: process.env.NOQERI_REGISTRY_API_URL || '(not configured)'
   }
 }
 function printEnvironment(snapshot, json) {
@@ -58,7 +58,7 @@ function printEnvironment(snapshot, json) {
   console.log(`noqeri.lock: ${snapshot.lockfileExists ? 'present' : 'not found'}`)
   console.log(`Offline: ${snapshot.offline ? 'yes' : 'no'}`)
   console.log(`NOQERI_HOME: ${snapshot.home || '(default)'}`)
-  console.log(`Registry: ${snapshot.registryIndex}`)
+  console.log(`Registry: ${snapshot.registryApi}`)
 }
 
 try {
@@ -70,6 +70,7 @@ try {
     if (!snapshot.compilerModuleExists) warnings.push('stage-1 compiler module is not built; run scripts/build.sh with a trusted NOQERI_STAGE0 seed')
     if (!snapshot.projectManifestExists) warnings.push('project.noqeri was not found in the current directory')
     if (snapshot.offline && !snapshot.lockfileExists) warnings.push('offline mode is enabled but noqeri.lock is missing')
+    if (!snapshot.offline && !process.env.NOQERI_REGISTRY_API_URL) warnings.push('NOQERI_REGISTRY_API_URL must be set for online package and advisory requests')
     const report = { status: problems.length ? 'error' : warnings.length ? 'warning' : 'ok', problems, warnings, environment: snapshot }
     if (args.includes('--json')) console.log(JSON.stringify(report, null, 2))
     else {
