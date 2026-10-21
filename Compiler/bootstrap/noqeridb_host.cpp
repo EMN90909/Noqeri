@@ -1,3 +1,6 @@
+// LEGACY COMPATIBILITY ONLY: NoqeriDB .nqd/.nqdb host.
+// Canonical new database integrations use NoeSQL .noedb; this is retained until
+// migration tests prove that removing the old compiler CLI path is safe.
 #include "noe.hpp"
 #include <algorithm>
 #include <cctype>
