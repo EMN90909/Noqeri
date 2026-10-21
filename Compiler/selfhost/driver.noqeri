@@ -3,8 +3,8 @@ import "lexer.noqeri"
 import "syntax.noqeri"
 import "../../Lib/std/checksum.noqeri"
 
-export function nqCompilerVersionMajor(): int { return 0 }
-export function nqCompilerVersionMinor(): int { return 7 }
+export function nqCompilerVersionMajor(): int { return 1 }
+export function nqCompilerVersionMinor(): int { return 0 }
 export function nqCompilerVersionPatch(): int { return 0 }
 
 export function nqCompilerCheckSource(source: []u8): isize {
