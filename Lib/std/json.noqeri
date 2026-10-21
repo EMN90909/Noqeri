@@ -91,12 +91,12 @@ export function json_token_at(value: []u8, start: usize, endOut: *usize): int {
     let index: usize = json_skip_whitespace(value, start)
     if index >= len(value) { json_set_end(endOut, index) return json_token_invalid() }
     let c: u8 = value[index]
-    if c == 123 as u8 { json_set_end(endOut, index) + 1 as usize return json_token_object_begin() }
-    if c == 125 as u8 { json_set_end(endOut, index) + 1 as usize return json_token_object_end() }
-    if c == 91 as u8 { json_set_end(endOut, index) + 1 as usize return json_token_array_begin() }
-    if c == 93 as u8 { json_set_end(endOut, index) + 1 as usize return json_token_array_end() }
-    if c == 58 as u8 { json_set_end(endOut, index) + 1 as usize return json_token_colon() }
-    if c == 44 as u8 { json_set_end(endOut, index) + 1 as usize return json_token_comma() }
+    if c == 123 as u8 { json_set_end(endOut, index + 1 as usize) return json_token_object_begin() }
+    if c == 125 as u8 { json_set_end(endOut, index + 1 as usize) return json_token_object_end() }
+    if c == 91 as u8 { json_set_end(endOut, index + 1 as usize) return json_token_array_begin() }
+    if c == 93 as u8 { json_set_end(endOut, index + 1 as usize) return json_token_array_end() }
+    if c == 58 as u8 { json_set_end(endOut, index + 1 as usize) return json_token_colon() }
+    if c == 44 as u8 { json_set_end(endOut, index + 1 as usize) return json_token_comma() }
     if c == 34 as u8 {
         let ending: isize = json_string_end(value, index)
         if ending < 0 as isize { return json_token_invalid() }
