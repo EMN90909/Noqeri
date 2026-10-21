@@ -68,18 +68,21 @@ function nqNativeNameMain(source: []u8, start: usize, ending: usize): bool {
 
 function nqNativeMinRegister(instructions: []NqNirInstruction, function: *NqNirFunction): isize {
     if function == null { return 0 as isize }
-    let found: bool = false
-    let minimum: isize = 0 as isize
+    // Registers are SSA-like and globally monotone. A function's frame base is
+    // therefore the smallest register it defines, not the last operand it uses.
+    // Using -1 as the sentinel also avoids a mutable boolean state machine in
+    // this bootstrap-critical calculation.
+    let minimum: isize = -1 as isize
     let pc: usize = function.firstInstruction
     let ending: usize = function.firstInstruction + function.instructionCount
     while pc < ending {
         let instruction: *NqNirInstruction = &instructions[pc]
-        if instruction.dest >= 0 as isize && (!found || instruction.dest < minimum) { minimum = instruction.dest found = true }
-        if instruction.left >= 0 as isize && (!found || instruction.left < minimum) { minimum = instruction.left found = true }
-        if instruction.right >= 0 as isize && (!found || instruction.right < minimum) { minimum = instruction.right found = true }
+        if instruction.dest >= 0 as isize && (minimum < 0 as isize || instruction.dest < minimum) {
+            minimum = instruction.dest
+        }
         pc = pc + 1 as usize
     }
-    if !found { return 0 as isize }
+    if minimum < 0 as isize { return 0 as isize }
     return minimum
 }
 
