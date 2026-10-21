@@ -498,10 +498,11 @@ bool scheduleIntegerDag(NirFunction& fn) {
     }
     return changed;
 }
-// LICM for a single-entry *structured* natural loop. Only hoists Const,
-// which cannot trap, allocate, alias or change numerical behavior. Any branch
-// inside the body, exceptional operation or external entry blocks movement.
-bool hoistLoopLiteral(NirFunction& fn) {
+// LICM for single-entry structured loops: hoist literals and proven
+// loop-invariant, wrapping integer +, -, and * expressions. Every operand
+// must have been defined before the preheader. Never hoist memory, floating
+// arithmetic, divisions, traps or side effects across a zero-trip loop.
+bool hoistLoopInvariant(NirFunction& fn) {
     const Graph analysis=graphOf(fn);
     if(!analysis.uniqueDefs||!analysis.validDominance)return false;
     const std::size_t n=fn.code.size();
@@ -534,7 +535,21 @@ bool hoistLoopLiteral(NirFunction& fn) {
         if(!structured||branch==n)continue;
         for(std::size_t candidate=branch+1;candidate<back;++candidate){
             const auto& instruction=fn.code[candidate];
-            if(instruction.op!=NirOp::Const||!instruction.dest)continue;
+            if(!instruction.dest || instruction.isVolatile)continue;
+            const bool literal=instruction.op==NirOp::Const;
+            bool invariantInteger=false;
+            if(instruction.op==NirOp::Binary&&
+               instruction.args.size()==2&&safeIntResult(instruction)&&
+               (instruction.text=="+"||instruction.text=="-"||
+                instruction.text=="*")) {
+                invariantInteger=true;
+                for(Reg arg:instruction.args) {
+                    const auto def=analysis.definitions.find(arg);
+                    if(def!=analysis.definitions.end()&&def->second>=header)
+                        invariantInteger=false;
+                }
+            }
+            if(!literal&&!invariantInteger)continue;
             const auto reg=*instruction.dest;
             bool outside=false;
             for(std::size_t k=0;k<n&&!outside;++k)
@@ -667,7 +682,7 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         }
     }
     if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
-    if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
+    if(level==OptimizationLevel::O3 && hoistLoopInvariant(fn)) {
         // Hoisting changes jump indices: the existing branch compaction pass
         // rechecks all targets and dead definitions after transformation.
         dce(fn);
