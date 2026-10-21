@@ -53,21 +53,26 @@ export function nqLowerParseI64(source: []u8, start: usize, end: usize, out: *i6
     let index: usize = start
     if end - start > 2 as usize && source[start] == 48 as u8 && (source[start + 1 as usize] == 120 as u8 || source[start + 1 as usize] == 88 as u8) { base = 16 as u64 index = start + 2 as usize }
     if index >= end { return false }
-    // NQRI carries integer immediates as a 64-bit bit-pattern. Parse as
-    // unsigned to permit the complete u64 range, then preserve those bits
-    // in the signed transport field. A signed-only accumulator rejected
-    // the compiler's own checksum constants above INT64_MAX.
-    let limit: u64 = 9223372036854775807 as u64 * 2 as u64 + 1 as u64
-    let value: u64 = 0 as u64
+    // Use two 32-bit limbs: the portable VM transports integers as i64
+    // and does not yet perform unsigned comparisons even for u64 types.
+    // Splitting into limbs avoids overflowing signed intermediate values.
+    let limbBase: i64 = 4294967296 as i64
+    let high: i64 = 0 as i64
+    let low: i64 = 0 as i64
     while index < end {
         let digit: int = nqLowerHexDigit(source[index])
         if digit < 0 || digit as u64 >= base { return false }
-        let udigit: u64 = digit as u64
-        if value > (limit - udigit) / base { return false }
-        value = value * base + udigit
+        let accumulator: i64 = low * base as i64 + digit as i64
+        let carry: i64 = accumulator / limbBase
+        low = accumulator % limbBase
+        let nextHigh: i64 = high * base as i64 + carry
+        if nextHigh > 4294967295 as i64 { return false }
+        high = nextHigh
         index = index + 1 as usize
     }
-    out[0] = value as i64
+    let signedHigh: i64 = high
+    if high >= 2147483648 as i64 { signedHigh = high - limbBase }
+    out[0] = signedHigh * limbBase + low
     return true
 }
 
