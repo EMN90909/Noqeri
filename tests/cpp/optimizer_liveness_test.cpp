@@ -238,5 +238,47 @@ int main() {
         if(!check(x86.supportsSimd()&&arm.supportsSimd()&&!generic.supportsSimd(),
                   "target cost model refuses unknown SIMD targets"))return 1;
     }
+    {
+        // Targeted O3 instruction scheduling: a literal may be sunk toward
+        // its first use without changing Store order or jump destinations.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::Load,{});a.dest=2;a.text="x";
+        auto b=withArgs(noe::NirOp::Load,{});b.dest=3;b.text="y";
+        auto store=withArgs(noe::NirOp::Store,{2,3});store.text="observe";
+        auto plus=withArgs(noe::NirOp::Binary,{1,2});plus.dest=4;plus.text="+";
+        plus.type.kind=noe::TypeKind::Int;
+        p.entry.code={constant(1,7),a,b,store,plus,withArgs(noe::NirOp::Return,{4})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t literal=999,load=999,addition=999,write=999;
+        for(std::size_t pc=0;pc<p.entry.code.size();++pc){
+            const auto& v=p.entry.code[pc];
+            if(v.op==noe::NirOp::Const&&v.dest&&*v.dest==1)literal=pc;
+            if(v.op==noe::NirOp::Load&&v.dest&&*v.dest==2)load=pc;
+            if(v.op==noe::NirOp::Binary&&v.dest&&*v.dest==4)addition=pc;
+            if(v.op==noe::NirOp::Store)write=pc;
+        }
+        if(!check(load<write&&write<literal&&literal<addition,
+                  "O3 local constant scheduling without effect movement"))return 1;
+    }
+    {
+        noe::NirFunction f;
+        auto ptrA=withArgs(noe::NirOp::StackAlloc,{});ptrA.dest=10;
+        auto ptrB=withArgs(noe::NirOp::StackAlloc,{});ptrB.dest=11;
+        auto derived=withArgs(noe::NirOp::PtrOffset,{10});derived.dest=12;
+        f.code={ptrA,ptrB,derived,withArgs(noe::NirOp::LoadMemory,{12}),
+            withArgs(noe::NirOp::Return,{})};
+        noe::NirAliasAnalysis analysis(f);
+        if(!check(analysis.query(10,11)==noe::AliasRelation::NoAlias,
+                  "independent nonescaping allocas do not alias"))return 1;
+        if(!check(analysis.query(10,12)==noe::AliasRelation::MayAlias &&
+                  analysis.query(10,10)==noe::AliasRelation::MustAlias,
+                  "same-root offset is conservatively MayAlias"))return 1;
+        if(!check(!analysis.escapes(12),"derived local pointer does not escape"))return 1;
+        f.code.back()=withArgs(noe::NirOp::Return,{12});
+        noe::NirAliasAnalysis escaping(f);
+        if(!check(escaping.escapes(10) &&
+                  escaping.query(10,11)==noe::AliasRelation::MayAlias,
+                  "escaping stack pointer suppresses NoAlias assumption"))return 1;
+    }
     return 0;
 }
