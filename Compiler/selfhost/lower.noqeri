@@ -394,7 +394,11 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
     }
     if node.tag == nqAstArray() {
         let count: usize = node.extra as usize
-        let elementWidth: usize = nqLowerNodeWidth(node)
+        // An array literal is typed as Array; its own type width is not the
+        // element stride. For [u8, ...] a fallback eight-byte stride inserts
+        // seven zeroes between characters and breaks parser keyword matching.
+        let elementWidth: usize = nqCompilerPrimitiveTypeWidth(node.elementTypeCode)
+        if elementWidth == 0 as usize { elementWidth = nqLowerNodeWidth(node) }
         if elementWidth == 0 as usize || count > 9223372036854775807 as usize / elementWidth { return nqLowerCapacity() }
         let bytes: usize = count * elementWidth
         let base: isize = nqLowerAllocRegister(state)
