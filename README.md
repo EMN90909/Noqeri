@@ -4,7 +4,7 @@
 **Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.noqeri`, project manifests use `project.noqeri`, portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`.
+Noqeri source uses `.noqeri`, portable project/data configuration uses NQON (`.nqon`), portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`. New projects use `project.nqon`; legacy `project.noqeri` manifests remain readable during migration.
 
 ## Compiler architecture
 
@@ -43,6 +43,46 @@ noqeri selftest
 ```
 
 The historical compiler contains additional native/NIR/package/database/formatter/LSP commands. Those subsystems are deliberately not proxied through stage 1 until their Noqeri ports reach parity; silently falling back to C++ would defeat the dependency boundary.
+
+## Beginner surface
+
+Noqeri keeps the common path small while leaving explicit types available when they communicate a real constraint:
+
+```nqr
+let name = "Ada"
+
+repeat 3 {
+    print(name)
+}
+
+function double(value: int): int {
+    return value * 2
+}
+```
+
+Local bindings infer ordinary types, semicolons are optional, conditions do not need parentheses, top-level statements are allowed, and `repeat count { ... }` handles counted loops without a manual counter. The language does not add short aliases such as `fn` or a second import spelling merely to reduce character count; fewer concepts matter more than fewer keystrokes.
+
+## NQON
+
+NQON (Noqeri Object Notation) is a language-neutral configuration/data format. It does not require the Noqeri compiler:
+
+```nqon
+name = my-app
+version = "1.0.0"
+
+packages {
+    forge = "noqeri/forge@1.2.0"
+}
+```
+
+The standalone reference implementation can validate NQON and convert it to or from JSON:
+
+```sh
+node Runtime/nqon-cli.mjs check project.nqon
+node Runtime/nqon-cli.mjs to-json project.nqon
+```
+
+See [the NQON specification](Grammar/nqon.grammar.md) and [NQON guide](Doc/NQON.md).
 
 ## Language capabilities already present
 
