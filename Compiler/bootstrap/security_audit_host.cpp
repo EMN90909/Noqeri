@@ -34,7 +34,7 @@ bool validateLockedDependency(const std::string&lock,bool v3,const std::string&a
 } // namespace
 
 int runSecurityAudit(const std::filesystem::path&root){
-    int integrityFailures=0;std::size_t reviews=0;Diagnostics diagnostics;auto manifestPath=root/"project.noqeri";auto manifest=PackageManager{}.loadManifest(manifestPath,diagnostics);
+    int integrityFailures=0;std::size_t reviews=0;Diagnostics diagnostics;auto manifestPath=std::filesystem::exists(root/"project.nqon")?root/"project.nqon":root/"project.noqeri";auto manifest=PackageManager{}.loadManifest(manifestPath,diagnostics);
     if(!manifest){++integrityFailures;diagnostics.print(manifestPath.string());}else{
         auto lockPath=root/"noqeri.lock";auto lock=readOptional(lockPath);
         const bool lock2=lock.rfind("noqeri-lock 2\n",0)==0;
