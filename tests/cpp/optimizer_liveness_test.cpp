@@ -420,5 +420,54 @@ int main() {
         if(!check(p.entry.code.front().op==noe::NirOp::Call,
                   "effectful IPO remains dynamic"))return 1;
     }
+    {
+        // O3 local DAG scheduling prioritizes the longer multiplication path
+        // but preserves data dependencies and final returned register.
+        noe::NirProgram p;
+        auto loadX=withArgs(noe::NirOp::Load,{});loadX.dest=1;loadX.text="x";
+        auto loadY=withArgs(noe::NirOp::Load,{});loadY.dest=2;loadY.text="y";
+        auto add=withArgs(noe::NirOp::Binary,{1,2});
+        add.dest=3;add.text="+";add.type.kind=noe::TypeKind::Int;
+        auto multiply=withArgs(noe::NirOp::Binary,{1,2});
+        multiply.dest=4;multiply.text="*";multiply.type.kind=noe::TypeKind::Int;
+        auto total=withArgs(noe::NirOp::Binary,{3,4});
+        total.dest=5;total.text="+";total.type.kind=noe::TypeKind::Int;
+        p.entry.code={loadX,loadY,add,multiply,total,
+                      withArgs(noe::NirOp::Return,{5})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t firstMultiply=99,firstAdd=99,totalAt=99;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.dest&&*in.dest==3)firstAdd=i;
+            if(in.dest&&*in.dest==4)firstMultiply=i;
+            if(in.dest&&*in.dest==5)totalAt=i;
+        }
+        if(!check(firstMultiply<firstAdd&&firstAdd<totalAt &&
+                  p.entry.code.back().args.front()==5,
+                  "DAG scheduling respects integer dependencies"))return 1;
+    }
+    {
+        // A Store is an observable barrier and may not be crossed by
+        // the arithmetic DAG scheduler.
+        noe::NirProgram p;
+        auto x=withArgs(noe::NirOp::Load,{});x.dest=1;x.text="x";
+        auto y=withArgs(noe::NirOp::Load,{});y.dest=2;y.text="y";
+        auto plus=withArgs(noe::NirOp::Binary,{1,2});
+        plus.dest=3;plus.text="+";plus.type.kind=noe::TypeKind::Int;
+        auto effect=withArgs(noe::NirOp::Store,{3});effect.text="audit";
+        auto product=withArgs(noe::NirOp::Binary,{1,2});
+        product.dest=4;product.text="*";product.type.kind=noe::TypeKind::Int;
+        p.entry.code={x,y,plus,effect,product,withArgs(noe::NirOp::Return,{4})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t sum=99,store=99,mul=99;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.dest&&*in.dest==3)sum=i;
+            if(in.op==noe::NirOp::Store)store=i;
+            if(in.dest&&*in.dest==4)mul=i;
+        }
+        if(!check(sum<store&&store<mul,
+                  "DAG scheduling does not cross effectful Store"))return 1;
+    }
     return 0;
 }
