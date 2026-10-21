@@ -1,0 +1,17 @@
+name: Canonical ecosystem contract
+on:
+  pull_request:
+  push:
+    branches: [integration/canonical-ecosystem-v1]
+permissions:
+  contents: read
+jobs:
+  registry-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/registry-client.test.mjs tests/registry-cli-v1.test.mjs
+      - run: node tests/package_manager_host.mjs
