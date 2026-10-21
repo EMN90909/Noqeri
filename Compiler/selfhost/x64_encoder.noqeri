@@ -272,7 +272,7 @@ function nqX64EmitTextLengthHelper(out: []u8, cursor: *usize): isize {
     if !nqX64Put8(out,cursor,0x80 as u8)||!nqX64Put8(out,cursor,0x3c as u8)||!nqX64Put8(out,cursor,0x07 as u8)||!nqX64Put8(out,cursor,0x00 as u8) { return nqX64Capacity() }
     if !nqX64Put8(out,cursor,0x74 as u8)||!nqX64Put8(out,cursor,0x05 as u8) { return nqX64Capacity() }
     if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xff as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() }
-    if !nqX64Put8(out,cursor,0xeb as u8)||!nqX64Put8(out,cursor,0xf4 as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0xeb as u8)||!nqX64Put8(out,cursor,0xf5 as u8) { return nqX64Capacity() }
     if !nqX64Put8(out,cursor,0xc3 as u8) { return nqX64Capacity() }
     return start as isize
 }
