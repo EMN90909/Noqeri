@@ -39,6 +39,9 @@ function nqOptimizerSafeMul(a: i64, b: i64): bool {
 
 // Returns 1 when folded and writes the result; 0 means "leave it for runtime".
 export function nqOptimizerFoldI64(opcode: int, a: i64, b: i64, out: *i64): isize {
+    // Stage-2 bounded pointer operations: slice-derived instruction pointers
+    // and null-checked output pointers are the only raw memory here.
+    unsafe {
     if out == null { return 0 }
     if opcode == nqNirAdd() { if !nqOptimizerSafeAdd(a, b) { return 0 } out[0] = a + b return 1 }
     if opcode == nqNirSub() { if !nqOptimizerSafeSub(a, b) { return 0 } out[0] = a - b return 1 }
@@ -52,9 +55,14 @@ export function nqOptimizerFoldI64(opcode: int, a: i64, b: i64, out: *i64): isiz
     if opcode == nqNirGt() { if a > b { out[0] = 1 as i64 } else { out[0] = 0 as i64 } return 1 }
     if opcode == nqNirGe() { if a >= b { out[0] = 1 as i64 } else { out[0] = 0 as i64 } return 1 }
     return 0
+
+    }
 }
 
 function nqOptimizerFindConstBefore(instructions: []NqNirInstruction, before: usize, value: isize, out: *i64): bool {
+    // Stage-2 bounded pointer operations: slice-derived instruction pointers
+    // and null-checked output pointers are the only raw memory here.
+    unsafe {
     if value < 0 as isize || out == null || before == 0 as usize { return false }
     let cursor: isize = before as isize - 1 as isize
     while cursor >= 0 as isize {
@@ -66,6 +74,8 @@ function nqOptimizerFindConstBefore(instructions: []NqNirInstruction, before: us
         cursor = cursor - 1 as isize
     }
     return false
+
+    }
 }
 
 function nqOptimizerValueUsedAfter(instructions: []NqNirInstruction, after: usize, value: isize): bool {
@@ -80,6 +90,9 @@ function nqOptimizerValueUsedAfter(instructions: []NqNirInstruction, after: usiz
 }
 
 export function nqOptimizerConstantFold(instructions: []NqNirInstruction): usize {
+    // Stage-2 bounded pointer operations: slice-derived instruction pointers
+    // and null-checked output pointers are the only raw memory here.
+    unsafe {
     let changes: usize = 0 as usize
     let index: usize = 0 as usize
     while index < len(instructions) {
@@ -109,9 +122,14 @@ export function nqOptimizerConstantFold(instructions: []NqNirInstruction): usize
         index = index + 1 as usize
     }
     return changes
+
+    }
 }
 
 export function nqOptimizerAlgebraicSimplify(instructions: []NqNirInstruction): usize {
+    // Stage-2 bounded pointer operations: slice-derived instruction pointers
+    // and null-checked output pointers are the only raw memory here.
+    unsafe {
     let changes: usize = 0 as usize
     let index: usize = 0 as usize
     while index < len(instructions) {
@@ -128,12 +146,17 @@ export function nqOptimizerAlgebraicSimplify(instructions: []NqNirInstruction): 
         index = index + 1 as usize
     }
     return changes
+
+    }
 }
 
 // Stage-2's own bounded register-SSA local GVN. No Phi, branch, exception,
 // checked or volatile operation can enter this pass. Unlike Stage-0's NIR,
 // this IR has a Move opcode, so redundant results retain their register ids.
 export function nqOptimizerLocalGvn(instructions: []NqNirInstruction): usize {
+    // Stage-2 bounded pointer operations: slice-derived instruction pointers
+    // and null-checked output pointers are the only raw memory here.
+    unsafe {
     let count: usize = len(instructions)
     if count > 512 as usize { return 0 as usize }
     // Prove one straight-line region and unique virtual definitions first.
@@ -191,9 +214,14 @@ export function nqOptimizerLocalGvn(instructions: []NqNirInstruction): usize {
         index = index + 1 as usize
     }
     return changes
+
+    }
 }
 
 export function nqOptimizerDeadCodeEliminate(instructions: []NqNirInstruction): usize {
+    // Stage-2 bounded pointer operations: slice-derived instruction pointers
+    // and null-checked output pointers are the only raw memory here.
+    unsafe {
     // One reverse liveness traversal replaces a quadratic forward search for
     // every defined register. Registers are monotone and SSA-like in the
     // self-hosted lowerer; the arena is bounded by the NIR instruction cap.
@@ -222,6 +250,8 @@ export function nqOptimizerDeadCodeEliminate(instructions: []NqNirInstruction): 
         }
     }
     return changes
+
+    }
 }
 
 export function nqOptimizerRun(instructions: []NqNirInstruction, level: int): usize {
