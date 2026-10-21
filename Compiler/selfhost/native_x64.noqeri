@@ -440,6 +440,7 @@ function nqX64EmitFunction(source: []u8, instructions: []NqNirInstruction, funct
         }
         pc = pc + 1 as usize
     }
+    if !nqX64Put(out, cursor, slice([32 as u8,32 as u8,32 as u8,32 as u8,120 as u8,111 as u8,114 as u8,32 as u8,101 as u8,97 as u8,120 as u8,44 as u8,32 as u8,101 as u8,97 as u8,120 as u8,10 as u8,32 as u8,32 as u8,32 as u8,32 as u8,108 as u8,101 as u8,97 as u8,118 as u8,101 as u8,10 as u8,32 as u8,32 as u8,32 as u8,32 as u8,114 as u8,101 as u8,116 as u8,10 as u8])) { return nqNativeX64Capacity() }
     return 0 as isize
 }
 
