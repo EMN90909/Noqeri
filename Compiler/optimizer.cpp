@@ -381,6 +381,37 @@ bool integerStrengthReduction(NirFunction&fn) {
     }
     return changed;
 }
+// Instruction scheduling (register-pressure form): sink constant definitions
+// inside one basic block to immediately before their first local use. No
+// branch or exception moves; no change to the order of effectful operations.
+// Unused and externally consumed constants stay put.
+bool scheduleLocalConstants(NirFunction& fn) {
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    bool changed=false;
+    for(const auto& span:g.spans){
+        for(std::size_t pc=span.first;pc<span.second;++pc){
+            const auto& in=fn.code[pc];
+            if(in.op!=NirOp::Const||!in.dest||
+               !(std::holds_alternative<std::int64_t>(in.literal)||
+                 std::holds_alternative<bool>(in.literal)))continue;
+            const Reg output=*in.dest;
+            std::size_t first=span.second;
+            for(std::size_t next=pc+1;next<span.second;++next) {
+                if(std::find(fn.code[next].args.begin(),fn.code[next].args.end(),output)
+                    !=fn.code[next].args.end()) {first=next;break;}
+            }
+            if(first<=pc+1||first>=span.second)continue;
+            // Rotating the literal to first-1 does not alter instruction
+            // indices, branch destinations, or relative order of effects.
+            std::rotate(fn.code.begin()+static_cast<std::ptrdiff_t>(pc),
+                        fn.code.begin()+static_cast<std::ptrdiff_t>(pc+1),
+                        fn.code.begin()+static_cast<std::ptrdiff_t>(first));
+            changed=true;
+        }
+    }
+    return changed;
+}
 // LICM for a single-entry *structured* natural loop. Only hoists Const,
 // which cannot trap, allocate, alias or change numerical behavior. Any branch
 // inside the body, exceptional operation or external entry blocks movement.
@@ -472,6 +503,7 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
             if (!a && !b && !c && !d && !e && !f && !g) break;
         }
     }
+    if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
     if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
         // Hoisting changes jump indices: the existing branch compaction pass
         // rechecks all targets and dead definitions after transformation.
