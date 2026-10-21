@@ -14,6 +14,17 @@ export function nqNativeUnresolvedCall(): isize { return -905 as isize }
 export function nqNativeTooManyArguments(): isize { return -906 as isize }
 export function nqNativeUnsupportedBuiltin(): isize { return -907 as isize }
 
+function nqNativeDiagnosticStatus(kind: int, functionIndex: usize, pc: usize, opcode: int): isize {
+    // Encodes emitter failures without host-side compiler logic:
+    // -(1e15 + kind*1e14 + function*1e9 + pc*64 + opcode)
+    let value: i64 = 1000000000000000 as i64
+    value = value + kind as i64 * 100000000000000 as i64
+    value = value + functionIndex as i64 * 1000000000 as i64
+    value = value + pc as i64 * 64 as i64
+    value = value + opcode as i64
+    return -value as isize
+}
+
 function nqNativeHasFlag(flags: u32, flag: u32): bool {
     if flag == 0 as u32 { return false }
     return (flags / flag) % 2 as u32 == 1 as u32
@@ -688,7 +699,16 @@ function nqNativeEmitFunction(out: []u8, cursor: *usize, source: []u8, instructi
     let ending: usize = function.firstInstruction + function.instructionCount
     while pc < ending {
         let status: isize = nqNativeEmitInstruction(out, cursor, source, instructions, functions, function, functionIndex, minimum, registerCount, pc)
-        if status < 0 as isize { return status }
+        if status < 0 as isize {
+            let kind: int = 0
+            if status == nqNativeBadNir() { kind = 1 }
+            else if status == nqNativeUnsupportedOpcode() { kind = 2 }
+            else if status == nqNativeUnresolvedCall() { kind = 3 }
+            else if status == nqNativeTooManyArguments() { kind = 4 }
+            else if status == nqNativeUnsupportedBuiltin() { kind = 5 }
+            if kind != 0 { return nqNativeDiagnosticStatus(kind, functionIndex, pc, instructions[pc].opcode) }
+            return status
+        }
         pc = pc + 1 as usize
     }
 
