@@ -237,6 +237,7 @@ jobs:
           set -euo pipefail
           BUILD_DIR="$PWD/build-native-compiler" \
           NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
+          NOQERI_STAGE2_NQRI="$PWD/build-selfhost/noqeri-stage2.nqri" \
           sh ./scripts/bootstrap-native-compiler.sh
           grep -qx 'qualified=true' build-native-compiler/native-compiler-proof.txt
           grep -qx 'steady_state_engine=selfhost-native-linux-x86_64' build-native-compiler/native-compiler-proof.txt
