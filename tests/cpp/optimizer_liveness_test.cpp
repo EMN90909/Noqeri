@@ -500,5 +500,29 @@ int main() {
         if(!check(noe::inspectSlpPacks(fn,x86).empty(),
                   "SLP rejects floating-point and type mismatch"))return 1;
     }
+    {
+        // A wrapping integer sum of two registers defined before the loop
+        // is truly invariant. O3 may compute it before the zero-trip check.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::Load,{});a.dest=1;a.text="left";
+        auto b=withArgs(noe::NirOp::Load,{});b.dest=2;b.text="right";
+        auto flag=withArgs(noe::NirOp::Load,{});flag.dest=3;flag.text="again";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=7;
+        auto sum=withArgs(noe::NirOp::Binary,{1,2});
+        sum.dest=4;sum.text="+";sum.type.kind=noe::TypeKind::I64;
+        auto store=withArgs(noe::NirOp::Store,{4});store.text="audit";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=2;
+        p.entry.code={a,b,flag,branch,sum,store,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t arithmetic=99,condition=99;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.op==noe::NirOp::Binary&&in.dest&&*in.dest==4)arithmetic=i;
+            if(in.op==noe::NirOp::JumpIfFalse&&condition==99)condition=i;
+        }
+        if(!check(arithmetic!=99&&arithmetic<condition,
+                  "LICM hoists proven wrapping integer sum"))return 1;
+    }
     return 0;
 }
