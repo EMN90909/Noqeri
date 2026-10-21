@@ -476,6 +476,83 @@ bool hoistLoopLiteral(NirFunction& fn) {
     }
     return false;
 }
+// A semantics-preserving 2x loop unroller for structured while loops.
+// It duplicates the original condition and body, testing the exit condition
+// between the two iterations. No trip count is guessed. Unknown control-flow
+// entries, exceptional edges and nested loops are rejected conservatively.
+// Run only after SSA-dependent passes: repeating a virtual register's
+// definitions across two unrolled iterations invalidates single-def SSA.
+bool unrollStructuredLoop2x(NirFunction& fn) {
+    const std::size_t n=fn.code.size();
+    if(n<4 || n>4096) return false;
+    for(const auto& in:fn.code)
+        if(in.op==NirOp::Try || in.op==NirOp::InlineAsm ||
+           in.op==NirOp::Throw) return false;
+    for(std::size_t back=0;back<n;++back){
+        const auto& backedge=fn.code[back];
+        if(backedge.op!=NirOp::Jump||backedge.target>=back)continue;
+        const std::size_t header=backedge.target,span=back-header;
+        if(span<2 || span>20 || n+span>4096)continue;
+        std::size_t condition=n;
+        bool structured=true;
+        for(std::size_t i=header;i<back;++i){
+            const auto& in=fn.code[i];
+            if(in.op==NirOp::JumpIfFalse){
+                if(condition!=n||in.target!=back+1||in.args.size()!=1){
+                    structured=false;break;
+                }
+                condition=i;
+            } else if(in.op==NirOp::Jump||in.op==NirOp::Return||
+                      in.op==NirOp::Throw||in.op==NirOp::Try||
+                      in.op==NirOp::InlineAsm){
+                structured=false;break;
+            }
+        }
+        if(!structured||condition==n || condition==back-1)continue;
+        // Only the loop's own backedge may jump into the repeated region.
+        // Incoming edges to its header remain legal.
+        for(std::size_t i=0;i<n&&structured;++i){
+            if(i>=header && i<=back)continue;
+            const auto& in=fn.code[i];
+            if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+                in.target>header && in.target<=back) structured=false;
+        }
+        if(!structured)continue;
+        // Other backedges would make the cloned loop's entry/restart
+        // behavior ambiguous. Defer nested and multi-exit loops.
+        for(std::size_t i=0;i<n&&structured;++i)
+            if(i!=back&&fn.code[i].op==NirOp::Jump&&
+               fn.code[i].target<i)structured=false;
+        if(!structured)continue;
+        const auto copyBegin=fn.code.begin()+static_cast<std::ptrdiff_t>(header);
+        const auto copyEnd=fn.code.begin()+static_cast<std::ptrdiff_t>(back);
+        std::vector<NirInstruction> iteration(copyBegin,copyEnd);
+        // Validate the complete output before mutating the original.
+        std::vector<NirInstruction> out;
+        out.reserve(n+span);
+        out.insert(out.end(),fn.code.begin(),
+                   fn.code.begin()+static_cast<std::ptrdiff_t>(back));
+        out.insert(out.end(),iteration.begin(),iteration.end());
+        out.insert(out.end(),fn.code.begin()+static_cast<std::ptrdiff_t>(back),
+                   fn.code.end());
+        // Translate old jump targets once, including branches outside loop.
+        // The replicated exit checks both lead to exactly old back+1.
+        for(std::size_t i=0;i<out.size();++i){
+            auto& in=out[i];
+            if(in.op!=NirOp::Jump&&in.op!=NirOp::JumpIfFalse)continue;
+            if(i>=back && i<back+span) {
+                // Every cloned control edge is the unique loop exit.
+                in.target=back+1+span;
+            }else if(in.target>=back){
+                if(in.target>n)return false;
+                in.target+=span;
+            }
+        }
+        fn.code=std::move(out);
+        return true;
+    }
+    return false;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -509,6 +586,9 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         // rechecks all targets and dead definitions after transformation.
         dce(fn);
     }
+    // Late unrolling preserves each condition evaluation and all observable
+    // effects; no earlier SSA-only pass is rerun on the replicated registers.
+    if(level==OptimizationLevel::O3) unrollStructuredLoop2x(fn);
     if (level == OptimizationLevel::Oz) dce(fn);
 }
 }
