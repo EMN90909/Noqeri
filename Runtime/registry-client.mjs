@@ -25,7 +25,7 @@ export function decodePackageArchive(bytes,expectedIntegrity) {
   const size=numberField(h.subarray(124,136))
   if(!safe(name)||names.has(name))throw Error('unsafe or duplicate archive path')
   if(h[156]!==48&&h[156]!==0)throw Error('archive member is not a regular file')
-  if(size>MAX_MEMBER||size>MAX_EXPANDED-bytesTotal||offset+size>raw.length||++files.length>MAX_FILES)throw Error('archive file limit exceeded')
+  if(size>MAX_MEMBER||size>MAX_EXPANDED-bytesTotal||offset+size>raw.length||files.length>=MAX_FILES)throw Error('archive file limit exceeded')
   const content=Buffer.from(raw.subarray(offset,offset+size))
   files.push({name,bytes:content});names.add(name);bytesTotal+=size
   offset+=Math.ceil(size/512)*512
