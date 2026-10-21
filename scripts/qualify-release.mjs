@@ -45,6 +45,22 @@ const noesqlTests = existsSync(testsDir)
 if (noesqlTests.length) run('noesql-reference-regressions', process.execPath, ['--test', ...noesqlTests.map(file => `tests/${file}`)])
 else blocked('noesql-reference-regressions', 'NoeSQL reference tests unavailable')
 
+// Private NoeSQL cannot be copied into public test fixtures or downloaded
+// anonymously. Qualify its actual reference store and Registry metadata on disk
+// when both checkouts are present; otherwise keep the release blocked.
+const noesqlRoot=resolve(process.env.NOQERI_NOESQL_CHECKOUT||resolve(root,'../NoeSQL'))
+const registryRoot=resolve(process.env.NOQERI_REGISTRY_CHECKOUT||resolve(root,'../noqeri-registry'))
+const noesqlSession=resolve(noesqlRoot,'Runtime/noesql-session.mjs')
+if(existsSync(noesqlSession)&&existsSync(resolve(noesqlRoot,'tests/noesql-session.test.mjs'))){
+ run('private-noesql-durable-session',process.execPath,
+  ['--test','tests/noesql-session.test.mjs','tests/noesql-migrate-noedb.test.mjs','tests/noesql-canonical-source.test.mjs'],noesqlRoot)
+}else blocked('private-noesql-durable-session','private NoeSQL checkout not available or source incomplete')
+if(existsSync(noesqlSession)&&existsSync(resolve(registryRoot,'tests/api.test.mjs'))){
+ run('registry-noesql-persistence-e2e',process.execPath,
+  ['--test','tests/api.test.mjs'],registryRoot,{NOESQL_SESSION_MODULE:noesqlSession})
+}else blocked('registry-noesql-persistence-e2e','NoeSQL source and Registry end-to-end test checkout are both required')
+run('v1-version-contract',process.execPath,['--test','tests/version-contract.test.mjs','tests/v1-evidence.test.mjs'])
+
 const seed = process.env.NOQERI_STAGE0
 if (!seed) {
   blocked('trusted-bootstrap-seed', 'NOQERI_STAGE0 is not configured')
