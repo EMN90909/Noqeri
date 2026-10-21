@@ -77,9 +77,11 @@ The native [optimization CI](.github/workflows/advanced-optimizer.yml) builds th
 
 ## Native runtime benchmarking
 
-For runtime comparisons, Noqeri now has a fail-closed AOT qualification path on Linux x86-64:
+For runtime comparisons, Noqeri now has a fail-closed AOT qualification path on Linux x86-64. Build the Stage-0 native compiler explicitly, then produce the standalone executable:
 
 ```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target noqeri --config Release
 node scripts/native-build.mjs Benchmarks/workloads/startup.noqeri build/benchmarks/native/startup --compiler=build/noqeri --opt=-O3
 ./build/benchmarks/native/startup
 ```
