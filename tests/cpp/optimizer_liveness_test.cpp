@@ -101,5 +101,37 @@ int main() {
             if (in.op == noe::NirOp::Return) ++returns;
         if (!check(returns == 2, "conservative exception edges")) return 1;
     }
+    {
+        // The only inlined call shape is a pure, parameter-free constant return.
+        noe::NirFunction literal;
+        literal.name = "literal_answer";
+        literal.code = {constant(1, 42), withArgs(noe::NirOp::Return, {1})};
+        noe::NirProgram p;
+        p.functions.push_back(literal);
+        auto call = withArgs(noe::NirOp::Call, {});
+        call.text = "literal_answer";
+        call.dest = 5;
+        p.entry.code = {call, withArgs(noe::NirOp::Return, {5})};
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        if (!check(p.entry.code.size() == 2 && p.entry.code[0].op == noe::NirOp::Const,
+                   "pure constant call inlining")) return 1;
+        if (!check(std::get<std::int64_t>(p.entry.code[0].literal) == 42,
+                   "inlined literal preserved")) return 1;
+    }
+    {
+        // Calls with effects, unknown names or extern providers are not inlined.
+        noe::NirFunction external;
+        external.name = "external_answer";
+        external.isExtern = true;
+        external.code = {constant(1, 42), withArgs(noe::NirOp::Return, {1})};
+        noe::NirProgram p;
+        p.functions.push_back(external);
+        auto call = withArgs(noe::NirOp::Call, {});
+        call.text = "external_answer";
+        call.dest = 5;
+        p.entry.code = {call, withArgs(noe::NirOp::Return, {5})};
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        if (!check(p.entry.code[0].op == noe::NirOp::Call, "external call kept")) return 1;
+    }
     return 0;
 }
