@@ -92,15 +92,30 @@ jobs:
       - name: Enforce native benchmark policy
         if: runner.os == 'Linux'
         run: node --test tests/native_benchmark_policy.test.mjs
-      - name: Verify standalone native AOT execution
+      - name: Verify representative standalone native AOT workloads
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/native-build.mjs Benchmarks/workloads/startup.noqeri build-native/startup-aot --compiler=build-native/noqeri --cxx=c++ --opt=-O3
-          output=$(./build-native/startup-aot)
-          test "$output" = "0"
-          node -e "const p=require('./build-native/startup-aot.native.json'); if(p.execution_model!=='native-aot'||p.self_hosted_compiler!==false||p.target!=='linux-x86_64-sysv') process.exit(1)"
+          check_aot() {
+            source="$1"
+            name="$2"
+            expected="$3"
+            output_path="build-native/aot-$name"
+            node scripts/native-build.mjs "$source" "$output_path" --compiler=build-native/noqeri --cxx=c++ --opt=-O3
+            actual=$("$output_path")
+            if [ "$actual" != "$expected" ]; then
+              printf 'AOT workload %s mismatch\nexpected:\n%s\nactual:\n%s\n' "$name" "$expected" "$actual" >&2
+              exit 1
+            fi
+            node -e "const p=require('./$output_path.native.json'); if(p.execution_model!=='native-aot'||p.self_hosted_compiler!==false||p.target!=='linux-x86_64-sysv'||!p.artifact_sha256||!p.compiler_sha256) process.exit(1)"
+          }
+          check_aot Benchmarks/workloads/startup.noqeri startup "0"
+          check_aot Benchmarks/workloads/matrix.noqeri matrix "$(printf '29971\n28448')"
+          check_aot Benchmarks/workloads/strings.noqeri strings "1000000"
+          check_aot Benchmarks/workloads/sorting.noqeri sorting "$(printf '64\n65032')"
+          check_aot Benchmarks/workloads/json.noqeri json "5600000"
+          check_aot Benchmarks/workloads/regex.noqeri regex "200000"
       - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
