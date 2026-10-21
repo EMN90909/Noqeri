@@ -185,7 +185,7 @@ function isPlainObject(value) {
 function keyText(key) { return IDENT.test(key) ? key : JSON.stringify(key) }
 
 function stringText(value) {
-  if (value.length > 0 && !RESERVED.has(value) && !NUMBER.test(value) && /^[A-Za-z0-9_./@:+-]+$/.test(value)) return value
+  if (value.length > 0 && !RESERVED.has(value) && !NUMBER.test(value) && !value.includes('//') && !value.includes('/*') && /^[A-Za-z0-9_./@:+-]+$/.test(value)) return value
   return JSON.stringify(value)
 }
 

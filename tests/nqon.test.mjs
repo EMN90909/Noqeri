@@ -52,6 +52,19 @@ test('NQON serialization round-trips without changing value types', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(parsed)), JSON.parse(JSON.stringify(source)))
 })
 
+test('NQON quotes comment-like URL strings during serialization', () => {
+  const source = Object.assign(Object.create(null), {
+    registry: 'https://github.com/EMN90909/noqeri-registry',
+    marker: 'left/*right'
+  })
+  const text = stringifyNqon(source)
+  assert.match(text, /registry = "https:\/\/github\.com\//)
+  assert.match(text, /marker = "left\/\*right"/)
+  const parsed = parseNqon(text)
+  assert.equal(parsed.registry, source.registry)
+  assert.equal(parsed.marker, source.marker)
+})
+
 test('NQON rejects duplicate keys and malformed input', () => {
   assert.throws(() => parseNqon('name = one\nname = two\n'), /duplicate key/)
   assert.throws(() => parseNqon('packages { forge = 1.0\n'), /expected '\}'/)
