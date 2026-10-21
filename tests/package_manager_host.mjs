@@ -12,7 +12,7 @@ for(const bad of ['../x','/x','a\\b','a//b']){let rejected=false;try{safeRelativ
 
 const root=await mkdtemp(join(tmpdir(),'noqeri-package-host-'))
 try{
-  await writeFile(join(root,'project.noqeri'),'project { name: "host-test" version: "1.0.0" entry: "main.noqeri" }\ndependencies { a: "noqeri/a@1.0.0" }\n')
+  await writeFile(join(root,'project.nqon'),'name = host-test\nversion = "1.0.0"\nentry = main.noqeri\npackages {\n  a = "noqeri/a@1.0.0"\n}\n')
   await writeFile(join(root,'main.noqeri'),'import package "noqeri/a"\n')
   const index={packages:[
     {namespace:'noqeri',name:'a',versions:[{version:'1.0.0',path:'packages/noqeri/a/1.0.0',yanked:false}]},

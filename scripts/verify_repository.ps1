@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $required = @(
-  'README.md','LICENSE','LEGAL.md','SECURITY.md','CONTRIBUTING.md','CMakeLists.txt','project.noqeri','noqeri.lock','bootstrap.ps1','bootstrap.sh',
+  'README.md','LICENSE','LEGAL.md','SECURITY.md','CONTRIBUTING.md','CMakeLists.txt','project.nqon','noqeri.lock','Runtime/nqon.mjs','Tools/nqon.mjs','Doc/NQON.md','bootstrap.ps1','bootstrap.sh',
   'Brand/noqeri-logo.webp','Brand/noqeri-mark.png','Brand/noqeri-banner.txt','Grammar/noqeri.grammar.md','Include/noqeri/noqeri.hpp',
   'Compiler/core.cpp','Compiler/semantic_rules.noqeri','Compiler/bootstrap/lexer_host.cpp','Compiler/bootstrap/parser_host.cpp','Compiler/bootstrap/abi_runtime_host.cpp','Compiler/bootstrap/interpreter_host.cpp','Compiler/bootstrap/cli_host.cpp','Compiler/bootstrap/formatter_host.cpp','Compiler/bootstrap/lsp_host.cpp','Compiler/bootstrap/package_host.cpp','Compiler/bootstrap/test_runner_host.cpp','Compiler/bootstrap/production_doctor_host.cpp','Compiler/bootstrap/noqeridb_host.cpp','Compiler/bootstrap/security_audit_host.cpp',
   'Parser/ascii.noqeri','Parser/token_rules.noqeri','Runtime/status.noqeri','Runtime/memory.noqeri','Runtime/limits.noqeri','Programs/selftest.noqeri','Programs/diagnostics.noqeri','Programs/version.noqeri',

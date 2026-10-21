@@ -156,6 +156,56 @@ private:
     std::vector<ManifestToken>tokens_;Diagnostics&diagnostics_;std::size_t current_=0;
 };
 
+std::string trimNqon(std::string value){
+    const auto first=value.find_first_not_of(" \t\r\n");
+    if(first==std::string::npos)return{};
+    const auto last=value.find_last_not_of(" \t\r\n");
+    return value.substr(first,last-first+1);
+}
+std::string stripNqonComment(const std::string&line){
+    bool inString=false,escape=false;
+    for(std::size_t i=0;i+1<line.size();++i){
+        const char c=line[i];
+        if(inString){if(escape){escape=false;continue;}if(c=='\\'){escape=true;continue;}if(c=='"')inString=false;continue;}
+        if(c=='"'){inString=true;continue;}
+        if(c=='/'&&line[i+1]=='/')return line.substr(0,i);
+    }
+    return line;
+}
+std::optional<std::string> nqonScalar(std::string value,Diagnostics&diagnostics){
+    value=trimNqon(value);
+    if(value.empty()){diagnostics.error("NQR-PKG6030",{},"NQON manifest value is empty");return std::nullopt;}
+    if(value.front()!='"')return value;
+    if(value.size()<2||value.back()!='"'){diagnostics.error("NQR-PKG6031",{},"unterminated string in project.nqon");return std::nullopt;}
+    std::string out;bool escape=false;
+    for(std::size_t i=1;i+1<value.size();++i){const char c=value[i];if(escape){switch(c){case'n':out+='\n';break;case'r':out+='\r';break;case't':out+='\t';break;case'\\':out+='\\';break;case'"':out+='"';break;default:out+=c;break;}escape=false;}else if(c=='\\')escape=true;else out+=c;}
+    if(escape){diagnostics.error("NQR-PKG6032",{},"unterminated escape in project.nqon");return std::nullopt;}
+    return out;
+}
+void applyNqonProjectField(ProjectManifest&manifest,const std::string&key,const std::string&value){
+    if(key=="name")manifest.name=value;
+    else if(key=="version")manifest.version=value;
+    else if(key=="edition")manifest.edition=value;
+    else if(key=="entry")manifest.entry=value;
+    else if(key=="profile")manifest.profile=value;
+    else if(key=="target")manifest.target=value;
+    else if(key=="registry")manifest.registry=value;
+}
+std::optional<ProjectManifest> parseNqonProjectManifest(const std::string&source,Diagnostics&diagnostics){
+    ProjectManifest manifest;std::istringstream input(source);std::string raw;bool packages=false;std::size_t line=0;
+    while(std::getline(input,raw)){++line;auto text=trimNqon(stripNqonComment(raw));if(text.empty())continue;
+        if(text=="packages {"||text=="dependencies {"){if(packages){diagnostics.error("NQR-PKG6033",{},"nested package blocks are not allowed in project.nqon");return std::nullopt;}packages=true;continue;}
+        if(text=="}"){if(!packages){diagnostics.error("NQR-PKG6034",{},"unexpected '}' in project.nqon");return std::nullopt;}packages=false;continue;}
+        const auto equals=text.find('=');if(equals==std::string::npos){diagnostics.error("NQR-PKG6035",{},"expected key = value in project.nqon at line "+std::to_string(line));return std::nullopt;}
+        const auto key=trimNqon(text.substr(0,equals));auto value=nqonScalar(text.substr(equals+1),diagnostics);if(!value)return std::nullopt;
+        if(packages){DependencySpec spec;const auto at=value->rfind('@');if(at==std::string::npos||at==0||at+1>=value->size()){diagnostics.error("NQR-PKG6036",{},"package '"+key+"' must use namespace/name@version in project.nqon");return std::nullopt;}spec.package=value->substr(0,at);spec.version=value->substr(at+1);manifest.dependencySpecs[key]=spec;manifest.dependencies[key]=spec.version;}
+        else applyNqonProjectField(manifest,key,*value);
+    }
+    if(packages){diagnostics.error("NQR-PKG6037",{},"unterminated packages block in project.nqon");return std::nullopt;}
+    if(manifest.name.empty()){diagnostics.error("NQR-PKG6038",{},"project.nqon requires a name");return std::nullopt;}
+    return manifest;
+}
+
 class Sha256 {
 public:
     Sha256(){reset();}
@@ -174,10 +224,10 @@ std::optional<std::string> hashPath(const std::filesystem::path&root,Diagnostics
 std::string sourceName(DependencySource source){switch(source){case DependencySource::Registry:return"registry";case DependencySource::Git:return"git";case DependencySource::Path:return"path";}return"registry";}
 }
 
-std::optional<ProjectManifest> PackageManager::loadManifest(const std::filesystem::path&path,Diagnostics&diagnostics)const{std::ifstream in(path,std::ios::binary);if(!in){diagnostics.error("NQR-PKG6000",{},"project manifest not found: "+path.string());return std::nullopt;}std::ostringstream source;source<<in.rdbuf();ManifestLexer lexer(source.str());auto tokens=lexer.lex(diagnostics);if(diagnostics.hasErrors())return std::nullopt;return ManifestParser(std::move(tokens),diagnostics).parse();}
+std::optional<ProjectManifest> PackageManager::loadManifest(const std::filesystem::path&path,Diagnostics&diagnostics)const{std::ifstream in(path,std::ios::binary);if(!in){diagnostics.error("NQR-PKG6000",{},"project manifest not found: "+path.string());return std::nullopt;}std::ostringstream source;source<<in.rdbuf();if(path.extension()==".nqon")return parseNqonProjectManifest(source.str(),diagnostics);ManifestLexer lexer(source.str());auto tokens=lexer.lex(diagnostics);if(diagnostics.hasErrors())return std::nullopt;return ManifestParser(std::move(tokens),diagnostics).parse();}
 
 bool PackageManager::writeLock(const ProjectManifest&manifest,const std::filesystem::path&path,Diagnostics&diagnostics)const{std::map<std::string,DependencySpec>sorted;if(!manifest.dependencySpecs.empty())sorted.insert(manifest.dependencySpecs.begin(),manifest.dependencySpecs.end());else for(const auto&[alias,version]:manifest.dependencies){DependencySpec spec;spec.package=alias;spec.version=version;sorted[alias]=spec;}std::ostringstream text;text<<"noqeri-lock 2\n";text<<"project "<<manifest.name<<' '<<manifest.version<<" edition "<<manifest.edition<<" target "<<manifest.target<<"\n";text<<"registry "<<manifest.registry<<"\n";for(auto&[alias,spec]:sorted){std::string checksum=spec.checksum;if(spec.source==DependencySource::Path){std::filesystem::path location=spec.location;if(location.is_relative())location=path.parent_path()/location;auto calculated=hashPath(location,diagnostics);if(!calculated)return false;checksum=*calculated;}else if(checksum.empty()){diagnostics.error("NQR-PKG6022",{},"dependency '"+alias+"' has no immutable content checksum","resolve the package through the registry and record its sha256 checksum before locking");return false;}if(checksum.rfind("sha256:",0)!=0){diagnostics.error("NQR-PKG6023",{},"dependency '"+alias+"' checksum must use sha256:<hex>");return false;}text<<"dependency "<<alias<<' '<<spec.package<<' '<<(spec.version.empty()?"path":spec.version)<<" source "<<sourceName(spec.source);if(!spec.location.empty())text<<' '<<spec.location;text<<" checksum "<<checksum<<"\n";}std::ofstream out(path,std::ios::trunc|std::ios::binary);if(!out){diagnostics.error("NQR-PKG6002",{},"cannot write lock file: "+path.string());return false;}out<<text.str();return static_cast<bool>(out);}
 
-bool PackageManager::createProject(const std::filesystem::path&directory,const std::string&name,Diagnostics&diagnostics)const{std::error_code ec;if(std::filesystem::exists(directory)&&!std::filesystem::is_empty(directory,ec)){diagnostics.error("NQR-PKG6003",{},"project directory is not empty: "+directory.string());return false;}std::filesystem::create_directories(directory/"src",ec);std::filesystem::create_directories(directory/"tests",ec);if(ec){diagnostics.error("NQR-PKG6004",{},"cannot create project directories: "+ec.message());return false;}{std::ofstream project(directory/"project.noqeri");if(!project){diagnostics.error("NQR-PKG6005",{},"cannot create project.noqeri");return false;}project<<"project {\n    name: \""<<name<<"\"\n    version: \"0.1.0\"\n    edition: \""<<NOQERI_EDITION<<"\"\n    entry: \"src/main.noqeri\"\n    profile: \"app\"\n    target: \""<<NOQERI_DEFAULT_TARGET<<"\"\n    registry: \"https://github.com/EMN90909/noqeri-registry\"\n}\n";}{std::ofstream main(directory/"src"/"main.noqeri");if(!main){diagnostics.error("NQR-PKG6006",{},"cannot create src/main.noqeri");return false;}main<<"module app.main\n\nprint(\"Hello from Noqeri\")\n";}ProjectManifest manifest;manifest.name=name;manifest.version="0.1.0";manifest.edition=NOQERI_EDITION;manifest.target=NOQERI_DEFAULT_TARGET;return writeLock(manifest,directory/"noqeri.lock",diagnostics);}
+bool PackageManager::createProject(const std::filesystem::path&directory,const std::string&name,Diagnostics&diagnostics)const{std::error_code ec;if(std::filesystem::exists(directory)&&!std::filesystem::is_empty(directory,ec)){diagnostics.error("NQR-PKG6003",{},"project directory is not empty: "+directory.string());return false;}std::filesystem::create_directories(directory/"src",ec);std::filesystem::create_directories(directory/"tests",ec);if(ec){diagnostics.error("NQR-PKG6004",{},"cannot create project directories: "+ec.message());return false;}{std::ofstream project(directory/"project.nqon");if(!project){diagnostics.error("NQR-PKG6005",{},"cannot create project.nqon");return false;}project<<"name = "<<name<<"\nversion = \"0.1.0\"\nedition = \""<<NOQERI_EDITION<<"\"\nentry = src/main.noqeri\nprofile = app\ntarget = "<<NOQERI_DEFAULT_TARGET<<"\nregistry = \"https://github.com/EMN90909/noqeri-registry\"\n";}{std::ofstream main(directory/"src"/"main.noqeri");if(!main){diagnostics.error("NQR-PKG6006",{},"cannot create src/main.noqeri");return false;}main<<"module app.main\n\nprint(\"Hello from Noqeri\")\n";}ProjectManifest manifest;manifest.name=name;manifest.version="0.1.0";manifest.edition=NOQERI_EDITION;manifest.target=NOQERI_DEFAULT_TARGET;return writeLock(manifest,directory/"noqeri.lock",diagnostics);}
 
 } // namespace noe

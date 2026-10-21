@@ -222,21 +222,21 @@ EOF
 grep -q '// line comment' build/comment_format.noqeri
 grep -q '/\* block comment \*/' build/comment_format.noqeri
 
-# project.noqeri is parsed structurally and lock v2 never falls back to FNV.
+# project.nqon is parsed structurally and lock v2 never falls back to FNV.
+node --test tests/nqon.test.mjs
+node tests/package_manager_host.mjs
 mkdir -p build/manifest-test/src
-cat > build/manifest-test/project.noqeri <<'EOF'
-project {
-    name: "manifest-test"
-    version: "0.1.0"
-    edition: "2026"
-    entry: "src/main.noqeri"
-    profile: "app"
-    target: "x86_64-unknown-none"
-    registry: "https://github.com/EMN90909/noqeri-registry"
-}
+cat > build/manifest-test/project.nqon <<'EOF'
+name = manifest-test
+version = "0.1.0"
+edition = "2026"
+entry = src/main.noqeri
+profile = app
+target = x86_64-unknown-none
+registry = "https://github.com/EMN90909/noqeri-registry"
 EOF
-./build/noqeri manifest build/manifest-test/project.noqeri | grep -q 'edition=2026'
-./build/noqeri lock build/manifest-test/project.noqeri >/dev/null
+./build/noqeri manifest build/manifest-test/project.nqon | grep -q 'edition=2026'
+./build/noqeri lock build/manifest-test/project.nqon >/dev/null
 grep -q '^noqeri-lock 2$' build/manifest-test/noqeri.lock
 if grep -qi 'fnv' build/manifest-test/noqeri.lock; then
   echo "legacy non-content lock hash returned" >&2

@@ -36,6 +36,7 @@ function run(name, command, args, cwd = root, env = {}) {
 
 // Standalone JavaScript behavior must pass regardless of compiler availability.
 run('web-component-regressions', process.execPath, ['--test', 'tests/web-compiler.test.mjs', 'tests/web-project.test.mjs'])
+run('nqon-format-regressions', process.execPath, ['--test', 'tests/nqon.test.mjs'])
 run('optional-game-asset-tests', process.execPath, ['--test', 'tests/game-obj.test.mjs'])
 const testsDir = resolve(root, 'tests')
 const noesqlTests = existsSync(testsDir)
