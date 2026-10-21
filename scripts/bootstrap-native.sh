@@ -116,6 +116,7 @@ if ! cmp -s "$STAGE2" "$STAGE3"; then
   echo "Stage-3 SHA-256: $(sha256_file "$STAGE3")" >&2
   echo "First differing bytes (1-based offset, Stage-2 octal, Stage-3 octal):" >&2
   cmp -l "$STAGE2" "$STAGE3" | head -n 20 >&2 || true
+  "$RUNTIME" diff "$STAGE2" "$STAGE3" || true
   exit 1
 fi
 
