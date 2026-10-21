@@ -71,7 +71,10 @@ export function nqPipelineSemanticErrorOffset(source: []u8, unsafeAllowed: bool)
     let count: usize = 0 as usize
     let first: isize = nqAstNoNode()
     let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &count, &first)
-    if parseStatus < 0 as isize { return 0 as usize }
+    // Parsing failure must report the actual declaration offset, not byte zero.
+    // Stage 2 needs this location to distinguish VM miscompilation from an
+    // unsupported declaration when rebuilding the flattened source closure.
+    if parseStatus < 0 as isize { return nqParserFirstErrorOffset(source) }
     let zeroStatus: isize = nqZeroInitNormalize(source, slice(nodes), &count, first)
     if zeroStatus < 0 as isize { return 0 as usize }
     let errorStart: usize = 0 as usize
