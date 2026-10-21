@@ -116,8 +116,16 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
             case NirOp::Load:{if(addressTaken.count(i.text)){regs[*i.dest]=static_cast<std::int64_t>(cells[i.text]);break;}auto it=vars.find(i.text);if(it==vars.end())throw std::runtime_error("undefined variable "+i.text);regs[*i.dest]=it->second;break;}
             case NirOp::Store:{vars[i.text]=get(i.args[0]);if(auto n=std::get_if<std::int64_t>(&vars[i.text]))cells[i.text]=static_cast<std::uint64_t>(*n);else if(auto b=std::get_if<bool>(&vars[i.text]))cells[i.text]=*b?1:0;break;}
             case NirOp::AddressOf:addressTaken.insert(i.text);cells.try_emplace(i.text,0);regs[*i.dest]=static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(&cells[i.text]));break;
-            case NirOp::LoadMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));regs[*i.dest]=static_cast<std::int64_t>(rawLoad(address,i.width,i.isVolatile));break;}
-            case NirOp::StoreMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));rawStore(address,i.width,static_cast<std::uint64_t>(asInt(get(i.args[1]))),i.isVolatile);break;}
+            case NirOp::LoadMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));const auto bits=rawLoad(address,i.width,i.isVolatile);if(i.type.kind==TypeKind::Float){
+                if(i.width!=8)throw std::runtime_error("floating memory load requires 64-bit width");
+                double value=0;std::memcpy(&value,&bits,sizeof(value));regs[*i.dest]=value;
+            }else regs[*i.dest]=static_cast<std::int64_t>(bits);break;}
+            case NirOp::StoreMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));const auto value=get(i.args[1]);std::uint64_t bits=0;
+            if(const auto floating=std::get_if<double>(&value)){
+                if(i.width!=8)throw std::runtime_error("floating memory store requires 64-bit width");
+                std::memcpy(&bits,floating,sizeof(bits));
+            }else bits=static_cast<std::uint64_t>(asInt(value));
+            rawStore(address,i.width,bits,i.isVolatile);break;}
             case NirOp::PtrOffset:{std::int64_t base=asInt(get(i.args[0]));std::int64_t delta=static_cast<std::int64_t>(i.target);if(i.args.size()>1)delta=mulInt(asInt(get(i.args[1])),static_cast<std::int64_t>(i.width));regs[*i.dest]=addInt(base,delta);break;}
             case NirOp::StackAlloc:regs[*i.dest]=static_cast<std::int64_t>(allocateBytes(i.width));break;
             case NirOp::MakeSlice:{auto descriptor=allocateBytes(16);rawStore(descriptor,8,static_cast<std::uint64_t>(asInt(get(i.args[0]))),false);rawStore(descriptor+8,8,static_cast<std::uint64_t>(asInt(get(i.args[1]))),false);regs[*i.dest]=static_cast<std::int64_t>(descriptor);break;}
