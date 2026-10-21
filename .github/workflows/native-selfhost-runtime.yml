@@ -19,6 +19,7 @@ on:
       - 'tests/native_benchmark_policy.test.mjs'
       - 'Benchmarks/commands.example.json'
       - 'Benchmarks/METHODOLOGY.md'
+      - 'Benchmarks/workloads/**'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -43,6 +44,7 @@ on:
       - 'tests/native_benchmark_policy.test.mjs'
       - 'Benchmarks/commands.example.json'
       - 'Benchmarks/METHODOLOGY.md'
+      - 'Benchmarks/workloads/**'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
