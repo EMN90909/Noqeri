@@ -404,17 +404,29 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let callee: *NqAstNode = &nodes[node.left as usize]
         let symbol: u64 = nqNirSymbolId(source, callee.start, callee.end)
         if symbol == 0 as u64 { return nqLowerBadAst() }
+        // Evaluate nested call expressions before placing *any* arguments for
+        // this call. CallArg uses a VM-frame staging buffer, which nested calls
+        // clear when they execute. Interleaving evaluation and CallArg silently
+        // passes missing/zero arguments to an outer call.
+        if node.extra < 0 as isize || node.extra > 64 as isize { return nqLowerCapacity() }
+        let argumentRegisters: [isize; 64]
         let argument: isize = node.right
         let argumentIndex: usize = 0 as usize
         while argument >= 0 as isize && argumentIndex < node.extra as usize {
             let value: isize = nqLowerExpressionInternal(source, nodes, argument, instructions, state)
             if value < 0 as isize { return value }
-            let arg: isize = nqLowerEmit(instructions, state, nqNirCallArg(), nqNirNoValue())
-            if arg < 0 as isize { return arg }
-            instructions[arg as usize].left = value
-            instructions[arg as usize].immediate = argumentIndex as i64
+            argumentRegisters[argumentIndex] = value
             argument = nodes[argument as usize].next
             argumentIndex = argumentIndex + 1 as usize
+        }
+        if argumentIndex != node.extra as usize { return nqLowerBadAst() }
+        let queued: usize = 0 as usize
+        while queued < argumentIndex {
+            let arg: isize = nqLowerEmit(instructions, state, nqNirCallArg(), nqNirNoValue())
+            if arg < 0 as isize { return arg }
+            instructions[arg as usize].left = argumentRegisters[queued]
+            instructions[arg as usize].immediate = queued as i64
+            queued = queued + 1 as usize
         }
         let reg: isize = nqLowerAllocRegister(state)
         let call: isize = nqLowerEmit(instructions, state, nqNirCall(), reg)
