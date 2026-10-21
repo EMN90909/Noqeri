@@ -207,7 +207,8 @@ function nqX64BuildLayout(function: *NqNirFunction, instructions: []NqNirInstruc
     let regCount: usize = 0 as usize
     if maxReg >= minReg && minReg >= 0 as isize { regCount = (maxReg - minReg + 1 as isize) as usize }
     let base: usize = (regCount + variableCount[0] + maxCallArgs) * 8 as usize
-    outMinReg[0] = if regCount == 0 as usize { 0 as isize } else { minReg }
+    outMinReg[0] = minReg
+    if regCount == 0 as usize { outMinReg[0] = 0 as isize }
     outRegCount[0] = regCount
     outCallArgs[0] = maxCallArgs
     outFrame[0] = nqX64Align16(base + fixedBytes)
@@ -322,9 +323,12 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
         if index >= len(instructionOffsets) { return nqX64Capacity() }
         instructionOffsets[index] = cursor[0]
         let ins: *NqNirInstruction = &instructions[index]
-        let destOffset: usize = if ins.dest >= 0 as isize { nqX64RegOffset(ins.dest,minReg,regCount) } else { 0 as usize }
-        let leftOffset: usize = if ins.left >= 0 as isize { nqX64RegOffset(ins.left,minReg,regCount) } else { 0 as usize }
-        let rightOffset: usize = if ins.right >= 0 as isize { nqX64RegOffset(ins.right,minReg,regCount) } else { 0 as usize }
+        let destOffset: usize = 0 as usize
+        let leftOffset: usize = 0 as usize
+        let rightOffset: usize = 0 as usize
+        if ins.dest >= 0 as isize { destOffset = nqX64RegOffset(ins.dest,minReg,regCount) }
+        if ins.left >= 0 as isize { leftOffset = nqX64RegOffset(ins.left,minReg,regCount) }
+        if ins.right >= 0 as isize { rightOffset = nqX64RegOffset(ins.right,minReg,regCount) }
 
         if ins.opcode == nqNirNop() || ins.opcode == nqNirLabel() { }
         else if ins.opcode == nqNirConstI64() {
@@ -398,10 +402,10 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
                     if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x39 as u8)||!nqX64Put8(out,cursor,0xd0 as u8) { return nqX64Capacity() }
                     let cc: u8 = 0x94 as u8
                     if ins.opcode == nqNirNe() { cc = 0x95 as u8 }
-                    else if ins.opcode == nqNirLt() { cc = if nqX64IsUnsigned(ins.typeCode) { 0x92 as u8 } else { 0x9c as u8 } }
-                    else if ins.opcode == nqNirLe() { cc = if nqX64IsUnsigned(ins.typeCode) { 0x96 as u8 } else { 0x9e as u8 } }
-                    else if ins.opcode == nqNirGt() { cc = if nqX64IsUnsigned(ins.typeCode) { 0x97 as u8 } else { 0x9f as u8 } }
-                    else if ins.opcode == nqNirGe() { cc = if nqX64IsUnsigned(ins.typeCode) { 0x93 as u8 } else { 0x9d as u8 } }
+                    else if ins.opcode == nqNirLt() { cc = 0x9c as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x92 as u8 } }
+                    else if ins.opcode == nqNirLe() { cc = 0x9e as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x96 as u8 } }
+                    else if ins.opcode == nqNirGt() { cc = 0x9f as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x97 as u8 } }
+                    else if ins.opcode == nqNirGe() { cc = 0x9d as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x93 as u8 } }
                     if !nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,cc)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xb6 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() }
                 }
                 if (ins.flags / nqNirFlagChecked()) % 2 as u32 == 1 as u32 && (ins.opcode == nqNirAdd() || ins.opcode == nqNirSub() || ins.opcode == nqNirMul()) { if !nqX64EmitCheckedTrap(out,cursor) { return nqX64Capacity() } }
@@ -526,7 +530,8 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
                 if stackFlags[ai] { stackCount = stackCount + 1 as usize }
                 ai = ai + 1 as usize
             }
-            let pad: usize = if stackCount % 2 as usize == 1 as usize { 8 as usize } else { 0 as usize }
+            let pad: usize = 0 as usize
+            if stackCount % 2 as usize == 1 as usize { pad = 8 as usize }
             if pad > 0 as usize { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x83 as u8)||!nqX64Put8(out,cursor,0xec as u8)||!nqX64Put8(out,cursor,0x08 as u8) { return nqX64Capacity() } }
             let ri: usize = argc
             while ri > 0 as usize {
