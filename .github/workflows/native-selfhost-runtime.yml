@@ -230,6 +230,43 @@ jobs:
           if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false) {
             throw 'bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality without asserting independent attestation'
           }
+      - name: Bootstrap self-hosted native compiler fixed point (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-native-compiler" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
+          sh ./scripts/bootstrap-native-compiler.sh
+          grep -qx 'qualified=true' build-native-compiler/native-compiler-proof.txt
+          grep -qx 'steady_state_engine=selfhost-native-linux-x86_64' build-native-compiler/native-compiler-proof.txt
+          grep -qx 'fixed_point=true' build-native-compiler/native-compiler-proof.txt
+          grep -qx 'vm_required_for_steady_state=false' build-native-compiler/native-compiler-proof.txt
+
+      - name: Execute program through self-hosted native compiler (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          build-native-compiler/noqeri-native tests/native_selfhost_smoke.noqeri build-native-compiler/native-smoke.s 3
+          cc -c build-native-compiler/native-smoke.s -o build-native-compiler/native-smoke.o
+          c++ Runtime/native/native_program_host.cpp build-native-compiler/native-smoke.o -o build-native-compiler/native-smoke
+          result=$(build-native-compiler/native-smoke)
+          test "$result" = "499500"
+
+      - name: Upload native compiler qualification proof
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-compiler-proof-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            build-native-compiler/native-compiler-proof.txt
+            build-native-compiler/noqeri-native
+            build-native-compiler/noqeri-native-bootstrap.s
+            build-native-compiler/noqeri-native-fixed.s
+
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
