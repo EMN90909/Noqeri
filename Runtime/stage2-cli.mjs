@@ -42,7 +42,9 @@ if (command === 'noe') {
 let packageManager = null
 async function packages() {
   if (!packageManager) {
-    const { createPackageManager } = await import('./package-manager.mjs')
+    const { createPackageManager } = await import(
+      process.env.NOQERI_REGISTRY_API_URL ? './package-manager-v1.mjs' : './package-manager.mjs'
+    )
     packageManager = createPackageManager()
   }
   return packageManager

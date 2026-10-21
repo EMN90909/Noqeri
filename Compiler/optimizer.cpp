@@ -85,5 +85,146 @@ bool dce(NirFunction&fn){
     fn.code=std::move(kept);
     return true;
 }
-void pipeline(NirFunction&fn,OptimizationLevel level){if(level==OptimizationLevel::O0)return;int rounds=level==OptimizationLevel::O3?3:(level==OptimizationLevel::O2?2:1);for(int r=0;r<rounds;++r){bool a=constants(fn),b=dce(fn);if(!a&&!b)break;}if(level==OptimizationLevel::Oz)dce(fn);}
-} void PassManager::optimize(NirProgram&p)const{pipeline(p.entry,level_);for(auto&f:p.functions)pipeline(f,level_);}void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
+// A graph reachability pass is safe even for back-edges. Never remove
+// exceptional edges without an explicit exception control-flow graph.
+bool unreachable(NirFunction& fn) {
+    for (const auto& in : fn.code) {
+        if (in.op == NirOp::Try || in.op == NirOp::InlineAsm) return false;
+    }
+    const auto n = fn.code.size();
+    if (n == 0) return false;
+    std::vector<bool> live(n, false);
+    std::vector<std::size_t> work{0};
+    while (!work.empty()) {
+        const auto pc = work.back();
+        work.pop_back();
+        if (pc >= n || live[pc]) continue;
+        live[pc] = true;
+        const auto& in = fn.code[pc];
+        if (in.op == NirOp::Return || in.op == NirOp::Throw) continue;
+        if (in.op == NirOp::Jump) {
+            if (in.target < n) work.push_back(in.target);
+            continue;
+        }
+        if (in.op == NirOp::JumpIfFalse && in.target < n)
+            work.push_back(in.target);
+        if (pc + 1 < n) work.push_back(pc + 1);
+    }
+    std::size_t keepCount = 0;
+    for (bool keep : live) if (keep) ++keepCount;
+    if (keepCount == n) return false;
+    std::vector<std::size_t> map(n + 1, 0);
+    for (std::size_t i = 0, next = 0; i < n; ++i) {
+        map[i] = next;
+        if (live[i]) ++next;
+    }
+    map[n] = keepCount;
+    std::vector<NirInstruction> compact;
+    compact.reserve(keepCount);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!live[i]) continue;
+        auto in = std::move(fn.code[i]);
+        if (in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse)
+            in.target = map[std::min(in.target, n)];
+        compact.push_back(std::move(in));
+    }
+    fn.code = std::move(compact);
+    return true;
+}
+// Only boolean literal branches may be simplified. Other truthiness rules can
+// differ between native and reference backends and are not speculated here.
+bool foldBranches(NirFunction&fn) {
+    bool changed = false;
+    std::unordered_map<Reg, bool> known;
+    std::unordered_set<std::size_t> leaders{0};
+    for (std::size_t i = 0; i < fn.code.size(); ++i) {
+        const auto& in = fn.code[i];
+        if ((in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse) && in.target < fn.code.size())
+            leaders.insert(in.target);
+        if ((in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse ||
+             in.op == NirOp::Return || in.op == NirOp::Throw) && i + 1 < fn.code.size())
+            leaders.insert(i + 1);
+    }
+    for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+        if (pc != 0 && leaders.count(pc)) known.clear();
+        auto& in = fn.code[pc];
+        if (in.op == NirOp::Const && in.dest) {
+            if (auto value = std::get_if<bool>(&in.literal)) known[*in.dest] = *value;
+            else known.erase(*in.dest);
+            continue;
+        }
+        if (in.op == NirOp::JumpIfFalse && in.args.size() == 1) {
+            auto it = known.find(in.args.front());
+            if (it != known.end()) {
+                in.op = it->second ? NirOp::Nop : NirOp::Jump;
+                in.args.clear();
+                changed = true;
+            }
+        }
+        if (in.dest) known.erase(*in.dest);
+        if (in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse ||
+            in.op == NirOp::Return || in.op == NirOp::Throw) known.clear();
+    }
+    return changed;
+}
+void pipeline(NirFunction& fn, OptimizationLevel level) {
+    if (level == OptimizationLevel::O0) return;
+    const int rounds = level == OptimizationLevel::O3 ? 3 :
+                       level == OptimizationLevel::O2 ? 2 : 1;
+    for (int r = 0; r < rounds; ++r) {
+        const bool a = constants(fn);
+        const bool b = dce(fn);
+        if (!a && !b) break;
+    }
+    // Gate new branch simplification at O2+. O1 retains legacy behavior.
+    if (level == OptimizationLevel::O2 || level == OptimizationLevel::O3 ||
+        level == OptimizationLevel::Oz) {
+        for (int iteration = 0; iteration < 3; ++iteration) {
+            const bool a = foldBranches(fn);
+            const bool b = unreachable(fn);
+            const bool c = constants(fn);
+            const bool d = dce(fn);
+            if (!a && !b && !c && !d) break;
+        }
+    }
+    if (level == OptimizationLevel::Oz) dce(fn);
+}
+}
+// This deliberately narrow inliner substitutes *only* a side-effect-free,
+// zero-argument function consisting of one constant and its return.
+// It must never convert a potentially throwing or effectful call.
+void PassManager::optimize(NirProgram& p) const {
+    if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
+        level_ == OptimizationLevel::Oz) {
+        std::unordered_map<std::string, NirValue> candidates;
+        std::unordered_set<std::string> ambiguous;
+        for (const auto& fn : p.functions) {
+            if (fn.name.empty() || fn.isExtern || !fn.params.empty() ||
+                !fn.paramTypes.empty() || fn.code.size() != 2) continue;
+            const auto& a = fn.code[0];
+            const auto& b = fn.code[1];
+            if (a.op != NirOp::Const || !a.dest ||
+                std::holds_alternative<std::monostate>(a.literal) ||
+                b.op != NirOp::Return || b.args.size() != 1 ||
+                b.args.front() != *a.dest) continue;
+            if (!candidates.emplace(fn.name, a.literal).second)
+                ambiguous.insert(fn.name);
+        }
+        for (const auto& name : ambiguous) candidates.erase(name);
+        auto inlineConstants = [&](NirFunction& fn) {
+            for (auto& in : fn.code) {
+                if (in.op != NirOp::Call || !in.dest || !in.args.empty()) continue;
+                auto found = candidates.find(in.text);
+                if (found == candidates.end()) continue;
+                in.op = NirOp::Const;
+                in.literal = found->second;
+                in.text.clear();
+            }
+        };
+        inlineConstants(p.entry);
+        for (auto& fn : p.functions) inlineConstants(fn);
+    }
+    pipeline(p.entry, level_);
+    for (auto& fn : p.functions) pipeline(fn, level_);
+}
+void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe

@@ -1,0 +1,22 @@
+name: Compiler optimizer and Registry API selection
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  api-and-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/package_manager_api_host.mjs
+      - name: Compile optimized control flow and inlining tests
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer-cfg
+          /tmp/noqeri-optimizer-cfg
