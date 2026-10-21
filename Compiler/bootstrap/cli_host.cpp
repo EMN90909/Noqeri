@@ -30,7 +30,7 @@ void usage() {
               << "  link <output> <object...>          run explicit linker adapter\n"
               << "  targets                           list compiler target contracts\n"
               << "  format <file>                     canonical-format source in place\n"
-              << "  manifest [file]                   read project.noqeri\n"
+              << "  manifest [file]                   read project.nqon (legacy project.noqeri supported)\n"
               << "  lock [file]                       generate content-addressed noqeri.lock\n"
               << "  audit [dir]                       verify lock integrity and review capabilities\n"
               << "  test [dir]                        compile and run .noqeri tests\n"
@@ -67,6 +67,11 @@ struct SourceSelection {
     std::string target = NOQERI_DEFAULT_TARGET;
 };
 
+std::filesystem::path defaultProjectManifest() {
+    if (std::filesystem::exists("project.nqon")) return "project.nqon";
+    return "project.noqeri";
+}
+
 std::optional<SourceSelection> selectSource(int argc, char** argv, Diagnostics& d) {
     if (argc >= 3 && argv[2][0] != '-') {
         const std::filesystem::path source = argv[2];
@@ -77,12 +82,13 @@ std::optional<SourceSelection> selectSource(int argc, char** argv, Diagnostics& 
         }
         return SourceSelection{source, source.stem().string(), NOQERI_DEFAULT_TARGET};
     }
-    auto manifest = PackageManager{}.loadManifest("project.noqeri", d);
+    const auto manifestPath = defaultProjectManifest();
+    auto manifest = PackageManager{}.loadManifest(manifestPath, d);
     if (!manifest) return std::nullopt;
     const std::filesystem::path manifestEntry = manifest->entry;
     if (manifestEntry.extension() != ".noqeri") {
         d.error("NQR-P3014", {}, "project entry must use the .noqeri extension: " + manifestEntry.string(),
-                "update project.noqeri so entry points at a .noqeri source file");
+                "update " + manifestPath.string() + " so entry points at a .noqeri source file");
         return std::nullopt;
     }
     return SourceSelection{manifestEntry, manifest->name, manifest->target};
@@ -340,7 +346,7 @@ int main(int argc, char** argv) {
         }
         if (cmd == "test") return TestRunner{}.runDirectory(argc >= 3 ? argv[2] : "tests");
         if (cmd == "manifest" || cmd == "lock") {
-            std::filesystem::path path = argc >= 3 ? argv[2] : "project.noqeri";
+            std::filesystem::path path = argc >= 3 ? argv[2] : defaultProjectManifest();
             Diagnostics d;
             auto p = PackageManager{}.loadManifest(path, d);
             if (!p) { d.print(path.string()); return 1; }
@@ -369,7 +375,7 @@ int main(int argc, char** argv) {
         }
         Diagnostics selectionDiagnostics;
         auto selected = selectSource(argc, argv, selectionDiagnostics);
-        if (!selected) { selectionDiagnostics.print("project.noqeri"); return 1; }
+        if (!selected) { selectionDiagnostics.print(defaultProjectManifest().string()); return 1; }
         auto path = selected->source;
         if (cmd == "lex") {
             auto source = readTextFile(path);
