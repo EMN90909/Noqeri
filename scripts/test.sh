@@ -289,6 +289,9 @@ grep -qx 'name = starter' build/new-project/project.nqon
 grep -qx 'version = "0.1.0"' build/new-project/project.nqon
 test "$(wc -l < build/new-project/project.nqon | tr -d ' ')" = "2"
 grep -qx 'print("Hello from Noqeri")' build/new-project/src/main.noqeri
+rm -rf build/new-project-spaced
+./build/noqeri new "my app" build/new-project-spaced >/dev/null
+grep -qx 'name = "my app"' build/new-project-spaced/project.nqon
 if grep -qi 'fnv' build/manifest-test/noqeri.lock; then
   echo "legacy non-content lock hash returned" >&2
   exit 1
