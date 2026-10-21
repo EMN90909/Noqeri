@@ -307,5 +307,66 @@ int main() {
             if(in.op==noe::NirOp::Binary&&in.text=="+")++additions;
         if(!check(additions==2,"floating GVN stays disabled"))return 1;
     }
+    {
+        // Unrolling duplicates a full iteration including its exit check,
+        // so a side-effectful body is still executed exactly once per trip.
+        noe::NirProgram p;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="keep";
+        auto checkExit=withArgs(noe::NirOp::JumpIfFalse,{1});checkExit.target=5;
+        auto output=withArgs(noe::NirOp::Load,{});output.dest=2;output.text="item";
+        auto write=withArgs(noe::NirOp::Store,{2});write.text="observed";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=0;
+        p.entry.code={cond,checkExit,output,write,repeat,withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::vector<std::size_t> testsAt,storesAt;
+        std::size_t loopAt=99,exitAt=99;
+        for(std::size_t pc=0;pc<p.entry.code.size();++pc){
+            const auto& op=p.entry.code[pc];
+            if(op.op==noe::NirOp::JumpIfFalse)testsAt.push_back(pc);
+            if(op.op==noe::NirOp::Store)storesAt.push_back(pc);
+            if(op.op==noe::NirOp::Jump)loopAt=pc;
+            if(op.op==noe::NirOp::Return)exitAt=pc;
+        }
+        if(!check(testsAt.size()==2&&storesAt.size()==2&&loopAt!=99&&
+                  testsAt[0]<storesAt[0]&&storesAt[0]<testsAt[1]&&
+                  testsAt[1]<storesAt[1]&&storesAt[1]<loopAt,
+                  "2x loop unrolling duplicates condition and effect order"))return 1;
+        if(!check(p.entry.code[testsAt[0]].target==exitAt&&
+                  p.entry.code[testsAt[1]].target==exitAt&&
+                  p.entry.code[loopAt].target==0,
+                  "unrolled loop preserves both exit edges and backedge"))return 1;
+    }
+    {
+        // Exceptional control flow is outside the unroller's proof model.
+        noe::NirProgram p;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="flag";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{1});exit.target=5;
+        auto next=withArgs(noe::NirOp::Load,{});next.dest=2;next.text="next";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=0;
+        p.entry.code={cond,exit,withArgs(noe::NirOp::Try,{1}),next,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        int branches=0;
+        for(const auto& item:p.entry.code)
+            if(item.op==noe::NirOp::JumpIfFalse)++branches;
+        if(!check(branches==1,"no loop unroll across exception edge"))return 1;
+    }
+    {
+        // An outside jump into the middle of a loop forbids duplication.
+        noe::NirProgram p;
+        auto enter=withArgs(noe::NirOp::Jump,{});enter.target=4;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="flag";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{1});exit.target=6;
+        auto item=withArgs(noe::NirOp::Load,{});item.dest=2;item.text="item";
+        auto write=withArgs(noe::NirOp::Store,{2});write.text="out";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=1;
+        p.entry.code={enter,cond,exit,item,write,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        int stores=0;
+        for(const auto& op:p.entry.code)
+            if(op.op==noe::NirOp::Store)++stores;
+        if(!check(stores==1,"no loop unroll with external body entry"))return 1;
+    }
     return 0;
 }
