@@ -38,3 +38,19 @@ export function zeroLengthArrayContext(): usize {
     let empty: [u8; 0] = []
     return len(empty)
 }
+
+export function nestedLoopControl(): int {
+    let outer: int = 0
+    let total: int = 0
+    while outer < 3 {
+        outer = outer + 1
+        let inner: int = 0
+        while inner < 4 {
+            inner = inner + 1
+            if inner == 2 { continue }
+            if inner == 4 { break }
+            total = total + 1
+        }
+    }
+    return total
+}
