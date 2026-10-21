@@ -4,6 +4,7 @@ $Noqeri = Join-Path (Get-Location) 'build\Release\noqeri.exe'
 if (-not (Test-Path $Noqeri)) { $Noqeri = Join-Path (Get-Location) 'build\noqeri.exe' }
 & $Noqeri --version
 & $Noqeri check 'examples\hello.noqeri'
+& $Noqeri check 'tests\repeat_loop.noqeri'
 & $Noqeri run 'examples\hello.noqeri'
 & $Noqeri test 'tests'
 & $Noqeri doctor '.'
