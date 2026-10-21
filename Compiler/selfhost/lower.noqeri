@@ -380,7 +380,11 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
     }
     if node.tag == nqAstArray() {
         let count: usize = node.extra as usize
-        let elementWidth: usize = nqLowerNodeWidth(node)
+        // Array's typeCode is the container tag, not its element type.
+        // Using it yields eight-byte storage for u8 literals and inserts
+        // seven zero bytes between every ASCII keyword character in Stage 2.
+        let elementWidth: usize = nqCompilerPrimitiveTypeWidth(node.elementTypeCode)
+        if elementWidth == 0 as usize { elementWidth = 8 as usize }
         let bytes: usize = count * elementWidth
         let base: isize = nqLowerAllocRegister(state)
         let alloc: isize = nqLowerEmit(instructions, state, nqNirStackAlloc(), base)
