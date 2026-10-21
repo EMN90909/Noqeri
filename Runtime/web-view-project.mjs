@@ -100,7 +100,8 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
  await mkdir(join(output,'__noqeri'),{recursive:true})
  await copyFile(fileURLToPath(new URL('./noqeri-web-runtime.mjs',import.meta.url)),join(output,'__noqeri/runtime.mjs'))
  if(!htmlFiles.length){
-  const html='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Noqeri web</title>'+mapScript+'</head><body><main id="app"></main><script type="module" src="./main.mjs"></script></body></html>\n'
+  const css=all.includes(join(input,'styles.css'))?'<link rel="stylesheet" href="./styles.css">':''
+  const html='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Noqeri web</title>'+css+mapScript+'</head><body><main id="app"></main><script type="module" src="./main.mjs"></script></body></html>\n'
   await writeFile(join(output,'index.html'),html)
  }
  return {files:all.length+(htmlFiles.length?0:1)+1,html:Math.max(1,htmlFiles.length),compiled:entries.size,views:viewAst.size,source:input,output}
