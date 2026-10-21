@@ -88,7 +88,7 @@ export function text_parse_i64(value: []u8, out: *i64): bool {
         result = multiplied - digit
         index = index + 1 as usize
     }
-    if negative { out[0 as usize] = result } else { out[0 as usize] = -result }
+    if negative { unsafe { out[0 as usize] = result } } else { unsafe { out[0 as usize] = -result } }
     return true
 }
 
@@ -96,7 +96,7 @@ export function text_parse_bool_ascii(value: []u8, out: *bool): bool {
     if out == null { return false }
     let trueText: [u8; 4] = [116 as u8,114 as u8,117 as u8,101 as u8]
     let falseText: [u8; 5] = [102 as u8,97 as u8,108 as u8,115 as u8,101 as u8]
-    if text_equal_ascii_ignore_case(value, slice(trueText)) { out[0 as usize] = true return true }
-    if text_equal_ascii_ignore_case(value, slice(falseText)) { out[0 as usize] = false return true }
+    if text_equal_ascii_ignore_case(value, slice(trueText)) { unsafe { out[0 as usize] = true } return true }
+    if text_equal_ascii_ignore_case(value, slice(falseText)) { unsafe { out[0 as usize] = false } return true }
     return false
 }
