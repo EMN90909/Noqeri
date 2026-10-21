@@ -84,6 +84,21 @@ if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
   exit 2
 fi
 "$RUNTIME" compile-manifest "$SEED" "$ROOT" "$MANIFEST" "$STAGE2" "$TARGET"
+# Cross-check the first function declaration's lexical building blocks. These
+# probes execute the SAME Noqeri-written functions in both compiler modules.
+# Report the first divergence before a generic parser error hides it.
+for probe in "nqCompilerSkipTrivia 8" "nqCompilerScanIdentifier 9" "nqCompilerTokenEnd 9" "nqParserScanType 22" "nqParserScanType 28" "nqParserDeclarationTagAt 0"; do
+  set -- $probe
+  function_name=$1
+  offset=$2
+  original=$("$RUNTIME" probe "$SEED" "$function_name" "$ROOT/tests/bootstrap_language_compat.noqeri" "$offset")
+  rebuilt=$("$RUNTIME" probe "$STAGE2" "$function_name" "$ROOT/tests/bootstrap_language_compat.noqeri" "$offset")
+  echo "Compiler probe $function_name($offset): Stage-1=$original Stage-2=$rebuilt"
+  if [ "$original" != "$rebuilt" ]; then
+    echo "Noqeri self-host bootstrap FAILED: compiler probe diverged at $function_name($offset)." >&2
+    exit 1
+  fi
+done
 # Verify the generated compiler can process a small, known-good input before
 # asking it to rebuild the entire compiler source closure.
 "$RUNTIME" syntax "$STAGE2" "$ROOT/tests/bootstrap_language_compat.noqeri"
