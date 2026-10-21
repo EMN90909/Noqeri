@@ -1,0 +1,18 @@
+// Compiler differential fixture: O0 and O3 must execute identically.
+function factorial(limit: int): int {
+    let index: int = 0
+    let result: int = 1
+    while index < limit {
+        index = index + 1
+        result = result * index
+    }
+    return result
+}
+
+let value: int = factorial(5)
+print(value)
+if value == 120 {
+    print("factorial verified")
+} else {
+    print("unexpected result")
+}
