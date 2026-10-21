@@ -828,10 +828,16 @@ void PassManager::optimize(NirProgram& p) const {
     // Optimizer legality remains entirely independent of execution counts.
     if(profile_&&!profile_->compatible(p))
         throw std::invalid_argument("NQPGO1 profile does not match NIR revision");
-    const bool unrollEntry=!profile_||profile_->executions(p.entry)>=64;
+    // Until measured target tables exist, only targets with a higher
+    // heuristic branch penalty permit code-size-expanding loop unrolling.
+    const auto targetCost=TargetCostModel::forTarget(target_);
+    const bool targetAllowsUnroll=targetCost.branch>=3;
+    const bool unrollEntry=targetAllowsUnroll&&
+        (!profile_||profile_->executions(p.entry)>=64);
     std::vector<bool> unrollFunctions;
     for(const auto& fn:p.functions)
-        unrollFunctions.push_back(!profile_||profile_->executions(fn)>=64);
+        unrollFunctions.push_back(targetAllowsUnroll&&
+            (!profile_||profile_->executions(fn)>=64));
     if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
         level_ == OptimizationLevel::Oz) {
         // Interprocedural constant evaluation for bounded, zero-argument,
@@ -907,4 +913,12 @@ void PassManager::optimize(NirProgram& p) const {
     for (std::size_t i=0;i<p.functions.size();++i)
         pipeline(p.functions[i], level_, unrollFunctions[i]);
 }
-void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
+void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}
+void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{
+    PassManager(level).optimize(p);
+}
+void Optimizer::optimize(NirProgram&p,OptimizationLevel level,const std::string& target)const{
+    PassManager(level,target).optimize(p);
+}
+void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);}
+} // namespace noe
