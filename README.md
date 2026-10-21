@@ -1,3 +1,5 @@
+**Canonical ecosystem integration:** [Noqeri / NoeSQL / Registry / Web boundaries](Doc/CANONICAL_ECOSYSTEM.md). New source is `.noqeri`, compiled modules `.nqri`, databases `.noedb`, packages `.nqpkg`; `.nqon` parsing is reserved and unqualified. Legacy NoqeriDB is deprecated.
+
 <p align="center"><img src="Brand/noqeri-logo.webp" alt="Noqeri code logo" width="560"></p>
 <h1 align="center">Noqeri</h1>
 
