@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { decodePackageArchive, assertRegistryUrl } from './registry-client.mjs'
 import { homedir } from 'node:os'
 import { readFile, writeFile, mkdir, readdir, stat, rm, rename } from 'node:fs/promises'
 import { resolve, join, relative, sep, dirname } from 'node:path'
@@ -67,15 +68,19 @@ function packageAlias(coordinate) { return coordinate.split('/')[1].replace(/-/g
 export function createPackageManager(options = {}) {
   const home = resolve(options.home || process.env.NOQERI_HOME || join(homedir(), '.noqeri'))
   const cacheRoot = join(home, 'cache', 'registry-v1')
-  const indexUrl = options.indexUrl || process.env.NOQERI_REGISTRY_INDEX || 'https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json'
-  const githubContents = options.githubContents || 'https://api.github.com/repos/EMN90909/noqeri-registry/contents/'
+  // v1 service is the canonical source of release metadata and archive bytes.
+  // Legacy GitHub source-directory mode is explicit and deprecated.
+  const legacyGithubMode = Boolean(options.indexUrl && options.githubContents)
+  const registryOrigin = legacyGithubMode ? null : assertRegistryUrl(options.registryUrl || process.env.NOQERI_REGISTRY_URL || 'http://127.0.0.1:8080')
+  const indexUrl = legacyGithubMode ? options.indexUrl : registryOrigin + '/v1/index'
+  const githubContents = legacyGithubMode ? options.githubContents : null
   const offline = options.offline ?? (process.env.NOQERI_OFFLINE === '1')
   const fetchImpl = options.fetchImpl || globalThis.fetch
   if (!fetchImpl && !offline) throw new Error('fetch capability unavailable')
 
   async function responseBytes(url, limit) {
     if (offline) throw new Error('offline mode forbids network access')
-    const response = await fetchImpl(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'noqeri-stage1' }, redirect: 'error', signal: AbortSignal.timeout(10000) })
+    const response = await fetchImpl(url, { headers: { Accept: 'application/json', 'User-Agent': 'noqeri-stage1' }, redirect: 'error', signal: AbortSignal.timeout(10000) })
     if (!response.ok) throw new Error(`download ${response.status}: ${url}`)
     const declared = Number(response.headers.get('content-length') || 0)
     if (declared > limit) throw new Error('download exceeds size limit')
@@ -194,16 +199,30 @@ export function createPackageManager(options = {}) {
     const target = join(cacheRoot, namespace, name, release.version)
     try { return await verifyCachedPackage(target, coordinate, release.version) } catch {}
     const files = [], state = { files: 0, bytes: 0 }
-    await listPackageFiles(release.path, release.path, files, state)
-    if (!files.some(file => file.name === 'package.noqeri')) throw new Error('package.noqeri missing')
+    if (legacyGithubMode) {
+      console.warn('DEPRECATED: GitHub source-directory installation; configure NOQERI_REGISTRY_URL')
+      await listPackageFiles(release.path, release.path, files, state)
+    } else {
+      if (!/^sha256:[0-9a-f]{64}$/.test(release.integrity || '')) throw new Error('Registry API release missing archive integrity')
+      const endpoint = registryOrigin + '/v1/packages/' + encodeURIComponent(namespace) + '/' + encodeURIComponent(name) + '/' + encodeURIComponent(release.version)
+      const meta = await jsonFrom(endpoint)
+      if (meta.integrity !== release.integrity || meta.version !== release.version || meta.yanked !== release.yanked || meta.namespace !== namespace || meta.name !== name)
+        throw new Error('Registry API index/release metadata mismatch')
+      const archive = await responseBytes(endpoint + '/download', 10 * 1024 * 1024)
+      files.push(...decodePackageArchive(archive, meta.integrity))
+      state.files = files.length
+      state.bytes = files.reduce((total, f) => total + f.bytes.length, 0)
+    }
+    const manifestFile = files.find(file => file.name === 'package.noqeri') || files.find(file => file.name === 'package.nqr')
+    if (!manifestFile) throw new Error('package manifest missing (.noqeri or legacy .nqr)')
     const integrity = packageDigest(files)
-    if (release.integrity && release.integrity !== integrity) throw new Error(`registry integrity mismatch: ${coordinate}@${release.version}`)
-    const manifest = new TextDecoder().decode(files.find(file => file.name === 'package.noqeri').bytes)
+    if (legacyGithubMode && release.integrity && release.integrity !== integrity) throw new Error(`legacy registry integrity mismatch: ${coordinate}@${release.version}`)
+    const manifest = new TextDecoder().decode(manifestFile.bytes)
     const entry = manifest.match(/\bentry\s*:\s*"([^"]+)"/)?.[1]
     if (!entry) throw new Error('package entry missing')
     safeRelative(entry)
     if (!files.some(file => file.name === entry)) throw new Error(`package entry not found: ${entry}`)
-    const metadata = { coordinate, version: release.version, integrity, entry, files: state.files, bytes: state.bytes }
+    const metadata = { coordinate, version: release.version, integrity, archiveIntegrity: legacyGithubMode ? null : release.integrity, entry, files: state.files, bytes: state.bytes }
     await atomicPackageWrite(target, files, metadata)
     return { ...metadata, path: target }
   }
@@ -260,7 +279,7 @@ export function createPackageManager(options = {}) {
   }
 
   async function packageDependencies(pkg) {
-    const manifest = await readFile(join(pkg.path, 'package.noqeri'), 'utf8')
+    const manifest = await readFile(join(pkg.path, 'package.noqeri'), 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return readFile(join(pkg.path, 'package.nqr'), 'utf8') })
     return dependencies(manifest)
   }
 
