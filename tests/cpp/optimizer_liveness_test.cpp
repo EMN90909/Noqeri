@@ -280,5 +280,32 @@ int main() {
                   escaping.query(10,11)==noe::AliasRelation::MayAlias,
                   "escaping stack pointer suppresses NoAlias assumption"))return 1;
     }
+    {
+        // A register rewritten by a second definition is not a stable pointer
+        // identity across the function, so MustAlias must not be asserted.
+        noe::NirFunction f;
+        auto a=withArgs(noe::NirOp::StackAlloc,{});a.dest=1;
+        auto b=withArgs(noe::NirOp::StackAlloc,{});b.dest=1;
+        f.code={a,b,withArgs(noe::NirOp::Return,{1})};
+        if(!check(noe::NirAliasAnalysis(f).query(1,1)==noe::AliasRelation::MayAlias,
+                  "non-SSA aliases are not proven identical"))return 1;
+    }
+    {
+        // Floating-point common subexpressions cannot be folded as integers.
+        // Signed zero and NaN behavior is not part of the current GVN proof.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::Load,{});a.dest=1;
+        auto b=withArgs(noe::NirOp::Load,{});b.dest=2;
+        auto sum=withArgs(noe::NirOp::Binary,{1,2});
+        sum.dest=3;sum.type.kind=noe::TypeKind::Float;sum.text="+";
+        auto duplicate=sum;duplicate.dest=4;
+        p.entry.code={a,b,sum,withArgs(noe::NirOp::Store,{3}),
+                      duplicate,withArgs(noe::NirOp::Return,{4})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        int additions=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Binary&&in.text=="+")++additions;
+        if(!check(additions==2,"floating GVN stays disabled"))return 1;
+    }
     return 0;
 }
