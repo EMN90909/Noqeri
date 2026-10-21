@@ -354,6 +354,14 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         if !nqCompilerTypeIsIndexable(base.typeCode) && base.typeCode != nqAstTypePointer() { return nqSemanticFail(context, node, nqSemanticInvalidIndex()) }
         if base.typeCode == nqAstTypeString() { node.typeCode = nqAstTypeU8() }
         else { node.typeCode = base.elementTypeCode node.typeSymbol = base.elementTypeSymbol }
+        // Record indices need the actual ABI stride, not the scalar fallback.
+        // Without this the native NQRI VM writes consecutive AST nodes eight
+        // bytes apart, corrupting next links and creating parser cycles.
+        if node.typeCode == nqAstTypeRecord() {
+            let recordIndex: isize = nqRecordFind(records, recordCount, node.typeSymbol)
+            if recordIndex < 0 as isize { return nqSemanticFail(context, node, nqSemanticInvalidIndex()) }
+            node.storageBytes = records[recordIndex as usize].size
+        }
         return nqSemanticOk()
     }
     if node.tag == nqAstMember() {
@@ -369,6 +377,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         if fieldIndex < 0 as isize { return nqSemanticFail(context, node, nqSemanticBadMember()) }
         let field: *NqFieldInfo = &fields[fieldIndex as usize]
         nqAstApplyType(node, field.typeCode, field.typeSymbol, field.elementTypeCode, field.elementTypeSymbol, field.arrayLength)
+        node.storageBytes = field.size
         node.extra = field.offset as isize
         return nqSemanticOk()
     }
