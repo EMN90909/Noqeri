@@ -12,7 +12,7 @@ for(const bad of ['../x','/x','a\\b','a//b']){let rejected=false;try{safeRelativ
 
 const root=await mkdtemp(join(tmpdir(),'noqeri-package-host-'))
 try{
-  await writeFile(join(root,'project.noqeri'),'project { name: "host-test" version: "1.0.0" entry: "main.noqeri" }\ndependencies { a: "noqeri/a@1.0.0" }\n')
+  await writeFile(join(root,'project.nqon'),'name = host-test\nversion = "1.0.0"\nentry = main.noqeri\npackages {\n    a = "noqeri/a@1.0.0"\n}\n')
   await writeFile(join(root,'main.noqeri'),'import package "noqeri/a"\n')
   const index={packages:[
     {namespace:'noqeri',name:'a',versions:[{version:'1.0.0',path:'packages/noqeri/a/1.0.0',yanked:false}]},
@@ -22,13 +22,13 @@ try{
     'https://registry.test/index.json':JSON.stringify(index),
     'mem://a-manifest':'package { name: "noqeri/a" version: "1.0.0" entry: "src/a.noqeri" }\ndependencies { b: "noqeri/b@1.0.0" }\n',
     'mem://a-src':'module a\nexport function a(): int { return 1 }\n',
-    'mem://b-manifest':'package { name: "noqeri/b" version: "1.0.0" entry: "src/b.noqeri" }\n',
+    'mem://b-manifest':'name = noqeri/b\nversion = "1.0.0"\nentry = src/b.noqeri\n',
     'mem://b-src':'module b\nexport function b(): int { return 2 }\n'
   }
   const lists={
     'https://api.test/packages/noqeri/a/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/a/1.0.0/package.noqeri',download_url:'mem://a-manifest'},{type:'dir',path:'packages/noqeri/a/1.0.0/src'}],
     'https://api.test/packages/noqeri/a/1.0.0/src?ref=main':[{type:'file',path:'packages/noqeri/a/1.0.0/src/a.noqeri',download_url:'mem://a-src'}],
-    'https://api.test/packages/noqeri/b/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/package.noqeri',download_url:'mem://b-manifest'},{type:'dir',path:'packages/noqeri/b/1.0.0/src'}],
+    'https://api.test/packages/noqeri/b/1.0.0?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/package.nqon',download_url:'mem://b-manifest'},{type:'dir',path:'packages/noqeri/b/1.0.0/src'}],
     'https://api.test/packages/noqeri/b/1.0.0/src?ref=main':[{type:'file',path:'packages/noqeri/b/1.0.0/src/b.noqeri',download_url:'mem://b-src'}]
   }
   const encoder=new TextEncoder()
