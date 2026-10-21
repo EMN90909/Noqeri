@@ -469,5 +469,36 @@ int main() {
         if(!check(sum<store&&store<mul,
                   "DAG scheduling does not cross effectful Store"))return 1;
     }
+    {
+        // SLP pack planning recognizes independent integer operations only
+        // on targets whose cost model permits a profitable 2-lane shape.
+        noe::NirFunction fn;
+        for(noe::Reg r=1;r<=4;++r) {
+            auto load=withArgs(noe::NirOp::Load,{});
+            load.dest=r;load.text="v"+std::to_string(r);
+            fn.code.push_back(load);
+        }
+        auto mulA=withArgs(noe::NirOp::Binary,{1,2});
+        mulA.dest=5;mulA.text="*";mulA.type.kind=noe::TypeKind::I64;
+        auto mulB=withArgs(noe::NirOp::Binary,{3,4});
+        mulB.dest=6;mulB.text="*";mulB.type.kind=noe::TypeKind::I64;
+        fn.code.push_back(mulA);fn.code.push_back(mulB);
+        fn.code.push_back(withArgs(noe::NirOp::Store,{5,6}));
+        const auto x86=noe::TargetCostModel::forTarget("x86_64-unknown-linux-gnu");
+        const auto unsupported=noe::TargetCostModel::forTarget("unknown");
+        const auto packs=noe::inspectSlpPacks(fn,x86);
+        if(!check(packs.size()==1&&packs[0].first==4&&
+                  packs[0].second==5&&packs[0].laneBits==64,
+                  "independent 2x i64 SIMD pack candidate"))return 1;
+        if(!check(noe::inspectSlpPacks(fn,unsupported).empty(),
+                  "SLP refuses unsupported target"))return 1;
+        fn.code[5].args={5,4};
+        if(!check(noe::inspectSlpPacks(fn,x86).empty(),
+                  "SLP rejects cross-lane dependence"))return 1;
+        fn.code[5].args={3,4};
+        fn.code[4].type.kind=noe::TypeKind::Float;
+        if(!check(noe::inspectSlpPacks(fn,x86).empty(),
+                  "SLP rejects floating-point and type mismatch"))return 1;
+    }
     return 0;
 }
