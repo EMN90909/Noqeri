@@ -14,6 +14,7 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_language_compat.noqeri'
+      - 'tests/loop_control.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
   pull_request:
     paths:
@@ -127,6 +128,14 @@ jobs:
         run: |
           set -euo pipefail
           ./build-native/noqeri-nqri check build-native/noqeri-stage1.nqri tests/zero_init.noqeri 3
+      - name: Verify self-hosted nested break/continue (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/loop_control.noqeri build-native/loop-control.nqri 3
+          result=$(./build-native/noqeri-nqri build-native/loop-control.nqri loopControl)
+          test "$result" = "21"
       - name: Upload generated trusted Stage-1 seed
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4

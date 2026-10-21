@@ -6,6 +6,9 @@ import "types.noqeri"
 record NqLowerState {
     instructionCount: usize
     nextRegister: isize
+    loopDepth: usize
+    loopStart: usize
+    breakHead: isize
 }
 
 export function nqLowerOk(): isize { return 0 }
@@ -15,7 +18,13 @@ export function nqLowerBadLiteral(): isize { return -602 }
 export function nqLowerBadAst(): isize { return -603 }
 export function nqLowerBadTarget(): isize { return -604 }
 
-export function nqLowerStateInit(out: *NqLowerState): void { out.instructionCount = 0 as usize out.nextRegister = 0 as isize }
+export function nqLowerStateInit(out: *NqLowerState): void {
+    out.instructionCount = 0 as usize
+    out.nextRegister = 0 as isize
+    out.loopDepth = 0 as usize
+    out.loopStart = 0 as usize
+    out.breakHead = nqNirNoValue()
+}
 
 function nqLowerAllocRegister(state: *NqLowerState): isize {
     let result: isize = state.nextRegister
@@ -470,6 +479,20 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         }
         return nqLowerOk()
     }
+    if node.tag == nqAstBreak() || node.tag == nqAstContinue() {
+        if state.loopDepth == 0 as usize { return nqLowerUnsupported() }
+        let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
+        if jump < 0 as isize { return jump }
+        if node.tag == nqAstContinue() {
+            instructions[jump as usize].immediate = state.loopStart as i64
+        } else {
+            // Link unresolved breaks through the currently unused jump left
+            // operand, then clear it before NIR validation/serialization.
+            instructions[jump as usize].left = state.breakHead
+            state.breakHead = jump
+        }
+        return nqLowerOk()
+    }
     if node.tag == nqAstIf() {
         let condition: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
         if condition < 0 as isize { return condition }
@@ -495,12 +518,29 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         let branch: isize = nqLowerEmit(instructions, state, nqNirBranch(), nqNirNoValue())
         if branch < 0 as isize { return branch }
         instructions[branch as usize].left = condition
+        // Nested loops maintain independent pending-break chains.
+        let savedStart: usize = state.loopStart
+        let savedBreakHead: isize = state.breakHead
+        state.loopDepth = state.loopDepth + 1 as usize
+        state.loopStart = loopStart
+        state.breakHead = nqNirNoValue()
         let bodyStatus: isize = nqLowerStatement(source, nodes, node.right, instructions, state)
         if bodyStatus < 0 as isize { return bodyStatus }
         let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
         if jump < 0 as isize { return jump }
         instructions[jump as usize].immediate = loopStart as i64
-        instructions[branch as usize].immediate = state.instructionCount as i64
+        let end: usize = state.instructionCount
+        instructions[branch as usize].immediate = end as i64
+        let pending: isize = state.breakHead
+        while pending >= 0 as isize {
+            let nextPending: isize = instructions[pending as usize].left
+            instructions[pending as usize].left = nqNirNoValue()
+            instructions[pending as usize].immediate = end as i64
+            pending = nextPending
+        }
+        state.breakHead = savedBreakHead
+        state.loopStart = savedStart
+        state.loopDepth = state.loopDepth - 1 as usize
         return nqLowerOk()
     }
     return nqLowerUnsupported()
