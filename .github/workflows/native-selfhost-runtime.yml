@@ -11,6 +11,8 @@ on:
       - 'scripts/build.*'
       - 'CMakeLists.txt'
       - 'tests/zero_init.noqeri'
+      - 'tests/invalid_hex_literal.noqeri'
+      - 'tests/cpp/**'
       - 'tests/bootstrap_language_compat.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
   pull_request:
@@ -22,6 +24,8 @@ on:
       - 'scripts/build.*'
       - 'CMakeLists.txt'
       - 'tests/zero_init.noqeri'
+      - 'tests/invalid_hex_literal.noqeri'
+      - 'tests/cpp/**'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -57,9 +61,125 @@ jobs:
       - name: Configure
         run: cmake -S . -B build-native -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build C++ seed compiler and native NQRI runtime
-        run: cmake --build build-native --target noqeri noqeri-nqri --config Release
+        run: cmake --build build-native --target noqeri noqeri-nqri noqeri-optimizer-test --config Release
       - name: Run native NQRI self-test
-        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-nqri-selftest$'
+        run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)
+      - name: Verify zero initialization through C++ -> NQRI (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check tests/zero_init.noqeri
+          ./build-native/noqeri nqri tests/zero_init.noqeri build-native/zero-init.nqri
+          result=$(./build-native/noqeri-nqri build-native/zero-init.nqri zeroInitCheck)
+          test "$result" = "10"
+      - name: Verify zero initialization through C++ -> NQRI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri.exe check tests\zero_init.noqeri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri.exe nqri tests\zero_init.noqeri build-native\zero-init.nqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $result = (& .\build-native\Release\noqeri-nqri.exe build-native\zero-init.nqri zeroInitCheck).Trim()
+          if ($LASTEXITCODE -ne 0 -or $result -ne '10') { throw "zero-init NQRI check returned '$result'" }
+      - name: Verify bootstrap language compatibility (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check tests/bootstrap_language_compat.noqeri
+          ./build-native/noqeri nqri tests/bootstrap_language_compat.noqeri build-native/bootstrap-language.nqri
+          result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri contextualNames)
+          test "$result" = "48"
+          cast_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri castComparison)
+          test "$cast_result" = "1"
+          promotion_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri integerLiteralPromotion)
+          test "$promotion_result" = "14"
+      - name: Verify bootstrap language compatibility (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri.exe check tests\bootstrap_language_compat.noqeri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri.exe nqri tests\bootstrap_language_compat.noqeri build-native\bootstrap-language.nqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $result = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri contextualNames).Trim()
+          if ($LASTEXITCODE -ne 0 -or $result -ne '48') { throw "bootstrap language compatibility returned '$result'" }
+          $castResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri castComparison).Trim()
+          if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
+          $promotionResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri integerLiteralPromotion).Trim()
+          if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
+      - name: Build trusted Stage-1 NQRI seed (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-native/noqeri-stage1.nqri
+          ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
+          while IFS= read -r source; do
+            test -z "$source" && continue
+            ./build-native/noqeri-nqri syntax build-native/noqeri-stage1.nqri "$source"
+          done < Compiler/selfhost/stage2-sources.txt
+      - name: Verify self-hosted zero initialization (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri-nqri check build-native/noqeri-stage1.nqri tests/zero_init.noqeri 3
+      - name: Upload generated trusted Stage-1 seed
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-stage1-seed-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: build-native/noqeri-stage1.nqri
+      - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-selfhost" \
+          NOQERI_STAGE1_NQRI="$PWD/build-native/noqeri-stage1.nqri" \
+          NOQERI_STAGE1_SHA256="$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
+          ./scripts/bootstrap-native.sh
+      - name: Build trusted Stage-1 NQRI seed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri.exe bootstrap-seed Compiler\selfhost\main.noqeri build-native\noqeri-stage1.nqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\build-native\Release\noqeri-nqri.exe has-export build-native\noqeri-stage1.nqri stage2CompileToNqri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($source in Get-Content Compiler\selfhost\stage2-sources.txt) {
+            if ([string]::IsNullOrWhiteSpace($source)) { continue }
+            & .\build-native\Release\noqeri-nqri.exe syntax build-native\noqeri-stage1.nqri $source
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Verify Stage-1 -> Stage-2 -> Stage-3 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:BUILD_DIR = Join-Path $PWD 'build-selfhost'
+          $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
+          $env:NOQERI_STAGE0_CPP = Join-Path $PWD 'build-native\Release\noqeri.exe'
+          Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
+          .\scripts\bootstrap-native.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload trusted Stage-1 seed and proof
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-stage1-nqri-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build-native/noqeri-stage1.nqri
+            build-selfhost/noqeri-stage2.nqri
+            build-selfhost/noqeri-stage3.nqri
+            build-selfhost/native-selfhost-proof.txt
+
       - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
