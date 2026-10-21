@@ -40,7 +40,7 @@ fi
 "$RUNTIME" compile-manifest "$STAGE2" "$ROOT" "$MANIFEST" "$DRIVER_NQRI" "$TARGET"
 "$RUNTIME" has-export "$DRIVER_NQRI" nativeCompileToAssembly
 "$RUNTIME" bundle-manifest "$ROOT" "$MANIFEST" "$MERGED_SOURCE"
-"$RUNTIME" native-asm "$DRIVER_NQRI" "$MERGED_SOURCE" "$BOOTSTRAP_ASM" "$TARGET"
+"$RUNTIME" native-asm "$DRIVER_NQRI" "$MERGED_SOURCE" "$BOOTSTRAP_ASM" "$TARGET" 1
 
 "$CC" -c "$BOOTSTRAP_ASM" -o "$COMPILER_OBJECT"
 "$CXX" -O2 -pthread "$ROOT/Runtime/native/native_compiler_host.cpp" "$COMPILER_OBJECT" -o "$NATIVE_COMPILER"
@@ -51,7 +51,7 @@ if [ "$engine" != "selfhost-native-linux-x86_64" ]; then
   exit 1
 fi
 
-"$NATIVE_COMPILER" "$MERGED_SOURCE" "$FIXED_ASM" "$TARGET"
+"$NATIVE_COMPILER" "$MERGED_SOURCE" "$FIXED_ASM" "$TARGET" 1
 if ! cmp -s "$BOOTSTRAP_ASM" "$FIXED_ASM"; then
   echo "native compiler fixed-point FAILED: bootstrap and native-emitted assembly differ" >&2
   cmp -l "$BOOTSTRAP_ASM" "$FIXED_ASM" | head -n 20 >&2 || true
