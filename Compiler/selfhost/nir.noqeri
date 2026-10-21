@@ -91,7 +91,20 @@ export function nqNirIsPureArithmetic(opcode: int): bool {
     return (opcode >= nqNirAdd() && opcode <= nqNirMod()) || (opcode >= nqNirEq() && opcode <= nqNirGe())
 }
 export function nqNirDefinesValue(opcode: int): bool {
-    return opcode == nqNirConstI64() || opcode == nqNirConstF64() || opcode == nqNirConstString() || opcode == nqNirMove() || opcode == nqNirLoad() || nqNirIsPureArithmetic(opcode) || opcode == nqNirNeg() || opcode == nqNirNot() || opcode == nqNirPhi() || opcode == nqNirAddr() || opcode == nqNirPtrAdd() || opcode == nqNirAtomicLoad() || opcode == nqNirAtomicExchange() || opcode == nqNirCmpXchg() || opcode == nqNirIntrinsic() || opcode == nqNirTry() || opcode == nqNirStackAlloc() || opcode == nqNirLoadMemory() || opcode == nqNirSliceData() || opcode == nqNirSliceLen() || opcode == nqNirMakeSlice() || opcode == nqNirCast() || opcode == nqNirParameter()
+    // Test contiguous opcode groups first. Most lowered compiler instructions
+    // are constants, loads or ALU operations; avoid dozens of interpreted
+    // function calls per NIR instruction during repeated validation passes.
+    return (opcode >= nqNirConstI64() && opcode <= nqNirLoad())
+        || (opcode >= nqNirAdd() && opcode <= nqNirGe())
+        || (opcode >= nqNirPhi() && opcode <= nqNirAtomicLoad())
+        || opcode == nqNirAtomicExchange()
+        || opcode == nqNirCmpXchg()
+        || opcode == nqNirIntrinsic()
+        || opcode == nqNirTry()
+        || (opcode >= nqNirStackAlloc() && opcode <= nqNirLoadMemory())
+        || (opcode >= nqNirSliceData() && opcode <= nqNirCast())
+        || opcode == nqNirConstString()
+        || opcode == nqNirParameter()
 }
 
 export function nqNirInstructionInit(out: *NqNirInstruction, opcode: int, dest: isize): void {
