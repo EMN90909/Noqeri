@@ -16,6 +16,7 @@ on:
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
+      - 'tests/slice_literal_len.noqeri'
       - 'tests/max_uint64_literal.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
   pull_request:
@@ -149,6 +150,14 @@ jobs:
           ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/nested_call_args.noqeri build-native/nested-call-args.nqri 3
           result=$(./build-native/noqeri-nqri build-native/nested-call-args.nqri nestedCallArgumentOrder)
           test "$result" = "3321"
+      - name: Verify array-literal slice lengths (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/slice_literal_len.noqeri build-native/slice-literal-len.nqri 3
+          result=$(./build-native/noqeri-nqri build-native/slice-literal-len.nqri sliceLiteralLength)
+          test "$result" = "3"
       - name: Upload generated trusted Stage-1 seed
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
