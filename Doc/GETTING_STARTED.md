@@ -39,7 +39,7 @@ repeat 4 {
 print(total) // 12
 ```
 
-`repeat count { ... }` evaluates `count` once, converts it to the ordinary `int` count used by the loop, and executes the block while an internal counter is below it. Zero or negative counts execute the block zero times. It is syntax sugar over the existing checked `while` model, not a separate runtime or concurrency feature.
+`repeat count { ... }` evaluates `count` once, requires an integer count, and executes the block exactly that many times when the value is positive. Zero or negative counts execute the block zero times. It lowers to the existing checked control-flow model, not a separate runtime or concurrency feature.
 
 Use `while` when the stopping condition is not simply a count:
 
@@ -54,6 +54,8 @@ while remaining > 0 {
 This gives beginners two predictable loop ideas: **repeat N times** and **keep going while a condition is true**.
 
 ## Projects
+
+`noqeri new` creates a `project.nqon` manifest. NQON is independently specified and can be parsed by non-Noqeri tools without embedding the compiler.
 
 For a project, the normal commands are:
 
