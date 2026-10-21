@@ -17,6 +17,7 @@ test('Noqeri runtime benchmark examples use standalone native AOT executables', 
     assert.ok(Array.isArray(entry.prepare) && entry.prepare.includes('scripts/native-build.mjs'), `${workload}: native prepare`)
     assert.equal(entry.command?.[0], entry.binary, `${workload}: timed command must be the native binary`)
     assert.equal(typeof entry.provenance, 'string', `${workload}: provenance path`)
+    assert.equal(typeof entry.expected_stdout, 'string', `${workload}: deterministic validation output`)
     assert.ok(!entry.command.some(arg => String(arg).includes('.nqri')), `${workload}: NQRI is not native AOT`)
     assert.ok(!entry.command.some(arg => String(arg).includes('noqeri-nqri')), `${workload}: VM must not be timed`)
     assert.ok(!entry.command.slice(1).includes('run'), `${workload}: interpreter must not be timed`)
@@ -34,7 +35,8 @@ test('benchmark harness fails closed on the old interpreter command', () => {
         noqeri: {
           startup: {
             command: ['build/noqeri', 'run', 'Benchmarks/workloads/startup.noqeri'],
-            binary: 'build/noqeri'
+            binary: 'build/noqeri',
+            expected_stdout: '0'
           }
         },
         c: {}, cpp: {}, rust: {}, zig: {}, go: {}
