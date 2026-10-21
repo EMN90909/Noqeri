@@ -1,0 +1,24 @@
+name: Advanced NIR optimizer correctness
+on:
+  push:
+    branches: [compiler/ssa-gvn-sccp-costmodel-20261021]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  optimizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile optimization regressions with strict C++17 warnings
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation             -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp             Compiler/optimizer.cpp -o /tmp/noqeri-advanced-optimizer
+      - name: Exercise SSA, SCCP, GVN, LICM, strength reduction and safety regressions
+        run: /tmp/noqeri-advanced-optimizer
+      - name: Existing web and package regression tests
+        run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
