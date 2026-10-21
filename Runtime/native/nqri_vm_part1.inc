@@ -181,16 +181,46 @@ static void writeScalar(const PointerPtr& pointer, const Value& value, std::size
         return;
     }
     target.block->refs.erase(target.offset);
-    std::uint64_t raw = static_cast<std::uint64_t>(asInt(value));
+    // Preserve IEEE-754 payloads exactly. Integer conversion silently
+    // truncated floating values, breaking Noqeri's pointer bitcasts and
+    // making Stage-2/Stage-3 self-rebuilds differ by float-immediate bytes.
+    std::uint64_t raw = 0;
+    if (const auto* floating = std::get_if<double>(&value)) {
+        if (width != sizeof(double)) throw RuntimeError("invalid f64 storage width");
+        std::memcpy(&raw, floating, sizeof(raw));
+    } else {
+        raw = static_cast<std::uint64_t>(asInt(value));
+    }
+    if (width > sizeof(raw)) throw RuntimeError("invalid scalar storage width");
     for (std::size_t i = 0; i < width; ++i) target.block->buffer[target.offset + i] = static_cast<std::uint8_t>((raw >> (i * 8)) & 0xffu);
 }
 static Value readScalar(const PointerPtr& pointer, std::size_t width = 8, std::uint32_t typeCode = 0) {
     auto target = resolvePointer(pointer);
-    if (target.cell && target.offset == 0) return target.cell->value;
+    if (target.cell && target.offset == 0) {
+        // A typed pointer cast must view the original storage bits, not
+        // numerically convert a float to an integer or vice versa.
+        if (width == sizeof(double) && typeCode != 0) {
+            if (auto floating = std::get_if<double>(&target.cell->value)) {
+                if (typeCode != 4) {
+                    std::uint64_t raw = 0; std::memcpy(&raw, floating, sizeof(raw));
+                    std::int64_t bits = 0; std::memcpy(&bits, &raw, sizeof(bits)); return bits;
+                }
+            } else if (auto integer = std::get_if<std::int64_t>(&target.cell->value)) {
+                if (typeCode == 4) {
+                    double number = 0; std::memcpy(&number, integer, sizeof(number)); return number;
+                }
+            }
+        }
+        return target.cell->value;
+    }
     if (!target.block || target.offset > target.block->buffer.size() || width > target.block->buffer.size() - target.offset) throw RuntimeError("out-of-bounds memory read");
     auto ref = target.block->refs.find(target.offset); if (ref != target.block->refs.end()) return ref->second;
     std::uint64_t raw = 0;
     for (std::size_t i = 0; i < width; ++i) raw |= static_cast<std::uint64_t>(target.block->buffer[target.offset + i]) << (i * 8);
+    if (typeCode == 4) {
+        if (width != sizeof(double)) throw RuntimeError("invalid f64 load width");
+        double number = 0; std::memcpy(&number, &raw, sizeof(number)); return number;
+    }
     if (signedType(typeCode) && width < 8 && (raw & (std::uint64_t{1} << (width * 8 - 1)))) raw |= (~std::uint64_t{0}) << (width * 8);
     std::int64_t out; std::memcpy(&out, &raw, sizeof(out)); return out;
 }
