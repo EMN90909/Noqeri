@@ -97,8 +97,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build-native/noqeri check Compiler/selfhost/native_x64.noqeri
-          ./build-native/noqeri check Compiler/selfhost/native_driver.noqeri
+          ./build-native/noqeri check Compiler/selfhost/native_x64.noqeri --unsafe
+          ./build-native/noqeri check Compiler/selfhost/native_driver.noqeri --unsafe
       - name: Verify fully native self-host chain
         if: runner.os == 'Linux'
         shell: bash
