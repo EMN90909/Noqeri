@@ -39,3 +39,4 @@ Compiler/selfhost/type_ref.noqeri
 Compiler/selfhost/types.noqeri
 Compiler/selfhost/x64_encoder.noqeri
 Compiler/selfhost/zero_init.noqeri
+Compiler/selfhost/native_exports.noqeri
