@@ -10,6 +10,27 @@
 #endif
 
 extern "C" int noqeri_entry(const noqeri_abi* abi);
+extern "C" int noqeri_entry_abi_probe(const noqeri_abi* abi);
+
+asm(R"ASM(
+.text
+.global noqeri_entry_abi_probe
+.type noqeri_entry_abi_probe,@function
+noqeri_entry_abi_probe:
+    push %rbx
+    movabs $0x1122334455667788, %rbx
+    call noqeri_entry
+    movabs $0x1122334455667788, %r11
+    cmp %r11, %rbx
+    jne .L_noqeri_abi_probe_fail
+    pop %rbx
+    ret
+.L_noqeri_abi_probe_fail:
+    mov $125, %eax
+    pop %rbx
+    ret
+.size noqeri_entry_abi_probe, .-noqeri_entry_abi_probe
+)ASM");
 
 namespace {
 
@@ -43,5 +64,5 @@ int main() {
         0,
         nullptr,
     };
-    return noqeri_entry(&abi);
+    return noqeri_entry_abi_probe(&abi);
 }
