@@ -38,12 +38,16 @@ async function packages() {
 }
 
 function environmentSnapshot() {
-  const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(process.cwd(), 'build/noqeri-stage1.nqri')
+  const cwd = process.cwd()
+  const modulePath = process.env.NOQERI_STAGE1_MODULE || resolve(cwd, 'build/noqeri-stage1.nqri')
+  const nqonProject = resolve(cwd, 'project.nqon')
+  const legacyProject = resolve(cwd, 'project.noqeri')
+  const projectManifest = existsSync(nqonProject) ? nqonProject : existsSync(legacyProject) ? legacyProject : null
   const major = Number(process.versions.node.split('.')[0] || 0)
   return {
-    node: process.version, nodeSupported: major >= 20, platform: process.platform, arch: process.arch, cwd: process.cwd(),
+    node: process.version, nodeSupported: major >= 20, platform: process.platform, arch: process.arch, cwd,
     compilerModule: modulePath, compilerModuleExists: existsSync(modulePath),
-    projectManifestExists: existsSync(resolve(process.cwd(), 'project.noqeri')), lockfileExists: existsSync(resolve(process.cwd(), 'noqeri.lock')),
+    projectManifest, projectManifestExists: projectManifest !== null, lockfileExists: existsSync(resolve(cwd, 'noqeri.lock')),
     offline: process.env.NOQERI_OFFLINE === '1', home: process.env.NOQERI_HOME || null,
     registryIndex: process.env.NOQERI_REGISTRY_INDEX || 'https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json'
   }
@@ -54,7 +58,7 @@ function printEnvironment(snapshot, json) {
   console.log(`Host: ${snapshot.platform}/${snapshot.arch}`)
   console.log(`Working directory: ${snapshot.cwd}`)
   console.log(`Compiler module: ${snapshot.compilerModule} (${snapshot.compilerModuleExists ? 'present' : 'missing'})`)
-  console.log(`project.noqeri: ${snapshot.projectManifestExists ? 'present' : 'not found'}`)
+  console.log(`Project manifest: ${snapshot.projectManifest || 'not found'}`)
   console.log(`noqeri.lock: ${snapshot.lockfileExists ? 'present' : 'not found'}`)
   console.log(`Offline: ${snapshot.offline ? 'yes' : 'no'}`)
   console.log(`NOQERI_HOME: ${snapshot.home || '(default)'}`)
@@ -68,7 +72,7 @@ try {
     const snapshot = environmentSnapshot(), problems = [], warnings = []
     if (!snapshot.nodeSupported) problems.push('Node.js 20+ is required by the portable stage-1 host')
     if (!snapshot.compilerModuleExists) warnings.push('stage-1 compiler module is not built; run scripts/build.sh with a trusted NOQERI_STAGE0 seed')
-    if (!snapshot.projectManifestExists) warnings.push('project.noqeri was not found in the current directory')
+    if (!snapshot.projectManifestExists) warnings.push('project.nqon was not found in the current directory (legacy project.noqeri is also accepted)')
     if (snapshot.offline && !snapshot.lockfileExists) warnings.push('offline mode is enabled but noqeri.lock is missing')
     const report = { status: problems.length ? 'error' : warnings.length ? 'warning' : 'ok', problems, warnings, environment: snapshot }
     if (args.includes('--json')) console.log(JSON.stringify(report, null, 2))
