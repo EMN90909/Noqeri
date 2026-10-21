@@ -7,11 +7,27 @@ Noqeri's design target is not "more syntax than Go". It is **less ceremony per u
 1. One source language: `.noqeri`.
 2. One local import form: `import "./file.noqeri"`.
 3. One package import form: `import package "noqeri/forge"`.
-4. Versions live in `project.noqeri`; exact versions and SHA-256 identities live in `noqeri.lock`.
+4. Project metadata and acceptable dependency versions live in `project.nqon`; exact versions and SHA-256 identities live in `noqeri.lock`. Legacy `project.noqeri` stays readable during migration.
 5. Common work should have a short path. Advanced work should not require a different language.
 6. No hidden C/C++ dependency in normal compiler source.
 7. Host capabilities such as files, sockets, TLS and clocks are explicit `extern` boundaries.
 8. Allocation, pointers, atomics, volatile access and inline assembly stay visible rather than becoming invisible runtime magic.
+
+## Project configuration without JSON ceremony
+
+NQON keeps project metadata readable without making whitespace structural:
+
+```nqon
+name = hello
+version = "0.1.0"
+entry = src/main.noqeri
+
+packages {
+    forge = "noqeri/forge@1.2.0"
+}
+```
+
+`project.nqon` is data, not executable Noqeri code. Its grammar is independently specified so tools in other languages can read it without embedding the Noqeri compiler.
 
 ## Lazy-friendly defaults
 
