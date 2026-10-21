@@ -1,4 +1,4 @@
-<p align="center"><img src="Brand/noqeri-logo.webp" alt="Noqeri code logo" width="560"></p>
+<p align="center"><img src="Brand/noqeri-icon.svg" alt="Noqeri fox icon" width="560"></p>
 <h1 align="center">Noqeri</h1>
 
 **Version on `main`: 0.7.0 (development, not production-qualified).** The `1.0.0` proposal is **not** a published stable compiler version. `CMakeLists.txt`, `Include/noqeri/version.hpp`, and `Compiler/selfhost/driver.noqeri` still report 0.7.0 on this branch. Do not claim `v1.0.0` solely from documentation. Release readiness requires native Stage-2 parity, reviewed bootstrap provenance, a passing platform matrix, and actual NoeSQL/Registry cross-repository tests.
