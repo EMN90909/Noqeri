@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include "pgo.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -84,13 +85,14 @@ std::uintptr_t allocateBytes(std::size_t bytes){auto p=std::make_unique<std::uin
 }
 
 std::string Interpreter::valueToString(const NirValue&v)const{if(std::holds_alternative<std::monostate>(v))return"null";if(auto p=std::get_if<std::int64_t>(&v))return std::to_string(*p);if(auto p=std::get_if<double>(&v))return std::to_string(*p);if(auto p=std::get_if<bool>(&v))return*p?"true":"false";return std::get<std::string>(v);}
-int Interpreter::run(const NirProgram&p){try{allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
+int Interpreter::run(const NirProgram&p){try{if(profile_&&!profile_->compatible(p))profile_->begin(p);allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
 NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const std::vector<NirValue>&argv){
     if(fn.isExtern)throw std::runtime_error("cannot directly interpret extern function "+fn.name);
     std::unordered_map<std::string,NirValue>vars;std::unordered_map<std::string,std::uint64_t>cells;std::unordered_set<std::string>addressTaken;std::vector<NirValue>regs(fn.nextReg);
     for(std::size_t i=0;i<fn.params.size()&&i<argv.size();++i){vars[fn.params[i]]=argv[i];if(std::holds_alternative<std::int64_t>(argv[i]))cells[fn.params[i]]=static_cast<std::uint64_t>(std::get<std::int64_t>(argv[i]));}
     std::size_t pc=0;
     while(pc<fn.code.size()){
+        if(profile_)profile_->record(NirExecutionProfile::key(fn),pc);
         const auto&i=fn.code[pc];auto get=[&](Reg r)->const NirValue&{if(r>=regs.size())throw std::runtime_error("invalid NIR register");return regs[r];};
         switch(i.op){
             case NirOp::Const:regs[*i.dest]=i.literal;break;
