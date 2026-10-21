@@ -58,26 +58,23 @@ if [ -z "$RUNTIME" ] || [ ! -x "$RUNTIME" ]; then
 fi
 if [ -n "$EXTERNAL_SEED" ]; then
   if [ ! -f "$SEED" ]; then
-    echo "Explicit Stage-1 seed not found: $SEED" >&2
+    echo "Supplied Stage-1 seed does not exist: $SEED" >&2
     exit 2
   fi
   if [ -z "$PIN" ]; then
-    echo "External seed requires NOQERI_STAGE1_SHA256." >&2
+    echo "Externally supplied Stage-1 seed requires NOQERI_STAGE1_SHA256." >&2
     exit 2
   fi
   SEED_ORIGIN="externally-pinned"
 else
-  # Rebuild every time rather than trusting stale build bytes.
+  rm -f "$SEED"
   if [ -z "$SEED_COMPILER" ]; then
     for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
       if [ -x "$candidate" ]; then SEED_COMPILER="$candidate"; break; fi
     done
   fi
   if [ -z "$SEED_COMPILER" ] || [ ! -x "$SEED_COMPILER" ]; then
-    command -v cmake >/dev/null 2>&1 || {
-      echo "cmake is required to build the trusted C++ Stage-0 seed compiler." >&2
-      exit 2
-    }
+    command -v cmake >/dev/null 2>&1 || { echo "cmake is required to build Stage-0." >&2; exit 2; }
     cmake -S "$ROOT" -B "$HOST_BUILD" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
     cmake --build "$HOST_BUILD" --target noqeri noqeri-nqri --config Release
     for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
@@ -85,18 +82,22 @@ else
     done
   fi
   if [ -z "$SEED_COMPILER" ] || [ ! -x "$SEED_COMPILER" ]; then
-    echo "trusted C++ Stage-0 compiler was not produced; set NOQERI_STAGE0_CPP." >&2
+    echo "C++ Stage-0 compiler was not produced; set NOQERI_STAGE0_CPP." >&2
     exit 2
   fi
   echo "Generating local Stage-1 seed candidate with C++ Stage-0..."
   "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$SEED"
   repro="$BUILD_DIR/noqeri-stage1-repro.nqri"
+  trap 'rm -f "$repro"' EXIT HUP INT TERM
   "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$repro"
   if ! cmp -s "$SEED" "$repro"; then
-    echo "Stage-0 produced non-reproducible Stage-1 seed bytes." >&2; exit 1
+    echo "Stage-0 produced non-reproducible Stage-1 seed bytes." >&2
+    exit 1
   fi
   rm -f "$repro"
+  trap - EXIT HUP INT TERM
 fi
+
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
   else shasum -a 256 "$1" | awk '{print $1}'; fi
@@ -142,6 +143,7 @@ if [ -n "$SEED_COMPILER" ] && [ -f "$SEED_COMPILER" ]; then seed_compiler_sha256
   echo "stage1_independently_trusted=false"
   echo "source_manifest_sha256=$(sha256_file "$MANIFEST")"
   echo "seed_compiler_sha256=$seed_compiler_sha256"
+  echo "runtime_sha256=$(sha256_file "$RUNTIME")"
   echo "seed_compiler=$SEED_COMPILER"
   echo "stage2=$STAGE2"
   echo "stage2_sha256=$stage2_sha256"

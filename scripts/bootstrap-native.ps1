@@ -147,6 +147,7 @@ $proofData = [ordered]@{
     seed_origin = $SeedOrigin
     stage1_independently_trusted = $false
     source_manifest_sha256 = (Get-FileHash -Algorithm SHA256 $Manifest).Hash.ToLowerInvariant()
+    runtime_sha256 = (Get-FileHash -Algorithm SHA256 $Runtime).Hash.ToLowerInvariant()
     seed_compiler = $SeedCompiler
     seed_compiler_sha256 = if ($SeedCompiler -and (Test-Path $SeedCompiler)) { (Get-FileHash -Algorithm SHA256 $SeedCompiler).Hash.ToLowerInvariant() } else { $null }
     stage2 = $Stage2
