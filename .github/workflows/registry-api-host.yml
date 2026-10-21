@@ -1,0 +1,16 @@
+name: Noqeri Registry package host
+on:
+  push:
+    branches: [integration/ecosystem-v1]
+  pull_request:
+    branches: [main]
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: node tests/package_manager_host.mjs
+      - run: node --test tests/nqon.test.mjs
