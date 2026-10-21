@@ -59,7 +59,11 @@ jobs:
             exit 1
           fi
           pattern="\\${old_source}([^iA-Za-z0-9_]|$)|\\${old_module}([^A-Za-z0-9_]|$)|${old_manifest}([^iA-Za-z0-9_]|$)"
-          if git grep -n -E "$pattern" -- ':!*.png' ':!*.webp'; then
+          # Legacy compatibility and migration documentation are intentional.
+          # Enforce canonical extensions in executable source, excluding only
+          # the two reviewed Registry compatibility boundaries.
+          if git grep -n -E "$pattern" -- Compiler Lib Runtime Programs \
+              ':!Runtime/package-manager.mjs' ':!Runtime/registry-client.mjs'; then
             echo 'legacy extension references remain; use the current Noqeri source and NQRI extensions' >&2
             exit 1
           fi
