@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { performance } from 'node:perf_hooks'
@@ -51,6 +52,22 @@ function toolVersion(command, cwd) {
   return null
 }
 function readJson(path) { return JSON.parse(readFileSync(path, 'utf8')) }
+function sha256File(path) { return createHash('sha256').update(readFileSync(path)).digest('hex') }
+function commandPath(cwd, command) {
+  if (!command) return ''
+  return command.includes('/') || command.includes('\\') ? resolve(cwd, command) : command
+}
+function failResult(language, workload, threshold, reason, phase = 'policy') {
+  return {
+    id: `${language}:${workload}`,
+    language,
+    workload,
+    evidence: 'failed',
+    reason,
+    phase,
+    threshold_percent: threshold
+  }
+}
 
 const root = resolve(arg('root', process.cwd()))
 const suitePath = resolve(root, arg('suite', 'Benchmarks/suite.json'))
@@ -78,9 +95,71 @@ for (const workload of suite.workloads || []) {
       results.push({ id: `${language}:${workload.id}`, language, workload: workload.id, evidence: 'unmeasured', reason: 'no-command', threshold_percent: workload.threshold_percent })
       continue
     }
+
     const cwd = resolve(root, entry.cwd || '.')
     const command = entry.command.map(x => `${x}`)
     const executable = entry.binary ? resolve(root, entry.binary) : null
+    const isNoqeriRuntime = language === 'noqeri' && workload.id !== 'compilation'
+    let provenance = null
+
+    if (isNoqeriRuntime) {
+      const violations = []
+      if (entry.execution_model !== 'native-aot') violations.push('execution_model must be native-aot')
+      if (!executable) violations.push('binary path is required')
+      if (executable && commandPath(cwd, command[0]) !== executable) violations.push('timed command must directly execute the declared native binary')
+      if (command.some(value => value.includes('.nqri') || value.includes('noqeri-nqri'))) violations.push('NQRI VM artifacts are not native AOT')
+      if (command.slice(1).includes('run')) violations.push('noqeri run is the reference interpreter, not native AOT')
+      if (!Array.isArray(entry.prepare) || !entry.prepare.length) violations.push('native AOT benchmark requires a prepare command')
+      if (!entry.provenance) violations.push('native AOT benchmark requires provenance metadata')
+      if (violations.length) {
+        const failed = failResult(language, workload.id, workload.threshold_percent, violations.join('; '))
+        failures.push(failed)
+        results.push(failed)
+        continue
+      }
+    }
+
+    if (Array.isArray(entry.prepare) && entry.prepare.length) {
+      const preparation = run(entry.prepare.map(x => `${x}`), cwd, timeout)
+      if (preparation.status !== 0) {
+        const reason = preparation.error || preparation.stderr || `prepare exited ${preparation.status}`
+        const failed = failResult(language, workload.id, workload.threshold_percent, reason, 'prepare')
+        failures.push({ ...failed, ...preparation })
+        results.push(failed)
+        continue
+      }
+    }
+
+    if (isNoqeriRuntime) {
+      const provenancePath = resolve(root, entry.provenance)
+      if (!existsSync(provenancePath)) {
+        const failed = failResult(language, workload.id, workload.threshold_percent, 'native AOT provenance file is missing')
+        failures.push(failed)
+        results.push(failed)
+        continue
+      }
+      try {
+        provenance = readJson(provenancePath)
+      } catch (error) {
+        const failed = failResult(language, workload.id, workload.threshold_percent, `invalid native AOT provenance: ${error.message}`)
+        failures.push(failed)
+        results.push(failed)
+        continue
+      }
+      const violations = []
+      if (provenance.execution_model !== 'native-aot') violations.push('provenance execution_model is not native-aot')
+      if (typeof provenance.self_hosted_compiler !== 'boolean') violations.push('provenance must state self_hosted_compiler explicitly')
+      if (!executable || !existsSync(executable)) violations.push('declared native executable is missing after prepare')
+      if (executable && provenance.artifact && resolve(root, provenance.artifact) !== executable) violations.push('provenance artifact does not match timed binary')
+      if (executable && existsSync(executable) && provenance.artifact_sha256 !== sha256File(executable)) violations.push('native executable SHA-256 does not match provenance')
+      if (violations.length) {
+        const failed = failResult(language, workload.id, workload.threshold_percent, violations.join('; '))
+        failures.push(failed)
+        results.push(failed)
+        continue
+      }
+    }
+
     const versionKey = command[0]
     if (!versionCache.has(versionKey)) versionCache.set(versionKey, toolVersion(command, cwd))
 
@@ -102,6 +181,7 @@ for (const workload of suite.workloads || []) {
       results.push({ id: `${language}:${workload.id}`, language, workload: workload.id, evidence: 'failed', reason: failed.error || failed.stderr || `exit ${failed.status}`, threshold_percent: workload.threshold_percent })
       continue
     }
+
     let binaryBytes = null
     if (executable && existsSync(executable)) binaryBytes = statSync(executable).size
     results.push({
@@ -110,6 +190,10 @@ for (const workload of suite.workloads || []) {
       workload: workload.id,
       evidence: 'measured-local',
       threshold_percent: workload.threshold_percent,
+      execution_model: entry.execution_model || null,
+      compiler_provenance: provenance?.compiler_provenance || null,
+      self_hosted_compiler: provenance?.self_hosted_compiler ?? null,
+      artifact_sha256: provenance?.artifact_sha256 || null,
       median_ms: median(raw),
       p95_ms: percentile(raw, 0.95),
       min_ms: Math.min(...raw),
@@ -124,7 +208,7 @@ for (const workload of suite.workloads || []) {
 }
 
 const report = {
-  schema: 2,
+  schema: 3,
   generated_at: new Date().toISOString(),
   methodology: 'Benchmarks/METHODOLOGY.md',
   suite: 'Benchmarks/suite.json',
@@ -140,7 +224,7 @@ const report = {
     safety_mode: process.env.NOQERI_SAFETY_MODE || 'default',
     checked_overflow: process.env.NOQERI_CHECKED_OVERFLOW === '1'
   },
-  policy: { warmups, samples, timeout_ms: timeout },
+  policy: { warmups, samples, timeout_ms: timeout, noqeri_runtime_requires: 'native-aot' },
   results,
   failures
 }
