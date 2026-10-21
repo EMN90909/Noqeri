@@ -1,6 +1,6 @@
 {
-  "schema": 2,
-  "note": "Copy to Benchmarks/commands.json. Noqeri runtime entries are intentionally standalone native AOT executables. The harness rejects noqeri run, noqeri-nqri, and .nqri artifacts as runtime performance evidence.",
+  "schema": 3,
+  "note": "Copy to Benchmarks/commands.json. Runtime entries must declare deterministic expected_stdout and are validated before timing. Noqeri runtime entries are standalone native AOT executables; the harness rejects noqeri run, noqeri-nqri, and .nqri artifacts as runtime performance evidence.",
   "implementations": {
     "noqeri": {
       "json": {
@@ -17,7 +17,8 @@
         ],
         "binary": "build/benchmarks/native/json",
         "provenance": "build/benchmarks/native/json.native.json",
-        "execution_model": "native-aot"
+        "execution_model": "native-aot",
+        "expected_stdout": "5600000"
       },
       "regex": {
         "prepare": [
@@ -33,7 +34,8 @@
         ],
         "binary": "build/benchmarks/native/regex",
         "provenance": "build/benchmarks/native/regex.native.json",
-        "execution_model": "native-aot"
+        "execution_model": "native-aot",
+        "expected_stdout": "200000"
       },
       "matrix": {
         "prepare": [
@@ -49,7 +51,8 @@
         ],
         "binary": "build/benchmarks/native/matrix",
         "provenance": "build/benchmarks/native/matrix.native.json",
-        "execution_model": "native-aot"
+        "execution_model": "native-aot",
+        "expected_stdout": "29971\n28448"
       },
       "strings": {
         "prepare": [
@@ -65,7 +68,8 @@
         ],
         "binary": "build/benchmarks/native/strings",
         "provenance": "build/benchmarks/native/strings.native.json",
-        "execution_model": "native-aot"
+        "execution_model": "native-aot",
+        "expected_stdout": "1000000"
       },
       "sorting": {
         "prepare": [
@@ -81,7 +85,8 @@
         ],
         "binary": "build/benchmarks/native/sorting",
         "provenance": "build/benchmarks/native/sorting.native.json",
-        "execution_model": "native-aot"
+        "execution_model": "native-aot",
+        "expected_stdout": "64\n65032"
       },
       "startup": {
         "prepare": [
@@ -97,7 +102,8 @@
         ],
         "binary": "build/benchmarks/native/startup",
         "provenance": "build/benchmarks/native/startup.native.json",
-        "execution_model": "native-aot"
+        "execution_model": "native-aot",
+        "expected_stdout": "0"
       },
       "compilation": {
         "command": [
