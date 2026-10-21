@@ -1,7 +1,7 @@
 <p align="center"><img src="Brand/noqeri-logo.webp" alt="Noqeri code logo" width="560"></p>
 <h1 align="center">Noqeri</h1>
 
-**Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
+**Version on `main`: 0.7.0 (development, not production-qualified).** The `1.0.0` proposal is **not** a published stable compiler version. `CMakeLists.txt`, `Include/noqeri/version.hpp`, and `Compiler/selfhost/driver.noqeri` still report 0.7.0 on this branch. Do not claim `v1.0.0` solely from documentation. Release readiness requires native Stage-2 parity, reviewed bootstrap provenance, a passing platform matrix, and actual NoeSQL/Registry cross-repository tests.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
 Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and native portable bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main is still version **0.7.0**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
@@ -29,7 +29,22 @@ The web builder creates a minimal `index.html`, ES modules and a browser DOM run
 
 ## Database and Registry integration
 
-The private NoeSQL repository has migrated 21 language sources to `.noqeri`, and the public Registry repository now has a NoeSQL-backed HTTP v1 service. Those repositories **do not yet provide a proven production-ready native compiler/database integration**. The default Noqeri CLI package manager still uses a historical GitHub-content adapter until the deployed Registry endpoint and cross-repository durability tests are verified. Do not label a changed protocol file as a completed production migration.
+The private NoeSQL repository has migrated 21 language sources to `.noqeri`, and the public Registry repository now has a NoeSQL-backed HTTP v1 service. Those repositories **do not yet provide a proven production-ready native compiler/database integration**. The default CLI still uses the historical GitHub-content adapter. `Runtime/package-manager-v1.mjs` provides the experimental Registry v1 API client, but enabling that as default before deploying the NoeSQL-backed service would break existing package installs. Both paths must not be described as one production-integrated implementation. Do not label a changed protocol file as a completed production migration.
+
+## Migration status (verified on `main`, October 21, 2026)
+
+| Repository | `.noqeri` | `.nqri` | `.nqr` | `.nqo` |
+| --- | ---: | ---: | ---: | ---: |
+| Noqeri | 320 | 1 | 0 | 0 |
+| NoeSQL | 21 | 0 | 0 | 0 |
+| Registry | 8 | 0 | 425 | 0 |
+| Web | 3 | 0 | 3 | 2 |
+
+Registry's 425 `.nqr` paths are historical package release contents under `packages/`, not active Registry app source. Web's three `.nqr` and two `.nqo` files are segregated under `tests/fixtures/legacy/`. These are **not** equivalent to active compiler source needing in-place rename. Mutating immutable release bytes would change checksums and break pinned consumers; publish migrated package versions instead.
+
+Noqeri still contains deprecated NoqeriDB/NoqeriSQL compatibility code in `Database/` and `Compiler/bootstrap/noqeridb_host.cpp`. **NoeSQL is canonical**, but the old runtime has not been fully removed or bridged to the qualified native NoeSQL engine. Registry `runtime/server.mjs` / `runtime/catalog.mjs` use the `.noedb` reference path, while `src/registry.noqeri` is still a native host shim. Web chooses the Registry HTTP API only when `NOQERI_REGISTRY_API_URL` is configured, otherwise using a legacy GitHub source adapter. These are live migration boundaries, not a completed end-to-end production deployment.
+
+See [web view docs](Doc/WEB_VIEWS_V1.md), [self-hosting](Doc/SELF_HOSTING.md), and [database history](Database/README.md).
 
 ## Beginner surface
 
