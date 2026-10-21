@@ -29,10 +29,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify pinned Stage-1 metadata
         run: node --test tests/bootstrap_seed_pin.test.mjs
-      - name: Build bootstrap compiler and NQRI VM
+      - name: Build NQRI bootstrap VM
         run: |
           cmake -S . -B build-native-bootstrap -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-native-bootstrap --target noqeri noqeri-nqri --config Release
+          cmake --build build-native-bootstrap --target noqeri-nqri --config Release
       - name: Prove native Stage-2 -> Stage-3 -> Stage-4
         shell: bash
         run: |
