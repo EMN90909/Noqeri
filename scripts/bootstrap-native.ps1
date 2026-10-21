@@ -29,13 +29,28 @@ function Read-HashPin([string]$Path) {
 }
 
 function Test-FilesByteEqual([string]$Left, [string]$Right) {
-    $leftBytes = [System.IO.File]::ReadAllBytes($Left)
-    $rightBytes = [System.IO.File]::ReadAllBytes($Right)
-    if ($leftBytes.Length -ne $rightBytes.Length) { return $false }
-    for ($i = 0; $i -lt $leftBytes.Length; $i++) {
-        if ($leftBytes[$i] -ne $rightBytes[$i]) { return $false }
+    $leftInfo = Get-Item -LiteralPath $Left
+    $rightInfo = Get-Item -LiteralPath $Right
+    if ($leftInfo.Length -ne $rightInfo.Length) { return $false }
+
+    $leftStream = [System.IO.File]::OpenRead($Left)
+    $rightStream = [System.IO.File]::OpenRead($Right)
+    try {
+        $leftBuffer = New-Object byte[] 65536
+        $rightBuffer = New-Object byte[] 65536
+        while ($true) {
+            $leftRead = $leftStream.Read($leftBuffer, 0, $leftBuffer.Length)
+            $rightRead = $rightStream.Read($rightBuffer, 0, $rightBuffer.Length)
+            if ($leftRead -ne $rightRead) { return $false }
+            if ($leftRead -eq 0) { return $true }
+            for ($i = 0; $i -lt $leftRead; $i++) {
+                if ($leftBuffer[$i] -ne $rightBuffer[$i]) { return $false }
+            }
+        }
+    } finally {
+        $leftStream.Dispose()
+        $rightStream.Dispose()
     }
-    return $true
 }
 
 function Resolve-HostTarget {
