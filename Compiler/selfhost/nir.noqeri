@@ -110,6 +110,8 @@ export function nqNirDefinesValue(opcode: int): bool {
 }
 
 export function nqNirInstructionInit(out: *NqNirInstruction, opcode: int, dest: isize): void {
+    if out == null { return }
+    unsafe {
     out.opcode = opcode
     out.dest = dest
     out.left = nqNirNoValue()
@@ -122,9 +124,12 @@ export function nqNirInstructionInit(out: *NqNirInstruction, opcode: int, dest: 
     out.sourceEnd = 0 as usize
     out.typeCode = 0
     out.flags = 0 as u32
+
+    }
 }
 
 export function nqNirInstructionInvalidReason(instruction: *NqNirInstruction): int {
+    unsafe {
     if instruction == null { return 1 }
     if !nqNirOpcodeValid(instruction.opcode) { return 2 }
     if instruction.sourceEnd < instruction.sourceStart { return 3 }
@@ -145,6 +150,8 @@ export function nqNirInstructionInvalidReason(instruction: *NqNirInstruction): i
     if instruction.opcode == nqNirCallArg() && instruction.left < 0 as isize { return 18 }
     if instruction.opcode == nqNirParameter() && instruction.symbol == 0 as u64 { return 19 }
     return 0
+
+    }
 }
 
 export function nqNirInstructionValid(instruction: *NqNirInstruction): bool {
@@ -152,8 +159,11 @@ export function nqNirInstructionValid(instruction: *NqNirInstruction): bool {
 }
 
 export function nqNirInstructionUses(instruction: *NqNirInstruction, value: isize): bool {
+    unsafe {
     if instruction == null || value < 0 as isize { return false }
     return instruction.left == value || instruction.right == value
+
+    }
 }
 
 export function nqNirProgramValid(instructions: []NqNirInstruction): bool {
@@ -166,21 +176,32 @@ export function nqNirProgramValid(instructions: []NqNirInstruction): bool {
 }
 
 export function nqNirFunctionValid(function: *NqNirFunction, instructionCount: usize): bool {
+    unsafe {
     if function == null || function.symbol == 0 as u64 || function.nameEnd <= function.nameStart || function.firstInstruction > instructionCount { return false }
     return function.instructionCount <= instructionCount - function.firstInstruction
+
+    }
 }
 
 export function nqNirMakeConst(out: *NqNirInstruction, dest: isize, value: i64, typeCode: int): void {
+    if out == null { return }
+    unsafe {
     nqNirInstructionInit(out, nqNirConstI64(), dest)
     out.immediate = value
     out.typeCode = typeCode
+
+    }
 }
 
 export function nqNirMakeBinary(out: *NqNirInstruction, opcode: int, dest: isize, left: isize, right: isize, typeCode: int): void {
+    if out == null { return }
+    unsafe {
     nqNirInstructionInit(out, opcode, dest)
     out.left = left
     out.right = right
     out.typeCode = typeCode
+
+    }
 }
 
 export function nqNirSymbolId(source: []u8, start: usize, end: usize): u64 {
