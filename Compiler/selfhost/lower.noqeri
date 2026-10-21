@@ -171,6 +171,8 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         instructions[offset as usize].left = pointer
         instructions[offset as usize].right = indexValue
         instructions[offset as usize].width = nqLowerNodeWidth(node)
+        instructions[offset as usize].sourceStart = node.start
+        instructions[offset as usize].sourceEnd = node.end
         return address
     }
     if node.tag == nqAstMember() {
