@@ -115,7 +115,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
           $promotionResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri integerLiteralPromotion).Trim()
           if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
-      - name: Build trusted Stage-1 NQRI seed (Linux)
+      - name: Build Stage-1 NQRI seed candidate (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -167,7 +167,7 @@ jobs:
           ./build-native/noqeri-nqri compile build-native/noqeri-stage1.nqri tests/record_array_stride.noqeri build-native/record-array-stride.nqri 3
           result=$(./build-native/noqeri-nqri build-native/record-array-stride.nqri recordArrayStride)
           test "$result" = "41"
-      - name: Upload generated trusted Stage-1 seed
+      - name: Upload generated Stage-1 seed candidate
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
@@ -185,7 +185,9 @@ jobs:
           NOQERI_STAGE1_SHA256="$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)" \
           NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
           sh ./scripts/bootstrap-native.sh
-      - name: Build trusted Stage-1 NQRI seed (Windows)
+          grep -qx 'stage1_independently_trusted=false' build-selfhost/native-selfhost-proof.txt
+          grep -qx 'equivalent=true' build-selfhost/native-selfhost-proof.txt
+      - name: Build Stage-1 NQRI seed candidate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -208,11 +210,13 @@ jobs:
           Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
           .\scripts\bootstrap-native.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload trusted Stage-1 seed and proof
+          $proof = Get-Content (Join-Path $env:BUILD_DIR 'native-selfhost-proof.json') -Raw | ConvertFrom-Json
+          if (-not $proof.equivalent -or $proof.stage1_independently_trusted -ne $false) { throw 'bootstrap evidence must not assert independent Stage-1 trust' }
+      - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: trusted-stage1-nqri-${{ github.sha }}
+          name: bootstrap-candidate-nqri-${{ github.sha }}
           if-no-files-found: error
           path: |
             build-native/noqeri-stage1.nqri
