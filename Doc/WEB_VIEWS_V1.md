@@ -39,7 +39,15 @@ Bare module specifiers **must** resolve through an explicit `web.importmap.json`
 
 You must provide that actual ES module (for example, build/vend a legitimate licensed GSAP ESM distribution). The builder does not fetch remote libraries, invent npm modules, inject CDN scripts, or silently fall back to an unverified global. `import js "./vendor/gsap.mjs" as gsap` works without an import map. The same approach applies to Three.js, D3, React Spring, and Monaco once their browser-compatible ESM packages are provided.
 
-Idiomatic Noqeri wrappers can later expose `import animation/gsap as animation` with Noqeri components calling JavaScript through an explicit adapter. Wrappers and Registry package metadata need dedicated validation and stable APIs. Method-chaining sugar such as `animate(".card").to(x: 100)` is **not yet a compiler feature**.
+Local Noqeri wrapper functions are now implemented:
+```noqeri
+// animation/gsap.noqeri
+import js "gsap" as gsap
+function move(selector: string, distance: int) {
+    return gsap.to(selector, { x: distance, duration: 0.8 })
+}
+```
+An app can then write `import animation/gsap as animation` and `on.mount { animation.move(".card", 100) }`. The browser still needs a real, explicitly resolved `gsap` ES module in `web.importmap.json`. This is a local package interface, not yet a published Registry package. See `examples/web_view/animation/motion.noqeri` for a dependency-free working example. Method-chaining sugar such as `animate(".card").to(x: 100)` is **not yet a compiler feature**.
 
 ## Security and limitations
 
