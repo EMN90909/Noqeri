@@ -5,9 +5,9 @@
 
 namespace noe {
 
-// NoqeriDB executes the compact .nqd data language against a durable .nqdb
-// file. A whole script is a transaction: the database file is replaced only
-// after every statement parses and validates successfully.
+// DEPRECATED: legacy NoqeriDB .nqd scripts and NQDB1 .nqdb snapshots only.
+// This is retained for explicit migration/compatibility testing. It is NOT
+// the native NoeSQL .noedb provider; new applications use the NoeSQL ABI.
 class NoqeriDatabase {
 public:
     bool execute(const std::filesystem::path& script,
