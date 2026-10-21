@@ -18,7 +18,14 @@ CC="${CC:-cc}"
 
 mkdir -p "$BUILD_DIR"
 
-BUILD_DIR="$BOOTSTRAP_DIR" NOQERI_TARGET="$TARGET" sh "$ROOT/scripts/bootstrap-native.sh"
+STAGE2="${NOQERI_STAGE2_NQRI:-}"
+if [ -z "$STAGE2" ]; then
+  BUILD_DIR="$BOOTSTRAP_DIR" NOQERI_TARGET="$TARGET" sh "$ROOT/scripts/bootstrap-native.sh"
+  STAGE2="$BOOTSTRAP_DIR/noqeri-stage2.nqri"
+elif [ ! -f "$STAGE2" ]; then
+  echo "supplied Stage-2 compiler does not exist: $STAGE2" >&2
+  exit 2
+fi
 
 RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
 if [ -z "$RUNTIME" ]; then
@@ -31,7 +38,6 @@ if [ -z "$RUNTIME" ] || [ ! -x "$RUNTIME" ]; then
   exit 2
 fi
 
-STAGE2="$BOOTSTRAP_DIR/noqeri-stage2.nqri"
 if [ ! -f "$STAGE2" ]; then
   echo "Stage-2 compiler was not produced" >&2
   exit 2
