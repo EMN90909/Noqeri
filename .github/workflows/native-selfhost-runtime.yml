@@ -2,7 +2,7 @@ name: Native self-host runtime
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'compiler/**']
     paths:
       - 'Runtime/native/**'
       - 'Compiler/**'
@@ -13,6 +13,7 @@ on:
       - 'tests/zero_init.noqeri'
       - 'tests/bootstrap_language_compat.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
+  workflow_dispatch:
   pull_request:
     paths:
       - 'Runtime/native/**'
