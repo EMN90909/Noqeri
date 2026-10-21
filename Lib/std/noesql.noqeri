@@ -13,6 +13,9 @@ module noqeri.std.noesql
 extern function noesqlHostOpen(path: string): usize
 extern function noesqlHostClose(handle: usize): bool
 extern function noesqlHostExecute(handle: usize, source: string): string
+extern function noesqlHostPrepare(handle: usize, source: string): usize
+extern function noesqlHostRunPrepared(handle: usize, statement: usize, parameters: string, query: bool): string
+extern function noesqlHostRelease(handle: usize, statement: usize): bool
 extern function noesqlHostQuery(handle: usize, source: string): string
 extern function noesqlHostBegin(handle: usize): bool
 extern function noesqlHostCommit(handle: usize): bool
@@ -22,6 +25,11 @@ extern function noesqlHostLastError(handle: usize): string
 record Database {
     handle: usize
     active: bool
+}
+
+record DatabaseStatement {
+    handle: usize
+    connection: usize
 }
 
 export function database(path: string): Database {
@@ -52,6 +60,39 @@ export function database_execute(db: *Database, source: string): string {
 export function database_query(db: *Database, source: string): string {
     if !database_is_open(db) { return "" }
     return noesqlHostQuery(db.handle, source)
+}
+
+// Prepared statement binding expects serialized, typed parameters and a NoeSQL
+// provider that rejects interpolation and validates parameter types/lengths.
+export function database_prepare(db: *Database, source: string): DatabaseStatement {
+    let statement: DatabaseStatement
+    statement.handle = 0 as usize
+    statement.connection = 0 as usize
+    if database_is_open(db) {
+        statement.connection = db.handle
+        statement.handle = noesqlHostPrepare(db.handle, source)
+    }
+    return statement
+}
+
+export function database_run_prepared(statement: *DatabaseStatement, parameters: string): string {
+    if statement == null { return "" }
+    if statement.handle == 0 as usize { return "" }
+    return noesqlHostRunPrepared(statement.connection, statement.handle, parameters, false)
+}
+
+export function database_query_prepared(statement: *DatabaseStatement, parameters: string): string {
+    if statement == null { return "" }
+    if statement.handle == 0 as usize { return "" }
+    return noesqlHostRunPrepared(statement.connection, statement.handle, parameters, true)
+}
+
+export function database_release(statement: *DatabaseStatement): bool {
+    if statement == null || statement.handle == 0 as usize { return false }
+    if !noesqlHostRelease(statement.connection, statement.handle) { return false }
+    statement.connection = 0 as usize
+    statement.handle = 0 as usize
+    return true
 }
 
 export function database_begin(db: *Database): bool {
