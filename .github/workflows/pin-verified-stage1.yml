@@ -1,0 +1,55 @@
+name: Pin verified Stage-1 NQRI seed (one shot)
+
+on:
+  push:
+    branches: ['compiler/trusted-stage1-nqri-v2']
+    paths:
+      - '.github/workflows/pin-verified-stage1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  pin-once:
+    if: github.repository == 'EMN90909/Noqeri' && github.ref == 'refs/heads/compiler/trusted-stage1-nqri-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Reproduce validated Stage-1 seed from the C++ Stage-0
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-pin -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-pin --target noqeri noqeri-nqri --config Release
+          ./build-pin/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-pin/noqeri-stage1.nqri
+          actual=$(sha256sum build-pin/noqeri-stage1.nqri | cut -d' ' -f1)
+          expected=9ea66a6dfd689368d17c8c8ffc41c6421a6fa7b12e8c1c458b16c12875333bb2
+          if [ "$actual" != "$expected" ]; then
+            echo "Stage-1 seed differs from the previously validated Linux proof: $actual" >&2
+            exit 1
+          fi
+      - name: Require a successful three-stage byte-for-byte rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-pin" NOQERI_STAGE1_NQRI="$PWD/build-pin/noqeri-stage1.nqri" NOQERI_NQRI_RUNTIME="$PWD/build-pin/noqeri-nqri" ./scripts/bootstrap-native.sh
+          cmp build-pin/noqeri-stage2.nqri build-pin/noqeri-stage3.nqri
+          grep -qx 'verified=true' build-pin/native-selfhost-proof.txt
+          grep -qx 'equivalent=true' build-pin/native-selfhost-proof.txt
+      - name: Commit pinned seed binary and digest, then retire this write-enabled workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=9ea66a6dfd689368d17c8c8ffc41c6421a6fa7b12e8c1c458b16c12875333bb2
+          cp build-pin/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
+          printf '%s  %s\n' "$expected" 'Compiler/selfhost/trusted-stage1.nqri' > Compiler/selfhost/trusted-stage1.sha256
+          sha256sum --check Compiler/selfhost/trusted-stage1.sha256
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Compiler/selfhost/trusted-stage1.nqri Compiler/selfhost/trusted-stage1.sha256
+          git rm .github/workflows/pin-verified-stage1.yml
+          git commit -m 'Pin validated Stage-1 NQRI seed and SHA-256'
+          git push origin HEAD:refs/heads/compiler/trusted-stage1-nqri-v2
