@@ -34,7 +34,7 @@ int main() {
         p.entry.code = {constant(1, 42), dead, constant(3, 7), withArgs(noe::NirOp::Return, {3})};
         noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O1);
         if (!check(p.entry.code.size() == 2, "transitive dead chain")) return 1;
-        if (!check(p.entry.code[0].dest == 3 && p.entry.code[1].op == noe::NirOp::Return, "live return preserved")) return 1;
+        if (!check(p.entry.code[0].dest == noe::Reg{3} && p.entry.code[1].op == noe::NirOp::Return, "live return preserved")) return 1;
     }
     {
         // Side effects and their operand dependency chain must be preserved.
