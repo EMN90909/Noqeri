@@ -3,7 +3,8 @@
 // bootstrap provenance and OS-specific test records. Does not fabricate proof.
 import {readFile,lstat} from 'node:fs/promises'
 import {spawnSync} from 'node:child_process'
-import {resolve,join} from 'node:path'
+import {resolve,join,relative,sep} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {createHash} from 'node:crypto'
 const SHA=/^[a-f0-9]{64}$/,REV=/^[a-f0-9]{40}$/
 const digest=b=>createHash('sha256').update(b).digest('hex')
@@ -29,7 +30,8 @@ export async function verifyV1Evidence({root=process.cwd(),qualification='build/
    if(typeof path!=='string'||!path||path.startsWith('/')||path.includes('\\')||path.split('/').some(z=>!z||z==='.'||z==='..')){errors.push('unsafe artifact path');continue}
    try{
     const full=resolve(artifactRoot,path)
-    if(!full.startsWith(artifactRoot+'/'))throw Error('escaped artifacts directory')
+    const rel=relative(artifactRoot,full)
+    if(rel==='..'||rel.startsWith('..'+sep)||rel.startsWith(sep))throw Error('escaped artifacts directory')
     const st=await lstat(full)
     if(!st.isFile()||st.nlink!==1)throw Error('not a regular isolated file')
     const bytes=await readFile(full),hash=digest(bytes)
@@ -43,7 +45,14 @@ export async function verifyV1Evidence({root=process.cwd(),qualification='build/
  try{checksums=await readFile(join(artifactRoot,'checksums.txt'),'utf8')}catch(e){errors.push('checksums.txt missing: '+e.message)}
  for(const [path,hash]of hashes)if(!checksums.split('\n').includes(hash+'  '+path))errors.push('missing checksum entry: '+path)
  const sig=join(artifactRoot,'checksums.txt.asc')
- try{await lstat(sig);const gpg=spawnSync('gpg',['--batch','--verify',sig,join(artifactRoot,'checksums.txt')],{encoding:'utf8',timeout:12000});if(gpg.status!==0)errors.push('GPG checksum signature invalid or untrusted')}catch(e){errors.push('GPG signature unavailable: '+e.message)}
+ try{
+  await lstat(sig)
+  const expected=process.env.NOQERI_RELEASE_GPG_FINGERPRINT
+  if(!/^[A-F0-9]{40}$/i.test(expected||''))errors.push('release signer fingerprint not configured')
+  const gpg=spawnSync('gpg',['--batch','--status-fd','1','--verify',sig,join(artifactRoot,'checksums.txt')],{encoding:'utf8',timeout:12000})
+  const validSig=(gpg.stdout||'').match(/\\[GNUPG:\\] VALIDSIG ([A-F0-9]{40})/i)?.[1]
+  if(gpg.status!==0 || !validSig || validSig.toUpperCase()!==String(expected||'').toUpperCase())errors.push('GPG checksum signature invalid or not by approved release key')
+ }catch(e){errors.push('GPG signature unavailable: '+e.message)}
  let proof
  try{
   const lines=(await readFile(resolve(root,bootstrap),'utf8')).split(/\r?\n/).filter(Boolean)
@@ -64,7 +73,7 @@ export async function verifyV1Evidence({root=process.cwd(),qualification='build/
  }
  return {schema:1,version:'1.0.0',passed:errors.length===0,source_revision:revision,errors}
 }
-if(import.meta.url==='file://'+process.argv[1]){
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const [qualification,artifacts]=process.argv.slice(2)
  const result=await verifyV1Evidence({qualification,artifacts})
  console.log(JSON.stringify(result,null,2))
