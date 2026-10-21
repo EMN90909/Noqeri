@@ -105,50 +105,12 @@ if (-not (Test-Path $Seed)) {
 
 & $Runtime --selftest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-# A seed is trusted only if it matches the committed binary and SHA-256 lock.
 if ((Test-Path $PinnedSeed) -or (Test-Path $SeedLock)) {
     if (-not (Test-Path $PinnedSeed) -or -not (Test-Path $SeedLock)) {
         throw 'Incomplete trusted Stage-1 seed pin: both module and checksum are required.'
     }
     $ExpectedSeedHash = ((Get-Content $SeedLock -TotalCount 1) -split '\s+')[0].ToLowerInvariant()
-    if ($ExpectedSeedHash -cnotmatch '^[0-9a-f]{64}
-if ($LASTEXITCODE -ne 0) { throw "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqri." }
-& $Runtime compile-manifest $Seed $Root $Manifest $Stage2 $Target
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Runtime syntax $Stage2 (Join-Path $Root "tests\bootstrap_language_compat.noqeri")
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Runtime check $Stage2 (Join-Path $Root "tests\bootstrap_language_compat.noqeri") $Target
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $Runtime compile-manifest $Stage2 $Root $Manifest $Stage3 $Target
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-$Stage2Hash = (Get-FileHash -Algorithm SHA256 $Stage2).Hash.ToLowerInvariant()
-$Stage3Hash = (Get-FileHash -Algorithm SHA256 $Stage3).Hash.ToLowerInvariant()
-if ($Stage2Hash -ne $Stage3Hash) {
-    throw "Noqeri self-host bootstrap FAILED: Stage-2 and Stage-3 differ ($Stage2Hash != $Stage3Hash)."
-}
-
-$SeedHash = (Get-FileHash -Algorithm SHA256 $Seed).Hash.ToLowerInvariant()
-$proofData = [ordered]@{
-    schema = 1
-    verified = $true
-    runtime = $Runtime
-    seed = $Seed
-    seed_sha256 = $SeedHash
-    seed_compiler = $SeedCompiler
-    seed_compiler_sha256 = if ($SeedCompiler -and (Test-Path $SeedCompiler)) { (Get-FileHash -Algorithm SHA256 $SeedCompiler).Hash.ToLowerInvariant() } else { $null }
-    stage2 = $Stage2
-    stage3 = $Stage3
-    stage2_sha256 = $Stage2Hash
-    stage3_sha256 = $Stage3Hash
-    target = $Target
-    equivalent = $true
-}
-$proofData | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 $Proof
-Write-Host 'Noqeri native self-host bootstrap verified.'
-Write-Host "Stage 2 and Stage 3 are byte-identical: $Stage2Hash"
-Write-Host "Proof: $Proof"
-) { throw 'Invalid trusted Stage-1 SHA-256 lock.' }
+    if ($ExpectedSeedHash -cnotmatch '^[0-9a-f]{64}$') { throw 'Invalid trusted Stage-1 SHA-256 lock.' }
     $PinnedSeedHash = (Get-FileHash -Algorithm SHA256 $PinnedSeed).Hash.ToLowerInvariant()
     $SeedHashCheck = (Get-FileHash -Algorithm SHA256 $Seed).Hash.ToLowerInvariant()
     if ($PinnedSeedHash -cne $ExpectedSeedHash -or $SeedHashCheck -cne $ExpectedSeedHash) {
