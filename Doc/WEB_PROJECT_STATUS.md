@@ -1,3 +1,10 @@
+## October 21: experimental native Noqeri view project
+
+`Runtime/web-view-compiler.mjs` now parses `let` state, `view` nodes, events, Noqeri components, local UI package imports, `load ... from` JSON resources, mount effects, exported Noqeri wrapper functions and explicit `import js` ES-module interop. `Runtime/noqeri-web-runtime.mjs` provides safe text-based DOM reconciliation and event scheduling with no React requirement. `Runtime/web-view-project.mjs` generates `index.html` from `main.noqeri`, an `__noqeri/runtime.mjs` module, optional `styles.css`, and `web.importmap.json` when bare JS imports are used.
+
+The feature is qualified by [CI workflow](../.github/workflows/web-views.yml) for the bounded JS frontend and browser-emulation tests, **not** by the self-hosted Stage-2 typed/NIR compiler. No claim of SSR, hydration, secure arbitrary JavaScript packages or production-grade browser parity is made. See [syntax and packages](WEB_VIEWS_V1.md) and `examples/web_view/`.
+
+---
 # Web development status
 
 ## October 20 update: Noqeri web project integration
