@@ -6,6 +6,9 @@ import "types.noqeri"
 record NqLowerState {
     instructionCount: usize
     nextRegister: isize
+    loopDepth: usize
+    loopStart: usize
+    breakHead: isize
 }
 
 export function nqLowerOk(): isize { return 0 }
@@ -15,7 +18,13 @@ export function nqLowerBadLiteral(): isize { return -602 }
 export function nqLowerBadAst(): isize { return -603 }
 export function nqLowerBadTarget(): isize { return -604 }
 
-export function nqLowerStateInit(out: *NqLowerState): void { out.instructionCount = 0 as usize out.nextRegister = 0 as isize }
+export function nqLowerStateInit(out: *NqLowerState): void {
+    out.instructionCount = 0 as usize
+    out.nextRegister = 0 as isize
+    out.loopDepth = 0 as usize
+    out.loopStart = 0 as usize
+    out.breakHead = nqNirNoValue()
+}
 
 function nqLowerAllocRegister(state: *NqLowerState): isize {
     let result: isize = state.nextRegister
@@ -40,19 +49,30 @@ function nqLowerHexDigit(c: u8): int {
 
 export function nqLowerParseI64(source: []u8, start: usize, end: usize, out: *i64): bool {
     if out == null || start >= end || end > len(source) { return false }
-    let base: i64 = 10 as i64
+    let base: u64 = 10 as u64
     let index: usize = start
-    if end - start > 2 as usize && source[start] == 48 as u8 && (source[start + 1 as usize] == 120 as u8 || source[start + 1 as usize] == 88 as u8) { base = 16 as i64 index = start + 2 as usize }
+    if end - start > 2 as usize && source[start] == 48 as u8 && (source[start + 1 as usize] == 120 as u8 || source[start + 1 as usize] == 88 as u8) { base = 16 as u64 index = start + 2 as usize }
     if index >= end { return false }
-    let value: i64 = 0 as i64
+    // Use two 32-bit limbs: the portable VM transports integers as i64
+    // and does not yet perform unsigned comparisons even for u64 types.
+    // Splitting into limbs avoids overflowing signed intermediate values.
+    let limbBase: i64 = 4294967296 as i64
+    let high: i64 = 0 as i64
+    let low: i64 = 0 as i64
     while index < end {
         let digit: int = nqLowerHexDigit(source[index])
-        if digit < 0 || digit as i64 >= base { return false }
-        if value > (9223372036854775807 as i64 - digit as i64) / base { return false }
-        value = value * base + digit as i64
+        if digit < 0 || digit as u64 >= base { return false }
+        let accumulator: i64 = low * base as i64 + digit as i64
+        let carry: i64 = accumulator / limbBase
+        low = accumulator % limbBase
+        let nextHigh: i64 = high * base as i64 + carry
+        if nextHigh > 4294967295 as i64 { return false }
+        high = nextHigh
         index = index + 1 as usize
     }
-    out[0] = value
+    let signedHigh: i64 = high
+    if high >= 2147483648 as i64 { signedHigh = high - limbBase }
+    out[0] = signedHigh * limbBase + low
     return true
 }
 
@@ -103,6 +123,10 @@ function nqLowerNodeSymbol(source: []u8, nodes: []NqAstNode, index: isize): u64 
 
 function nqLowerNodeWidth(node: *NqAstNode): usize {
     if node == null { return 8 as usize }
+    // Semantic layout sets storageBytes for record index/member expressions.
+    // Falling back to a pointer-width stride for a record corrupts arrays of
+    // AST nodes, parser nodes and user-defined data structures.
+    if node.storageBytes > 0 as usize { return node.storageBytes }
     let width: usize = nqCompilerPrimitiveTypeWidth(node.typeCode)
     if width == 0 as usize { return 8 as usize }
     return width
@@ -175,11 +199,16 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         let base: isize = nqLowerAddress(source, nodes, node.left, instructions, state)
         if base < 0 as isize { return base }
         let member: isize = node.right
+        // The index register must be initialized before pointer arithmetic
+        // executes. Emitting its constant afterward causes undefined-register
+        // traps in the rebuilt compiler when accessing record members.
+        let zeroIndex: isize = nqLowerEmitConst(instructions, state, 0 as i64, nqAstTypeUsize())
+        if zeroIndex < 0 as isize { return zeroIndex }
         let address: isize = nqLowerAllocRegister(state)
         let offset: isize = nqLowerEmit(instructions, state, nqNirPtrAdd(), address)
         if offset < 0 as isize { return offset }
         instructions[offset as usize].left = base
-        instructions[offset as usize].right = nqLowerEmitConst(instructions, state, 0 as i64, nqAstTypeUsize())
+        instructions[offset as usize].right = zeroIndex
         instructions[offset as usize].immediate = node.extra as i64
         instructions[offset as usize].symbol = nqLowerNodeSymbol(source, nodes, member)
         instructions[offset as usize].width = nqLowerNodeWidth(node)
@@ -369,12 +398,19 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
     }
     if node.tag == nqAstArray() {
         let count: usize = node.extra as usize
-        let elementWidth: usize = nqLowerNodeWidth(node)
+        // An array literal is typed as Array; its own type width is not the
+        // element stride. For [u8, ...] a fallback eight-byte stride inserts
+        // seven zeroes between characters and breaks parser keyword matching.
+        let elementWidth: usize = nqCompilerPrimitiveTypeWidth(node.elementTypeCode)
+        if elementWidth == 0 as usize { elementWidth = nqLowerNodeWidth(node) }
+        if elementWidth == 0 as usize || count > 9223372036854775807 as usize / elementWidth { return nqLowerCapacity() }
         let bytes: usize = count * elementWidth
         let base: isize = nqLowerAllocRegister(state)
         let alloc: isize = nqLowerEmit(instructions, state, nqNirStackAlloc(), base)
         if alloc < 0 as isize { return alloc }
         instructions[alloc as usize].width = bytes
+        instructions[alloc as usize].flags = nqNirFlagArrayLength()
+        instructions[alloc as usize].immediate = count as i64
         let element: isize = node.right
         let index: usize = 0 as usize
         while element >= 0 as isize && index < count {
@@ -402,17 +438,28 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let callee: *NqAstNode = &nodes[node.left as usize]
         let symbol: u64 = nqNirSymbolId(source, callee.start, callee.end)
         if symbol == 0 as u64 { return nqLowerBadAst() }
+        // Evaluate all arguments before pushing any call-argument instruction.
+        // Nested calls consume the VM's pending argument slots. Emitting each
+        // slot immediately after evaluating its expression lets a nested call
+        // erase or overwrite previously evaluated arguments of the outer call.
+        let argumentRegisters: [isize; 256]
         let argument: isize = node.right
         let argumentIndex: usize = 0 as usize
         while argument >= 0 as isize && argumentIndex < node.extra as usize {
+            if argumentIndex >= 256 as usize { return nqLowerCapacity() }
             let value: isize = nqLowerExpressionInternal(source, nodes, argument, instructions, state)
             if value < 0 as isize { return value }
-            let arg: isize = nqLowerEmit(instructions, state, nqNirCallArg(), nqNirNoValue())
-            if arg < 0 as isize { return arg }
-            instructions[arg as usize].left = value
-            instructions[arg as usize].immediate = argumentIndex as i64
+            argumentRegisters[argumentIndex] = value
             argument = nodes[argument as usize].next
             argumentIndex = argumentIndex + 1 as usize
+        }
+        let emitIndex: usize = 0 as usize
+        while emitIndex < argumentIndex {
+            let arg: isize = nqLowerEmit(instructions, state, nqNirCallArg(), nqNirNoValue())
+            if arg < 0 as isize { return arg }
+            instructions[arg as usize].left = argumentRegisters[emitIndex]
+            instructions[arg as usize].immediate = emitIndex as i64
+            emitIndex = emitIndex + 1 as usize
         }
         let reg: isize = nqLowerAllocRegister(state)
         let call: isize = nqLowerEmit(instructions, state, nqNirCall(), reg)
@@ -470,6 +517,20 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         }
         return nqLowerOk()
     }
+    if node.tag == nqAstBreak() || node.tag == nqAstContinue() {
+        if state.loopDepth == 0 as usize { return nqLowerUnsupported() }
+        let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
+        if jump < 0 as isize { return jump }
+        if node.tag == nqAstContinue() {
+            instructions[jump as usize].immediate = state.loopStart as i64
+        } else {
+            // Link unresolved breaks through the currently unused jump left
+            // operand, then clear it before NIR validation/serialization.
+            instructions[jump as usize].left = state.breakHead
+            state.breakHead = jump
+        }
+        return nqLowerOk()
+    }
     if node.tag == nqAstIf() {
         let condition: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
         if condition < 0 as isize { return condition }
@@ -495,12 +556,29 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         let branch: isize = nqLowerEmit(instructions, state, nqNirBranch(), nqNirNoValue())
         if branch < 0 as isize { return branch }
         instructions[branch as usize].left = condition
+        // Nested loops maintain independent pending-break chains.
+        let savedStart: usize = state.loopStart
+        let savedBreakHead: isize = state.breakHead
+        state.loopDepth = state.loopDepth + 1 as usize
+        state.loopStart = loopStart
+        state.breakHead = nqNirNoValue()
         let bodyStatus: isize = nqLowerStatement(source, nodes, node.right, instructions, state)
         if bodyStatus < 0 as isize { return bodyStatus }
         let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
         if jump < 0 as isize { return jump }
         instructions[jump as usize].immediate = loopStart as i64
-        instructions[branch as usize].immediate = state.instructionCount as i64
+        let end: usize = state.instructionCount
+        instructions[branch as usize].immediate = end as i64
+        let pending: isize = state.breakHead
+        while pending >= 0 as isize {
+            let nextPending: isize = instructions[pending as usize].left
+            instructions[pending as usize].left = nqNirNoValue()
+            instructions[pending as usize].immediate = end as i64
+            pending = nextPending
+        }
+        state.breakHead = savedBreakHead
+        state.loopStart = savedStart
+        state.loopDepth = state.loopDepth - 1 as usize
         return nqLowerOk()
     }
     return nqLowerUnsupported()

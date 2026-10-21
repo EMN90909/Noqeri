@@ -1,0 +1,18 @@
+// Nested break and continue must bind to their nearest enclosing loop.
+export function loopControl(): int {
+    let outer: int = 0
+    let total: int = 0
+    while outer < 4 {
+        outer = outer + 1
+        if outer == 2 { continue }
+        let inner: int = 0
+        while inner < 5 {
+            inner = inner + 1
+            if inner == 3 { continue }
+            if inner == 5 { break }
+            total = total + inner
+        }
+        if outer == 4 { break }
+    }
+    return total
+}

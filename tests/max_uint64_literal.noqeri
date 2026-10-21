@@ -1,0 +1,5 @@
+export function uint64WideLiteral(): i64 {
+    // 2^64-1 must not be discarded as an out-of-range signed integer.
+    let maximum: u64 = 18446744073709551615 as u64
+    return maximum as i64
+}

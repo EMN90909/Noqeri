@@ -71,7 +71,7 @@ export function nqPipelineSemanticErrorOffset(source: []u8, unsafeAllowed: bool)
     let count: usize = 0 as usize
     let first: isize = nqAstNoNode()
     let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &count, &first)
-    if parseStatus < 0 as isize { return 0 as usize }
+    if parseStatus < 0 as isize { return nqParserFirstErrorOffset(source) }
     let zeroStatus: isize = nqZeroInitNormalize(source, slice(nodes), &count, first)
     if zeroStatus < 0 as isize { return 0 as usize }
     let errorStart: usize = 0 as usize

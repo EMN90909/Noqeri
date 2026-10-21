@@ -1,0 +1,9 @@
+module noqeri.tests.nested_call_args
+
+function plusOne(value: int): int { return value + 1 }
+function combine(first: int, second: int, third: int): int {
+    return first + second * 10 + third * 100
+}
+export function nestedCallArgumentOrder(): int {
+    return combine(plusOne(10), plusOne(20), plusOne(30))
+}

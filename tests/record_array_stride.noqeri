@@ -1,0 +1,15 @@
+module noqeri.tests.record_array_stride
+
+record Counter {
+    left: int
+    right: int
+}
+
+export function recordArrayStride(): int {
+    let counters: [Counter; 2]
+    counters[0].left = 11
+    counters[1].right = 30
+    if counters[0].right != 0 { return -1 }
+    if counters[1].left != 0 { return -2 }
+    return counters[0].left + counters[1].right
+}

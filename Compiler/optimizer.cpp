@@ -42,8 +42,24 @@ bool constants(NirFunction&fn){
     return changed;
 }
 bool dce(NirFunction&fn){
+    // Conservative, transitive register liveness.  Counting reads from dead pure
+    // instructions as live kept entire unused computation chains in the NIR.
+    // Seed from instructions that may affect execution, then walk definitions
+    // until no additional operands become live.  Global (rather than local)
+    // liveness remains conservative around branches and register reuse.
     std::unordered_set<Reg>used;
-    for(const auto&i:fn.code)for(auto arg:i.args)used.insert(arg);
+    for(const auto&i:fn.code){
+        if(sideEffect(i)||!i.dest)for(auto arg:i.args)used.insert(arg);
+    }
+    bool grew=true;
+    while(grew){
+        grew=false;
+        for(const auto&i:fn.code){
+            if(i.dest&&used.count(*i.dest)){
+                for(auto arg:i.args)grew=used.insert(arg).second||grew;
+            }
+        }
+    }
     const std::size_t oldCount=fn.code.size();
     std::vector<bool>keep(oldCount,true);
     bool changed=false;

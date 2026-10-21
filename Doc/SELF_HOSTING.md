@@ -4,7 +4,7 @@ Noqeri uses staged bootstrap with a strict provenance boundary.
 
 ## Stage 0 — archival seed
 
-The historical C++17 compiler remains bootstrap provenance: a trusted seed capable of creating the first Noqeri compiler on a machine that has no Noqeri compiler yet. It is not the intended implementation language of the language semantics, and new compiler functionality belongs in `Compiler/selfhost/`.
+The historical C++17 compiler remains a Stage-0 dependency capable of generating a Noqeri Stage-1 candidate on a machine with no Noqeri compiler. Local Stage-0 output is not independently trusted merely because it was generated reproducibly. It is not the intended implementation language of the language semantics, and new compiler functionality belongs in `Compiler/selfhost/`.
 
 Do not delete or relabel the seed merely because equivalent Noqeri source exists. It becomes unnecessary to normal releases only after the Stage-2 proof below passes on actual binaries.
 
@@ -32,7 +32,7 @@ Full self-hosting is reached only when all are true:
 6. fuzz, race, memory, overflow, reproducible-build and practical-corpus gates pass on the self-hosted compiler;
 7. the normal release process no longer requires CMake/C++.
 
-The repository must not claim this gate passed until an actual Noqeri compiler binary executes these steps. Source ownership and architecture can move ahead of the bootstrap proof; documentation cannot substitute for that proof.
+The repository must not claim this gate passed until an actual Noqeri compiler binary executes these steps. In addition, a locally reproducible seed, a caller-supplied SHA-256 pin and Stage-2/Stage-3 equivalence alone do not independently attest Stage-1 trust. No independently attested Stage-1 seed is committed yet. Source ownership and architecture can move ahead of the bootstrap proof; documentation cannot substitute for that proof.
 
 ## Strict local verifier
 

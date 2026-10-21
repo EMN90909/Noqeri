@@ -6,6 +6,9 @@ BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 HOST_BUILD="${NOQERI_HOST_BUILD:-$BUILD_DIR/bootstrap-host}"
 RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
 SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
+EXTERNAL_SEED="${NOQERI_STAGE1_NQRI:-}"
+PIN="${NOQERI_STAGE1_SHA256:-}"
+SEED_ORIGIN="local-cpp-stage0"
 SEED_COMPILER="${NOQERI_STAGE0_CPP:-}"
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
 STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
@@ -53,7 +56,12 @@ if [ -z "$RUNTIME" ] || [ ! -x "$RUNTIME" ]; then
   echo "native NQRI runtime was not produced; set NOQERI_NQRI_RUNTIME to noqeri-nqri." >&2
   exit 2
 fi
-if [ ! -f "$SEED" ]; then
+if [ -n "$EXTERNAL_SEED" ]; then
+  if [ ! -f "$SEED" ]; then echo "Explicit Stage-1 seed not found: $SEED" >&2; exit 2; fi
+  if [ -z "$PIN" ]; then echo "External seed requires NOQERI_STAGE1_SHA256." >&2; exit 2; fi
+  SEED_ORIGIN="externally-pinned"
+else
+  # Rebuild every time rather than trusting stale build bytes.
   if [ -z "$SEED_COMPILER" ]; then
     for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
       if [ -x "$candidate" ]; then SEED_COMPILER="$candidate"; break; fi
@@ -74,10 +82,26 @@ if [ ! -f "$SEED" ]; then
     echo "trusted C++ Stage-0 compiler was not produced; set NOQERI_STAGE0_CPP." >&2
     exit 2
   fi
-  echo "Generating trusted Stage-1 NQRI seed with C++ Stage-0 compiler..."
+  echo "Generating local Stage-1 seed candidate with C++ Stage-0..."
   "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$SEED"
+  repro="$BUILD_DIR/noqeri-stage1-repro.nqri"
+  "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$repro"
+  if ! cmp -s "$SEED" "$repro"; then
+    echo "Stage-0 produced non-reproducible Stage-1 seed bytes." >&2; exit 1
+  fi
+  rm -f "$repro"
 fi
-
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+seed_sha256=$(sha256_file "$SEED")
+if [ -n "$PIN" ]; then
+  case "$PIN" in *[!0123456789abcdefABCDEF]*) echo "Invalid SHA-256 pin." >&2; exit 2 ;; esac
+  if [ "${#PIN}" -ne 64 ] || [ "$seed_sha256" != "$(printf '%s' "$PIN" | tr 'ABCDEF' 'abcdef')" ]; then
+    echo "Stage-1 seed SHA-256 does not match the supplied pin: $seed_sha256" >&2; exit 2
+  fi
+fi
 "$RUNTIME" --selftest
 if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
   echo "Trusted Stage-1 seed is incompatible: it must export stage2CompileToNqri." >&2
@@ -88,20 +112,30 @@ fi
 
 if ! cmp -s "$STAGE2" "$STAGE3"; then
   echo "Noqeri self-host bootstrap FAILED: Stage-2 and Stage-3 NQRI outputs differ." >&2
+  echo "Stage-2 SHA-256: $(sha256_file "$STAGE2")" >&2
+  echo "Stage-3 SHA-256: $(sha256_file "$STAGE3")" >&2
+  echo "First differing bytes (1-based offset, Stage-2 octal, Stage-3 octal):" >&2
+  cmp -l "$STAGE2" "$STAGE3" | head -n 20 >&2 || true
+  "$RUNTIME" diff "$STAGE2" "$STAGE3" || true
   exit 1
 fi
 
 seed_bytes=$(wc -c < "$SEED" | tr -d ' ')
 stage_bytes=$(wc -c < "$STAGE2" | tr -d ' ')
-seed_sha256=$(sha256sum "$SEED" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$SEED" | awk '{print $1}')
-stage2_sha256=$(sha256sum "$STAGE2" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$STAGE2" | awk '{print $1}')
-stage3_sha256=$(sha256sum "$STAGE3" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$STAGE3" | awk '{print $1}')
+stage2_sha256=$(sha256_file "$STAGE2")
+stage3_sha256=$(sha256_file "$STAGE3")
+seed_compiler_sha256=""
+if [ -n "$SEED_COMPILER" ] && [ -f "$SEED_COMPILER" ]; then seed_compiler_sha256=$(sha256_file "$SEED_COMPILER"); fi
 {
   echo "verified=true"
   echo "runtime=$RUNTIME"
   echo "seed=$SEED"
   echo "seed_bytes=$seed_bytes"
   echo "seed_sha256=$seed_sha256"
+  echo "seed_origin=$SEED_ORIGIN"
+  echo "stage1_independently_trusted=false"
+  echo "source_manifest_sha256=$(sha256_file "$MANIFEST")"
+  echo "seed_compiler_sha256=$seed_compiler_sha256"
   echo "seed_compiler=$SEED_COMPILER"
   echo "stage2=$STAGE2"
   echo "stage2_sha256=$stage2_sha256"
@@ -112,6 +146,6 @@ stage3_sha256=$(sha256sum "$STAGE3" 2>/dev/null | awk '{print $1}' || shasum -a 
   echo "equivalent=true"
 } > "$PROOF"
 
-echo "Noqeri native self-host bootstrap verified."
+echo "Native Stage-2/Stage-3 equivalence verified; independent Stage-1 trust NOT attested."
 echo "Stage 2 and Stage 3 are byte-identical: $STAGE2"
 echo "Proof: $PROOF"

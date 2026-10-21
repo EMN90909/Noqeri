@@ -1,0 +1,10 @@
+module noqeri.tests.slice_literal_len
+
+export function sliceLiteralLength(): int {
+    let bytes: []u8 = slice([11 as u8, 22 as u8, 33 as u8])
+    if len(bytes) != 3 { return -1 }
+    if bytes[0] != 11 as u8 { return -2 }
+    if bytes[1] != 22 as u8 { return -3 }
+    if bytes[2] != 33 as u8 { return -4 }
+    return len(bytes) as int
+}
