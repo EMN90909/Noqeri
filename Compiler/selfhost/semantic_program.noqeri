@@ -298,7 +298,7 @@ function nqSemanticLiteralMagnitude(source: []u8, nodes: []NqAstNode, nodeIndex:
         else if base == 16 as u64 && byte >= 97 as u8 && byte <= 102 as u8 { digit = (byte - 97 as u8 + 10 as u8) as u64 }
         else { return 0 }
         if digit >= base { return 0 }
-        if value > (18446744073709551615 as u64 - digit) / base { return 0 }
+        if value > (9223372036854775807 as u64 - digit) / base { return 0 }
         value = value * base + digit
         cursor = cursor + 1 as usize
     }
@@ -325,7 +325,7 @@ function nqSemanticLiteralFitsInteger(source: []u8, nodes: []NqAstNode, nodeInde
     if targetCode == nqAstTypeI8() { return magnitude <= 128 as u64 }
     if targetCode == nqAstTypeI16() { return magnitude <= 32768 as u64 }
     if targetCode == nqAstTypeI32() { return magnitude <= 2147483648 as u64 }
-    return magnitude <= 9223372036854775808 as u64
+    return magnitude <= 9223372036854775807 as u64
 }
 
 function nqSemanticExpressionAssignable(source: []u8, nodes: []NqAstNode, nodeIndex: isize, targetCode: int): bool {
