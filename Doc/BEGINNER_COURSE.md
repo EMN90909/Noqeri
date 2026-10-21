@@ -20,6 +20,22 @@ The beginner track deliberately teaches ordinary application programming before 
 
 Each chapter should end with one runnable program, one deliberate mistake exercise and one small extension. Course examples are compatibility-test inputs: a language change that breaks them requires either a migration or a conscious edition boundary.
 
+## Project files stay optional at the beginning
+
+A first Noqeri program does not need project metadata. When a learner grows into packages or project-wide settings, the default manifest is `project.nqon`:
+
+```nqon
+name = hello
+version = "0.1.0"
+entry = main.noqeri
+
+packages {
+    forge = "noqeri/forge@1.2.0"
+}
+```
+
+NQON uses braces for structure rather than indentation, `=` for values, optional commas, and quoted strings only when needed. The exact dependency graph remains machine-managed in `noqeri.lock`.
+
 ## The two loop ideas
 
 A beginner should not first learn a three-part loop header merely to count to five.
