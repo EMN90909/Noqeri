@@ -1,0 +1,30 @@
+name: Guarded loop unrolling and optimizer semantics
+on:
+  push:
+    branches: [feature/optimizer-phase3-unroll-analysis]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  native-optimizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test native NIR optimizations with C++17 warnings as errors
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer
+          /tmp/noqeri-optimizer
+      - name: Configure compiler and unit tests
+        run: cmake -S . -B build-opt -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build native compiler
+        run: cmake --build build-opt --config Release --target noqeri --parallel 3
+      - name: Compare original and optimized observable output
+        run: |
+          set -euo pipefail
+          for sample in tests/optimizer_equivalence.noqeri examples/hello.noqeri; do
+            ./build-opt/noqeri run "$sample" -O0 >/tmp/noqeri-O0.out
+            ./build-opt/noqeri run "$sample" -O3 >/tmp/noqeri-O3.out
+            diff -u /tmp/noqeri-O0.out /tmp/noqeri-O3.out
+          done
