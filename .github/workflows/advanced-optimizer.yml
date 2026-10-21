@@ -20,5 +20,11 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation             -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp             Compiler/optimizer.cpp -o /tmp/noqeri-advanced-optimizer
       - name: Exercise SSA, SCCP, GVN, LICM, strength reduction and safety regressions
         run: /tmp/noqeri-advanced-optimizer
+      - name: Validate CFG live intervals and register allocation
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation \
+            -IInclude/noqeri -ICompiler/bootstrap tests/cpp/register_allocator_cfg_test.cpp \
+            Compiler/register_alloc.cpp -o /tmp/noqeri-register-allocator
+          /tmp/noqeri-register-allocator
       - name: Existing web and package regression tests
         run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
