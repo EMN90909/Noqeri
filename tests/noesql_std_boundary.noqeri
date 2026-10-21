@@ -1,0 +1,10 @@
+import "../Lib/std/noesql.noqeri"
+function main(): int {
+ // Compile/link checks for the source-level wrapper. The host must still
+ // provide the NoeSQL ABI before runtime execution can be qualified.
+ let db: Database
+ db.handle = 0 as usize
+ if databaseValid(&db) { return 1 }
+ if databaseBegin(&db) != -1 as isize { return 2 }
+ return 0
+}
