@@ -312,9 +312,19 @@ int main(int argc, char** argv) {
     if (cmd == "doctor" || cmd == "release-check") return runProductionDoctor(argc >= 3 ? argv[2] : ".");
     if (cmd == "audit") return runSecurityAudit(argc >= 3 ? argv[2] : ".");
     if (cmd == "db") {
-        if (argc < 3) { std::cerr << "NQR-D8041: db requires a .nqd script\n"; return 1; }
-        Diagnostics d;
+        if (argc < 3) { std::cerr << "NQR-D8041: legacy db requires a .nqd script; new applications should use NoeSQL .noedb\n"; return 1; }
+        const std::filesystem::path legacyScript = argv[2];
+        if (legacyScript.extension() != ".nqd") {
+            std::cerr << "NQR-D8042: legacy db CLI accepts only .nqd compatibility scripts. Use the NoeSQL runtime for .noedb.\n";
+            return 1;
+        }
         std::filesystem::path overridePath = argc >= 4 ? std::filesystem::path(argv[3]) : std::filesystem::path{};
+        if (overridePath.extension() == ".noedb") {
+            std::cerr << "NQR-D8043: NQDB1 legacy storage is incompatible with native NoeSQL .noedb. Migrate using NoeSQL's explicit migrate command.\n";
+            return 1;
+        }
+        std::cerr << "NQR-DDEPRECATED: 'noqeri db' is a legacy NoqeriDB compatibility runner. New projects must use NoeSQL .noedb; do not rename legacy files.\n";
+        Diagnostics d;
         if (!NoqeriDatabase{}.execute(argv[2], overridePath, std::cout, d)) { d.print(argv[2]); return 1; }
         return 0;
     }
