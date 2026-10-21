@@ -6,6 +6,8 @@ import "types.noqeri"
 record NqLowerState {
     instructionCount: usize
     nextRegister: isize
+    loopDepth: usize
+    continueTarget: usize
 }
 
 export function nqLowerOk(): isize { return 0 }
@@ -15,7 +17,7 @@ export function nqLowerBadLiteral(): isize { return -602 }
 export function nqLowerBadAst(): isize { return -603 }
 export function nqLowerBadTarget(): isize { return -604 }
 
-export function nqLowerStateInit(out: *NqLowerState): void { out.instructionCount = 0 as usize out.nextRegister = 0 as isize }
+export function nqLowerStateInit(out: *NqLowerState): void { out.instructionCount = 0 as usize out.nextRegister = 0 as isize out.loopDepth = 0 as usize out.continueTarget = 0 as usize }
 
 function nqLowerAllocRegister(state: *NqLowerState): isize {
     let result: isize = state.nextRegister
@@ -435,6 +437,14 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     if nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return nqLowerBadAst() }
     let node: *NqAstNode = &nodes[nodeIndex as usize]
     if node.tag == nqAstExpressionStatement() { let value: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state) if value < 0 as isize { return value } return nqLowerOk() }
+    if node.tag == nqAstBreak() || node.tag == nqAstContinue() {
+        if state.loopDepth == 0 as usize { return nqLowerBadAst() }
+        let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
+        if jump < 0 as isize { return jump }
+        if node.tag == nqAstContinue() { instructions[jump as usize].immediate = state.continueTarget as i64 }
+        else { instructions[jump as usize].flags = 16 as u32 }
+        return nqLowerOk()
+    }
     if node.tag == nqAstBinding() {
         let value: isize = nqLowerExpressionInternal(source, nodes, node.right, instructions, state)
         if value < 0 as isize { return value }
@@ -490,6 +500,9 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     }
     if node.tag == nqAstWhile() {
         let loopStart: usize = state.instructionCount
+        let priorContinue: usize = state.continueTarget
+        state.continueTarget = loopStart
+        state.loopDepth = state.loopDepth + 1 as usize
         let condition: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
         if condition < 0 as isize { return condition }
         let branch: isize = nqLowerEmit(instructions, state, nqNirBranch(), nqNirNoValue())
@@ -500,7 +513,18 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
         if jump < 0 as isize { return jump }
         instructions[jump as usize].immediate = loopStart as i64
-        instructions[branch as usize].immediate = state.instructionCount as i64
+        let loopEnd: usize = state.instructionCount
+        instructions[branch as usize].immediate = loopEnd as i64
+        let scan: usize = branch as usize + 1 as usize
+        while scan < loopEnd {
+            if instructions[scan].opcode == nqNirJump() && instructions[scan].flags == 16 as u32 {
+                instructions[scan].immediate = loopEnd as i64
+                instructions[scan].flags = 0 as u32
+            }
+            scan = scan + 1 as usize
+        }
+        state.loopDepth = state.loopDepth - 1 as usize
+        state.continueTarget = priorContinue
         return nqLowerOk()
     }
     return nqLowerUnsupported()
