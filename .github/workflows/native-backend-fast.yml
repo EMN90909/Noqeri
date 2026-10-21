@@ -1,0 +1,56 @@
+name: Native backend fast gate
+
+on:
+  pull_request:
+    paths:
+      - 'Compiler/native_selfhost/**'
+      - 'Runtime/native/nqri_vm_part5.inc'
+      - 'Runtime/native/native_compiler_host.cpp'
+      - 'Runtime/native/native_program_host.cpp'
+      - 'scripts/bootstrap-native-compiler.sh'
+      - 'tests/native_selfhost_smoke.noqeri'
+      - '.github/workflows/native-backend-fast.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-backend-fast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned Stage-1 seed
+        run: node --test tests/bootstrap_seed_pin.test.mjs
+      - name: Build bootstrap VM
+        run: |
+          cmake -S . -B build-fast -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-fast --target noqeri-nqri --config Release
+      - name: Build and fixed-point the native compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNTIME="$PWD/build-fast/noqeri-nqri"
+          DRIVER="$PWD/build-fast/noqeri-native-driver.nqri"
+          MERGED="$PWD/build-fast/noqeri-native-driver.merged.noqeri"
+          BOOTSTRAP_ASM="$PWD/build-fast/noqeri-native-bootstrap.s"
+          FIXED_ASM="$PWD/build-fast/noqeri-native-fixed.s"
+          COMPILER_OBJECT="$PWD/build-fast/noqeri-native-compiler.o"
+          NATIVE_COMPILER="$PWD/build-fast/noqeri-native"
+
+          "$RUNTIME" has-export Compiler/selfhost/trusted-stage1.nqri stage2CompileToNqri
+          "$RUNTIME" compile-manifest Compiler/selfhost/trusted-stage1.nqri "$PWD" Compiler/native_selfhost/native-driver-sources.txt "$DRIVER" 3
+          "$RUNTIME" has-export "$DRIVER" nativeCompileToAssembly
+          "$RUNTIME" bundle-manifest "$PWD" Compiler/native_selfhost/native-driver-sources.txt "$MERGED"
+          "$RUNTIME" native-asm "$DRIVER" "$MERGED" "$BOOTSTRAP_ASM" 3 1
+
+          cc -c "$BOOTSTRAP_ASM" -o "$COMPILER_OBJECT"
+          c++ -O2 -pthread Runtime/native/native_compiler_host.cpp "$COMPILER_OBJECT" -o "$NATIVE_COMPILER"
+          test "$("$NATIVE_COMPILER" --engine)" = "selfhost-native-linux-x86_64"
+
+          "$NATIVE_COMPILER" "$MERGED" "$FIXED_ASM" 3 1
+          cmp "$BOOTSTRAP_ASM" "$FIXED_ASM"
+
+          "$NATIVE_COMPILER" tests/native_selfhost_smoke.noqeri build-fast/native-smoke.s 3
+          cc -c build-fast/native-smoke.s -o build-fast/native-smoke.o
+          c++ Runtime/native/native_program_host.cpp build-fast/native-smoke.o -o build-fast/native-smoke
+          test "$(build-fast/native-smoke)" = "499500"

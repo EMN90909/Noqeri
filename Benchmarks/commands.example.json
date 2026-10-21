@@ -1,15 +1,21 @@
 {
-  "schema": 1,
-  "note": "Copy to Benchmarks/commands.json for the machine under test. Only point entries at implementations that perform equivalent work and produce the same validation output. Missing entries remain unmeasured; never substitute a toy workload for a missing comparison.",
+  "schema": 2,
+  "note": "Copy to Benchmarks/commands.json after running scripts/prepare-native-benchmarks.sh. Noqeri comparative runtime entries must point at fixed-point-qualified native executables. VM/interpreter commands are intentionally excluded from this example and are not eligible for C/C++/Rust/Zig/Go performance claims.",
+  "native_proof": "build-native-compiler/native-compiler-proof.txt",
   "implementations": {
     "noqeri": {
-      "json": { "command": ["build/noqeri", "run", "Benchmarks/workloads/json.noqeri"], "binary": "build/noqeri" },
-      "regex": { "command": ["build/noqeri", "run", "Benchmarks/workloads/regex.noqeri"], "binary": "build/noqeri" },
-      "matrix": { "command": ["build/noqeri", "run", "Benchmarks/workloads/matrix.noqeri"], "binary": "build/noqeri" },
-      "strings": { "command": ["build/noqeri", "run", "Benchmarks/workloads/strings.noqeri"], "binary": "build/noqeri" },
-      "sorting": { "command": ["build/noqeri", "run", "Benchmarks/workloads/sorting.noqeri"], "binary": "build/noqeri" },
-      "startup": { "command": ["build/noqeri", "run", "Benchmarks/workloads/startup.noqeri"], "binary": "build/noqeri" },
-      "compilation": { "command": ["build/noqeri", "check", "tests/noqeri_library_suite.noqeri"], "binary": "build/noqeri" }
+      "startup": {
+        "command": ["build/benchmarks/native/startup"],
+        "binary": "build/benchmarks/native/startup",
+        "engine": "selfhost-native-linux-x86_64",
+        "artifact_kind": "native-executable"
+      },
+      "compilation": {
+        "command": ["build-native-compiler/noqeri-native", "tests/noqeri_library_suite.noqeri", "build/benchmarks/native/compilation-output.s", "3"],
+        "binary": "build-native-compiler/noqeri-native",
+        "engine": "selfhost-native-linux-x86_64",
+        "artifact_kind": "native-compiler"
+      }
     },
     "c": {},
     "cpp": {},

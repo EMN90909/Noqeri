@@ -43,7 +43,7 @@ function run(command, cwd, timeout) {
 }
 function toolVersion(command, cwd) {
   if (!command?.length) return null
-  const attempts = [[command[0], '--version'], [command[0], 'version']]
+  const attempts = [[command[0], '--engine'], [command[0], '--version'], [command[0], 'version']]
   for (const candidate of attempts) {
     const result = spawnSync(candidate[0], candidate.slice(1), { cwd, encoding: 'utf8', timeout: 3000 })
     if (result.status === 0) return `${result.stdout || result.stderr || ''}`.trim().split('\n')[0].slice(0, 300)
@@ -58,6 +58,32 @@ const commandsPath = resolve(root, arg('commands', 'Benchmarks/commands.json'))
 const outputPath = resolve(root, arg('output', 'build/benchmarks/latest.json'))
 const timeout = Math.max(100, Number(arg('timeout', '120000')))
 const only = new Set(arg('only', '').split(',').filter(Boolean))
+const allowNonNativeNoqeri = arg('allow-non-native-noqeri', '0') === '1'
+const nativeProofPath = resolve(root, arg('native-proof', 'build-native-compiler/native-compiler-proof.txt'))
+let nativeQualification = {
+  proof: nativeProofPath,
+  present: false,
+  qualified: false,
+  fixed_point: false,
+  steady_state_engine: null,
+  vm_required_for_steady_state: null
+}
+if (existsSync(nativeProofPath)) {
+  const proof = Object.fromEntries(
+    readFileSync(nativeProofPath, 'utf8').split(/\r?\n/).filter(Boolean).map(line => {
+      const index = line.indexOf('=')
+      return index < 0 ? [line, ''] : [line.slice(0, index), line.slice(index + 1)]
+    })
+  )
+  nativeQualification = {
+    proof: nativeProofPath,
+    present: true,
+    qualified: proof.qualified === 'true',
+    fixed_point: proof.fixed_point === 'true',
+    steady_state_engine: proof.steady_state_engine || null,
+    vm_required_for_steady_state: proof.vm_required_for_steady_state === 'true'
+  }
+}
 const suite = readJson(suitePath)
 if (!existsSync(commandsPath)) {
   console.error(`benchmark-suite: ${commandsPath} is missing. Copy Benchmarks/commands.example.json and point commands only at equivalent workload implementations.`)
@@ -81,6 +107,34 @@ for (const workload of suite.workloads || []) {
     const cwd = resolve(root, entry.cwd || '.')
     const command = entry.command.map(x => `${x}`)
     const executable = entry.binary ? resolve(root, entry.binary) : null
+    const engine = entry.engine || null
+    const artifactKind = entry.artifact_kind || null
+    const expectedArtifactKind = workload.id === 'compilation' ? 'native-compiler' : 'native-executable'
+    const claimEligible = language !== 'noqeri' || (
+      nativeQualification.present &&
+      nativeQualification.qualified &&
+      nativeQualification.fixed_point &&
+      nativeQualification.steady_state_engine === 'selfhost-native-linux-x86_64' &&
+      nativeQualification.vm_required_for_steady_state === false &&
+      engine === 'selfhost-native-linux-x86_64' &&
+      artifactKind === expectedArtifactKind
+    )
+    if (language === 'noqeri' && !claimEligible && !allowNonNativeNoqeri) {
+      const reason = 'Noqeri comparative benchmarks require the fixed-point native qualification proof plus engine=selfhost-native-linux-x86_64 and the correct native artifact kind. Use --allow-non-native-noqeri=1 only for non-comparative diagnostics.'
+      failures.push({ language, workload: workload.id, phase: 'configuration', reason })
+      results.push({
+        id: `${language}:${workload.id}`,
+        language,
+        workload: workload.id,
+        evidence: 'failed',
+        reason,
+        engine,
+        artifact_kind: artifactKind,
+        claim_eligible: false,
+        threshold_percent: workload.threshold_percent
+      })
+      continue
+    }
     const versionKey = command[0]
     if (!versionCache.has(versionKey)) versionCache.set(versionKey, toolVersion(command, cwd))
 
@@ -118,17 +172,21 @@ for (const workload of suite.workloads || []) {
       raw_samples_ms: raw,
       command,
       cwd,
-      tool_version: versionCache.get(versionKey)
+      tool_version: versionCache.get(versionKey),
+      engine,
+      artifact_kind: artifactKind,
+      claim_eligible: claimEligible
     })
   }
 }
 
 const report = {
-  schema: 2,
+  schema: 3,
   generated_at: new Date().toISOString(),
   methodology: 'Benchmarks/METHODOLOGY.md',
   suite: 'Benchmarks/suite.json',
   source_revision: process.env.NOQERI_SOURCE_REVISION || null,
+  native_qualification: nativeQualification,
   environment: {
     platform: process.platform,
     arch: process.arch,
