@@ -1,0 +1,38 @@
+module noqeri.compiler.native_selfhost.driver
+import "../selfhost/pipeline.noqeri"
+import "../selfhost/targets.noqeri"
+import "../selfhost/ast.noqeri"
+import "../selfhost/nir.noqeri"
+import "x64_linux.noqeri"
+
+export function nativeCompilerBackendVersion(): int { return 1 }
+export function nativeCompilerTarget(): int { return nqTargetLinuxX64() }
+export function nativeCompilerIsQualifiedTarget(target: int): bool { return target == nqTargetLinuxX64() }
+
+export function nativeCompileToAssembly(source: []u8, target: int, debug: bool, unsafeAllowed: bool, out: []u8): isize {
+    if target != nqTargetLinuxX64() { return nqNativeUnsupportedTarget() }
+
+    let nodes: [NqAstNode; 131072]
+    let instructions: [NqNirInstruction; 262144]
+    let functions: [NqNirFunction; 8192]
+    let result: NqCompileResult
+
+    let status: isize = nqPipelineCompileToNir(
+        source,
+        target,
+        debug,
+        unsafeAllowed,
+        slice(nodes),
+        slice(instructions),
+        slice(functions),
+        &result
+    )
+    if status < 0 as isize { return status }
+
+    return nqNativeEmitLinuxX64(
+        source,
+        slice(functions, result.functionCount),
+        slice(instructions, result.instructionCount),
+        out
+    )
+}
