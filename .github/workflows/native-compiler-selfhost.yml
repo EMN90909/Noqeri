@@ -1,0 +1,59 @@
+name: Native compiler self-host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/**'
+      - 'Runtime/native/nqri_vm*'
+      - 'Runtime/native/native_compiler_host.cpp'
+      - 'scripts/bootstrap-native.sh'
+      - 'scripts/bootstrap-nqri.sh'
+      - '.github/workflows/native-compiler-selfhost.yml'
+  pull_request:
+    paths:
+      - 'Compiler/selfhost/**'
+      - 'Runtime/native/nqri_vm*'
+      - 'Runtime/native/native_compiler_host.cpp'
+      - 'scripts/bootstrap-native.sh'
+      - 'scripts/bootstrap-nqri.sh'
+      - '.github/workflows/native-compiler-selfhost.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned Stage-1 metadata
+        run: node --test tests/bootstrap_seed_pin.test.mjs
+      - name: Build bootstrap compiler and NQRI VM
+        run: |
+          cmake -S . -B build-native-bootstrap -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-native-bootstrap --target noqeri noqeri-nqri --config Release
+      - name: Prove native Stage-2 -> Stage-3 -> Stage-4
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-native-selfhost" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-native-bootstrap/noqeri-nqri" \
+          sh ./scripts/bootstrap-native.sh
+          grep -qx 'native_codegen=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_selfhost=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_stage2_runs_without_vm=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_stage3_runs_without_vm=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage2_stage3_byte_equal=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage3_stage4_byte_equal=true' build-native-selfhost/native-selfhost-proof.txt
+      - name: Upload native self-host proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-selfhost-linux-x64-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            build-native-selfhost/noqeri-stage2-native.o
+            build-native-selfhost/noqeri-stage3-native.o
+            build-native-selfhost/noqeri-stage4-native.o
+            build-native-selfhost/native-selfhost-proof.txt
