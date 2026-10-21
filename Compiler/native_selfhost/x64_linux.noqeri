@@ -1,0 +1,754 @@
+module noqeri.compiler.native_selfhost.x64_linux
+import "../selfhost/ast.noqeri"
+import "../selfhost/nir.noqeri"
+import "../selfhost/types.noqeri"
+import "asm_writer.noqeri"
+
+export function nqNativeOk(): isize { return 0 as isize }
+export function nqNativeUnsupportedTarget(): isize { return -900 as isize }
+export function nqNativeUnsupportedOpcode(): isize { return -901 as isize }
+export function nqNativeBadNir(): isize { return -902 as isize }
+export function nqNativeCapacity(): isize { return -903 as isize }
+export function nqNativeMissingEntry(): isize { return -904 as isize }
+export function nqNativeUnresolvedCall(): isize { return -905 as isize }
+export function nqNativeTooManyArguments(): isize { return -906 as isize }
+export function nqNativeUnsupportedBuiltin(): isize { return -907 as isize }
+
+function nqNativeHasFlag(flags: u32, flag: u32): bool {
+    if flag == 0 as u32 { return false }
+    return (flags / flag) % 2 as u32 == 1 as u32
+}
+
+function nqNativeAlign16(value: usize): usize {
+    if value > 9223372036854775792 as usize { return 0 as usize }
+    return ((value + 15 as usize) / 16 as usize) * 16 as usize
+}
+
+function nqNativeSpanEqual(source: []u8, start: usize, ending: usize, value: []u8): bool {
+    if start > ending || ending > len(source) || ending - start != len(value) { return false }
+    let i: usize = 0 as usize
+    while i < len(value) {
+        if source[start + i] != value[i] { return false }
+        i = i + 1 as usize
+    }
+    return true
+}
+
+function nqNativeNamePrint(source: []u8, start: usize, ending: usize): bool {
+    let value: [u8; 5] = [112 as u8,114 as u8,105 as u8,110 as u8,116 as u8]
+    return nqNativeSpanEqual(source, start, ending, slice(value))
+}
+function nqNativeNameLen(source: []u8, start: usize, ending: usize): bool {
+    let value: [u8; 3] = [108 as u8,101 as u8,110 as u8]
+    return nqNativeSpanEqual(source, start, ending, slice(value))
+}
+function nqNativeNameSlice(source: []u8, start: usize, ending: usize): bool {
+    let value: [u8; 5] = [115 as u8,108 as u8,105 as u8,99 as u8,101 as u8]
+    return nqNativeSpanEqual(source, start, ending, slice(value))
+}
+function nqNativeNameTextLength(source: []u8, start: usize, ending: usize): bool {
+    let value: [u8; 10] = [116 as u8,101 as u8,120 as u8,116 as u8,76 as u8,101 as u8,110 as u8,103 as u8,116 as u8,104 as u8]
+    return nqNativeSpanEqual(source, start, ending, slice(value))
+}
+function nqNativeNameMain(source: []u8, start: usize, ending: usize): bool {
+    let value: [u8; 4] = [109 as u8,97 as u8,105 as u8,110 as u8]
+    return nqNativeSpanEqual(source, start, ending, slice(value))
+}
+
+function nqNativeMinRegister(instructions: []NqNirInstruction, function: *NqNirFunction): isize {
+    if function == null { return 0 as isize }
+    let found: bool = false
+    let minimum: isize = 0 as isize
+    let pc: usize = function.firstInstruction
+    let ending: usize = function.firstInstruction + function.instructionCount
+    while pc < ending {
+        let instruction: *NqNirInstruction = &instructions[pc]
+        if instruction.dest >= 0 as isize && (!found || instruction.dest < minimum) { minimum = instruction.dest found = true }
+        if instruction.left >= 0 as isize && (!found || instruction.left < minimum) { minimum = instruction.left found = true }
+        if instruction.right >= 0 as isize && (!found || instruction.right < minimum) { minimum = instruction.right found = true }
+        pc = pc + 1 as usize
+    }
+    if !found { return 0 as isize }
+    return minimum
+}
+
+function nqNativeMaxRegister(instructions: []NqNirInstruction, function: *NqNirFunction): isize {
+    if function == null { return -1 as isize }
+    let maximum: isize = -1 as isize
+    let pc: usize = function.firstInstruction
+    let ending: usize = function.firstInstruction + function.instructionCount
+    while pc < ending {
+        let instruction: *NqNirInstruction = &instructions[pc]
+        if instruction.dest > maximum { maximum = instruction.dest }
+        if instruction.left > maximum { maximum = instruction.left }
+        if instruction.right > maximum { maximum = instruction.right }
+        pc = pc + 1 as usize
+    }
+    return maximum
+}
+
+function nqNativeRegisterCount(instructions: []NqNirInstruction, function: *NqNirFunction, minimum: isize): usize {
+    let maximum: isize = nqNativeMaxRegister(instructions, function)
+    if maximum < minimum || maximum < 0 as isize { return 0 as usize }
+    return (maximum - minimum + 1 as isize) as usize
+}
+
+function nqNativeUsesVariable(instruction: *NqNirInstruction): bool {
+    if instruction == null { return false }
+    return instruction.opcode == nqNirLoad() || instruction.opcode == nqNirStore() || instruction.opcode == nqNirAddr()
+}
+
+function nqNativeVariableFirst(instructions: []NqNirInstruction, function: *NqNirFunction, pc: usize, symbol: u64): bool {
+    if function == null { return false }
+    let scan: usize = function.firstInstruction
+    while scan < pc {
+        if nqNativeUsesVariable(&instructions[scan]) && instructions[scan].symbol == symbol { return false }
+        scan = scan + 1 as usize
+    }
+    return true
+}
+
+function nqNativeVariableCount(instructions: []NqNirInstruction, function: *NqNirFunction): usize {
+    if function == null { return 0 as usize }
+    let count: usize = 0 as usize
+    let pc: usize = function.firstInstruction
+    let ending: usize = function.firstInstruction + function.instructionCount
+    while pc < ending {
+        if nqNativeUsesVariable(&instructions[pc]) && nqNativeVariableFirst(instructions, function, pc, instructions[pc].symbol) { count = count + 1 as usize }
+        pc = pc + 1 as usize
+    }
+    return count
+}
+
+function nqNativeVariableIndex(instructions: []NqNirInstruction, function: *NqNirFunction, symbol: u64): isize {
+    if function == null { return -1 as isize }
+    let index: usize = 0 as usize
+    let pc: usize = function.firstInstruction
+    let ending: usize = function.firstInstruction + function.instructionCount
+    while pc < ending {
+        if nqNativeUsesVariable(&instructions[pc]) && nqNativeVariableFirst(instructions, function, pc, instructions[pc].symbol) {
+            if instructions[pc].symbol == symbol { return index as isize }
+            index = index + 1 as usize
+        }
+        pc = pc + 1 as usize
+    }
+    return -1 as isize
+}
+
+function nqNativeRegOffset(register: isize, minimum: isize): usize {
+    if register < minimum { return 0 as usize }
+    return (register - minimum + 1 as isize) as usize * 8 as usize
+}
+
+function nqNativeVarOffset(instructions: []NqNirInstruction, function: *NqNirFunction, registerCount: usize, symbol: u64): usize {
+    let index: isize = nqNativeVariableIndex(instructions, function, symbol)
+    if index < 0 as isize { return 0 as usize }
+    return (registerCount + index as usize + 1 as usize) * 8 as usize
+}
+
+function nqNativeProducerType(instructions: []NqNirInstruction, function: *NqNirFunction, register: isize): int {
+    if function == null || register < 0 as isize { return nqAstTypeUnknown() }
+    let pc: usize = function.firstInstruction
+    let ending: usize = function.firstInstruction + function.instructionCount
+    while pc < ending {
+        if instructions[pc].dest == register { return instructions[pc].typeCode }
+        pc = pc + 1 as usize
+    }
+    return nqAstTypeUnknown()
+}
+
+function nqNativeCallArgument(instructions: []NqNirInstruction, function: *NqNirFunction, callPc: usize, index: usize): isize {
+    if function == null || callPc <= function.firstInstruction { return -1 as isize }
+    let scan: usize = callPc
+    while scan > function.firstInstruction {
+        scan = scan - 1 as usize
+        if instructions[scan].opcode != nqNirCallArg() { return -1 as isize }
+        if instructions[scan].immediate == index as i64 { return instructions[scan].left }
+    }
+    return -1 as isize
+}
+
+function nqNativeFunctionIndex(functions: []NqNirFunction, symbol: u64): isize {
+    let i: usize = 0 as usize
+    while i < len(functions) {
+        if functions[i].symbol == symbol { return i as isize }
+        i = i + 1 as usize
+    }
+    return -1 as isize
+}
+
+function nqNativeFunctionLabel(out: []u8, cursor: *usize, index: usize): bool {
+    return nqa_fn_prefix(out, cursor) && nqAsmAppendUsize(out, cursor, index)
+}
+
+function nqNativeLocalLabel(out: []u8, cursor: *usize, functionIndex: usize, pc: usize): bool {
+    return nqa_local_prefix(out, cursor) && nqAsmAppendUsize(out, cursor, functionIndex) && nqa_underscore(out, cursor) && nqAsmAppendUsize(out, cursor, pc)
+}
+
+function nqNativeStringLabel(out: []u8, cursor: *usize, pc: usize): bool {
+    return nqa_str_prefix(out, cursor) && nqAsmAppendUsize(out, cursor, pc)
+}
+
+function nqNativeTrapReference(out: []u8, cursor: *usize): bool {
+    let value: [u8; 12] = [46 as u8,76 as u8,95 as u8,110 as u8,113 as u8,95 as u8,116 as u8,114 as u8,97 as u8,112 as u8,10 as u8,0 as u8]
+    return nqAsmAppend(out, cursor, slice(value, 11 as usize))
+}
+
+function nqNativeEmitTrap(out: []u8, cursor: *usize): bool {
+    let value: [u8; 21] = [46 as u8,76 as u8,95 as u8,110 as u8,113 as u8,95 as u8,116 as u8,114 as u8,97 as u8,112 as u8,58 as u8,10 as u8,32 as u8,32 as u8,32 as u8,32 as u8,117 as u8,100 as u8,50 as u8,10 as u8,0 as u8]
+    return nqAsmAppend(out, cursor, slice(value, 20 as usize))
+}
+
+function nqNativeLoadReg(out: []u8, cursor: *usize, register: isize, minimum: isize): bool {
+    if register < minimum { return false }
+    return nqa_mov_rax_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor)
+}
+
+function nqNativeLoadRegR10(out: []u8, cursor: *usize, register: isize, minimum: isize): bool {
+    if register < minimum { return false }
+    return nqa_mov_r10_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor)
+}
+
+function nqNativeStoreReg(out: []u8, cursor: *usize, register: isize, minimum: isize): bool {
+    if register < minimum { return false }
+    return nqa_mov_slot_rax(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_rax_tail(out, cursor)
+}
+
+function nqNativeStoreRegR10(out: []u8, cursor: *usize, register: isize, minimum: isize): bool {
+    if register < minimum { return false }
+    return nqa_mov_slot_rax(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_r10_tail(out, cursor)
+}
+
+function nqNativeLoadArgumentRegister(out: []u8, cursor: *usize, register: isize, minimum: isize, index: usize): bool {
+    if register < minimum { return false }
+    if index == 0 as usize { return nqa_mov_rdi_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor) }
+    if index == 1 as usize { return nqa_mov_rsi_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor) }
+    if index == 2 as usize { return nqa_mov_rdx_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor) }
+    if index == 3 as usize { return nqa_mov_rcx_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor) }
+    if index == 4 as usize { return nqa_mov_r8_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor) }
+    if index == 5 as usize { return nqa_mov_r9_slot(out, cursor) && nqAsmAppendUsize(out, cursor, nqNativeRegOffset(register, minimum)) && nqa_slot_tail(out, cursor) }
+    return false
+}
+
+function nqNativeEmitParameterSource(out: []u8, cursor: *usize, index: usize): bool {
+    if index == 0 as usize { return nqa_mov_rax_rdi(out, cursor) }
+    if index == 1 as usize { return nqa_mov_rax_rsi(out, cursor) }
+    if index == 2 as usize { return nqa_mov_rax_rdx(out, cursor) }
+    if index == 3 as usize { return nqa_mov_rax_rcx(out, cursor) }
+    if index == 4 as usize { return nqa_mov_rax_r8(out, cursor) }
+    if index == 5 as usize { return nqa_mov_rax_r9(out, cursor) }
+    return false
+}
+
+function nqNativeEmitLoadWidth(out: []u8, cursor: *usize, width: usize, typeCode: int): bool {
+    if width == 1 as usize { if nqCompilerTypeIsSigned(typeCode) { return nqa_load_i8(out, cursor) } return nqa_load_u8(out, cursor) }
+    if width == 2 as usize { if nqCompilerTypeIsSigned(typeCode) { return nqa_load_i16(out, cursor) } return nqa_load_u16(out, cursor) }
+    if width == 4 as usize { if nqCompilerTypeIsSigned(typeCode) { return nqa_load_i32(out, cursor) } return nqa_load_u32(out, cursor) }
+    if width == 8 as usize { return nqa_load_u64(out, cursor) }
+    return false
+}
+
+function nqNativeEmitStoreWidth(out: []u8, cursor: *usize, width: usize): bool {
+    if width == 1 as usize { return nqa_store_u8(out, cursor) }
+    if width == 2 as usize { return nqa_store_u16(out, cursor) }
+    if width == 4 as usize { return nqa_store_u32(out, cursor) }
+    if width == 8 as usize { return nqa_store_u64(out, cursor) }
+    return false
+}
+
+function nqNativeEmitComparison(out: []u8, cursor: *usize, opcode: int, unsignedValue: bool): bool {
+    if opcode == nqNirEq() { return nqa_sete(out, cursor) }
+    if opcode == nqNirNe() { return nqa_setne(out, cursor) }
+    if unsignedValue {
+        if opcode == nqNirLt() { return nqa_setb(out, cursor) }
+        if opcode == nqNirLe() { return nqa_setbe(out, cursor) }
+        if opcode == nqNirGt() { return nqa_seta(out, cursor) }
+        if opcode == nqNirGe() { return nqa_setae(out, cursor) }
+    } else {
+        if opcode == nqNirLt() { return nqa_setl(out, cursor) }
+        if opcode == nqNirLe() { return nqa_setle(out, cursor) }
+        if opcode == nqNirGt() { return nqa_setg(out, cursor) }
+        if opcode == nqNirGe() { return nqa_setge(out, cursor) }
+    }
+    return false
+}
+
+function nqNativeEmitFloatComparison(out: []u8, cursor: *usize, opcode: int): bool {
+    if !nqa_movq_xmm0_rax(out, cursor) || !nqa_movq_xmm1_r10(out, cursor) || !nqa_ucomisd(out, cursor) { return false }
+    if opcode == nqNirEq() { return nqa_sete(out, cursor) }
+    if opcode == nqNirNe() { return nqa_setne(out, cursor) }
+    if opcode == nqNirLt() { return nqa_setb(out, cursor) }
+    if opcode == nqNirLe() { return nqa_setbe(out, cursor) }
+    if opcode == nqNirGt() { return nqa_seta(out, cursor) }
+    if opcode == nqNirGe() { return nqa_setae(out, cursor) }
+    return false
+}
+
+function nqNativeEmitBinary(out: []u8, cursor: *usize, instruction: *NqNirInstruction, leftType: int, rightType: int): bool {
+    if instruction == null { return false }
+    let floating: bool = leftType == nqAstTypeFloat() || rightType == nqAstTypeFloat() || instruction.typeCode == nqAstTypeFloat()
+    if floating {
+        if instruction.opcode >= nqNirEq() && instruction.opcode <= nqNirGe() { return nqNativeEmitFloatComparison(out, cursor, instruction.opcode) }
+        if !nqa_movq_xmm0_rax(out, cursor) || !nqa_movq_xmm1_r10(out, cursor) { return false }
+        if instruction.opcode == nqNirAdd() { if !nqa_addsd(out, cursor) { return false } }
+        else if instruction.opcode == nqNirSub() { if !nqa_subsd(out, cursor) { return false } }
+        else if instruction.opcode == nqNirMul() { if !nqa_mulsd(out, cursor) { return false } }
+        else if instruction.opcode == nqNirDiv() { if !nqa_divsd(out, cursor) { return false } }
+        else { return false }
+        return nqa_movq_rax_xmm0(out, cursor)
+    }
+    if instruction.opcode == nqNirAdd() {
+        if !nqa_add(out, cursor) { return false }
+        if nqNativeHasFlag(instruction.flags, nqNirFlagChecked()) { return nqa_checked_trap(out, cursor) && nqNativeTrapReference(out, cursor) }
+        return true
+    }
+    if instruction.opcode == nqNirSub() {
+        if !nqa_sub(out, cursor) { return false }
+        if nqNativeHasFlag(instruction.flags, nqNirFlagChecked()) { return nqa_checked_trap(out, cursor) && nqNativeTrapReference(out, cursor) }
+        return true
+    }
+    if instruction.opcode == nqNirMul() {
+        if !nqa_mul(out, cursor) { return false }
+        if nqNativeHasFlag(instruction.flags, nqNirFlagChecked()) { return nqa_checked_trap(out, cursor) && nqNativeTrapReference(out, cursor) }
+        return true
+    }
+    if instruction.opcode == nqNirDiv() || instruction.opcode == nqNirMod() {
+        if nqCompilerTypeIsUnsigned(instruction.typeCode) {
+            if !nqa_xor_edx_div(out, cursor) { return false }
+        } else {
+            if !nqa_cqo_idiv(out, cursor) { return false }
+        }
+        if instruction.opcode == nqNirMod() { return nqa_mov_rax_rdx(out, cursor) }
+        return true
+    }
+    if instruction.opcode >= nqNirEq() && instruction.opcode <= nqNirGe() {
+        if !nqa_cmp(out, cursor) { return false }
+        return nqNativeEmitComparison(out, cursor, instruction.opcode, nqCompilerTypeIsUnsigned(leftType))
+    }
+    return false
+}
+
+function nqNativeEmitCast(out: []u8, cursor: *usize, sourceType: int, targetType: int): bool {
+    if sourceType == nqAstTypeFloat() && targetType != nqAstTypeFloat() { return nqa_cvttsd2si(out, cursor) }
+    if sourceType != nqAstTypeFloat() && targetType == nqAstTypeFloat() { return nqa_cvtsi2sd(out, cursor) }
+    if targetType == nqAstTypeU8() || targetType == nqAstTypeBool() { return nqa_and_rax(out, cursor) && nqAsmAppendUsize(out, cursor, 255 as usize) && nqa_newline(out, cursor) }
+    if targetType == nqAstTypeU16() { return nqa_and_rax(out, cursor) && nqAsmAppendUsize(out, cursor, 65535 as usize) && nqa_newline(out, cursor) }
+    if targetType == nqAstTypeU32() { return nqa_mov_eax_eax(out, cursor) }
+    if targetType == nqAstTypeI8() { return nqa_movsx_rax_al(out, cursor) }
+    if targetType == nqAstTypeI16() { return nqa_movsx_rax_ax(out, cursor) }
+    if targetType == nqAstTypeI32() { return nqa_movsxd_rax_eax(out, cursor) }
+    return true
+}
+
+function nqNativeEmitCall(out: []u8, cursor: *usize, source: []u8, instructions: []NqNirInstruction, functions: []NqNirFunction, function: *NqNirFunction, functionIndex: usize, minimum: isize, pc: usize): isize {
+    let instruction: *NqNirInstruction = &instructions[pc]
+    if instruction.width > 6 as usize { return nqNativeTooManyArguments() }
+
+    if nqNativeNamePrint(source, instruction.sourceStart, instruction.sourceEnd) {
+        if instruction.width != 1 as usize { return nqNativeUnsupportedBuiltin() }
+        let argument: isize = nqNativeCallArgument(instructions, function, pc, 0 as usize)
+        if argument < 0 as isize || !nqNativeLoadReg(out, cursor, argument, minimum) { return nqNativeBadNir() }
+        let argumentType: int = nqNativeProducerType(instructions, function, argument)
+        if argumentType == nqAstTypeString() {
+            if !nqa_print_str(out, cursor) { return nqNativeCapacity() }
+        } else {
+            if !nqa_print_int(out, cursor) { return nqNativeCapacity() }
+        }
+        if instruction.dest >= 0 as isize && !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if nqNativeNameTextLength(source, instruction.sourceStart, instruction.sourceEnd) {
+        if instruction.width != 1 as usize { return nqNativeUnsupportedBuiltin() }
+        let argument: isize = nqNativeCallArgument(instructions, function, pc, 0 as usize)
+        if argument < 0 as isize || !nqNativeLoadReg(out, cursor, argument, minimum) || !nqa_strlen(out, cursor) { return nqNativeBadNir() }
+        if instruction.dest >= 0 as isize && !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if nqNativeNameLen(source, instruction.sourceStart, instruction.sourceEnd) {
+        if instruction.width != 1 as usize { return nqNativeUnsupportedBuiltin() }
+        let argument: isize = nqNativeCallArgument(instructions, function, pc, 0 as usize)
+        if argument < 0 as isize || !nqNativeLoadReg(out, cursor, argument, minimum) { return nqNativeBadNir() }
+        let argumentType: int = nqNativeProducerType(instructions, function, argument)
+        if argumentType == nqAstTypeSlice() {
+            if !nqa_mov_rax_mem_plus8(out, cursor) { return nqNativeCapacity() }
+        } else if argumentType == nqAstTypeArray() {
+            if !nqa_mov_rax_mem_minus8(out, cursor) { return nqNativeCapacity() }
+        } else if argumentType == nqAstTypeString() {
+            if !nqa_strlen(out, cursor) { return nqNativeCapacity() }
+        } else { return nqNativeUnsupportedBuiltin() }
+        if instruction.dest >= 0 as isize && !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if nqNativeNameSlice(source, instruction.sourceStart, instruction.sourceEnd) {
+        if instruction.width < 1 as usize || instruction.width > 2 as usize { return nqNativeUnsupportedBuiltin() }
+        let first: isize = nqNativeCallArgument(instructions, function, pc, 0 as usize)
+        if first < 0 as isize || !nqNativeLoadReg(out, cursor, first, minimum) { return nqNativeBadNir() }
+        let firstType: int = nqNativeProducerType(instructions, function, first)
+        if firstType == nqAstTypeSlice() && instruction.width == 1 as usize {
+        } else {
+            if !nqa_mov_r10_rax(out, cursor) || !nqa_sub_rsp(out, cursor) || !nqAsmAppendUsize(out, cursor, 16 as usize) || !nqa_newline(out, cursor) || !nqa_mov_rax_rsp(out, cursor) { return nqNativeCapacity() }
+            if !nqa_store_u64(out, cursor) { return nqNativeCapacity() }
+            if firstType == nqAstTypeArray() && instruction.width == 1 as usize {
+                if !nqa_mov_rax_r10(out, cursor) || !nqa_mov_rax_mem_minus8(out, cursor) { return nqNativeCapacity() }
+            } else if instruction.width == 2 as usize {
+                let second: isize = nqNativeCallArgument(instructions, function, pc, 1 as usize)
+                if second < 0 as isize || !nqNativeLoadReg(out, cursor, second, minimum) { return nqNativeBadNir() }
+            } else { return nqNativeUnsupportedBuiltin() }
+            if !nqa_mov_qword_rsp8_rax(out, cursor) || !nqa_mov_rax_rsp(out, cursor) { return nqNativeCapacity() }
+        }
+        if instruction.dest >= 0 as isize && !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    let targetIndex: isize = nqNativeFunctionIndex(functions, instruction.symbol)
+    if targetIndex < 0 as isize { return nqNativeUnresolvedCall() }
+    let argIndex: usize = 0 as usize
+    while argIndex < instruction.width {
+        let argument: isize = nqNativeCallArgument(instructions, function, pc, argIndex)
+        if argument < 0 as isize || !nqNativeLoadArgumentRegister(out, cursor, argument, minimum, argIndex) { return nqNativeBadNir() }
+        argIndex = argIndex + 1 as usize
+    }
+    if !nqa_call(out, cursor) { return nqNativeCapacity() }
+    let target: *NqNirFunction = &functions[targetIndex as usize]
+    if nqNativeHasFlag(target.flags, nqAstFlagExtern()) {
+        if !nqAsmAppendSpan(out, cursor, source, target.nameStart, target.nameEnd) { return nqNativeCapacity() }
+    } else {
+        if !nqNativeFunctionLabel(out, cursor, targetIndex as usize) { return nqNativeCapacity() }
+    }
+    if !nqa_newline(out, cursor) { return nqNativeCapacity() }
+    if instruction.dest >= 0 as isize && !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+    return nqNativeOk()
+}
+
+function nqNativeEmitInstruction(out: []u8, cursor: *usize, source: []u8, instructions: []NqNirInstruction, functions: []NqNirFunction, function: *NqNirFunction, functionIndex: usize, minimum: isize, registerCount: usize, pc: usize): isize {
+    let instruction: *NqNirInstruction = &instructions[pc]
+    if !nqNativeLocalLabel(out, cursor, functionIndex, pc) || !nqa_colon_nl(out, cursor) { return nqNativeCapacity() }
+
+    if instruction.opcode == nqNirNop() || instruction.opcode == nqNirLabel() || instruction.opcode == nqNirCallArg() || instruction.opcode == nqNirOverflowCheck() { return nqNativeOk() }
+
+    if instruction.opcode == nqNirConstI64() {
+        if !nqa_mov_rax_imm(out, cursor) || !nqAsmAppendI64(out, cursor, instruction.immediate) || !nqa_newline(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirConstF64() {
+        let fp: *float = &instruction.floatImmediate
+        let bits: *i64 = fp as *i64
+        if !nqa_mov_rax_imm(out, cursor) || !nqAsmAppendI64(out, cursor, bits[0]) || !nqa_newline(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirConstString() {
+        if !nqa_lea_rax_rip(out, cursor) || !nqNativeStringLabel(out, cursor, pc) || !nqa_rip_tail(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirMove() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirLoad() {
+        let offset: usize = nqNativeVarOffset(instructions, function, registerCount, instruction.symbol)
+        if offset == 0 as usize || !nqa_mov_rax_slot(out, cursor) || !nqAsmAppendUsize(out, cursor, offset) || !nqa_slot_tail(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeBadNir() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirStore() {
+        let offset: usize = nqNativeVarOffset(instructions, function, registerCount, instruction.symbol)
+        if offset == 0 as usize || !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_mov_slot_rax(out, cursor) || !nqAsmAppendUsize(out, cursor, offset) || !nqa_slot_rax_tail(out, cursor) { return nqNativeBadNir() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirAddr() {
+        let offset: usize = nqNativeVarOffset(instructions, function, registerCount, instruction.symbol)
+        if offset == 0 as usize || !nqa_lea_rax_var(out, cursor) || !nqAsmAppendUsize(out, cursor, offset) || !nqa_slot_tail(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeBadNir() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode >= nqNirAdd() && instruction.opcode <= nqNirGe() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) { return nqNativeBadNir() }
+        let leftType: int = nqNativeProducerType(instructions, function, instruction.left)
+        let rightType: int = nqNativeProducerType(instructions, function, instruction.right)
+        if !nqNativeEmitBinary(out, cursor, instruction, leftType, rightType) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeUnsupportedOpcode() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirNeg() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeBadNir() }
+        let sourceType: int = nqNativeProducerType(instructions, function, instruction.left)
+        if sourceType == nqAstTypeFloat() {
+            if !nqa_xor_float_sign(out, cursor) { return nqNativeCapacity() }
+        } else if !nqa_neg(out, cursor) { return nqNativeCapacity() }
+        if !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirNot() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_test_sete(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirJump() {
+        if instruction.immediate < function.firstInstruction as i64 || instruction.immediate > (function.firstInstruction + function.instructionCount) as i64 { return nqNativeBadNir() }
+        if !nqa_jmp(out, cursor) || !nqNativeLocalLabel(out, cursor, functionIndex, instruction.immediate as usize) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirBranch() {
+        if instruction.immediate < function.firstInstruction as i64 || instruction.immediate > (function.firstInstruction + function.instructionCount) as i64 { return nqNativeBadNir() }
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_jz(out, cursor) || !nqNativeLocalLabel(out, cursor, functionIndex, instruction.immediate as usize) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirCall() {
+        return nqNativeEmitCall(out, cursor, source, instructions, functions, function, functionIndex, minimum, pc)
+    }
+
+    if instruction.opcode == nqNirReturn() {
+        if instruction.left >= 0 as isize {
+            if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeBadNir() }
+        } else if !nqa_xor_rax(out, cursor) { return nqNativeCapacity() }
+        if !nqa_leave_ret(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirPhi() { return nqNativeUnsupportedOpcode() }
+
+    if instruction.opcode == nqNirPtrAdd() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) { return nqNativeBadNir() }
+        if instruction.width > 1 as usize {
+            if !nqa_imul_r10(out, cursor) || !nqAsmAppendUsize(out, cursor, instruction.width) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+        }
+        if !nqa_add(out, cursor) { return nqNativeCapacity() }
+        if instruction.immediate != 0 as i64 {
+            if !nqa_add_rax_imm(out, cursor) || !nqAsmAppendI64(out, cursor, instruction.immediate) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+        }
+        if !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirStackAlloc() {
+        let allocation: usize = nqNativeAlign16(instruction.width + 8 as usize)
+        if allocation == 0 as usize || !nqa_sub_rsp(out, cursor) || !nqAsmAppendUsize(out, cursor, allocation) || !nqa_newline(out, cursor) || !nqa_mov_qword_rsp_imm(out, cursor) || !nqAsmAppendI64(out, cursor, instruction.immediate) || !nqa_newline(out, cursor) || !nqa_lea_rax_rsp8(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirLoadMemory() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeEmitLoadWidth(out, cursor, instruction.width, instruction.typeCode) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeUnsupportedOpcode() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirStoreMemory() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) || !nqNativeEmitStoreWidth(out, cursor, instruction.width) { return nqNativeUnsupportedOpcode() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirSliceData() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_load_u64(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirSliceLen() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_mov_rax_mem_plus8(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirMakeSlice() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_mov_r10_rax(out, cursor) || !nqa_sub_rsp(out, cursor) || !nqAsmAppendUsize(out, cursor, 16 as usize) || !nqa_newline(out, cursor) || !nqa_mov_rax_rsp(out, cursor) || !nqa_store_u64(out, cursor) { return nqNativeCapacity() }
+        if !nqNativeLoadReg(out, cursor, instruction.right, minimum) || !nqa_mov_qword_rsp8_rax(out, cursor) || !nqa_mov_rax_rsp(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirCast() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeBadNir() }
+        let sourceType: int = nqNativeProducerType(instructions, function, instruction.left)
+        if !nqNativeEmitCast(out, cursor, sourceType, instruction.typeCode) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeUnsupportedOpcode() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirBoundsCheck() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_cmp_zero_js(out, cursor) || !nqNativeTrapReference(out, cursor) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) || !nqa_cmp_r10_jb(out, cursor) { return nqNativeCapacity() }
+        let okPc: usize = pc
+        if !nqNativeLocalLabel(out, cursor, functionIndex, okPc) || !nqa_underscore(out, cursor) { return nqNativeCapacity() }
+        let okText: [u8; 2] = [111 as u8,107 as u8]
+        if !nqAsmAppend(out, cursor, slice(okText)) || !nqa_newline(out, cursor) || !nqa_jmp(out, cursor) || !nqNativeTrapReference(out, cursor) { return nqNativeCapacity() }
+        if !nqNativeLocalLabel(out, cursor, functionIndex, okPc) || !nqa_underscore(out, cursor) || !nqAsmAppend(out, cursor, slice(okText)) || !nqa_colon_nl(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirAtomicLoad() {
+        if !nqa_mfence(out, cursor) || !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeEmitLoadWidth(out, cursor, instruction.width, instruction.typeCode) || !nqa_mfence(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeUnsupportedOpcode() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirAtomicStore() {
+        if instruction.width != 8 as usize { return nqNativeUnsupportedOpcode() }
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) || !nqa_xchg_qword(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirAtomicExchange() {
+        if instruction.width != 8 as usize { return nqNativeUnsupportedOpcode() }
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqNativeLoadRegR10(out, cursor, instruction.right, minimum) || !nqa_xchg_qword(out, cursor) || !nqNativeStoreRegR10(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirCmpXchg() {
+        if instruction.width != 8 as usize { return nqNativeUnsupportedOpcode() }
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_mov_r11_rax(out, cursor) { return nqNativeCapacity() }
+        if !nqNativeLoadReg(out, cursor, instruction.right, minimum) { return nqNativeCapacity() }
+        let desired: isize = nqNativeCallArgument(instructions, function, pc, 2 as usize)
+        if desired < 0 as isize { return nqNativeUnsupportedOpcode() }
+        if !nqNativeLoadRegR10(out, cursor, desired, minimum) || !nqa_lock_cmpxchg_qword(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirFence() {
+        if !nqa_mfence(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirTry() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) { return nqNativeBadNir() }
+        let okText: [u8; 5] = [116 as u8,114 as u8,121 as u8,111 as u8,107 as u8]
+        let branchText: [u8; 28] = [32 as u8,32 as u8,32 as u8,32 as u8,116 as u8,101 as u8,115 as u8,116 as u8,32 as u8,114 as u8,97 as u8,120 as u8,44 as u8,32 as u8,114 as u8,97 as u8,120 as u8,10 as u8,32 as u8,32 as u8,32 as u8,32 as u8,106 as u8,110 as u8,115 as u8,32 as u8,0 as u8,0 as u8]
+        if !nqAsmAppend(out, cursor, slice(branchText, 26 as usize)) || !nqNativeLocalLabel(out, cursor, functionIndex, pc) || !nqa_underscore(out, cursor) || !nqAsmAppend(out, cursor, slice(okText)) || !nqa_newline(out, cursor) || !nqa_leave_ret(out, cursor) || !nqNativeLocalLabel(out, cursor, functionIndex, pc) || !nqa_underscore(out, cursor) || !nqAsmAppend(out, cursor, slice(okText)) || !nqa_colon_nl(out, cursor) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirThrow() {
+        if !nqNativeLoadReg(out, cursor, instruction.left, minimum) || !nqa_neg(out, cursor) || !nqa_add_rax_imm(out, cursor) || !nqAsmAppendI64(out, cursor, -1 as i64) || !nqa_newline(out, cursor) || !nqa_leave_ret(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if instruction.opcode == nqNirParameter() {
+        if instruction.immediate < 0 as i64 || instruction.immediate >= 6 as i64 || !nqNativeEmitParameterSource(out, cursor, instruction.immediate as usize) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeTooManyArguments() }
+        return nqNativeOk()
+    }
+
+    return nqNativeUnsupportedOpcode()
+}
+
+function nqNativeEmitFunction(out: []u8, cursor: *usize, source: []u8, instructions: []NqNirInstruction, functions: []NqNirFunction, functionIndex: usize): isize {
+    if functionIndex >= len(functions) { return nqNativeBadNir() }
+    let function: *NqNirFunction = &functions[functionIndex]
+    if function.firstInstruction > len(instructions) || function.instructionCount > len(instructions) - function.firstInstruction { return nqNativeBadNir() }
+
+    if nqNativeHasFlag(function.flags, nqAstFlagExtern()) {
+        let external: [u8; 9] = [10 as u8,46 as u8,101 as u8,120 as u8,116 as u8,101 as u8,114 as u8,110 as u8,32 as u8]
+        if !nqAsmAppend(out, cursor, slice(external)) || !nqAsmAppendSpan(out, cursor, source, function.nameStart, function.nameEnd) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+        return nqNativeOk()
+    }
+
+    if nqNativeHasFlag(function.flags, nqAstFlagExport()) {
+        if !nqa_global(out, cursor) || !nqAsmAppendSpan(out, cursor, source, function.nameStart, function.nameEnd) || !nqa_newline(out, cursor) || !nqAsmAppendSpan(out, cursor, source, function.nameStart, function.nameEnd) || !nqa_export_jmp(out, cursor) || !nqNativeFunctionLabel(out, cursor, functionIndex) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+    }
+
+    if !nqNativeFunctionLabel(out, cursor, functionIndex) || !nqa_colon_nl(out, cursor) || !nqa_prologue(out, cursor) { return nqNativeCapacity() }
+
+    let minimum: isize = nqNativeMinRegister(instructions, function)
+    let registerCount: usize = nqNativeRegisterCount(instructions, function, minimum)
+    let variableCount: usize = nqNativeVariableCount(instructions, function)
+    let frameBytes: usize = nqNativeAlign16((registerCount + variableCount) * 8 as usize)
+    if frameBytes > 0 as usize {
+        if !nqa_sub_rsp(out, cursor) || !nqAsmAppendUsize(out, cursor, frameBytes) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+    }
+
+    let pc: usize = function.firstInstruction
+    let ending: usize = function.firstInstruction + function.instructionCount
+    while pc < ending {
+        let status: isize = nqNativeEmitInstruction(out, cursor, source, instructions, functions, function, functionIndex, minimum, registerCount, pc)
+        if status < 0 as isize { return status }
+        pc = pc + 1 as usize
+    }
+
+    if !nqNativeLocalLabel(out, cursor, functionIndex, ending) || !nqa_colon_nl(out, cursor) || !nqa_xor_rax(out, cursor) || !nqa_leave_ret(out, cursor) { return nqNativeCapacity() }
+    return nqNativeOk()
+}
+
+function nqNativeEmitString(out: []u8, cursor: *usize, source: []u8, instruction: *NqNirInstruction, pc: usize): isize {
+    if instruction == null || instruction.sourceStart >= instruction.sourceEnd || instruction.sourceEnd > len(source) { return nqNativeBadNir() }
+    if !nqNativeStringLabel(out, cursor, pc) || !nqa_byte_directive(out, cursor) { return nqNativeCapacity() }
+    let start: usize = instruction.sourceStart
+    let ending: usize = instruction.sourceEnd
+    let i: usize = start
+    if source[i] == 34 as u8 { i = i + 1 as usize }
+    let limit: usize = ending
+    if limit > i && source[limit - 1 as usize] == 34 as u8 { limit = limit - 1 as usize }
+    let wrote: bool = false
+    while i < limit {
+        let value: u8 = source[i]
+        if value == 92 as u8 && i + 1 as usize < limit {
+            i = i + 1 as usize
+            value = source[i]
+            if value == 110 as u8 { value = 10 as u8 }
+            else if value == 114 as u8 { value = 13 as u8 }
+            else if value == 116 as u8 { value = 9 as u8 }
+            else if value == 34 as u8 { value = 34 as u8 }
+            else if value == 92 as u8 { value = 92 as u8 }
+            else {
+                if wrote && !nqa_comma_space(out, cursor) { return nqNativeCapacity() }
+                if !nqAsmAppendUsize(out, cursor, 92 as usize) { return nqNativeCapacity() }
+                wrote = true
+                if !nqa_comma_space(out, cursor) { return nqNativeCapacity() }
+            }
+        } else if wrote {
+            if !nqa_comma_space(out, cursor) { return nqNativeCapacity() }
+        }
+        if !nqAsmAppendUsize(out, cursor, value as usize) { return nqNativeCapacity() }
+        wrote = true
+        i = i + 1 as usize
+    }
+    if wrote {
+        if !nqa_zero_nl(out, cursor) { return nqNativeCapacity() }
+    } else {
+        if !nqAsmAppendUsize(out, cursor, 0 as usize) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+    }
+    return nqNativeOk()
+}
+
+function nqNativeEntryIndex(source: []u8, functions: []NqNirFunction): isize {
+    let i: usize = 0 as usize
+    while i < len(functions) {
+        if functions[i].symbol == 4294967296 as u64 { return i as isize }
+        i = i + 1 as usize
+    }
+    i = 0 as usize
+    while i < len(functions) {
+        if nqNativeNameMain(source, functions[i].nameStart, functions[i].nameEnd) { return i as isize }
+        i = i + 1 as usize
+    }
+    return -1 as isize
+}
+
+export function nqNativeEmitLinuxX64(source: []u8, functions: []NqNirFunction, instructions: []NqNirInstruction, out: []u8): isize {
+    let cursor: usize = 0 as usize
+    if !nqa_header(out, &cursor) { return nqNativeCapacity() }
+
+    let functionIndex: usize = 0 as usize
+    while functionIndex < len(functions) {
+        let status: isize = nqNativeEmitFunction(out, &cursor, source, instructions, functions, functionIndex)
+        if status < 0 as isize { return status }
+        functionIndex = functionIndex + 1 as usize
+    }
+
+    let entry: isize = nqNativeEntryIndex(source, functions)
+    if entry >= 0 as isize {
+        if !nqa_main_alias_head(out, &cursor) || !nqNativeFunctionLabel(out, &cursor, entry as usize) || !nqa_main_alias_tail(out, &cursor) { return nqNativeCapacity() }
+    }
+
+    if !nqNativeEmitTrap(out, &cursor) || !nqa_rodata(out, &cursor) || !nqa_fmt_i64(out, &cursor) { return nqNativeCapacity() }
+    let pc: usize = 0 as usize
+    while pc < len(instructions) {
+        if instructions[pc].opcode == nqNirConstString() {
+            let status: isize = nqNativeEmitString(out, &cursor, source, &instructions[pc], pc)
+            if status < 0 as isize { return status }
+        }
+        pc = pc + 1 as usize
+    }
+    return cursor as isize
+}
