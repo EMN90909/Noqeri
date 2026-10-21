@@ -26,5 +26,24 @@ jobs:
             -IInclude/noqeri -ICompiler/bootstrap tests/cpp/register_allocator_cfg_test.cpp \
             Compiler/register_alloc.cpp -o /tmp/noqeri-register-allocator
           /tmp/noqeri-register-allocator
+      - name: Configure actual native compiler with strict diagnostics
+        run: cmake -S . -B build-opt -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON
+      - name: Compile the integrated Noqeri compiler and both optimizer suites
+        run: cmake --build build-opt --config Release --target noqeri noqeri-optimizer-test noqeri-register-allocator-test --parallel 2
+      - name: Verify CMake-linked optimizer suites
+        run: ctest --test-dir build-opt -C Release --output-on-failure -R '^noqeri-(optimizer-liveness|register-allocator-cfg)
+        run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
+
+      - name: Compare real Noqeri programs under optimized vs unoptimized execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          for sample in examples/hello.noqeri tests/short_circuit.noqeri tests/loop_control.noqeri; do
+            ./build-opt/noqeri check "$sample" -O0
+            ./build-opt/noqeri check "$sample" -O3
+            ./build-opt/noqeri run "$sample" -O0 > /tmp/semantics-O0.txt
+            ./build-opt/noqeri run "$sample" -O3 > /tmp/semantics-O3.txt
+            diff -u /tmp/semantics-O0.txt /tmp/semantics-O3.txt
+          done
       - name: Existing web and package regression tests
         run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
