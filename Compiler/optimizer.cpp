@@ -680,33 +680,74 @@ OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
 void PassManager::optimize(NirProgram& p) const {
     if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
         level_ == OptimizationLevel::Oz) {
-        std::unordered_map<std::string, NirValue> candidates;
-        std::unordered_set<std::string> ambiguous;
-        for (const auto& fn : p.functions) {
-            if (fn.name.empty() || fn.isExtern || !fn.params.empty() ||
-                !fn.paramTypes.empty() || fn.code.size() != 2) continue;
-            const auto& a = fn.code[0];
-            const auto& b = fn.code[1];
-            if (a.op != NirOp::Const || !a.dest ||
-                std::holds_alternative<std::monostate>(a.literal) ||
-                b.op != NirOp::Return || b.args.size() != 1 ||
-                b.args.front() != *a.dest) continue;
-            if (!candidates.emplace(fn.name, a.literal).second)
-                ambiguous.insert(fn.name);
+        // Interprocedural constant evaluation for bounded, zero-argument,
+        // non-extern, side-effect-free function bodies. This is not general
+        // call inlining: no memory operations, exceptions, parameters, or
+        // recursive calls are evaluated at compile time.
+        std::unordered_map<std::string, unsigned> definitions;
+        for(const auto& fn:p.functions)
+            if(!fn.name.empty())++definitions[fn.name];
+        std::unordered_map<std::string,NirValue> candidates;
+        for(std::size_t round=0;round<p.functions.size();++round) {
+            bool progressed=false;
+            for(const auto& fn:p.functions) {
+                if(fn.name.empty()||definitions[fn.name]!=1||fn.isExtern||
+                   !fn.params.empty()||!fn.paramTypes.empty()||
+                   fn.code.empty()||fn.code.size()>12||
+                   candidates.count(fn.name))continue;
+                std::unordered_map<Reg,NirValue> values;
+                bool valid=true,returned=false;
+                NirValue result;
+                std::unordered_set<Reg> defs;
+                for(std::size_t pc=0;pc<fn.code.size();++pc) {
+                    const auto& in=fn.code[pc];
+                    if(in.dest&&!defs.insert(*in.dest).second){valid=false;break;}
+                    if(in.op==NirOp::Const&&in.dest&&
+                       !std::holds_alternative<std::monostate>(in.literal)) {
+                        values[*in.dest]=in.literal;
+                    }else if(in.op==NirOp::Binary&&in.dest&&in.args.size()==2) {
+                        const auto a=values.find(in.args[0]),b=values.find(in.args[1]);
+                        if(a==values.end()||b==values.end()||
+                           !std::holds_alternative<std::int64_t>(a->second)||
+                           !std::holds_alternative<std::int64_t>(b->second)||
+                           (in.text!="+"&&in.text!="-"&&in.text!="*"&&
+                            in.text!="=="&&in.text!="!="&&in.text!="<"&&
+                            in.text!="<="&&in.text!=">"&&in.text!=">=")) {
+                            valid=false;break;
+                        }
+                        auto folded=fold(in.text,a->second,b->second);
+                        if(!folded){valid=false;break;}
+                        values[*in.dest]=*folded;
+                    }else if(in.op==NirOp::Call&&in.dest&&in.args.empty()) {
+                        const auto callee=candidates.find(in.text);
+                        if(callee==candidates.end()){valid=false;break;}
+                        values[*in.dest]=callee->second;
+                    }else if(in.op==NirOp::Return&&in.args.size()==1&&
+                             pc+1==fn.code.size()) {
+                        const auto value=values.find(in.args[0]);
+                        if(value==values.end()){valid=false;break;}
+                        result=value->second;returned=true;
+                    }else {valid=false;break;}
+                }
+                if(valid&&returned){
+                    candidates.emplace(fn.name,result);
+                    progressed=true;
+                }
+            }
+            if(!progressed)break;
         }
-        for (const auto& name : ambiguous) candidates.erase(name);
-        auto inlineConstants = [&](NirFunction& fn) {
-            for (auto& in : fn.code) {
-                if (in.op != NirOp::Call || !in.dest || !in.args.empty()) continue;
-                auto found = candidates.find(in.text);
-                if (found == candidates.end()) continue;
-                in.op = NirOp::Const;
-                in.literal = found->second;
+        auto inlineConstants=[&](NirFunction& fn) {
+            for(auto& in:fn.code) {
+                if(in.op!=NirOp::Call||!in.dest||!in.args.empty())continue;
+                const auto it=candidates.find(in.text);
+                if(it==candidates.end())continue;
+                in.op=NirOp::Const;
+                in.literal=it->second;
                 in.text.clear();
             }
         };
         inlineConstants(p.entry);
-        for (auto& fn : p.functions) inlineConstants(fn);
+        for(auto& fn:p.functions)inlineConstants(fn);
     }
     pipeline(p.entry, level_);
     for (auto& fn : p.functions) pipeline(fn, level_);
