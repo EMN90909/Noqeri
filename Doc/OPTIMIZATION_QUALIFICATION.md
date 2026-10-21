@@ -19,7 +19,7 @@
 | Strength reduction | O2+ `x*0` and `x%1` for wraparound `Int/I64`, preserving precomputed operand effects | Power-of-two division lowering, induction variable arithmetic |
 | Autovectorization | Pure integer SLP feasibility analysis and target-gated pack candidates only | No vector-producing pass, SIMD IR, lowering, or executable auto-vectorization yet |
 | LTO | Pre-link `combineNirModules` concatenates effect-free imported NIR function modules with duplicate symbol / unsafe initializer rejection; bounded cross-module pure IPO can then run | No `.nqri` object IR serialization/loader, native LTO binary linker, generic symbol resolution or cross-module ABI qualification |
-| PGO | Opt-in interpreter instruction counters, fingerprint-bound NQPGO1 profile import/export, hot/cold unroll-cost selection and hard failure on stale profile | No native machine-code instrumentation, cross-run deployment CLI or production profile training/merging |
+| PGO | Opt-in interpreter instruction counters, fingerprint-bound NQPGO1 profile import/export, deterministic bounded profile merging (`Tools/profiling/merge-nqpgo.mjs`), hot/cold unroll-cost selection and hard failure on stale profile | No native machine-code instrumentation, cross-run deployment CLI or production profile training/merging |
 | Target cost models | Heuristic x86-64/ARM64 integer/branch costs now gate actual loop-unroll decisions; SIMD estimates gate SLP candidate planning; unknown targets reject vector claims | Benchmark-calibrated microarchitecture data, versioned CPU feature detection and target-specific SIMD machine code |
 
 ## Native pipeline eligibility
@@ -47,7 +47,7 @@ All passes must preserve Noqeri's source-visible side effects, overflow and trap
 ## Phase 3 runtime-bound evidence
 
 - `Compiler/lto.cpp` / `Include/noqeri/lto.hpp`: in-memory NIR module combiner with strict initializer and duplicate-function checks. This works on explicitly supplied NIR modules only, not `.nqri` object archives.
-- `Include/noqeri/pgo.hpp`: NQPGO1 interpreter counter collection and fingerprint-checked serialization; `Interpreter::setExecutionProfile` attaches counters during NIR execution. `PassManager(O3, &profile)` uses matching hot/cold evidence exclusively to adjust legal loop unrolling, never to bypass safety analysis.
+- `Include/noqeri/pgo.hpp`: NQPGO1 interpreter counter collection and fingerprint-checked serialization; `Tools/profiling/merge-nqpgo.mjs` merges up to 64 same-fingerprint profiles with saturating uint64 counters and rejects duplicate or malformed rows; `Interpreter::setExecutionProfile` attaches counters during NIR execution. `PassManager(O3, &profile)` uses matching hot/cold evidence exclusively to adjust legal loop unrolling, never to bypass safety analysis.
 - `inspectSlpPacks` reports target-cost-gated 2x integer operation packs but emits **no SIMD**. Do not equate pack discovery with vectorization.
 - `tests/cpp/optimizer_liveness_test.cpp`, `tests/cpp/lto_ir_test.cpp` and `.github/workflows/optimizer-phase3.yml` check branch exits, observable effects, pure arithmetic hoisting, scheduling, profile mismatch rejection, import validation, and actual O0/O3 program output equality.
 
