@@ -6,14 +6,14 @@ Noqeri compiler semantics live in `Compiler/selfhost/*.noqeri`: lexical analysis
 
 The default bootstrap does not generate or import a JavaScript compiler module. `scripts/build.sh` and `scripts/build.ps1` delegate to the native NQRI bootstrap and enforce one concrete acceptance chain:
 
-1. Build or locate `noqeri-nqri`, the native NQRI execution host in `Runtime/native/nqri_vm.cpp`, and the C++ Stage-0 seed compiler.
-2. Read the canonical Stage-1 SHA-256 from `Compiler/selfhost/stage1-seed.sha256` and its provenance from `Compiler/selfhost/stage1-seed.json`.
-3. Run Stage-0 `bootstrap-seed` twice against `Compiler/selfhost/main.noqeri` and reject the build unless both Stage-1 candidates are byte-for-byte identical.
-4. Hash the reproduced Stage-1 candidate and reject it unless its SHA-256 exactly matches the committed canonical pin. This check completes before the NQRI host is allowed to execute the seed.
-5. Require the verified Stage-1 seed to export `stage2CompileToNqri`.
-6. Execute Stage 1 in the native NQRI host to build `noqeri-stage2.nqri` from the deterministic source closure in `Compiler/selfhost/stage2-sources.txt`.
-7. Execute Stage 2 against the exact same source closure to build `noqeri-stage3.nqri`.
-8. Reject the bootstrap unless Stage 2 and Stage 3 are literally byte-for-byte identical. SHA-256 values are recorded as diagnostics and evidence, but hash equality alone is not the acceptance test.
+1. Build or locate `noqeri-nqri`, the native NQRI execution host in `Runtime/native/nqri_vm.cpp`.
+2. Load the committed Stage-1 compiler from `Compiler/selfhost/trusted-stage1.nqri` and its digest from `Compiler/selfhost/trusted-stage1.sha256`.
+3. Require that digest to match the canonical identity in `Compiler/selfhost/stage1-seed.sha256`, then SHA-256 the committed binary itself. Stage 1 is never executed unless all three identities agree.
+4. Require the verified Stage-1 seed to export `stage2CompileToNqri`.
+5. Execute Stage 1 in the native NQRI host to build `noqeri-stage2.nqri` from the deterministic source closure in `Compiler/selfhost/stage2-sources.txt`.
+6. Execute Stage 2 against the exact same source closure to build `noqeri-stage3.nqri`.
+7. Reject the bootstrap unless Stage 2 and Stage 3 are literally byte-for-byte identical. SHA-256 values are recorded as diagnostics and evidence, but hash equality alone is not the acceptance test.
+8. In CI, independently rebuild Stage 1 with GCC-built and Clang-built Stage-0 compilers and require both outputs to be byte-for-byte identical to the committed Stage-1 file. Stage-0 is therefore a reproducibility checker, not the default bootstrap root.
 
 The compiler export `stage2CompileToNqri` owns parse -> semantic analysis -> NIR lowering -> optimization -> validation -> NQRI serialization. The C++ host decodes and executes the stable NQRI instruction format; it does not implement the compiler frontend.
 
@@ -40,7 +40,7 @@ $env:NOQERI_STAGE1_SHA256 = "YOUR_AUDITED_64_DIGIT_SHA256"
 .\bootstrap.ps1
 ```
 
-The default path reproduces Stage 1 locally and verifies it against the repository pin. The script writes `build/native-selfhost-proof.json` only after the pin and Stage-2/Stage-3 byte-equality gates succeed.
+The default path uses the committed Stage-1 binary only after verifying its repository digest and canonical SHA-256 pin. The script writes `build/native-selfhost-proof.json` only after the pin and Stage-2/Stage-3 byte-equality gates succeed.
 
 ### Linux and macOS
 
@@ -53,7 +53,7 @@ NOQERI_STAGE1_SHA256=YOUR_AUDITED_SHA256 \
 ./bootstrap.sh
 ```
 
-A prebuilt native host can be supplied with `NOQERI_NQRI_RUNTIME`. A prebuilt Stage-0 compiler can be supplied with `NOQERI_STAGE0_CPP`. `NOQERI_TARGET` can override automatic target selection.
+A prebuilt native host can be supplied with `NOQERI_NQRI_RUNTIME`. `NOQERI_TARGET` can override automatic target selection. Stage-0 is not required for the default bootstrap; CI rebuilds it only to prove the committed seed remains reproducible.
 
 ## What the pin proves
 
@@ -65,9 +65,9 @@ This is stronger than accepting an arbitrary freshly generated Stage-1 candidate
 
 Self-hosting is accepted only when the executable chain is evidenced:
 
-- Stage-0 reproduces Stage 1 twice with byte-identical output;
-- the reproduced Stage-1 SHA-256 matches `Compiler/selfhost/stage1-seed.sha256` before Stage 1 executes;
-- the Stage-1 pin metadata passes `tests/bootstrap_seed_pin.test.mjs`;
+- `Compiler/selfhost/trusted-stage1.nqri` is committed and its bytes hash to the digest in both `trusted-stage1.sha256` and `stage1-seed.sha256` before Stage 1 executes;
+- the Stage-1 pin metadata and committed binary pass `tests/bootstrap_seed_pin.test.mjs`;
+- CI rebuilds Stage 1 with independent GCC and Clang Stage-0 builds and byte-compares both outputs to the committed seed;
 - Stage 1 builds Stage 2 from the checked compiler source closure;
 - Stage 2 rebuilds Stage 3 from that exact source closure;
 - Stage 2 and Stage 3 NQRI files are byte-for-byte identical;

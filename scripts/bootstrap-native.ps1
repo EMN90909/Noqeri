@@ -5,12 +5,14 @@ $BuildDir = if ($env:BUILD_DIR) { $env:BUILD_DIR } else { Join-Path $Root 'build
 $HostBuild = if ($env:NOQERI_HOST_BUILD) { $env:NOQERI_HOST_BUILD } else { Join-Path $BuildDir 'bootstrap-host' }
 $Runtime = $env:NOQERI_NQRI_RUNTIME
 $ExternalSeed = -not [string]::IsNullOrEmpty($env:NOQERI_STAGE1_NQRI)
-$Seed = if ($ExternalSeed) { $env:NOQERI_STAGE1_NQRI } else { Join-Path $BuildDir 'noqeri-stage1.nqri' }
-$SeedOrigin = if ($ExternalSeed) { 'externally-pinned' } else { 'repository-pinned-cpp-stage0' }
-$SeedCompiler = $env:NOQERI_STAGE0_CPP
-$PinFile = Join-Path $Root 'Compiler\selfhost\stage1-seed.sha256'
+$RepoSeed = Join-Path $Root 'Compiler\selfhost\trusted-stage1.nqri'
+$RepoPinFile = Join-Path $Root 'Compiler\selfhost\trusted-stage1.sha256'
+$CanonicalPinFile = Join-Path $Root 'Compiler\selfhost\stage1-seed.sha256'
+$Seed = if ($ExternalSeed) { $env:NOQERI_STAGE1_NQRI } else { $RepoSeed }
+$SeedOrigin = if ($ExternalSeed) { 'externally-pinned' } else { 'repository-committed' }
+$SeedCompiler = $null
 $Provenance = Join-Path $Root 'Compiler\selfhost\stage1-seed.json'
-$PinSource = if ($ExternalSeed) { 'environment' } else { $PinFile }
+$PinSource = if ($ExternalSeed) { 'environment' } else { $RepoPinFile }
 $Manifest = Join-Path $Root 'Compiler\selfhost\stage2-sources.txt'
 $Stage2 = Join-Path $BuildDir 'noqeri-stage2.nqri'
 $Stage3 = Join-Path $BuildDir 'noqeri-stage3.nqri'
@@ -93,7 +95,7 @@ if (-not $Runtime) {
     }
     & cmake -S $Root -B $HostBuild -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & cmake --build $HostBuild --target noqeri-nqri noqeri --config Release
+    & cmake --build $HostBuild --target noqeri-nqri --config Release
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     foreach ($candidate in @(
         (Join-Path $HostBuild 'noqeri-nqri.exe'),
@@ -115,60 +117,22 @@ if ($ExternalSeed) {
     }
     $Pin = $env:NOQERI_STAGE1_SHA256.ToLowerInvariant()
 } else {
-    if (-not (Test-Path -LiteralPath $PinFile -PathType Leaf) -or -not (Test-Path -LiteralPath $Provenance -PathType Leaf)) {
-        throw "Repository Stage-1 pin metadata is incomplete: require $PinFile and $Provenance"
+    if (-not (Test-Path -LiteralPath $RepoSeed -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $RepoPinFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $CanonicalPinFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $Provenance -PathType Leaf)) {
+        throw 'Repository Stage-1 seed package is incomplete; require trusted-stage1.nqri, trusted-stage1.sha256, stage1-seed.sha256 and stage1-seed.json.'
     }
-    $Pin = Read-HashPin $PinFile
-    if ($env:NOQERI_STAGE1_SHA256 -and $env:NOQERI_STAGE1_SHA256.ToLowerInvariant() -ne $Pin) {
+    $RepoPin = Read-HashPin $RepoPinFile
+    $CanonicalPin = Read-HashPin $CanonicalPinFile
+    if ($RepoPin -ne $CanonicalPin) {
+        throw "Repository Stage-1 digest and canonical pin disagree: $RepoPin != $CanonicalPin"
+    }
+    if ($env:NOQERI_STAGE1_SHA256 -and $env:NOQERI_STAGE1_SHA256.ToLowerInvariant() -ne $RepoPin) {
         throw 'NOQERI_STAGE1_SHA256 cannot override the repository pin without NOQERI_STAGE1_NQRI.'
     }
-
-    if (-not $SeedCompiler) {
-        foreach ($candidate in @(
-            (Join-Path $HostBuild 'noqeri.exe'),
-            (Join-Path $HostBuild 'Release\noqeri.exe'),
-            (Join-Path $HostBuild 'noqeri'),
-            (Join-Path $HostBuild 'Release\noqeri')
-        )) {
-            if (Test-Path $candidate) { $SeedCompiler = $candidate; break }
-        }
-    }
-    if (-not $SeedCompiler -or -not (Test-Path -LiteralPath $SeedCompiler -PathType Leaf)) {
-        if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-            throw 'cmake is required to build the C++ Stage-0 seed compiler.'
-        }
-        & cmake -S $Root -B $HostBuild -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & cmake --build $HostBuild --target noqeri noqeri-nqri --config Release
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        foreach ($candidate in @(
-            (Join-Path $HostBuild 'noqeri.exe'),
-            (Join-Path $HostBuild 'Release\noqeri.exe'),
-            (Join-Path $HostBuild 'noqeri'),
-            (Join-Path $HostBuild 'Release\noqeri')
-        )) {
-            if (Test-Path $candidate) { $SeedCompiler = $candidate; break }
-        }
-    }
-    if (-not $SeedCompiler -or -not (Test-Path -LiteralPath $SeedCompiler -PathType Leaf)) {
-        throw 'C++ Stage-0 compiler was not produced. Set NOQERI_STAGE0_CPP.'
-    }
-
-    Remove-Item -LiteralPath $Seed -ErrorAction SilentlyContinue
-    Write-Host 'Generating repository-pinned Stage-1 seed candidate with C++ Stage-0...'
-    & $SeedCompiler bootstrap-seed (Join-Path $Root 'Compiler\selfhost\main.noqeri') $Seed
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-    $Repro = Join-Path $BuildDir 'noqeri-stage1-repro.nqri'
-    try {
-        & $SeedCompiler bootstrap-seed (Join-Path $Root 'Compiler\selfhost\main.noqeri') $Repro
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        if (-not (Test-FilesByteEqual $Seed $Repro)) {
-            throw 'Stage-0 produced non-reproducible Stage-1 seed bytes.'
-        }
-    } finally {
-        Remove-Item -LiteralPath $Repro -ErrorAction SilentlyContinue
-    }
+    $Seed = $RepoSeed
+    $Pin = $RepoPin
 }
 
 $SeedHash = Get-Sha256 $Seed

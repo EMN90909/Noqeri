@@ -13,5 +13,8 @@
   "stage2_stage3_byte_equal": true,
   "gcc_clang_stage1_byte_equal": true,
   "stage1_independently_trusted": false,
-  "provenance_note": "GitHub Actions run 39585410281 reproduced this Stage-1 NQRI byte-for-byte with GCC-built and Clang-built Stage-0 compilers. The committed SHA-256 pin is the repository acceptance anchor; it is not a claim of independent external attestation."
+  "provenance_note": "GitHub Actions run 39585410281 reproduced this Stage-1 NQRI byte-for-byte with GCC-built and Clang-built Stage-0 compilers. The committed SHA-256 pin is the repository acceptance anchor; it is not a claim of independent external attestation.",
+  "seed_path": "Compiler/selfhost/trusted-stage1.nqri",
+  "seed_digest_path": "Compiler/selfhost/trusted-stage1.sha256",
+  "seed_file_committed": true
 }
