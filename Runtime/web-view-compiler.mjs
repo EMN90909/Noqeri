@@ -127,7 +127,9 @@ export function parseView(source) {
       if(accept('js')){
         const spec=take();if(spec.kind!=='str')fail('import js requires a quoted module specifier');
         const value=spec.value;
-        if(!/^(?:[a-zA-Z0-9@][a-zA-Z0-9@._/-]*|\.[./][a-zA-Z0-9._/-]+)$/.test(value)||value.includes('..')||value.includes('//')||value.startsWith('/'))fail('unsafe JavaScript module specifier');
+        const bare=/^[a-zA-Z0-9@][a-zA-Z0-9@._/-]*$/.test(value)&&!value.includes('..');
+        const local=/^(?:\.\/|\.\.\/)[a-zA-Z0-9._/-]+$/.test(value)&&!value.includes('//');
+        if(!bare&&!local)fail('unsafe JavaScript module specifier');
         need('as');imports.push({kind:'js',specifier:value,alias:ident()});
       }else{
         const namespace=ident();need('/');const pkg=ident();const alias=accept('as')?ident():pkg;
