@@ -2,6 +2,8 @@
 #include "nir.hpp"
 #include <cstddef>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace noe {
 // Explicit heuristic table; not a measurement-backed instruction scheduler.
@@ -37,4 +39,18 @@ struct OptimizationCapabilities {
     std::size_t nonEscapingStackAllocations=0;
 };
 OptimizationCapabilities inspectOptimizations(const NirFunction& fn);
+// MustAlias means the *same virtual pointer value*, not that two different
+// pointer expressions happen to have the same address. Distinct, nonescaping
+// StackAlloc roots permit NoAlias only in acyclic NIR. Everything else is May.
+enum class AliasRelation { NoAlias, MayAlias, MustAlias };
+class NirAliasAnalysis {
+public:
+    explicit NirAliasAnalysis(const NirFunction& fn);
+    AliasRelation query(Reg a, Reg b) const;
+    bool escapes(Reg pointer) const;
+private:
+    std::unordered_map<Reg,Reg> roots_;
+    std::unordered_set<Reg> escapingRoots_;
+    bool hasBackedge_=false;
+};
 } // namespace noe
