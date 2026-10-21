@@ -1,0 +1,69 @@
+module noqeri.std.noesql
+// Application-facing NoeSQL session API. Provider implementation belongs to
+// NoeSQL. Names of extern services are ABI capabilities, not a second engine.
+// This module is source-level only until the native provider is linked.
+extern function noesqlHostOpen(path: string): usize
+extern function noesqlHostClose(handle: usize): isize
+extern function noesqlHostPrepare(handle: usize, query: string): usize
+extern function noesqlHostExecute(handle: usize, statement: usize, parameters: string): isize
+extern function noesqlHostQuery(handle: usize, statement: usize, parameters: string): string
+extern function noesqlHostFinalize(handle: usize, statement: usize): isize
+extern function noesqlHostBegin(handle: usize): isize
+extern function noesqlHostCommit(handle: usize): isize
+extern function noesqlHostRollback(handle: usize): isize
+extern function noesqlHostLastError(handle: usize): string
+
+record Database {
+ handle: usize
+}
+record Statement {
+ handle: usize
+}
+export function database(path: string): Database {
+ let db: Database
+ db.handle = noesqlHostOpen(path)
+ return db
+}
+export function databaseValid(db: *Database): bool { return db.handle != 0 as usize }
+export function databaseClose(db: *Database): isize {
+ if !databaseValid(db) { return -1 as isize }
+ let code: isize = noesqlHostClose(db.handle)
+ if code == 0 as isize { db.handle = 0 as usize }
+ return code
+}
+export function databasePrepare(db: *Database, source: string): Statement {
+ let prepared: Statement
+ prepared.handle = 0 as usize
+ if databaseValid(db) { prepared.handle = noesqlHostPrepare(db.handle, source) }
+ return prepared
+}
+export function databaseExecute(db: *Database, stmt: *Statement, parameters: string): isize {
+ if !databaseValid(db) || stmt.handle == 0 as usize { return -1 as isize }
+ return noesqlHostExecute(db.handle, stmt.handle, parameters)
+}
+export function databaseQuery(db: *Database, stmt: *Statement, parameters: string): string {
+ if !databaseValid(db) || stmt.handle == 0 as usize { return "" }
+ return noesqlHostQuery(db.handle, stmt.handle, parameters)
+}
+export function databaseFinalize(db: *Database, stmt: *Statement): isize {
+ if !databaseValid(db) || stmt.handle == 0 as usize { return -1 as isize }
+ let code: isize = noesqlHostFinalize(db.handle, stmt.handle)
+ if code == 0 as isize { stmt.handle = 0 as usize }
+ return code
+}
+export function databaseBegin(db: *Database): isize {
+ if !databaseValid(db) { return -1 as isize }
+ return noesqlHostBegin(db.handle)
+}
+export function databaseCommit(db: *Database): isize {
+ if !databaseValid(db) { return -1 as isize }
+ return noesqlHostCommit(db.handle)
+}
+export function databaseRollback(db: *Database): isize {
+ if !databaseValid(db) { return -1 as isize }
+ return noesqlHostRollback(db.handle)
+}
+export function databaseError(db: *Database): string {
+ if !databaseValid(db) { return "database handle unavailable" }
+ return noesqlHostLastError(db.handle)
+}
