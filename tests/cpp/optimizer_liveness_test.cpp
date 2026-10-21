@@ -1,4 +1,5 @@
 #include "compiler.hpp"
+#include "pgo.hpp"
 #include "optimizer_cost.hpp"
 #include <cstdint>
 #include <iostream>
@@ -523,6 +524,45 @@ int main() {
         }
         if(!check(arithmetic!=99&&arithmetic<condition,
                   "LICM hoists proven wrapping integer sum"))return 1;
+    }
+    {
+        // NQPGO profiles are bound to the exact source-NIR revision. Only
+        // hotness/cost decisions depend on counters, never legality rules.
+        noe::NirProgram program;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="loop";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{1});exit.target=5;
+        auto value=withArgs(noe::NirOp::Load,{});value.dest=2;value.text="value";
+        auto store=withArgs(noe::NirOp::Store,{2});store.text="audit";
+        auto back=withArgs(noe::NirOp::Jump,{});back.target=0;
+        program.entry.code={cond,exit,value,store,back,withArgs(noe::NirOp::Return,{})};
+        noe::NirExecutionProfile cold;
+        cold.begin(program);
+        const auto text=cold.serialize();
+        const auto loaded=noe::NirExecutionProfile::parse(text,program);
+        if(!check(loaded.has_value()&&loaded->compatible(program),
+                  "PGO versioned profile round-trip"))return 1;
+        auto coldProgram=program;
+        noe::PassManager(noe::OptimizationLevel::O3,&*loaded).optimize(coldProgram);
+        int coldChecks=0;
+        for(const auto& op:coldProgram.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++coldChecks;
+        if(!check(coldChecks==1,"cold PGO keeps compact loop"))return 1;
+        noe::NirExecutionProfile hot;
+        hot.begin(program);
+        for(int n=0;n<80;++n)hot.record("@entry",0);
+        auto optimized=program;
+        noe::PassManager(noe::OptimizationLevel::O3,&hot).optimize(optimized);
+        int hotChecks=0;
+        for(const auto& op:optimized.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++hotChecks;
+        if(!check(hotChecks==2,"hot PGO selects semantics-preserving 2x unroll"))return 1;
+        program.entry.code[2].text="changed_value";
+        if(!check(!noe::NirExecutionProfile::parse(hot.serialize(),program).has_value(),
+                  "reject stale PGO profile fingerprint"))return 1;
+        bool rejected=false;
+        try{noe::PassManager(noe::OptimizationLevel::O3,&hot).optimize(program);}
+        catch(const std::invalid_argument&){rejected=true;}
+        if(!check(rejected,"optimizer refuses mismatched PGO feedback"))return 1;
     }
     return 0;
 }
