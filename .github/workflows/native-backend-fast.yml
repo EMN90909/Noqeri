@@ -39,6 +39,8 @@ jobs:
 
           "$RUNTIME" has-export Compiler/selfhost/trusted-stage1.nqri stage2CompileToNqri
           "$RUNTIME" compile-manifest Compiler/selfhost/trusted-stage1.nqri "$PWD" Compiler/native_selfhost/native-driver-sources.txt "$DRIVER" 3
+          "$RUNTIME" compile-manifest Compiler/selfhost/trusted-stage1.nqri "$PWD" Compiler/native_selfhost/native-driver-sources.txt build-fast/noqeri-native-driver.optimized.nqri 3 0 1
+          "$RUNTIME" inspect-function build-fast/noqeri-native-driver.optimized.nqri 0
           "$RUNTIME" has-export "$DRIVER" nativeCompileToAssembly
           "$RUNTIME" bundle-manifest "$PWD" Compiler/native_selfhost/native-driver-sources.txt "$MERGED"
           "$RUNTIME" native-asm "$DRIVER" "$MERGED" "$BOOTSTRAP_ASM" 3 1
