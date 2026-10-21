@@ -679,6 +679,48 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::Oz) dce(fn);
 }
 }
+// Plan independent two-lane 64-bit integer SLP candidates for targets with
+// documented 128-bit SIMD support. This reports legality opportunities only:
+// the current NIR and native backends do not lower vector operations.
+std::vector<SlpPackCandidate> inspectSlpPacks(
+    const NirFunction& fn, const TargetCostModel& target) {
+    std::vector<SlpPackCandidate> packs;
+    if(target.vectorBits<128 || target.availableIntegerRegisters<4)return packs;
+    const auto g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return packs;
+    for(const auto& i:fn.code)
+        if(i.op==NirOp::Try||i.op==NirOp::InlineAsm)return packs;
+    for(const auto& block:g.spans) {
+        for(std::size_t pc=block.first;pc+1<block.second;++pc) {
+            const auto& a=fn.code[pc],&b=fn.code[pc+1];
+            if(a.op!=NirOp::Binary||b.op!=NirOp::Binary||
+               !a.dest||!b.dest||a.args.size()!=2||b.args.size()!=2||
+               a.isVolatile||b.isVolatile||a.text!=b.text||
+               a.width!=8||b.width!=8 ||
+               (a.type.kind!=TypeKind::I64&&a.type.kind!=TypeKind::U64)||
+               b.type.kind!=a.type.kind)continue;
+            if(a.text!="+"&&a.text!="-"&&a.text!="*")continue;
+            // A legal SLP pack may not depend on its neighbor, reference
+            // the same input lane, or read its own output as an operand.
+            const auto contains=[](const std::vector<Reg>& args,Reg value) {
+                return std::find(args.begin(),args.end(),value)!=args.end();
+            };
+            if(contains(a.args,*b.dest)||contains(b.args,*a.dest)||
+               *a.dest==*b.dest)continue;
+            bool disjoint=true;
+            for(auto left:a.args)for(auto right:b.args)
+                if(left==right)disjoint=false;
+            if(!disjoint)continue;
+            const unsigned opCost=a.text=="*"?target.intMultiply:target.intAdd;
+            // A conservative heuristic: two independent scalar ops must
+            // outweigh one vector op plus two lane-setup operations.
+            if(opCost*2<=opCost+2)continue;
+            packs.push_back({pc,pc+1,a.text,64});
+            ++pc; // a register cannot be packed in overlapping pairs
+        }
+    }
+    return packs;
+}
 NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
     const auto cfg=graphOf(fn);
     if(!cfg.uniqueDefs||!cfg.validDominance)return;
