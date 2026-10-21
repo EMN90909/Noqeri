@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, lstat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -25,7 +25,8 @@ async function files(root) {
     for (const name of (await readdir(dir)).sort()) {
       if (['checksums.txt','checksums.txt.asc','release-manifest.json','sbom.cdx.json'].includes(name) && dir === root) continue
       const path = join(dir, name)
-      const info = await stat(path)
+      const info = await lstat(path)
+      if (info.isSymbolicLink()) throw new Error('release inputs must not contain symlinks: '+path)
       if (info.isDirectory()) await walk(path)
       else if (info.isFile()) out.push(path)
     }
@@ -44,17 +45,24 @@ if (!artifacts.length) {
   process.exit(2)
 }
 
-const required = [
-  { id:'windows-x86_64', tests:[/windows[-_.](x86_64|amd64)/i, /(x86_64|amd64)[-_.]windows/i] },
-  { id:'linux-x86_64', tests:[/linux[-_.](x86_64|amd64)/i, /(x86_64|amd64)[-_.]linux/i] },
-  { id:'linux-arm64', tests:[/linux[-_.](arm64|aarch64)/i, /(arm64|aarch64)[-_.]linux/i] },
-  { id:'macos-x86_64', tests:[/(macos|darwin)[-_.](x86_64|amd64)/i, /(x86_64|amd64)[-_.](macos|darwin)/i] },
-  { id:'macos-arm64', tests:[/(macos|darwin)[-_.](arm64|aarch64)/i, /(arm64|aarch64)[-_.](macos|darwin)/i] }
-]
-const platformMatrix = required.map(item => ({ id:item.id, present: artifacts.some(a => item.tests.some(re => re.test(a.path))) }))
-if (verifyMatrix && platformMatrix.some(x => !x.present)) {
-  console.error(`release-evidence: platform matrix incomplete: ${platformMatrix.filter(x => !x.present).map(x => x.id).join(', ')}`)
-  process.exit(1)
+const supportPolicy=JSON.parse(await readFile(new URL('../../release/platforms-v1.json',import.meta.url),'utf8'))
+if(supportPolicy.version!==version||!Array.isArray(supportPolicy.platforms))throw new Error('release policy version mismatch')
+const alternatives = {
+ 'windows-x86_64':[/windows[-_.](x86_64|amd64)/i,/(x86_64|amd64)[-_.]windows/i],
+ 'windows-arm64':[/windows[-_.](arm64|aarch64)/i,/(arm64|aarch64)[-_.]windows/i],
+ 'linux-x86_64':[/linux[-_.](x86_64|amd64)/i,/(x86_64|amd64)[-_.]linux/i],
+ 'linux-arm64':[/linux[-_.](arm64|aarch64)/i,/(arm64|aarch64)[-_.]linux/i],
+ 'macos-x86_64':[/(macos|darwin)[-_.](x86_64|amd64)/i,/(x86_64|amd64)[-_.](macos|darwin)/i],
+ 'macos-arm64':[/(macos|darwin)[-_.](arm64|aarch64)/i,/(arm64|aarch64)[-_.](macos|darwin)/i]
+}
+const platformMatrix=supportPolicy.platforms.map(item=>({
+ id:item.id,release_required:item.release_required===true,tier:item.tier,
+ present:artifacts.some(a=>(alternatives[item.id]||[]).some(re=>re.test(a.path)))
+}))
+if (platformMatrix.some(p=>!(p.id in alternatives)))throw new Error('unknown platform in policy')
+if (verifyMatrix && platformMatrix.some(x=>x.release_required&&!x.present)) {
+ console.error('release-evidence: required artifact matrix incomplete: '+platformMatrix.filter(x=>x.release_required&&!x.present).map(x=>x.id).join(', '))
+ process.exit(1)
 }
 
 const checksums = artifacts.map(a => `${a.sha256}  ${a.path}`).join('\n') + '\n'
@@ -73,7 +81,7 @@ const manifest = {
   schema:1, version, generated_at:timestamp, source_revision:process.env.NOQERI_SOURCE_REVISION || null,
   source_date_epoch:process.env.SOURCE_DATE_EPOCH || null, artifacts, platform_matrix:platformMatrix,
   checksums:'checksums.txt', sbom:'sbom.cdx.json', signature: sign ? 'checksums.txt.asc' : null,
-  note:'Manifest records artifact evidence. A null source_revision or unsigned manifest is not release-complete evidence.'
+  note:'Artifact presence is not runtime qualification. Complete release requires signed manifest, trusted bootstrap, actual platform tests and NoeSQL ecosystem E2E.'
 }
 await writeFile(join(artifactDir, 'release-manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 if (sign) {
