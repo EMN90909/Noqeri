@@ -8,8 +8,8 @@ while i < 256 as usize {
     c[i] = 0
     i = i + 1 as usize
 }
-let repeat: usize = 0 as usize
-while repeat < 20 as usize {
+let pass: usize = 0 as usize
+while pass < 20 as usize {
     let row: usize = 0 as usize
     while row < 16 as usize {
         let col: usize = 0 as usize
@@ -25,7 +25,7 @@ while repeat < 20 as usize {
         }
         row = row + 1 as usize
     }
-    repeat = repeat + 1 as usize
+    pass = pass + 1 as usize
 }
 print(c[0])
 print(c[255])
