@@ -1,5 +1,7 @@
 #include "noe.hpp"
 #include "optimizer_cost.hpp"
+#include "pgo.hpp"
+#include <stdexcept>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -654,7 +656,7 @@ bool unrollStructuredLoop2x(NirFunction& fn) {
     }
     return false;
 }
-void pipeline(NirFunction& fn, OptimizationLevel level) {
+void pipeline(NirFunction& fn, OptimizationLevel level, bool allowLoopUnroll=true) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
     // first (temporarily unused) producer. Pass order is observable here.
@@ -690,7 +692,7 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     if(level==OptimizationLevel::O3) scheduleIntegerDag(fn);
     // Late unrolling preserves each condition evaluation and all observable
     // effects; no earlier SSA-only pass is rerun on the replicated registers.
-    if(level==OptimizationLevel::O3) unrollStructuredLoop2x(fn);
+    if(level==OptimizationLevel::O3&&allowLoopUnroll) unrollStructuredLoop2x(fn);
     if (level == OptimizationLevel::Oz) dce(fn);
 }
 }
@@ -822,6 +824,14 @@ OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
 // zero-argument function consisting of one constant and its return.
 // It must never convert a potentially throwing or effectful call.
 void PassManager::optimize(NirProgram& p) const {
+    // Checked profile feedback changes ONLY the unroll size heuristic.
+    // Optimizer legality remains entirely independent of execution counts.
+    if(profile_&&!profile_->compatible(p))
+        throw std::invalid_argument("NQPGO1 profile does not match NIR revision");
+    const bool unrollEntry=!profile_||profile_->executions(p.entry)>=64;
+    std::vector<bool> unrollFunctions;
+    for(const auto& fn:p.functions)
+        unrollFunctions.push_back(!profile_||profile_->executions(fn)>=64);
     if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
         level_ == OptimizationLevel::Oz) {
         // Interprocedural constant evaluation for bounded, zero-argument,
@@ -893,7 +903,8 @@ void PassManager::optimize(NirProgram& p) const {
         inlineConstants(p.entry);
         for(auto& fn:p.functions)inlineConstants(fn);
     }
-    pipeline(p.entry, level_);
-    for (auto& fn : p.functions) pipeline(fn, level_);
+    pipeline(p.entry, level_, unrollEntry);
+    for (std::size_t i=0;i<p.functions.size();++i)
+        pipeline(p.functions[i], level_, unrollFunctions[i]);
 }
 void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
