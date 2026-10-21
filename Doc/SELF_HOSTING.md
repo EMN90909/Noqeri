@@ -34,6 +34,22 @@ Full self-hosting is reached only when all are true:
 
 The repository must not claim this gate passed until an actual Noqeri compiler binary executes these steps. In addition, a locally reproducible seed, a caller-supplied SHA-256 pin and Stage-2/Stage-3 equivalence alone do not independently attest Stage-1 trust. No independently attested Stage-1 seed is committed yet. Source ownership and architecture can move ahead of the bootstrap proof; documentation cannot substitute for that proof.
 
+## Native-code self-host gate
+
+NQRI self-reproduction and native-code self-hosting are separate claims. The current pinned Stage-1 -> Stage-2 -> Stage-3 chain produces `.nqri` and executes it through `noqeri-nqri`. Its proof therefore records `execution_model=nqri-vm`, `native_codegen=false`, and `native_selfhost=false`.
+
+A native-code self-host claim requires all of these additional facts:
+
+1. the Noqeri-written backend lowers the complete compiler NIR into target machine instructions;
+2. the Noqeri-written object writer emits complete sections, symbols and relocations for the compiler artifact;
+3. Stage 1 produces a native Stage-2 compiler executable or equivalent native library artifact;
+4. Stage 2 runs without `noqeri-nqri` and rebuilds the compiler into native Stage 3;
+5. Stage-2 and Stage-3 native outputs satisfy reproducible byte equality or a documented semantic-equivalence rule for platform metadata;
+6. native ABI, linker, relocation, object validation and compiler conformance suites pass on every claimed target;
+7. the proof record can truthfully set `native_codegen=true` and `native_selfhost=true`.
+
+Until those gates pass, `scripts/bootstrap-native.*` must fail closed. The Stage-0 C++ AOT backend may still be used to measure standalone native program execution, but those measurements must record `self_hosted_compiler=false` and are not proof of a native self-hosted compiler.
+
 ## Strict local verifier
 
 The verifier is intentionally fail-closed:
