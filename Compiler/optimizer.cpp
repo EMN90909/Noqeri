@@ -1,4 +1,10 @@
 #include "noe.hpp"
+#include "optimizer_cost.hpp"
+#include <algorithm>
+#include <map>
+#include <set>
+#include <string>
+#include <utility>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -167,6 +173,274 @@ bool foldBranches(NirFunction&fn) {
     }
     return changed;
 }
+
+// The current NIR has a linear instruction stream and jump offsets; it does
+// not have Phi nodes. Require single-assignment virtual registers and genuine
+// dominance before doing cross-block propagation. This is *not* general SSA
+// conversion for mutable source variables (Load/Store remain effectful).
+struct Graph {
+    std::vector<std::pair<std::size_t,std::size_t>> spans;
+    std::vector<std::size_t> owner;
+    std::vector<std::vector<std::size_t>> edges, preds;
+    std::vector<std::vector<bool>> dominates;
+    std::vector<bool> reachable;
+    bool uniqueDefs=true, validDominance=true;
+    std::unordered_map<Reg,std::size_t> definitions;
+};
+Graph graphOf(const NirFunction& fn) {
+    Graph g;
+    const std::size_t n=fn.code.size();
+    if(n==0)return g;
+    std::set<std::size_t> leaders{0};
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& i=fn.code[pc];
+        if((i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)&&i.target<n)leaders.insert(i.target);
+        if((i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse||i.op==NirOp::Return||i.op==NirOp::Throw)&&pc+1<n)leaders.insert(pc+1);
+    }
+    const std::vector<std::size_t> starts(leaders.begin(),leaders.end());
+    g.owner.resize(n);
+    for(std::size_t k=0;k<starts.size();++k){
+        const std::size_t end=k+1<starts.size()?starts[k+1]:n;
+        g.spans.push_back({starts[k],end});
+        for(std::size_t pc=starts[k];pc<end;++pc)g.owner[pc]=k;
+    }
+    const std::size_t nb=g.spans.size();
+    g.edges.resize(nb);g.preds.resize(nb);g.reachable.assign(nb,false);
+    for(std::size_t b=0;b<nb;++b) {
+        auto add=[&](std::size_t target) {
+            if(target>=n)return;
+            const std::size_t id=g.owner[target];
+            if(std::find(g.edges[b].begin(),g.edges[b].end(),id)==g.edges[b].end()){
+                g.edges[b].push_back(id);
+                g.preds[id].push_back(b);
+            }
+        };
+        const auto& tail=fn.code[g.spans[b].second-1];
+        if(tail.op==NirOp::Jump){add(tail.target);continue;}
+        if(tail.op==NirOp::JumpIfFalse){add(tail.target);add(g.spans[b].second);continue;}
+        if(tail.op!=NirOp::Return&&tail.op!=NirOp::Throw)add(g.spans[b].second);
+    }
+    std::vector<std::size_t> work{0};
+    while(!work.empty()){
+        const auto b=work.back();work.pop_back();
+        if(g.reachable[b])continue;
+        g.reachable[b]=true;
+        for(const auto succ:g.edges[b])work.push_back(succ);
+    }
+    g.dominates.assign(nb,std::vector<bool>(nb,true));
+    for(std::size_t b=0;b<nb;++b){
+        if(b==0||!g.reachable[b]){
+            std::fill(g.dominates[b].begin(),g.dominates[b].end(),false);
+            g.dominates[b][b]=true;
+        }
+    }
+    bool updated=true;
+    while(updated){
+        updated=false;
+        for(std::size_t b=1;b<nb;++b){
+            if(!g.reachable[b])continue;
+            std::vector<bool> next(nb,true);bool found=false;
+            for(auto predecessor:g.preds[b]){
+                if(!g.reachable[predecessor])continue;
+                found=true;
+                for(std::size_t other=0;other<nb;++other)
+                    next[other]=next[other]&&g.dominates[predecessor][other];
+            }
+            if(!found)std::fill(next.begin(),next.end(),false);
+            next[b]=true;
+            if(next!=g.dominates[b]){g.dominates[b]=std::move(next);updated=true;}
+        }
+    }
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.dest&&!g.definitions.emplace(*in.dest,pc).second)g.uniqueDefs=false;
+    }
+    if(g.uniqueDefs){
+        for(std::size_t pc=0;pc<n;++pc){
+            if(!g.reachable[g.owner[pc]])continue;
+            for(const auto arg:fn.code[pc].args){
+                auto it=g.definitions.find(arg);
+                if(it==g.definitions.end())continue; // function parameters / external values
+                const auto def=it->second;
+                if(def==pc || (g.owner[def]==g.owner[pc] ? def>pc :
+                    !g.dominates[g.owner[pc]][g.owner[def]])){
+                    g.validDominance=false;break;
+                }
+            }
+            if(!g.validDominance)break;
+        }
+    }
+    return g;
+}
+bool safeIntResult(const NirInstruction& i) {
+    // No CSE for floats (NaNs, signed zero), pointers, volatile loads or
+    // operations that might trap on a changed evaluation schedule.
+    switch(i.type.kind) {
+      case TypeKind::Int:case TypeKind::I8:case TypeKind::I16:
+      case TypeKind::I32:case TypeKind::I64:case TypeKind::U8:
+      case TypeKind::U16:case TypeKind::U32:case TypeKind::U64:
+      case TypeKind::Isize:case TypeKind::Usize:return true;
+      default:return false;
+    }
+}
+// SCCP-style proof of constant SSA temporaries with CFG-reachability pruning.
+// The absence of Phi is explicitly guarded by dominance/uniqueness. Unknown
+// operands remain unknown, so no path is removed speculatively.
+bool sparseConstants(NirFunction& fn) {
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    std::unordered_map<Reg,NirValue> facts;
+    bool progress=true;
+    for(std::size_t step=0;step<fn.code.size()&&progress;++step){
+        progress=false;
+        for(const auto& i:fn.code){
+            if(!i.dest||facts.count(*i.dest))continue;
+            std::optional<NirValue> value;
+            if(i.op==NirOp::Const&&!std::holds_alternative<std::monostate>(i.literal))value=i.literal;
+            if(i.op==NirOp::Binary&&i.args.size()==2){
+                const auto a=facts.find(i.args[0]),b=facts.find(i.args[1]);
+                if(a!=facts.end()&&b!=facts.end())value=fold(i.text,a->second,b->second);
+            }
+            if(value){facts.emplace(*i.dest,*value);progress=true;}
+        }
+    }
+    bool changed=false;
+    for(auto& in:fn.code){
+        if(in.dest&&(in.op==NirOp::Binary||in.op==NirOp::Unary)){
+            auto it=facts.find(*in.dest);
+            if(it!=facts.end()&&in.op==NirOp::Binary){
+                in.op=NirOp::Const;in.literal=it->second;in.args.clear();in.text.clear();changed=true;
+            }
+        }
+        if(in.op==NirOp::JumpIfFalse&&in.args.size()==1){
+            const auto it=facts.find(in.args.front());
+            if(it!=facts.end()){
+                if(const auto cond=std::get_if<bool>(&it->second)){
+                    in.op=*cond?NirOp::Nop:NirOp::Jump;
+                    in.args.clear();changed=true;
+                }
+            }
+        }
+    }
+    return changed;
+}
+// Local GVN: only integer arithmetic, and only when the duplicate has no use
+// outside the current straight-line basic block. This avoids the need for a
+// new Move instruction or cross-branch alias substitution.
+bool localGvn(NirFunction& fn) {
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    bool changed=false;
+    for(const auto& span:g.spans){
+        std::map<std::string,Reg> expressions;
+        for(std::size_t pc=span.first;pc<span.second;++pc){
+            auto& in=fn.code[pc];
+            if(!in.dest||in.op!=NirOp::Binary||in.args.size()!=2||!safeIntResult(in)||
+               (in.text!="+"&&in.text!="-"&&in.text!="*"&&in.text!="%"))continue;
+            Reg a=in.args[0],b=in.args[1];
+            if((in.text=="+"||in.text=="*")&&b<a)std::swap(a,b);
+            const auto key=in.text+":"+std::to_string(static_cast<int>(in.type.kind))+":"+
+                           std::to_string(a)+":"+std::to_string(b);
+            const auto found=expressions.find(key);
+            if(found==expressions.end()){expressions.emplace(key,*in.dest);continue;}
+            const Reg redundant=*in.dest,canonical=found->second;
+            bool outside=false;
+            for(std::size_t later=span.second;later<fn.code.size()&&!outside;++later)
+                for(const auto arg:fn.code[later].args)if(arg==redundant){outside=true;break;}
+            if(outside)continue;
+            for(std::size_t later=pc+1;later<span.second;++later)
+                for(auto& arg:fn.code[later].args)if(arg==redundant)arg=canonical;
+            in.op=NirOp::Nop;in.dest.reset();in.args.clear();changed=true;
+        }
+    }
+    return changed;
+}
+// Integer identities preserve wraparound semantics and never remove the
+// evaluation of operand instructions (which remain in the NIR).
+bool integerStrengthReduction(NirFunction&fn) {
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    std::unordered_map<Reg,std::int64_t> values;
+    for(const auto& i:fn.code)if(i.op==NirOp::Const&&i.dest)
+        if(const auto p=std::get_if<std::int64_t>(&i.literal))values[*i.dest]=*p;
+    bool changed=false;
+    for(auto& in:fn.code){
+        if(!in.dest||in.op!=NirOp::Binary||in.args.size()!=2||!safeIntResult(in))continue;
+        const auto left=values.find(in.args[0]),right=values.find(in.args[1]);
+        const bool l0=left!=values.end()&&left->second==0;
+        const bool r0=right!=values.end()&&right->second==0;
+        const bool r1=right!=values.end()&&right->second==1;
+        const bool l1=left!=values.end()&&left->second==1;
+        const bool knownZero=(in.text=="*"&&(l0||r0))||
+                             (in.text=="%"&&r1);
+        if(!knownZero)continue;
+        // Avoid rewriting instructions that might have typed checked
+        // arithmetic semantics different from our wraparound i64 fold.
+        if(in.type.kind!=TypeKind::Int&&in.type.kind!=TypeKind::I64)continue;
+        in.op=NirOp::Const;in.literal=std::int64_t{0};
+        in.args.clear();in.text.clear();changed=true;
+    }
+    return changed;
+}
+// LICM for a single-entry *structured* natural loop. Only hoists Const,
+// which cannot trap, allocate, alias or change numerical behavior. Any branch
+// inside the body, exceptional operation or external entry blocks movement.
+bool hoistLoopLiteral(NirFunction& fn) {
+    const std::size_t n=fn.code.size();
+    if(n<5)return false;
+    for(std::size_t back=0;back<n;++back){
+        if(fn.code[back].op!=NirOp::Jump||fn.code[back].target>=back)continue;
+        const std::size_t header=fn.code[back].target;
+        bool external=false;
+        for(std::size_t k=0;k<n;++k){
+            const auto& i=fn.code[k];
+            if(i.op==NirOp::Try||i.op==NirOp::InlineAsm)return false;
+            if(k>=header&&k<=back)continue;
+            if((i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)&&i.target==header)external=true;
+        }
+        if(external)continue;
+        std::size_t branch=n;bool structured=true;
+        for(std::size_t k=header;k<back;++k){
+            const auto& in=fn.code[k];
+            if(in.op==NirOp::JumpIfFalse){
+                if(branch!=n||in.target<=back){structured=false;break;}
+                branch=k;continue;
+            }
+            if(in.op==NirOp::Jump||in.op==NirOp::Return||in.op==NirOp::Throw){
+                structured=false;break;
+            }
+        }
+        if(!structured||branch==n)continue;
+        for(std::size_t candidate=branch+1;candidate<back;++candidate){
+            const auto& instruction=fn.code[candidate];
+            if(instruction.op!=NirOp::Const||!instruction.dest)continue;
+            const auto reg=*instruction.dest;
+            bool outside=false;
+            for(std::size_t k=0;k<n&&!outside;++k)
+                if(k<header||k>back)for(Reg arg:fn.code[k].args)
+                    if(arg==reg){outside=true;break;}
+            if(outside)continue;
+            const auto saved=instruction;
+            fn.code[candidate].op=NirOp::Nop;
+            fn.code[candidate].dest.reset();
+            fn.code[candidate].args.clear();
+            fn.code.insert(fn.code.begin()+static_cast<std::ptrdiff_t>(header),saved);
+            // The backedge must bypass the new preheader constant, but the
+            // initial fallthrough executes it once.
+            for(std::size_t k=0;k<fn.code.size();++k){
+                auto& in=fn.code[k];
+                if(in.op!=NirOp::Jump&&in.op!=NirOp::JumpIfFalse)continue;
+                const std::size_t oldTarget=in.target;
+                if(oldTarget>=header){
+                    if(oldTarget==header&&k>header&&k<=back+1)in.target=header+1;
+                    else in.target=oldTarget+1;
+                }
+            }
+            return true;
+        }
+    }
+    return false;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     const int rounds = level == OptimizationLevel::O3 ? 3 :
@@ -180,15 +454,63 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O2 || level == OptimizationLevel::O3 ||
         level == OptimizationLevel::Oz) {
         for (int iteration = 0; iteration < 3; ++iteration) {
-            const bool a = foldBranches(fn);
-            const bool b = unreachable(fn);
-            const bool c = constants(fn);
-            const bool d = dce(fn);
-            if (!a && !b && !c && !d) break;
+            const bool a = sparseConstants(fn);
+            const bool b = foldBranches(fn);
+            const bool c = unreachable(fn);
+            const bool d = localGvn(fn);
+            const bool e = integerStrengthReduction(fn);
+            const bool f = constants(fn);
+            const bool g = dce(fn);
+            if (!a && !b && !c && !d && !e && !f && !g) break;
         }
+    }
+    if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
+        // Hoisting changes jump indices: the existing branch compaction pass
+        // rechecks all targets and dead definitions after transformation.
+        dce(fn);
     }
     if (level == OptimizationLevel::Oz) dce(fn);
 }
+}
+// Read-only optimizer readiness evidence: candidate counts never claim a pass
+// actually vectorized, removed an allocation or changed a target schedule.
+OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
+    const Graph g=graphOf(fn); OptimizationCapabilities out;
+    out.uniqueVirtualRegisterDefinitions=g.uniqueDefs;
+    out.allDefinitionsDominateUses=g.validDominance&&g.uniqueDefs;
+    out.basicBlocks=g.spans.size();
+    for(std::size_t b=0;b<g.edges.size();++b)
+        for(std::size_t succ:g.edges[b])if(succ<=b&&g.dominates[b][succ])
+            ++out.naturalBackedges;
+    std::unordered_set<Reg> pointerRoots;
+    for(const auto& i:fn.code)if(i.op==NirOp::StackAlloc&&i.dest)pointerRoots.insert(*i.dest);
+    // Conservative escape analysis: only direct stack addresses that never
+    // participate in unknown use sites count as nonescaping candidates.
+    for(const auto root:pointerRoots){
+        bool escapes=false;
+        for(const auto& i:fn.code)for(std::size_t a=0;a<i.args.size();++a){
+            if(i.args[a]!=root)continue;
+            if((i.op==NirOp::LoadMemory||i.op==NirOp::CheckNonNull)&&a==0)continue;
+            if(i.op==NirOp::StoreMemory&&a==0)continue;
+            escapes=true;
+        }
+        if(!escapes)++out.nonEscapingStackAllocations;
+    }
+    for(const auto& i:fn.code){
+        if(i.op==NirOp::Binary && safeIntResult(i) && (i.text=="+"||i.text=="*"))
+            ++out.candidateVectorOperations;
+        if(i.op==NirOp::Const&&i.dest){
+            for(std::size_t pc=0;pc<fn.code.size();++pc) {
+                const auto& tail=fn.code[pc];
+                if(tail.op==NirOp::Jump&&tail.target<pc){
+                    if(i.dest && pc>tail.target && pc<fn.code.size())
+                        if((&i>=&fn.code[tail.target])&&(&i<&fn.code[pc]))
+                            ++out.candidateLoopConstants;
+                }
+            }
+        }
+    }
+    return out;
 }
 // This deliberately narrow inliner substitutes *only* a side-effect-free,
 // zero-argument function consisting of one constant and its return.
