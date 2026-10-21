@@ -1,0 +1,83 @@
+name: Pin canonical Stage-1 NQRI seed
+
+on:
+  push:
+    branches: ['compiler/pin-stage1-a5b308be']
+    paths:
+      - '.github/workflows/pin-canonical-stage1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  pin-stage1:
+    if: github.repository == 'EMN90909/Noqeri' && github.ref == 'refs/heads/compiler/pin-stage1-a5b308be'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Build Stage-0 and native NQRI host
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-pin -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-pin --target noqeri noqeri-nqri noqeri-optimizer-test --parallel 2 --config Release
+          ctest --test-dir build-pin --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)$'
+          node --test tests/bootstrap_seed_pin.test.mjs
+
+      - name: Reproduce canonical Stage-1 twice and verify pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
+          ./build-pin/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-pin/noqeri-stage1-a.nqri
+          ./build-pin/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-pin/noqeri-stage1-b.nqri
+          cmp build-pin/noqeri-stage1-a.nqri build-pin/noqeri-stage1-b.nqri
+          actual=$(sha256sum build-pin/noqeri-stage1-a.nqri | cut -d' ' -f1)
+          test "$actual" = "$expected"
+          ./build-pin/noqeri-nqri has-export build-pin/noqeri-stage1-a.nqri stage2CompileToNqri
+          sha256sum build-pin/noqeri-stage1-a.nqri
+
+      - name: Require Stage-2 and Stage-3 byte-for-byte equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
+          BUILD_DIR="$PWD/build-proof" \
+          NOQERI_STAGE1_NQRI="$PWD/build-pin/noqeri-stage1-a.nqri" \
+          NOQERI_STAGE1_SHA256="$expected" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-pin/noqeri-nqri" \
+          sh ./scripts/bootstrap-native.sh
+          cmp build-proof/noqeri-stage2.nqri build-proof/noqeri-stage3.nqri
+          grep -qx 'stage1_pin_verified=true' build-proof/native-selfhost-proof.txt
+          grep -qx 'byte_equal=true' build-proof/native-selfhost-proof.txt
+          grep -qx 'equivalent=true' build-proof/native-selfhost-proof.txt
+          sha256sum build-proof/noqeri-stage2.nqri build-proof/noqeri-stage3.nqri
+
+      - name: Commit canonical seed and retire one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
+          cp build-pin/noqeri-stage1-a.nqri Compiler/selfhost/trusted-stage1.nqri
+          printf '%s  %s\n' "$expected" 'Compiler/selfhost/trusted-stage1.nqri' > Compiler/selfhost/trusted-stage1.sha256
+          sha256sum --check Compiler/selfhost/trusted-stage1.sha256
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('Compiler/selfhost/stage1-seed.json')
+          data = json.loads(path.read_text())
+          data['seed_path'] = 'Compiler/selfhost/trusted-stage1.nqri'
+          data['seed_digest_path'] = 'Compiler/selfhost/trusted-stage1.sha256'
+          data['seed_file_committed'] = True
+          path.write_text(json.dumps(data, indent=2) + '\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Compiler/selfhost/trusted-stage1.nqri Compiler/selfhost/trusted-stage1.sha256 Compiler/selfhost/stage1-seed.json
+          git rm .github/workflows/pin-canonical-stage1.yml
+          git commit -m 'Commit canonical Stage-1 NQRI seed'
+          git push origin HEAD:refs/heads/compiler/pin-stage1-a5b308be
