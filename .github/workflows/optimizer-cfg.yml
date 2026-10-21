@@ -1,0 +1,19 @@
+name: Optimizer control-flow qualification
+on:
+  push:
+    branches: [integration/ecosystem-v1]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  native-optimizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile optimizer with strict C++17 diagnostics
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Wno-misleading-indentation -IInclude/noqeri -ICompiler/bootstrap tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp -o /tmp/noqeri-optimizer-cfg
+      - name: Exercise CFG, DCE and branch-fold regression
+        run: /tmp/noqeri-optimizer-cfg
