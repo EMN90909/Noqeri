@@ -5,15 +5,17 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 HOST_BUILD="${NOQERI_HOST_BUILD:-$BUILD_DIR/bootstrap-host}"
 RUNTIME="${NOQERI_NQRI_RUNTIME:-}"
-SEED="${NOQERI_STAGE1_NQRI:-$BUILD_DIR/noqeri-stage1.nqri}"
+REPO_SEED="$ROOT/Compiler/selfhost/trusted-stage1.nqri"
+REPO_PIN_FILE="$ROOT/Compiler/selfhost/trusted-stage1.sha256"
+CANONICAL_PIN_FILE="$ROOT/Compiler/selfhost/stage1-seed.sha256"
 EXTERNAL_SEED="${NOQERI_STAGE1_NQRI:-}"
+SEED="${NOQERI_STAGE1_NQRI:-$REPO_SEED}"
 PIN="${NOQERI_STAGE1_SHA256:-}"
-PIN_FILE="$ROOT/Compiler/selfhost/stage1-seed.sha256"
 PROVENANCE="$ROOT/Compiler/selfhost/stage1-seed.json"
 PIN_SOURCE="environment"
-SEED_ORIGIN="repository-pinned-cpp-stage0"
+SEED_ORIGIN="repository-committed"
 SEED_PIN_VERIFIED=false
-SEED_COMPILER="${NOQERI_STAGE0_CPP:-}"
+SEED_COMPILER=""
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
 STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
 STAGE3="$BUILD_DIR/noqeri-stage3.nqri"
@@ -51,7 +53,7 @@ if [ -z "$RUNTIME" ]; then
     exit 2
   }
   cmake -S "$ROOT" -B "$HOST_BUILD" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
-  cmake --build "$HOST_BUILD" --target noqeri-nqri noqeri --config Release
+  cmake --build "$HOST_BUILD" --target noqeri-nqri --config Release
   for candidate in "$HOST_BUILD/noqeri-nqri" "$HOST_BUILD/Release/noqeri-nqri"; do
     if [ -x "$candidate" ]; then RUNTIME="$candidate"; break; fi
   done
@@ -73,51 +75,25 @@ if [ -n "$EXTERNAL_SEED" ]; then
   fi
   SEED_ORIGIN="externally-pinned"
 else
-  if [ ! -f "$PIN_FILE" ] || [ ! -f "$PROVENANCE" ]; then
-    echo "Repository Stage-1 pin metadata is incomplete: require $PIN_FILE and $PROVENANCE" >&2
+  if [ ! -f "$REPO_SEED" ] || [ ! -f "$REPO_PIN_FILE" ] || [ ! -f "$CANONICAL_PIN_FILE" ] || [ ! -f "$PROVENANCE" ]; then
+    echo "Repository Stage-1 seed package is incomplete; require trusted-stage1.nqri, trusted-stage1.sha256, stage1-seed.sha256 and stage1-seed.json." >&2
     exit 2
   fi
-  repo_pin=$(awk 'NF { print $1; exit }' "$PIN_FILE" | tr 'ABCDEF' 'abcdef')
+  repo_pin=$(awk 'NF { print $1; exit }' "$REPO_PIN_FILE" | tr 'ABCDEF' 'abcdef')
+  canonical_pin=$(awk 'NF { print $1; exit }' "$CANONICAL_PIN_FILE" | tr 'ABCDEF' 'abcdef')
   case "$repo_pin" in *[!0123456789abcdef]*) echo "Repository Stage-1 SHA-256 pin is invalid." >&2; exit 2 ;; esac
-  if [ "${#repo_pin}" -ne 64 ]; then
-    echo "Repository Stage-1 SHA-256 pin is invalid." >&2
+  case "$canonical_pin" in *[!0123456789abcdef]*) echo "Canonical Stage-1 SHA-256 pin is invalid." >&2; exit 2 ;; esac
+  if [ "${#repo_pin}" -ne 64 ] || [ "${#canonical_pin}" -ne 64 ] || [ "$repo_pin" != "$canonical_pin" ]; then
+    echo "Repository Stage-1 digest and canonical pin disagree." >&2
     exit 2
   fi
   if [ -n "$PIN" ] && [ "$(printf '%s' "$PIN" | tr 'ABCDEF' 'abcdef')" != "$repo_pin" ]; then
     echo "NOQERI_STAGE1_SHA256 cannot override the repository pin without NOQERI_STAGE1_NQRI." >&2
     exit 2
   fi
+  SEED="$REPO_SEED"
   PIN="$repo_pin"
-  PIN_SOURCE="$PIN_FILE"
-  rm -f "$SEED"
-  if [ -z "$SEED_COMPILER" ]; then
-    for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
-      if [ -x "$candidate" ]; then SEED_COMPILER="$candidate"; break; fi
-    done
-  fi
-  if [ -z "$SEED_COMPILER" ] || [ ! -x "$SEED_COMPILER" ]; then
-    command -v cmake >/dev/null 2>&1 || { echo "cmake is required to build Stage-0." >&2; exit 2; }
-    cmake -S "$ROOT" -B "$HOST_BUILD" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$HOST_BUILD" --target noqeri noqeri-nqri --config Release
-    for candidate in "$HOST_BUILD/noqeri" "$HOST_BUILD/Release/noqeri"; do
-      if [ -x "$candidate" ]; then SEED_COMPILER="$candidate"; break; fi
-    done
-  fi
-  if [ -z "$SEED_COMPILER" ] || [ ! -x "$SEED_COMPILER" ]; then
-    echo "C++ Stage-0 compiler was not produced; set NOQERI_STAGE0_CPP." >&2
-    exit 2
-  fi
-  echo "Generating local Stage-1 seed candidate with C++ Stage-0..."
-  "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$SEED"
-  repro="$BUILD_DIR/noqeri-stage1-repro.nqri"
-  trap 'rm -f "$repro"' EXIT HUP INT TERM
-  "$SEED_COMPILER" bootstrap-seed "$ROOT/Compiler/selfhost/main.noqeri" "$repro"
-  if ! cmp -s "$SEED" "$repro"; then
-    echo "Stage-0 produced non-reproducible Stage-1 seed bytes." >&2
-    exit 1
-  fi
-  rm -f "$repro"
-  trap - EXIT HUP INT TERM
+  PIN_SOURCE="$REPO_PIN_FILE"
 fi
 
 sha256_file() {

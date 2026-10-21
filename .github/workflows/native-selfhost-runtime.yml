@@ -128,6 +128,7 @@ jobs:
           expected=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
           actual=$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)
           test "$actual" = "$expected"
+          cmp build-native/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
           ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
           while IFS= read -r source; do
             test -z "$source" && continue
@@ -188,10 +189,9 @@ jobs:
         run: |
           set -euo pipefail
           BUILD_DIR="$PWD/build-selfhost" \
-          NOQERI_STAGE0_CPP="$PWD/build-native/noqeri" \
           NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
           sh ./scripts/bootstrap-native.sh
-          grep -qx 'seed_origin=repository-pinned-cpp-stage0' build-selfhost/native-selfhost-proof.txt
+          grep -qx 'seed_origin=repository-committed' build-selfhost/native-selfhost-proof.txt
           grep -qx 'stage1_pin_verified=true' build-selfhost/native-selfhost-proof.txt
           grep -qx 'stage1_independently_trusted=false' build-selfhost/native-selfhost-proof.txt
           grep -qx 'byte_equal=true' build-selfhost/native-selfhost-proof.txt
@@ -218,12 +218,12 @@ jobs:
         run: |
           $env:BUILD_DIR = Join-Path $PWD 'build-selfhost'
           $env:NOQERI_NQRI_RUNTIME = Join-Path $PWD 'build-native\Release\noqeri-nqri.exe'
-          $env:NOQERI_STAGE0_CPP = Join-Path $PWD 'build-native\Release\noqeri.exe'
           Remove-Item Env:NOQERI_STAGE1_NQRI -ErrorAction SilentlyContinue
+          Remove-Item Env:NOQERI_STAGE1_SHA256 -ErrorAction SilentlyContinue
           .\scripts\bootstrap-native.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $proof = Get-Content (Join-Path $env:BUILD_DIR 'native-selfhost-proof.json') -Raw | ConvertFrom-Json
-          if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-pinned-cpp-stage0' -or $proof.stage1_independently_trusted -ne $false) {
+          if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false) {
             throw 'bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality without asserting independent attestation'
           }
       - name: Upload candidate seed and bootstrap proof
@@ -267,5 +267,7 @@ jobs:
           printf 'repository pin: %s\nGCC seed:      %s\nClang seed:    %s\n' "$expected" "$gcc_hash" "$clang_hash"
           test "$gcc_hash" = "$expected"
           test "$clang_hash" = "$expected"
+          cmp gcc-seed/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
+          cmp clang-seed.nqri Compiler/selfhost/trusted-stage1.nqri
           cmp gcc-seed/noqeri-stage1.nqri clang-seed.nqri
           echo 'GCC and Clang reproduce the exact repository-pinned Stage-1 bytes.'
