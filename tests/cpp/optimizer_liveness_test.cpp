@@ -61,5 +61,45 @@ int main() {
         if (!check(p.entry.code.size() == 3, "branch compaction")) return 1;
         if (!check(p.entry.code[1].op == noe::NirOp::JumpIfFalse && p.entry.code[1].target == 2, "jump retarget")) return 1;
     }
+    {
+        // Unreachable straight-line tail must disappear, not just pure values.
+        noe::NirProgram p;
+        p.entry.code = {constant(1, 5), withArgs(noe::NirOp::Return, {1}),
+                        constant(2, 9), withArgs(noe::NirOp::Return, {2})};
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        if (!check(p.entry.code.size() == 2, "unreachable tail elimination")) return 1;
+        if (!check(p.entry.code[1].op == noe::NirOp::Return, "live return after pruning")) return 1;
+    }
+    {
+        // A proven false boolean folds to an unconditional jump. The skipped
+        // return and its operand must not survive the CFG reachability pass.
+        noe::NirProgram p;
+        auto b = constant(1, 0);
+        b.literal = false;
+        auto branch = withArgs(noe::NirOp::JumpIfFalse, {1});
+        branch.target = 4;
+        p.entry.code = {b, branch, constant(2, 999), withArgs(noe::NirOp::Return, {2}),
+                        constant(3, 42), withArgs(noe::NirOp::Return, {3})};
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        int returns = 0;
+        for (const auto& in : p.entry.code) {
+            if (in.op == noe::NirOp::Return) ++returns;
+            if (in.op == noe::NirOp::Const && std::holds_alternative<std::int64_t>(in.literal) &&
+                std::get<std::int64_t>(in.literal) == 999) return 1;
+        }
+        if (!check(returns == 1, "branch folds and removes unreachable return")) return 1;
+    }
+    {
+        // Exceptional control flow has implicit edges. Until modeled, reachability
+        // must not prune lexical handlers after a return.
+        noe::NirProgram p;
+        p.entry.code = {withArgs(noe::NirOp::Try, {}), withArgs(noe::NirOp::Return, {}),
+                        constant(1, 9), withArgs(noe::NirOp::Return, {1})};
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        int returns = 0;
+        for (const auto& in : p.entry.code)
+            if (in.op == noe::NirOp::Return) ++returns;
+        if (!check(returns == 2, "conservative exception edges")) return 1;
+    }
     return 0;
 }
