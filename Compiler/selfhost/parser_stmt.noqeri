@@ -138,6 +138,23 @@ function nqStmtParseWhile(source: []u8, start: usize, nodes: []NqAstNode, count:
     return node
 }
 
+function nqStmtParseRepeat(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
+    let keyword: NqToken
+    nqCompilerNextToken(source, start, &keyword)
+    let countEnd: usize = keyword.end
+    let repeatCount: isize = nqParserParseExpression(source, keyword.end, nodes, count, &countEnd)
+    if repeatCount < 0 as isize { return nqAstNoNode() }
+    let bodyEnd: usize = countEnd
+    let body: isize = nqStmtParseBlock(source, countEnd, nodes, count, &bodyEnd)
+    if body < 0 as isize { return nqAstNoNode() }
+    let node: isize = nqAstArenaPush(nodes, count, nqAstRepeat(), keyword.start, bodyEnd)
+    if node < 0 as isize { return node }
+    nodes[node as usize].left = repeatCount
+    nodes[node as usize].right = body
+    outEnd[0] = bodyEnd
+    return node
+}
+
 function nqStmtParseBlock(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
     let open: NqToken
     nqCompilerNextToken(source, start, &open)
@@ -341,6 +358,7 @@ function nqStmtParseDeclaration(source: []u8, start: usize, nodes: []NqAstNode, 
     }
     if nqTokenTextEqual(source, &token, slice([105 as u8,102 as u8])) { return nqStmtParseIf(source, token.start, nodes, count, outEnd) }
     if nqTokenTextEqual(source, &token, slice([119 as u8,104 as u8,105 as u8,108 as u8,101 as u8])) { return nqStmtParseWhile(source, token.start, nodes, count, outEnd) }
+    if nqTokenTextEqual(source, &token, slice([114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8])) { return nqStmtParseRepeat(source, token.start, nodes, count, outEnd) }
     if nqTokenTextEqual(source, &token, slice([114 as u8,101 as u8,116 as u8,117 as u8,114 as u8,110 as u8])) { return nqStmtParseReturnThrow(source, token.start, nodes, count, outEnd, false) }
     if nqTokenTextEqual(source, &token, slice([116 as u8,104 as u8,114 as u8,111 as u8,119 as u8])) { return nqStmtParseReturnThrow(source, token.start, nodes, count, outEnd, true) }
     if token.kind == nqTokenPunctuation() && token.first == 123 as u8 { return nqStmtParseBlock(source, token.start, nodes, count, outEnd) }
