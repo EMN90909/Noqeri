@@ -99,6 +99,8 @@ jobs:
           test "$loop_result" = "6"
           nested_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri nestedCallArguments)
           test "$nested_result" = "134"
+          slice_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri literalArraySliceLength)
+          test "$slice_result" = "3"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -119,6 +121,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $loopResult -ne '6') { throw "nested loop control returned '$loopResult'" }
           $nestedResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri nestedCallArguments).Trim()
           if ($LASTEXITCODE -ne 0 -or $nestedResult -ne '134') { throw "nested call arguments returned '$nestedResult'" }
+          $sliceResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri literalArraySliceLength).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sliceResult -ne '3') { throw "array literal slice returned '$sliceResult'" }
       - name: Build trusted Stage-1 NQRI seed (Linux)
         if: runner.os == 'Linux'
         shell: bash
