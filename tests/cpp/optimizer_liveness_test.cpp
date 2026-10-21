@@ -564,5 +564,30 @@ int main() {
         catch(const std::invalid_argument&){rejected=true;}
         if(!check(rejected,"optimizer refuses mismatched PGO feedback"))return 1;
     }
+    {
+        // Target cost model is not decorative: conservative ARM64's lower
+        // branch penalty avoids duplicating a small loop at O3, while the
+        // x86-64 heuristic permits the same semantics-preserving transform.
+        noe::NirProgram program;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="flag";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{1});branch.target=5;
+        auto val=withArgs(noe::NirOp::Load,{});val.dest=2;val.text="next";
+        auto store=withArgs(noe::NirOp::Store,{2});store.text="out";
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=0;
+        program.entry.code={cond,branch,val,store,jump,
+                            withArgs(noe::NirOp::Return,{})};
+        auto generic=program,fast=program;
+        noe::Optimizer{}.optimize(generic,noe::OptimizationLevel::O3,
+                                 "aarch64-unknown-linux-gnu");
+        noe::Optimizer{}.optimize(fast,noe::OptimizationLevel::O3,
+                                 "x86_64-unknown-linux-gnu");
+        int genericChecks=0,fastChecks=0;
+        for(const auto& op:generic.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++genericChecks;
+        for(const auto& op:fast.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++fastChecks;
+        if(!check(genericChecks==1&&fastChecks==2,
+                  "target-aware cost model controls O3 unroll"))return 1;
+    }
     return 0;
 }
