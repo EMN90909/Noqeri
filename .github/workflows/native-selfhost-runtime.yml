@@ -184,7 +184,7 @@ jobs:
           NOQERI_STAGE1_NQRI="$PWD/build-native/noqeri-stage1.nqri" \
           NOQERI_STAGE1_SHA256="$(sha256sum build-native/noqeri-stage1.nqri | cut -d ' ' -f1)" \
           NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
-          ./scripts/bootstrap-native.sh
+          sh ./scripts/bootstrap-native.sh
       - name: Build trusted Stage-1 NQRI seed (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
