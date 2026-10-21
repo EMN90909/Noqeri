@@ -179,14 +179,21 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         let base: isize = nqLowerAddress(source, nodes, node.left, instructions, state)
         if base < 0 as isize { return base }
         let member: isize = node.right
+        // The index constant must be defined before PtrAdd consumes its
+        // register. Emitting it after PtrAdd produced undefined-register reads
+        // in the Stage-2 compiler when accessing record fields.
+        let zeroIndex: isize = nqLowerEmitConst(instructions, state, 0 as i64, nqAstTypeUsize())
+        if zeroIndex < 0 as isize { return zeroIndex }
         let address: isize = nqLowerAllocRegister(state)
         let offset: isize = nqLowerEmit(instructions, state, nqNirPtrAdd(), address)
         if offset < 0 as isize { return offset }
         instructions[offset as usize].left = base
-        instructions[offset as usize].right = nqLowerEmitConst(instructions, state, 0 as i64, nqAstTypeUsize())
+        instructions[offset as usize].right = zeroIndex
         instructions[offset as usize].immediate = node.extra as i64
         instructions[offset as usize].symbol = nqLowerNodeSymbol(source, nodes, member)
         instructions[offset as usize].width = nqLowerNodeWidth(node)
+        instructions[offset as usize].sourceStart = node.start
+        instructions[offset as usize].sourceEnd = node.end
         return address
     }
     return nqLowerBadTarget()
