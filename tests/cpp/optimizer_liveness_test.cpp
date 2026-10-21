@@ -133,5 +133,67 @@ int main() {
         noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
         if (!check(p.entry.code[0].op == noe::NirOp::Call, "external call kept")) return 1;
     }
+    {
+        // Local GVN replaces a redundant commutative integer expression and
+        // rewires its use. It must never introduce an undefined register.
+        noe::NirProgram p;
+        auto add1 = withArgs(noe::NirOp::Binary, {1, 2});
+        add1.text = "+"; add1.dest = 3; add1.type.kind = noe::TypeKind::Int;
+        auto add2 = withArgs(noe::NirOp::Binary, {2, 1});
+        add2.text = "+"; add2.dest = 4; add2.type.kind = noe::TypeKind::Int;
+        auto x = withArgs(noe::NirOp::Load, {}); x.dest = 1; x.text = "x";
+        auto y = withArgs(noe::NirOp::Load, {}); y.dest = 2; y.text = "y";
+        p.entry.code = {x, y, add1, add2,
+                        withArgs(noe::NirOp::Return, {4})};
+        p.entry.registerTypes.resize(5);
+        for (auto& type : p.entry.registerTypes) type.kind = noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        int additions = 0;
+        for (const auto& instruction : p.entry.code)
+            if (instruction.op == noe::NirOp::Binary) ++additions;
+        if (!check(additions == 1, "GVN duplicate integer addition eliminated")) return 1;
+        if (!check(p.entry.code.back().args.size() == 1 &&
+                   p.entry.code.back().args[0] == 3,
+                   "GVN uses original SSA result")) return 1;
+    }
+    {
+        // SSA is not guaranteed for mutable/reused destination registers.
+        // Fall back to unchanged binary operations until Phi construction.
+        noe::NirProgram p;
+        auto a = withArgs(noe::NirOp::Binary, {1, 2});
+        a.text = "+"; a.dest = 3; a.type.kind = noe::TypeKind::Int;
+        auto b = a; b.dest = 4;
+        auto x = withArgs(noe::NirOp::Load, {}); x.dest = 1; x.text = "x";
+        auto y = withArgs(noe::NirOp::Load, {}); y.dest = 2; y.text = "y";
+        auto again = x;
+        p.entry.code = {x, y, a, withArgs(noe::NirOp::Call, {3}),
+                        again, b, withArgs(noe::NirOp::Return, {4})};
+        p.entry.registerTypes.resize(5);
+        for (auto& type : p.entry.registerTypes) type.kind = noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        int additions = 0;
+        for (const auto& in : p.entry.code)
+            if (in.op == noe::NirOp::Binary) ++additions;
+        if (!check(additions == 2, "GVN rejects non-SSA register redefinition")) return 1;
+    }
+    {
+        // Branch joins require Phi/dominance; local GVN skips the whole function.
+        noe::NirProgram p;
+        auto a = withArgs(noe::NirOp::Binary, {1, 2});
+        a.text = "+"; a.dest = 3; a.type.kind = noe::TypeKind::Int;
+        auto b = a; b.dest = 4;
+        auto j = withArgs(noe::NirOp::JumpIfFalse, {5}); j.target = 6;
+        auto x = withArgs(noe::NirOp::Load, {}); x.dest = 1; x.text = "x";
+        auto y = withArgs(noe::NirOp::Load, {}); y.dest = 2; y.text = "y";
+        p.entry.code = {x, y, a, withArgs(noe::NirOp::Call, {3}), j, b,
+                        withArgs(noe::NirOp::Return, {4})};
+        p.entry.registerTypes.resize(6);
+        for (auto& type : p.entry.registerTypes) type.kind = noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        int additions = 0;
+        for (const auto& in : p.entry.code)
+            if (in.op == noe::NirOp::Binary) ++additions;
+        if (!check(additions == 2, "GVN refuses CFG join without SSA")) return 1;
+    }
     return 0;
 }

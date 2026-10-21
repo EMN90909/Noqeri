@@ -167,14 +167,86 @@ bool foldBranches(NirFunction&fn) {
     }
     return changed;
 }
+
+// SSA-guarded local GVN. This IR does not have Phi nodes or a dominance-aware
+// SSA converter yet, so only an entire single straight-line register-SSA
+// function may be rewritten. No memory values or trapping operations are CSE'd.
+bool localGvn(NirFunction& fn) {
+    std::unordered_set<Reg> defined;
+    for (const auto& in : fn.code) {
+        if (in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse ||
+            in.op == NirOp::Try || in.op == NirOp::InlineAsm ||
+            in.op == NirOp::Throw || in.isVolatile) return false;
+        if (in.dest && !defined.insert(*in.dest).second) return false;
+    }
+    std::unordered_map<std::string, Reg> seen;
+    std::unordered_map<Reg, Reg> replacements;
+    auto canonical = [&](Reg r) {
+        std::unordered_set<Reg> guard;
+        while (replacements.count(r) && guard.insert(r).second)
+            r = replacements.at(r);
+        return r;
+    };
+    bool changed = false;
+    for (auto& in : fn.code) {
+        for (auto& r : in.args) {
+            const auto next = canonical(r);
+            if (next != r) { r = next; changed = true; }
+        }
+        if (in.op != NirOp::Binary || !in.dest || in.args.size() != 2)
+            continue;
+        // These operators are pure and have no divide-by-zero or other
+        // exceptional value constraints. Floating calculations are excluded
+        // until the frontend models rounding mode and FP status flags.
+        const auto integer = [](TypeKind k) {
+            switch (k) {
+                case TypeKind::Int: case TypeKind::I8: case TypeKind::I16:
+                case TypeKind::I32: case TypeKind::I64: case TypeKind::U8:
+                case TypeKind::U16: case TypeKind::U32: case TypeKind::U64:
+                case TypeKind::Isize: case TypeKind::Usize: return true;
+                default: return false;
+            }
+        };
+        if (in.args[0] >= fn.registerTypes.size() ||
+            in.args[1] >= fn.registerTypes.size() ||
+            !integer(fn.registerTypes[in.args[0]].kind) ||
+            !integer(fn.registerTypes[in.args[1]].kind) ||
+            !(integer(in.type.kind) || in.type.kind == TypeKind::Bool)) continue;
+        if (in.text != "+" && in.text != "-" && in.text != "*" &&
+            in.text != "==" && in.text != "!=" && in.text != "<" &&
+            in.text != "<=" && in.text != ">" && in.text != ">=" &&
+            in.text != "&&" && in.text != "||") continue;
+        auto lhs = in.args[0], rhs = in.args[1];
+        if (in.text == "+" || in.text == "*" || in.text == "==" ||
+            in.text == "!=" || in.text == "&&" || in.text == "||")
+            if (rhs < lhs) std::swap(lhs, rhs);
+        const std::string key = in.text + ":" + std::to_string(lhs) +
+            ":" + std::to_string(rhs) + ":" + std::to_string(in.width) +
+            ":" + std::to_string(static_cast<int>(in.type.kind));
+        const auto found = seen.find(key);
+        if (found == seen.end()) {
+            seen.emplace(key, *in.dest);
+        } else {
+            replacements[*in.dest] = found->second;
+            in.op = NirOp::Nop;
+            in.args.clear();
+            in.dest.reset();
+            changed = true;
+        }
+    }
+    return changed;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     const int rounds = level == OptimizationLevel::O3 ? 3 :
                        level == OptimizationLevel::O2 ? 2 : 1;
     for (int r = 0; r < rounds; ++r) {
         const bool a = constants(fn);
+        const bool g = (level == OptimizationLevel::O2 ||
+                        level == OptimizationLevel::O3 ||
+                        level == OptimizationLevel::Oz) && localGvn(fn);
         const bool b = dce(fn);
-        if (!a && !b) break;
+        if (!a && !g && !b) break;
     }
     // Gate new branch simplification at O2+. O1 retains legacy behavior.
     if (level == OptimizationLevel::O2 || level == OptimizationLevel::O3 ||
@@ -183,8 +255,9 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
             const bool a = foldBranches(fn);
             const bool b = unreachable(fn);
             const bool c = constants(fn);
+            const bool g = localGvn(fn);
             const bool d = dce(fn);
-            if (!a && !b && !c && !d) break;
+            if (!a && !b && !c && !g && !d) break;
         }
     }
     if (level == OptimizationLevel::Oz) dce(fn);
