@@ -1,10 +1,10 @@
 <p align="center"><img src="Brand/noqeri-logo.webp" alt="Noqeri code logo" width="560"></p>
 <h1 align="center">Noqeri</h1>
 
-**Development version: 0.7.0 (unreleased, not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
+**Version: 1.0.0 (stabilization candidate; production release not qualified).** This is a development identity, not evidence of a stable compiler or functioning 3D game toolchain. Read [game development readiness](Doc/GAME_DEV_READINESS.md) and [release verification](Doc/RELEASE_VERIFICATION_2026-10-17.md) before using Noqeri in production.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri source uses `.noqeri`, project manifests use portable `project.nqon`, portable compiled objects use `.nqri`, and NoqeriDB uses `.nqd` / `.nqdb`. Legacy `project.noqeri` manifests remain readable during the 0.7 migration.
+Noqeri source uses `.noqeri`, project manifests use portable `project.nqon`, portable compiled objects use `.nqri`, and the canonical NoeSQL database format uses `.noedb` (legacy `.nqd` / `.nqdb` require explicit migration). Legacy `project.noqeri` manifests remain readable during the v1 migration.
 
 ## Beginner surface
 
@@ -85,7 +85,7 @@ Automatic GitHub Actions workflows are intentionally not required for this migra
 
 ## Release readiness
 
-**0.7.0 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
+**1.0.0 stabilization candidate, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
 
 ## License
 
