@@ -9,7 +9,7 @@ const ATTRS = new Set(['id','class','title','role','href','src','alt','type','na
 const OPS = {'||':1,'&&':2,'==':3,'!=':3,'<':4,'>':4,'<=':4,'>=':4,'+':5,'-':5,'*':6,'/':6,'%':6};
 const isIdent = x => /^[A-Za-z_][A-Za-z_0-9]*$/.test(x) && !BAD.has(x);
 export function isViewSource(source) {
-  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|load\s+[A-Za-z_])/m.test(source);
+  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_])/m.test(source);
 }
 function tokenize(source) {
   if (typeof source !== 'string' || source.length > 1024 * 1024) throw Error('Noqeri view: source must be at most 1 MiB');
