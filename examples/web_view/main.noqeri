@@ -1,4 +1,4 @@
-import js "./vendor/motion.mjs" as motion
+import animation/motion as animation
 import ui/badge as ui
 
 let count = 0
@@ -20,5 +20,5 @@ view {
     }
 }
 on.mount {
-    motion.arrive(".card")
+    animation.arrive(".card")
 }
