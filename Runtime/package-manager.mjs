@@ -137,9 +137,10 @@ export function createPackageManager(options = {}) {
     if (integrity !== meta.integrity) throw new Error(`cached package integrity mismatch: ${expectedCoordinate}@${expectedVersion}`)
     if (state.files !== meta.files || state.bytes !== meta.bytes) throw new Error('cached package metadata counts mismatch')
     const entry = safeRelative(meta.entry)
-    if (!['package.noqeri', 'package.nqr'].includes(meta.manifestName) || !files.some(file => file.name === meta.manifestName)) throw new Error('cached package manifest missing')
+    const manifestName = meta.manifestName || 'package.noqeri'
+    if (!['package.noqeri', 'package.nqr'].includes(manifestName) || !files.some(file => file.name === manifestName)) throw new Error('cached package manifest missing')
     if (!files.some(file => file.name === entry)) throw new Error('cached package entry missing')
-    return { ...meta, path: target }
+    return { ...meta, manifestName, path: target }
   }
 
   async function atomicPackageWrite(target, files, metadata) {
@@ -182,7 +183,7 @@ export function createPackageManager(options = {}) {
     try { return await verifyCachedPackage(target, coordinate, release.version) } catch {}
     const url = registryUrl() + '/v1/packages/' + namespace + '/' + name + '/' + release.version
     const metadata = await jsonFrom(url)
-    if (metadata.version !== release.version || metadata.yanked || !INTEGRITY.test(metadata.archiveIntegrity || '')) throw new Error('invalid Registry release metadata')
+    if (metadata.version !== release.version || metadata.yanked || !INTEGRITY.test(metadata.archiveIntegrity || '') || (release.archiveIntegrity && release.archiveIntegrity !== metadata.archiveIntegrity)) throw new Error('invalid Registry release metadata')
     const archive = await responseBytes(url + '/download', maxBytes)
     const unpacked = decodeArchive(archive, metadata.archiveIntegrity)
     if (metadata.entry !== unpacked.entry) throw new Error('Registry entry mismatch')
