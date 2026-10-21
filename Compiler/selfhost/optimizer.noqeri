@@ -1,5 +1,6 @@
 module noqeri.compiler.selfhost.optimizer
 import "nir.noqeri"
+import "types.noqeri"
 
 export function nqOptLevelNone(): int { return 0 }
 export function nqOptLevelSize(): int { return 1 }
@@ -160,7 +161,9 @@ export function nqOptimizerLocalGvn(instructions: []NqNirInstruction): usize {
         let current: *NqNirInstruction = &instructions[index]
         let eligible: bool = (current.opcode == nqNirAdd() ||
             current.opcode == nqNirSub() || current.opcode == nqNirMul()) &&
-            current.flags == 0 as u32 && current.dest >= 0 as isize &&
+            current.flags == 0 as u32 && nqCompilerTypeIsInteger(current.typeCode) &&
+            current.immediate == 0 as i64 && current.width == 0 as usize &&
+            current.symbol == 0 as u64 && current.dest >= 0 as isize &&
             current.left >= 0 as isize && current.right >= 0 as isize
         if eligible {
             let previous: usize = 0 as usize
@@ -168,7 +171,9 @@ export function nqOptimizerLocalGvn(instructions: []NqNirInstruction): usize {
             while previous < index && !found {
                 let other: *NqNirInstruction = &instructions[previous]
                 if other.opcode == current.opcode && other.flags == 0 as u32 &&
-                   other.dest >= 0 as isize && other.typeCode == current.typeCode {
+                   other.immediate == 0 as i64 && other.width == 0 as usize &&
+                   other.symbol == 0 as u64 && other.dest >= 0 as isize &&
+                   other.typeCode == current.typeCode {
                     let same: bool = other.left == current.left && other.right == current.right
                     if (current.opcode == nqNirAdd() || current.opcode == nqNirMul()) &&
                        other.left == current.right && other.right == current.left { same = true }
