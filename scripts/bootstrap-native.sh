@@ -10,6 +10,8 @@ EXTERNAL_SEED="${NOQERI_STAGE1_NQRI:-}"
 PIN="${NOQERI_STAGE1_SHA256:-}"
 SEED_ORIGIN="local-cpp-stage0"
 SEED_COMPILER="${NOQERI_STAGE0_CPP:-}"
+SEED_OVERRIDE="${NOQERI_STAGE1_NQRI:-}"
+EXPECTED_SEED_SHA256="${NOQERI_STAGE1_SHA256:-}"
 MANIFEST="$ROOT/Compiler/selfhost/stage2-sources.txt"
 STAGE2="$BUILD_DIR/noqeri-stage2.nqri"
 STAGE3="$BUILD_DIR/noqeri-stage3.nqri"
@@ -57,7 +59,20 @@ if [ -z "$RUNTIME" ] || [ ! -x "$RUNTIME" ]; then
   exit 2
 fi
 if [ -n "$EXTERNAL_SEED" ]; then
-  if [ ! -f "$SEED" ]; then echo "Explicit Stage-1 seed not found: $SEED" >&2; exit 2; fi
+  if [ -n "$SEED_OVERRIDE" ]; then
+  if [ ! -f "$SEED" ]; then
+    echo "Supplied Stage-1 seed does not exist: $SEED" >&2
+    exit 2
+  fi
+  if [ -z "$EXPECTED_SEED_SHA256" ]; then
+    echo "Externally supplied Stage-1 seed requires NOQERI_STAGE1_SHA256 (64 hex digits)." >&2
+    exit 2
+  fi
+else
+  # Never reuse a previous build artifact as an implicitly trusted seed.
+  # Regenerate from the checked Stage-0 C++ compiler on every invocation.
+  rm -f "$SEED"
+ echo "Explicit Stage-1 seed not found: $SEED" >&2; exit 2; fi
   if [ -z "$PIN" ]; then echo "External seed requires NOQERI_STAGE1_SHA256." >&2; exit 2; fi
   SEED_ORIGIN="externally-pinned"
 else
@@ -137,6 +152,7 @@ if [ -n "$SEED_COMPILER" ] && [ -f "$SEED_COMPILER" ]; then seed_compiler_sha256
   echo "source_manifest_sha256=$(sha256_file "$MANIFEST")"
   echo "seed_compiler_sha256=$seed_compiler_sha256"
   echo "seed_compiler=$SEED_COMPILER"
+  echo "seed_origin=$(if [ -n "$SEED_OVERRIDE" ]; then printf external-pinned; else printf generated-stage0; fi)"
   echo "stage2=$STAGE2"
   echo "stage2_sha256=$stage2_sha256"
   echo "stage3=$STAGE3"
