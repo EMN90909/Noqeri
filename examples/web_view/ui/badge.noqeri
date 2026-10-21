@@ -1,0 +1,4 @@
+// Local UI component package. A Registry UI package can reuse this interface later.
+component Badge(label: string) {
+    span class: "badge" { label }
+}
