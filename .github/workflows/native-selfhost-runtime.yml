@@ -49,7 +49,7 @@ permissions:
   contents: read
 
 jobs:
-  native-selfhost:
+  execution-qualification:
     strategy:
       fail-fast: false
       matrix:
@@ -269,7 +269,7 @@ jobs:
 
   stage1-cross-compiler:
     name: Stage-1 pin reproducibility (GCC versus Clang)
-    needs: native-selfhost
+    needs: execution-qualification
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
