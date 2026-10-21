@@ -1,26 +1,15 @@
-# NoqeriDB
+# Noqeri database components (integration status)
 
-NoqeriDB is the embedded database path for Noqeri applications. The database core is owned by Noqeri source in this directory. Host code is restricted to operating-system capabilities such as files, locks, secure randomness, fsync, and authenticated encryption.
+**Canonical database engine: NoeSQL.** This directory contains historic NoqeriDB policies and overlapping NoeSQL frontend modules. The NoqeriDB host codec (`NQDB1`) is legacy only and **must not** be presented as the engine for new `.noedb` databases.
 
-## Production model
+- `Database/noesql*.noqeri`: compiler/frontend and policy modules originally mirrored from NoeSQL; until imported from the NoeSQL-owned package they are compatibility scaffolding and must not diverge. NoeSQL owns the parser, planner, executor, isolation, WAL and Zig pager.
+- `Database/index.noqeri`, `transaction.noqeri`, `wal.noqeri`, `recovery.noqeri`, `query.noqeri`, `planner.noqeri`, `migration.noqeri`, `security.noqeri`, `storage.noqeri`, `engine.noqeri`: legacy NoqeriDB policy experiments. Valuable behaviors should migrate into corresponding NoeSQL layers once native E2E tests pass, rather than being deleted on filename alone.
+- `Database/noqeridb.noqeri` and `Compiler/bootstrap/noqeridb_host.cpp`: deprecated compatibility path. `noqeri db <fixture.nqd> <legacy.nqdb>` continues to support historic fixtures with a deprecation diagnostic, but explicitly rejects using `.noedb` with the incompatible legacy codec.
+- `Lib/std/noesql.noqeri` is the staged beginner-facing API with `database(path)`, prepared statements and transaction wrappers; its native `noesqlHost...` symbols still need a verified NoeSQL session-v2 provider.
+- `Compiler/bootstrap/sql_host.cpp` contains **external** SQLite/PostgreSQL adapters and retains defensive SQL and TLS checks; neither engine replaces NoeSQL.
 
-The engine is split into independently testable policy modules:
-
-- `index.noqeri` — ordered integer indexes and unique lookup primitives.
-- `transaction.noqeri` — transaction state and isolation policy.
-- `wal.noqeri` / `recovery.noqeri` — WAL integrity, checkpoint and recovery decisions.
-- `query.noqeri` / `planner.noqeri` — prepared-query validation and basic plan selection.
-- `migration.noqeri` — monotonic schema-version rules.
-- `security.noqeri` — constant-work secret comparison, identifier validation, role checks, encryption-size rules and authentication backoff.
-- `storage.noqeri` — the narrow host capability boundary for files, locks, randomness, fsync and AEAD.
-- `engine.noqeri` — safe transaction/open/commit orchestration.
-
-Persistent providers must use atomic replacement or WAL, fsync committed data before reporting success, reject corrupt pages, enforce exclusive writer locks, keep encryption keys outside database files, and use authenticated encryption. The reference contract requires 32-byte encryption keys, 12-byte nonces and 16-byte authentication tags.
-
-## Security rules
-
-Prepared statements are the default SQL interoperability path. Application values must never be concatenated into SQL. Storage providers must reject path traversal, cap page/WAL/database sizes, use cryptographically secure random nonces, and fail closed when authentication tags do not verify.
+For new databases, use NoeSQL's canonical `.noedb` pager/WAL codec. Do not rename a legacy `.nqd/.nqdb` file. Run the explicit NoeSQL migration tool instead. This integration branch does not yet contain a qualified native Noqeri → NoeSQL compiled program, nor does it remove the duplicate legacy implementations. See `Doc/ECOSYSTEM_INTEGRATION.md`.
 
 ## Release gate
 
-Do not describe NoqeriDB as production-ready until the current compiler can execute `tests/noqeridb_production.noqeri`, crash/recovery fault injection passes on supported operating systems, corrupted WAL/page corpora are rejected, transaction atomicity tests pass, and benchmarks have published baselines. This directory implements the production architecture and safety policy; the release label is evidence-gated.
+The cleanup completes only after imports point to the sole NoeSQL engine, native ABI/provider link is verified, legacy capabilities are moved or retained as separate migration fixtures, and `.noqeri` → `.nqri` → `NoeSQL` → `.noedb` passes real CRUD/rollback/index/WAL/concurrency/corruption regression tests.
