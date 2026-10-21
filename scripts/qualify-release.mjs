@@ -84,9 +84,13 @@ for (const [name, directory, file] of [
   else blocked(name, `repository or test missing: ${cwd}/${file}`)
 }
 
+const revision=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'})
+const sourceRevision=revision.status===0 && /^[0-9a-f]{40}$/.test(revision.stdout.trim())?revision.stdout.trim():null
 const report = {
   schema: 2,
   version: '1.0.0',
+  source_revision: sourceRevision,
+  host: { platform: process.platform, architecture: process.arch },
   scope: 'general-purpose-language',
   generated_at: new Date().toISOString(),
   qualification: 'local-build',
