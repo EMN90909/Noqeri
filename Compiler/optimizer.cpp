@@ -412,6 +412,92 @@ bool scheduleLocalConstants(NirFunction& fn) {
     }
     return changed;
 }
+// Effect-free, dependency-aware local instruction scheduling. This is a
+// bounded integer NIR DAG scheduler, not a target-machine scheduler. It does
+// not move operations across loads, stores, calls, branches, traps or atomics.
+// Longer arithmetic dependency chains are scheduled before shorter ones.
+bool scheduleIntegerDag(NirFunction& fn) {
+    const auto g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    for(const auto& in:fn.code)
+        if(in.op==NirOp::Try||in.op==NirOp::InlineAsm)return false;
+    const auto eligible=[](const NirInstruction& in) {
+        if(!in.dest||in.isVolatile)return false;
+        if(in.op==NirOp::Const)
+            return std::holds_alternative<std::int64_t>(in.literal)||
+                   std::holds_alternative<bool>(in.literal);
+        if(in.op==NirOp::Binary&&safeIntResult(in))
+            return in.text=="+"||in.text=="-"||in.text=="*";
+        if(in.op==NirOp::Unary&&safeIntResult(in))
+            return in.text=="-"||in.text=="!";
+        return false;
+    };
+    bool changed=false;
+    for(const auto& block:g.spans){
+        std::size_t first=block.first;
+        while(first<block.second){
+            if(!eligible(fn.code[first])){++first;continue;}
+            std::size_t end=first;
+            while(end<block.second&&eligible(fn.code[end])&&end-first<32)++end;
+            const auto count=end-first;
+            if(count<3){first=end;continue;}
+            std::unordered_map<Reg,std::size_t> producer;
+            for(std::size_t i=0;i<count;++i)
+                producer[*fn.code[first+i].dest]=i;
+            std::vector<std::vector<std::size_t>> consumers(count);
+            std::vector<std::size_t> indegree(count,0);
+            bool valid=true;
+            for(std::size_t i=0;i<count;++i){
+                for(const Reg arg:fn.code[first+i].args){
+                    const auto it=producer.find(arg);
+                    if(it==producer.end())continue;
+                    if(it->second>=i){valid=false;break;}
+                    consumers[it->second].push_back(i);++indegree[i];
+                }
+                if(!valid)break;
+            }
+            if(!valid){first=end;continue;}
+            std::vector<unsigned> path(count,0);
+            for(std::size_t i=count;i-->0;){
+                const auto& in=fn.code[first+i];
+                unsigned cost=in.op==NirOp::Binary&&in.text=="*"?3u:1u;
+                unsigned longest=0;
+                for(auto consumer:consumers[i])
+                    longest=std::max(longest,path[consumer]);
+                path[i]=cost+longest;
+            }
+            std::vector<std::size_t> order;order.reserve(count);
+            std::vector<bool> scheduled(count,false);
+            for(std::size_t step=0;step<count;++step){
+                std::size_t candidate=count;
+                for(std::size_t i=0;i<count;++i){
+                    if(scheduled[i]||indegree[i])continue;
+                    if(candidate==count||path[i]>path[candidate]||
+                       (path[i]==path[candidate]&&i<candidate))
+                        candidate=i;
+                }
+                if(candidate==count){valid=false;break;}
+                scheduled[candidate]=true;order.push_back(candidate);
+                for(auto user:consumers[candidate])--indegree[user];
+            }
+            if(valid){
+                bool differs=false;
+                for(std::size_t i=0;i<count;++i)
+                    if(order[i]!=i){differs=true;break;}
+                if(differs){
+                    std::vector<NirInstruction> reordered;
+                    reordered.reserve(count);
+                    for(auto i:order)reordered.push_back(fn.code[first+i]);
+                    for(std::size_t i=0;i<count;++i)
+                        fn.code[first+i]=std::move(reordered[i]);
+                    changed=true;
+                }
+            }
+            first=end;
+        }
+    }
+    return changed;
+}
 // LICM for a single-entry *structured* natural loop. Only hoists Const,
 // which cannot trap, allocate, alias or change numerical behavior. Any branch
 // inside the body, exceptional operation or external entry blocks movement.
@@ -586,6 +672,7 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         // rechecks all targets and dead definitions after transformation.
         dce(fn);
     }
+    if(level==OptimizationLevel::O3) scheduleIntegerDag(fn);
     // Late unrolling preserves each condition evaluation and all observable
     // effects; no earlier SSA-only pass is rerun on the replicated registers.
     if(level==OptimizationLevel::O3) unrollStructuredLoop2x(fn);
