@@ -237,7 +237,8 @@ function nqNativeEmitParameterSource(out: []u8, cursor: *usize, index: usize): b
     if index == 3 as usize { return nqa_mov_rax_rcx(out, cursor) }
     if index == 4 as usize { return nqa_mov_rax_r8(out, cursor) }
     if index == 5 as usize { return nqa_mov_rax_r9(out, cursor) }
-    return false
+    let stackOffset: usize = 16 as usize + (index - 6 as usize) * 8 as usize
+    return nqa_mov_rax_stack_arg(out, cursor) && nqAsmAppendUsize(out, cursor, stackOffset) && nqa_slot_tail(out, cursor)
 }
 
 function nqNativeEmitLoadWidth(out: []u8, cursor: *usize, width: usize, typeCode: int): bool {
@@ -342,8 +343,6 @@ function nqNativeEmitCast(out: []u8, cursor: *usize, sourceType: int, targetType
 
 function nqNativeEmitCall(out: []u8, cursor: *usize, source: []u8, instructions: []NqNirInstruction, functions: []NqNirFunction, function: *NqNirFunction, functionIndex: usize, minimum: isize, pc: usize): isize {
     let instruction: *NqNirInstruction = &instructions[pc]
-    if instruction.width > 6 as usize { return nqNativeTooManyArguments() }
-
     if nqNativeNamePrint(source, instruction.sourceStart, instruction.sourceEnd) {
         if instruction.width != 1 as usize { return nqNativeUnsupportedBuiltin() }
         let argument: isize = nqNativeCallArgument(instructions, function, pc, 0 as usize)
@@ -405,12 +404,34 @@ function nqNativeEmitCall(out: []u8, cursor: *usize, source: []u8, instructions:
 
     let targetIndex: isize = nqNativeFunctionIndex(functions, instruction.symbol)
     if targetIndex < 0 as isize { return nqNativeUnresolvedCall() }
+
+    let extraCount: usize = 0 as usize
+    if instruction.width > 6 as usize { extraCount = instruction.width - 6 as usize }
+    let stackPadding: usize = 0 as usize
+    if extraCount % 2 as usize == 1 as usize { stackPadding = 8 as usize }
+    if stackPadding > 0 as usize {
+        if !nqa_sub_rsp(out, cursor) || !nqAsmAppendUsize(out, cursor, stackPadding) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+    }
+
+    let stackIndex: usize = instruction.width
+    while stackIndex > 6 as usize {
+        stackIndex = stackIndex - 1 as usize
+        let argument: isize = nqNativeCallArgument(instructions, function, pc, stackIndex)
+        if argument < 0 as isize {
+            return nqNativeBadNir()
+        }
+        if !nqa_push_slot(out, cursor) || !nqAsmAppendUsize(out, cursor, nqNativeRegOffset(argument, minimum)) || !nqa_slot_tail(out, cursor) { return nqNativeCapacity() }
+    }
+
+    let registerLimit: usize = instruction.width
+    if registerLimit > 6 as usize { registerLimit = 6 as usize }
     let argIndex: usize = 0 as usize
-    while argIndex < instruction.width {
+    while argIndex < registerLimit {
         let argument: isize = nqNativeCallArgument(instructions, function, pc, argIndex)
         if argument < 0 as isize || !nqNativeLoadArgumentRegister(out, cursor, argument, minimum, argIndex) { return nqNativeBadNir() }
         argIndex = argIndex + 1 as usize
     }
+
     if !nqa_call(out, cursor) { return nqNativeCapacity() }
     let target: *NqNirFunction = &functions[targetIndex as usize]
     if nqNativeHasFlag(target.flags, nqAstFlagExtern()) {
@@ -419,6 +440,11 @@ function nqNativeEmitCall(out: []u8, cursor: *usize, source: []u8, instructions:
         if !nqNativeFunctionLabel(out, cursor, targetIndex as usize) { return nqNativeCapacity() }
     }
     if !nqa_newline(out, cursor) { return nqNativeCapacity() }
+
+    let cleanup: usize = extraCount * 8 as usize + stackPadding
+    if cleanup > 0 as usize {
+        if !nqa_add_rsp(out, cursor) || !nqAsmAppendUsize(out, cursor, cleanup) || !nqa_newline(out, cursor) { return nqNativeCapacity() }
+    }
     if instruction.dest >= 0 as isize && !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeCapacity() }
     return nqNativeOk()
 }
@@ -626,7 +652,7 @@ function nqNativeEmitInstruction(out: []u8, cursor: *usize, source: []u8, instru
     }
 
     if instruction.opcode == nqNirParameter() {
-        if instruction.immediate < 0 as i64 || instruction.immediate >= 6 as i64 || !nqNativeEmitParameterSource(out, cursor, instruction.immediate as usize) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeTooManyArguments() }
+        if instruction.immediate < 0 as i64 || !nqNativeEmitParameterSource(out, cursor, instruction.immediate as usize) || !nqNativeStoreReg(out, cursor, instruction.dest, minimum) { return nqNativeTooManyArguments() }
         return nqNativeOk()
     }
 
