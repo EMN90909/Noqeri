@@ -145,7 +145,20 @@ export function nqPipelineCompileToNir(source: []u8, target: int, debug: bool, u
     let active: []NqNirInstruction = slice(instructions, instructionCount)
     let securityStatus: isize = nqSecurityProgramCheck(&policy, target, active)
     if securityStatus < 0 as isize { out.status = securityStatus return securityStatus }
-    out.optimizerChanges = nqOptimizerRun(active, plan.optimization)
+    // SSA registers are function-local. Scanning the entire module for each
+    // use is quadratic and can incorrectly cross into unrelated functions.
+    // Optimize bounded per-function instruction slices instead.
+    let optimizeIndex: usize = 0 as usize
+    while optimizeIndex < functionCount {
+        let start: usize = functions[optimizeIndex].firstInstruction
+        let count: usize = functions[optimizeIndex].instructionCount
+        if start > instructionCount || count > instructionCount - start { out.status = nqBackendInvalidNir() return out.status }
+        if count > 0 as usize {
+            let functionInstructions: []NqNirInstruction = slice(&instructions[start], count)
+            out.optimizerChanges = out.optimizerChanges + nqOptimizerRun(functionInstructions, plan.optimization)
+        }
+        optimizeIndex = optimizeIndex + 1 as usize
+    }
     let backendStatus: isize = nqBackendProgramValid(target, active, unsafeAllowed)
     if backendStatus < 0 as isize { out.status = backendStatus return backendStatus }
     let fi: usize = 0 as usize
