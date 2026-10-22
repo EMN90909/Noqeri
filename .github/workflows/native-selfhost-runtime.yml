@@ -148,6 +148,8 @@ jobs:
           test "$cast_result" = "1"
           promotion_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri integerLiteralPromotion)
           test "$promotion_result" = "14"
+          narrowing_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri castNarrowingRel32)
+          test "$narrowing_result" = "4294966296"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -162,6 +164,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
           $promotionResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri integerLiteralPromotion).Trim()
           if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
+          $narrowingResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri castNarrowingRel32).Trim()
+          if ($LASTEXITCODE -ne 0 -or $narrowingResult -ne '4294966296') { throw "integer narrowing returned '$narrowingResult'" }
       - name: Build Stage-1 NQRI seed candidate (Linux)
         if: runner.os == 'Linux'
         shell: bash
