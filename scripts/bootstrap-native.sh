@@ -55,7 +55,14 @@ fi
 # This host performs filesystem/manifest I/O only. Compiler semantics and native
 # machine-code/object generation are in the linked Noqeri object.
 "$CXX" -std=c++17 -O2 -c "$ROOT/Runtime/native/native_compiler_host.cpp" -o "$HOST_OBJ"
+if command -v readelf >/dev/null 2>&1; then
+  echo "Stage-2 exported symbol diagnostics:"
+  readelf -Ws "$STAGE2_OBJ" | grep -E 'stage1VersionMajor|stage2SyntaxCheck|stage2CompileToNativeObject' || true
+fi
 "$CXX" -no-pie "$HOST_OBJ" "$STAGE2_OBJ" -o "$STAGE2_BIN"
+if command -v nm >/dev/null 2>&1; then
+  nm -n "$STAGE2_BIN" | grep -E 'stage1VersionMajor|stage2SyntaxCheck|stage2CompileToNativeObject' || true
+fi
 
 # From here onward no NQRI VM participates in compilation.
 "$STAGE2_BIN" diagnose-manifest "$ROOT" "$MANIFEST"
