@@ -113,10 +113,6 @@ if ! "$RUNTIME" has-export "$SEED" stage2CompileToNqri; then
   exit 2
 fi
 "$RUNTIME" compile-manifest "$SEED" "$ROOT" "$MANIFEST" "$STAGE2" "$TARGET"
-if [ "${NOQERI_BOOTSTRAP_STAGE2_ONLY:-0}" = "1" ]; then
-  echo "Trusted Stage-1 produced transitional Stage-2: $STAGE2"
-  exit 0
-fi
 "$RUNTIME" compile-manifest "$STAGE2" "$ROOT" "$MANIFEST" "$STAGE3" "$TARGET"
 
 if ! cmp -s "$STAGE2" "$STAGE3"; then
