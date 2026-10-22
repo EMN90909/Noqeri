@@ -11,8 +11,34 @@
 #include <unordered_set>
 #include <vector>
 #include <sys/resource.h>
+#include <csignal>
+#include <ucontext.h>
 
 namespace {
+
+void nativeCrashHandler(int signal, siginfo_t* info, void* rawContext) {
+    auto* context = static_cast<ucontext_t*>(rawContext);
+#if defined(__x86_64__)
+    const auto rip = static_cast<unsigned long long>(context->uc_mcontext.gregs[REG_RIP]);
+    const auto rsp = static_cast<unsigned long long>(context->uc_mcontext.gregs[REG_RSP]);
+    const auto rbp = static_cast<unsigned long long>(context->uc_mcontext.gregs[REG_RBP]);
+    std::fprintf(stderr, "native-compiler crash signal=%d address=%p rip=0x%llx rsp=0x%llx rbp=0x%llx\n",
+                 signal, info ? info->si_addr : nullptr, rip, rsp, rbp);
+#else
+    std::fprintf(stderr, "native-compiler crash signal=%d address=%p\n", signal, info ? info->si_addr : nullptr);
+#endif
+    std::_Exit(128 + signal);
+}
+
+void installNativeCrashDiagnostics() {
+    struct sigaction action {};
+    action.sa_sigaction = nativeCrashHandler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sigaction(SIGSEGV, &action, nullptr);
+    sigaction(SIGBUS, &action, nullptr);
+    sigaction(SIGILL, &action, nullptr);
+}
 
 void ensureCompilerStackBudget() {
     constexpr rlim_t kDesired = static_cast<rlim_t>(512ull * 1024ull * 1024ull);
@@ -155,6 +181,7 @@ int compileManifest(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     try {
+        installNativeCrashDiagnostics();
         ensureCompilerStackBudget();
         if (argc >= 2 && std::string(argv[1]) == "compile-manifest") return compileManifest(argc, argv);
         std::cerr << "usage: noqeri-native-stage compile-manifest <repo-root> <manifest> <output.o> [target]\n";
