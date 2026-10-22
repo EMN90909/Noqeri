@@ -223,7 +223,7 @@ jobs:
           result=$(./build-native/noqeri-nqri build-native/record-array-stride.nqri recordArrayStride)
           test "$result" = "41"
       - name: Upload generated Stage-1 seed candidate
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4
         with:
           name: noqeri-stage1-seed-${{ github.sha }}
