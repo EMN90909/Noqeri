@@ -147,6 +147,12 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
     if nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return nqLowerBadAst() }
     let node: *NqAstNode = &nodes[nodeIndex as usize]
     if node.tag == nqAstName() {
+        // Aggregate variables are represented by a pointer to their backing
+        // storage. Their language-level address is that backing pointer, not
+        // the address of the scalar stack slot that stores the pointer.
+        if node.typeCode == nqAstTypeRecord() || node.typeCode == nqAstTypeArray() || node.typeCode == nqAstTypeSlice() {
+            return nqLowerExpressionInternal(source, nodes, nodeIndex, instructions, state)
+        }
         let symbol: u64 = nqLowerNodeSymbol(source, nodes, nodeIndex)
         if symbol == 0 as u64 { return nqLowerBadAst() }
         let reg: isize = nqLowerAllocRegister(state)
@@ -155,6 +161,7 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         instructions[emitted as usize].symbol = symbol
         instructions[emitted as usize].sourceStart = node.start
         instructions[emitted as usize].sourceEnd = node.end
+        instructions[emitted as usize].typeCode = nqAstTypePointer()
         return reg
     }
     if node.tag == nqAstUnary() && node.flags == 42 as u32 { return nqLowerExpressionInternal(source, nodes, node.left, instructions, state) }
