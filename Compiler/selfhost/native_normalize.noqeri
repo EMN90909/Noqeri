@@ -126,12 +126,80 @@ function nqNativeNormalizeLen(instructions: []NqNirInstruction, callIndex: usize
     return nqNativeNormalizeUnsupportedBuiltin()
 }
 
+function nqNativeNormalizeFreshRegister(instructions: []NqNirInstruction): isize {
+    let maximum: isize = -1 as isize
+    let index: usize = 0 as usize
+    while index < len(instructions) {
+        if instructions[index].dest > maximum { maximum = instructions[index].dest }
+        index = index + 1 as usize
+    }
+    return maximum + 1 as isize
+}
+
+function nqNativeNormalizeSlice(instructions: []NqNirInstruction, callIndex: usize, nextRegister: *isize): isize {
+    if nextRegister == null { return nqNativeNormalizeInvalid() }
+    let call: *NqNirInstruction = &instructions[callIndex]
+    if call.width != 1 as usize && call.width != 2 as usize { return nqNativeNormalizeInvalid() }
+
+    let firstInstruction: usize = 0 as usize
+    let firstRegister: isize = nqNirNoValue()
+    if !nqNativeNormalizeArgument(instructions,callIndex,0 as usize,&firstInstruction,&firstRegister) { return nqNativeNormalizeInvalid() }
+    let firstType: int = nqNativeNormalizeRegisterType(instructions,firstInstruction,firstRegister)
+
+    let lengthRegister: isize = nqNirNoValue()
+    let secondInstruction: usize = 0 as usize
+    if call.width == 1 as usize {
+        if firstType != nqAstTypeArray() { return nqNativeNormalizeUnsupportedBuiltin() }
+        let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(instructions,firstInstruction,firstRegister,0 as usize)
+        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedBuiltin() }
+        lengthRegister = nextRegister[0]
+        nextRegister[0] = nextRegister[0] + 1 as isize
+        let lengthInstruction: *NqNirInstruction = &instructions[firstInstruction]
+        nqNativeNormalizeResetInstruction(lengthInstruction)
+        lengthInstruction.opcode = nqNirConstI64()
+        lengthInstruction.dest = lengthRegister
+        lengthInstruction.immediate = arrayLength as i64
+        lengthInstruction.typeCode = nqAstTypeUsize()
+    } else {
+        if !nqNativeNormalizeArgument(instructions,callIndex,1 as usize,&secondInstruction,&lengthRegister) { return nqNativeNormalizeInvalid() }
+        nqNativeNormalizeResetInstruction(&instructions[secondInstruction])
+    }
+
+    let dataRegister: isize = firstRegister
+    if firstType == nqAstTypeSlice() {
+        if call.width == 1 as usize { return nqNativeNormalizeUnsupportedBuiltin() }
+        dataRegister = nextRegister[0]
+        nextRegister[0] = nextRegister[0] + 1 as isize
+        let dataInstruction: *NqNirInstruction = &instructions[firstInstruction]
+        nqNativeNormalizeResetInstruction(dataInstruction)
+        dataInstruction.opcode = nqNirSliceData()
+        dataInstruction.dest = dataRegister
+        dataInstruction.left = firstRegister
+        dataInstruction.typeCode = nqAstTypePointer()
+    } else if call.width == 2 as usize {
+        nqNativeNormalizeResetInstruction(&instructions[firstInstruction])
+    }
+
+    call.opcode = nqNirMakeSlice()
+    call.left = dataRegister
+    call.right = lengthRegister
+    call.immediate = 0 as i64
+    call.symbol = 0 as u64
+    call.width = 0 as usize
+    call.typeCode = nqAstTypeSlice()
+    return nqNativeNormalizeOk()
+}
+
 export function nqNativeNormalizeBuiltins(source: []u8, instructions: []NqNirInstruction): isize {
+    let nextRegister: isize = nqNativeNormalizeFreshRegister(instructions)
     let index: usize = 0 as usize
     while index < len(instructions) {
         if instructions[index].opcode == nqNirCall() {
             if nqNativeNormalizeNameEqual(source,instructions[index].sourceStart,instructions[index].sourceEnd,slice([108 as u8,101 as u8,110 as u8])) {
                 let status: isize = nqNativeNormalizeLen(instructions,index)
+                if status < 0 as isize { return status }
+            } else if nqNativeNormalizeNameEqual(source,instructions[index].sourceStart,instructions[index].sourceEnd,slice([115 as u8,108 as u8,105 as u8,99 as u8,101 as u8])) {
+                let status: isize = nqNativeNormalizeSlice(instructions,index,&nextRegister)
                 if status < 0 as isize { return status }
             }
         }
