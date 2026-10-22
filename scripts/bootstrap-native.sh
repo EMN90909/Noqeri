@@ -61,6 +61,14 @@ if command -v readelf >/dev/null 2>&1; then
 fi
 "$CXX" -no-pie "$HOST_OBJ" "$STAGE2_OBJ" -o "$STAGE2_BIN"
 if command -v nm >/dev/null 2>&1; then
+  echo "Native Stage-2 exported symbols:"
+  nm -n "$STAGE2_BIN" | grep -E 'stage1VersionMajor|stage2Workspace(Ast|Nir|Function)Minimum|stage2Compile' || true
+fi
+if command -v objdump >/dev/null 2>&1; then
+  echo "Native Stage-2 stage1VersionMajor disassembly:"
+  objdump -d --disassemble=stage1VersionMajor "$STAGE2_BIN" || true
+fi
+if command -v nm >/dev/null 2>&1; then
   nm -n "$STAGE2_BIN" | grep -E 'stage1VersionMajor|stage2SyntaxCheck|stage2CompileToNativeObject' || true
 fi
 
