@@ -150,6 +150,10 @@ jobs:
           test "$promotion_result" = "14"
           narrowing_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri castNarrowingRel32)
           test "$narrowing_result" = "4294966296"
+          unsigned_div=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideDivision)
+          test "$unsigned_div" = "72057594037927935"
+          unsigned_mod=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideModulo)
+          test "$unsigned_mod" = "255"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -166,6 +170,10 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
           $narrowingResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri castNarrowingRel32).Trim()
           if ($LASTEXITCODE -ne 0 -or $narrowingResult -ne '4294966296') { throw "integer narrowing returned '$narrowingResult'" }
+          $unsignedDiv = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideDivision).Trim()
+          if ($LASTEXITCODE -ne 0 -or $unsignedDiv -ne '72057594037927935') { throw "unsigned wide division returned '$unsignedDiv'" }
+          $unsignedMod = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideModulo).Trim()
+          if ($LASTEXITCODE -ne 0 -or $unsignedMod -ne '255') { throw "unsigned wide modulo returned '$unsignedMod'" }
       - name: Build Stage-1 NQRI seed candidate (Linux)
         if: runner.os == 'Linux'
         shell: bash
