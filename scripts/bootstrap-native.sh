@@ -31,7 +31,7 @@ mkdir -p "$BUILD_DIR" "$PORTABLE_BUILD"
 
 # First refresh the portable compiler from the repository-pinned Stage-1 seed.
 # This VM leg is bootstrap only. It must not appear in Stage-2 -> Stage-3.
-BUILD_DIR="$PORTABLE_BUILD" sh "$ROOT/scripts/bootstrap-nqri.sh"
+BUILD_DIR="$PORTABLE_BUILD" NOQERI_BOOTSTRAP_STAGE2_ONLY=1 sh "$ROOT/scripts/bootstrap-nqri.sh"
 
 PORTABLE="$PORTABLE_BUILD/noqeri-stage2.nqri"
 [ -f "$PORTABLE" ] || { echo "portable Stage-2 compiler was not produced" >&2; exit 2; }
