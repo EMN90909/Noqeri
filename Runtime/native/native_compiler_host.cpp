@@ -60,6 +60,10 @@ struct Slice {
     std::uint64_t size;
 };
 
+extern "C" std::int64_t stage1VersionMajor();
+extern "C" std::int64_t stage2SyntaxCheck(const Slice* source);
+extern "C" std::int64_t stage2SemanticCheckMerged(const Slice* source, std::int64_t unsafeAllowed);
+extern "C" std::int64_t stage2CompileCheck(const Slice* source, std::int64_t target, std::int64_t unsafeAllowed);
 extern "C" std::int64_t stage2CompileToNativeObject(
     const Slice* source,
     std::int64_t target,
@@ -179,10 +183,29 @@ int compileManifest(int argc, char** argv) {
 
 } // namespace
 
+int diagnoseManifest(int argc, char** argv) {
+    if (argc < 4) throw std::runtime_error("diagnose-manifest requires <repo-root> <manifest>");
+    auto source = bundleManifest(argv[2], argv[3]);
+    Slice sourceSlice{source.data(), static_cast<std::uint64_t>(source.size())};
+    std::cerr << "native-compiler diagnostic: version-major=" << stage1VersionMajor() << "\n";
+    std::cerr << "native-compiler diagnostic: source-bytes=" << source.size() << "\n";
+    const auto syntax = stage2SyntaxCheck(&sourceSlice);
+    std::cerr << "native-compiler diagnostic: syntax=" << syntax << "\n";
+    if (syntax < 0) return 20;
+    const auto semantic = stage2SemanticCheckMerged(&sourceSlice, 1);
+    std::cerr << "native-compiler diagnostic: semantic=" << semantic << "\n";
+    if (semantic < 0) return 21;
+    const auto check = stage2CompileCheck(&sourceSlice, 3, 1);
+    std::cerr << "native-compiler diagnostic: compile-check=" << check << "\n";
+    if (check < 0) return 22;
+    return 0;
+}
+
 int main(int argc, char** argv) {
     try {
         installNativeCrashDiagnostics();
         ensureCompilerStackBudget();
+        if (argc >= 2 && std::string(argv[1]) == "diagnose-manifest") return diagnoseManifest(argc, argv);
         if (argc >= 2 && std::string(argv[1]) == "compile-manifest") return compileManifest(argc, argv);
         std::cerr << "usage: noqeri-native-stage compile-manifest <repo-root> <manifest> <output.o> [target]\n";
         return 2;
