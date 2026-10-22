@@ -215,7 +215,9 @@ bool translateFunction(const NirFunction& fn,
                 if (i.args.size() != 2) { diagnostics.error("NQR-B9004", {}, "malformed binary operation in C++ NIR"); return false; }
                 const auto opcode = binaryOpcode(i.text);
                 if (opcode == std::numeric_limits<std::uint32_t>::max()) { diagnostics.error("NQR-B9005", {}, "unsupported binary operation in NQRI bootstrap emitter: " + i.text); return false; }
-                x.opcode = opcode; x.left = i.args[0]; x.right = i.args[1]; out.push_back(x); break;
+                x.opcode = opcode; x.left = i.args[0]; x.right = i.args[1];
+                if (i.args[0] < fn.registerTypes.size()) x.typeCode = typeCode(fn.registerTypes[i.args[0]].name());
+                out.push_back(x); break;
             }
             case NirOp::Cast:
                 if (i.args.size() != 1) { diagnostics.error("NQR-B9006", {}, "malformed cast in C++ NIR"); return false; }
