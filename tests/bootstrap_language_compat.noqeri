@@ -33,3 +33,9 @@ export function integerLiteralPromotion(): usize {
     let widened: u32 = narrowedLiteral + 2
     return advanced + widened as usize
 }
+
+
+export function castNarrowingRel32(): u32 {
+    let delta: i64 = -1000 as i64
+    return delta as u32
+}
