@@ -89,7 +89,22 @@ function nqNativeNormalizeArgument(instructions: []NqNirInstruction, callIndex: 
 function nqNativeNormalizeRegisterType(instructions: []NqNirInstruction, before: usize, reg: isize): int {
     let definition: isize = nqNativeNormalizeFindDefinition(instructions,before,reg)
     if definition < 0 as isize { return nqAstTypeUnknown() }
-    return instructions[definition as usize].typeCode
+    let ins: *NqNirInstruction = &instructions[definition as usize]
+    if ins.typeCode != nqAstTypeUnknown() { return ins.typeCode }
+    if ins.opcode == nqNirStackAlloc() && (ins.flags / nqNirFlagArrayLength()) % 2 as u32 == 1 as u32 { return nqAstTypeArray() }
+    if ins.opcode == nqNirMakeSlice() { return nqAstTypeSlice() }
+    if ins.opcode == nqNirSliceData() || ins.opcode == nqNirAddr() || ins.opcode == nqNirPtrAdd() { return nqAstTypePointer() }
+    if ins.opcode == nqNirMove() || ins.opcode == nqNirCast() { return nqNativeNormalizeRegisterType(instructions,definition as usize,ins.left) }
+    if ins.opcode == nqNirLoad() && ins.symbol != 0 as u64 {
+        let cursor: usize = definition as usize
+        while cursor > 0 as usize {
+            cursor = cursor - 1 as usize
+            if instructions[cursor].opcode == nqNirStore() && instructions[cursor].symbol == ins.symbol {
+                return nqNativeNormalizeRegisterType(instructions,cursor,instructions[cursor].left)
+            }
+        }
+    }
+    return nqAstTypeUnknown()
 }
 
 function nqNativeNormalizeLen(instructions: []NqNirInstruction, callIndex: usize): isize {
