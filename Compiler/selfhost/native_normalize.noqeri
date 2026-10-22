@@ -177,7 +177,7 @@ function nqNativeNormalizeSlice(source: []u8, instructions: []NqNirInstruction, 
     let secondInstruction: usize = 0 as usize
     if call.width == 1 as usize {
         if firstType != nqAstTypeArray() { return nqNativeNormalizeUnsupportedAt(call.sourceStart,30 + firstType) }
-        let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(instructions,firstInstruction,firstRegister,0 as usize)
+        let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(source,instructions,firstInstruction,firstRegister,0 as usize)
         if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,41) }
         lengthRegister = nextRegister[0]
         nextRegister[0] = nextRegister[0] + 1 as isize
