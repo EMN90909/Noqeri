@@ -154,6 +154,8 @@ jobs:
           test "$unsigned_div" = "72057594037927935"
           unsigned_mod=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideModulo)
           test "$unsigned_mod" = "255"
+          unsigned_cmp=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideComparison)
+          test "$unsigned_cmp" = "1"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -174,6 +176,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $unsignedDiv -ne '72057594037927935') { throw "unsigned wide division returned '$unsignedDiv'" }
           $unsignedMod = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideModulo).Trim()
           if ($LASTEXITCODE -ne 0 -or $unsignedMod -ne '255') { throw "unsigned wide modulo returned '$unsignedMod'" }
+          $unsignedCmp = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideComparison).Trim()
+          if ($LASTEXITCODE -ne 0 -or $unsignedCmp -ne '1') { throw "unsigned wide comparison returned '$unsignedCmp'" }
       - name: Build Stage-1 NQRI seed candidate (Linux)
         if: runner.os == 'Linux'
         shell: bash
