@@ -196,7 +196,13 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         return address
     }
     if node.tag == nqAstMember() {
-        let base: isize = nqLowerAddress(source, nodes, node.left, instructions, state)
+        let baseNode: *NqAstNode = &nodes[node.left as usize]
+        let base: isize = nqLowerBadTarget()
+        if baseNode.typeCode == nqAstTypePointer() {
+            base = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
+        } else {
+            base = nqLowerAddress(source, nodes, node.left, instructions, state)
+        }
         if base < 0 as isize { return base }
         let member: isize = node.right
         // The index register must be initialized before pointer arithmetic
