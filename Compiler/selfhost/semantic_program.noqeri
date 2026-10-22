@@ -385,6 +385,17 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         let callee: *NqAstNode = &nodes[node.left as usize]
         let functionSymbol: u64 = nqTypeNameSymbol(source, callee.start, callee.end)
         let functionIndex: isize = nqSemanticFunctionFind(functions, context.functionCount, functionSymbol)
+        if (node.flags / nqAstFlagZeroInit()) % 2 as u32 == 1 as u32 {
+            if node.right >= 0 as isize || node.extra != 0 as isize { return nqSemanticFail(context, node, nqSemanticBadCall()) }
+            let zeroType: NqTypeRef
+            let typeEnd: usize = nqTypeRefParse(source, callee.start, &zeroType)
+            if typeEnd != callee.end || !nqTypeRefValid(&zeroType) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+            nqSemanticNormalizeRef(nodes, context.currentFunction, &zeroType)
+            nqSemanticApplyRef(node, &zeroType)
+            node.storageBytes = nqRecordTypeStorageBytes(&zeroType, records, recordCount, 8 as usize)
+            if node.storageBytes == 0 as usize { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
+            return nqSemanticOk()
+        }
         let argument: isize = node.right
         let argumentIndex: usize = 0 as usize
         while argument >= 0 as isize && argumentIndex < node.extra as usize {
