@@ -61,6 +61,9 @@ struct Slice {
 };
 
 extern "C" std::int64_t stage1VersionMajor();
+extern "C" std::uint64_t stage2WorkspaceAstMinimum();
+extern "C" std::uint64_t stage2WorkspaceNirMinimum();
+extern "C" std::uint64_t stage2WorkspaceFunctionMinimum();
 extern "C" std::uint64_t stage1TokenCount(const Slice* source);
 extern "C" std::uint64_t stage1Fingerprint(const Slice* source);
 extern "C" std::uint64_t stage2SecurityPolicyMaxSourceBytes();
@@ -191,6 +194,9 @@ int diagnoseManifest(int argc, char** argv) {
     if (argc < 4) throw std::runtime_error("diagnose-manifest requires <repo-root> <manifest>");
     auto source = bundleManifest(argv[2], argv[3]);
     Slice sourceSlice{source.data(), static_cast<std::uint64_t>(source.size())};
+    std::cerr << "native-compiler diagnostic: workspace-ast=" << stage2WorkspaceAstMinimum() << "\n";
+    std::cerr << "native-compiler diagnostic: workspace-nir=" << stage2WorkspaceNirMinimum() << "\n";
+    std::cerr << "native-compiler diagnostic: workspace-functions=" << stage2WorkspaceFunctionMinimum() << "\n";
     std::cerr << "native-compiler diagnostic: version-major=" << stage1VersionMajor() << "\n";
     std::cerr << "native-compiler diagnostic: source-bytes=" << source.size() << "\n";
     std::cerr << "native-compiler diagnostic: max-source=" << stage2SecurityPolicyMaxSourceBytes() << "\n";
