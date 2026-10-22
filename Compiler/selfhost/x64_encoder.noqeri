@@ -112,6 +112,32 @@ function nqX64FunctionIndex(functions: []NqNirFunction, symbol: u64): isize {
     }
     return -1 as isize
 }
+
+function nqX64SourceSpanEqual(source: []u8, leftStart: usize, leftEnd: usize, rightStart: usize, rightEnd: usize): bool {
+    if leftStart >= leftEnd || rightStart >= rightEnd || leftEnd > len(source) || rightEnd > len(source) { return false }
+    if leftEnd - leftStart != rightEnd - rightStart { return false }
+    let index: usize = 0 as usize
+    while index < leftEnd - leftStart {
+        if source[leftStart + index] != source[rightStart + index] { return false }
+        index = index + 1 as usize
+    }
+    return true
+}
+
+function nqX64FunctionIndexByName(source: []u8, functions: []NqNirFunction, start: usize, end: usize): isize {
+    let index: usize = 0 as usize
+    while index < len(functions) {
+        if nqX64SourceSpanEqual(source,start,end,functions[index].nameStart,functions[index].nameEnd) { return index as isize }
+        index = index + 1 as usize
+    }
+    return -1 as isize
+}
+
+function nqX64ResolveFunction(source: []u8, functions: []NqNirFunction, symbol: u64, start: usize, end: usize): isize {
+    let bySymbol: isize = nqX64FunctionIndex(functions,symbol)
+    if bySymbol >= 0 as isize { return bySymbol }
+    return nqX64FunctionIndexByName(source,functions,start,end)
+}
 function nqX64Exported(function: *NqNirFunction): bool { return function != null && (function.flags / 1 as u32) % 2 as u32 == 1 as u32 }
 function nqX64Extern(function: *NqNirFunction): bool { return function != null && (function.flags / 2 as u32) % 2 as u32 == 1 as u32 }
 
@@ -574,11 +600,11 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
                 let patch: usize = cursor[0]
                 if !nqX64Put32(out,cursor,0 as u32)||!nqX64PatchRel32(out,patch,textLengthOffset) { return nqX64Capacity() }
             } else {
-                let targetIndex: isize = nqX64FunctionIndex(functions,ins.symbol)
+                let targetIndex: isize = nqX64ResolveFunction(source,functions,ins.symbol,ins.sourceStart,ins.sourceEnd)
                 if targetIndex < 0 as isize || nqX64Extern(&functions[targetIndex as usize]) { return nqX64ExternalAt(ins.sourceStart) }
                 if !nqX64Put8(out,cursor,0xe8 as u8) { return nqX64Capacity() }
                 let patch: usize = cursor[0]
-                if !nqX64Put32(out,cursor,0 as u32)||!nqX64AddFixup(fixups,fixupCount,2,patch,0 as usize,ins.symbol,ins.sourceStart,ins.sourceEnd) { return nqX64Capacity() }
+                if !nqX64Put32(out,cursor,0 as u32)||!nqX64AddFixup(fixups,fixupCount,2,patch,0 as usize,functions[targetIndex as usize].symbol,ins.sourceStart,ins.sourceEnd) { return nqX64Capacity() }
             }
             let cleanup: usize = stackCount * 8 as usize + pad
             if cleanup > 0 as usize {
@@ -668,7 +694,7 @@ export function nqX64EncodeProgram(source: []u8, functions: []NqNirFunction, ins
             let target: usize = instructionOffsets[fix.targetInstruction]
             if target == 0 as usize || !nqX64PatchRel32(out,fix.patchOffset,target) { return nqX64Range() }
         } else if fix.kind == 2 {
-            let targetIndex: isize = nqX64FunctionIndex(functions,fix.targetSymbol)
+            let targetIndex: isize = nqX64ResolveFunction(source,functions,fix.targetSymbol,fix.sourceStart,fix.sourceEnd)
             if targetIndex < 0 as isize || functionOffsets[targetIndex as usize] == 0 as usize { return nqX64ExternalAt(fix.sourceStart) }
             if !nqX64PatchRel32(out,fix.patchOffset,functionOffsets[targetIndex as usize]) { return nqX64Range() }
         }
