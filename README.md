@@ -92,9 +92,11 @@ This makes native program comparisons measurable without pretending the compiler
 
 ## Compiler architecture
 
-`main` uses a staged self-host model. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`. The pinned self-rebuild path currently produces NQRI bytecode and executes it through the C++ `noqeri-nqri` VM. That is valid NQRI self-reproduction evidence, but it is **not** native-code self-hosting.
+Noqeri now has two deliberately separate self-host proofs. The pinned NQRI path proves portable compiler reproducibility through `noqeri-nqri`. The **Linux x86-64 native path** proves that the Noqeri-written compiler can emit its own native machine code and ELF object, then rebuild itself natively.
 
-The C++17 Stage-0 compiler remains the implementation that owns today's qualified x86-64 AOT code generation. The Noqeri-written backend already owns NIR/target/ABI validation, but its object-format modules do not yet form a complete machine-code, symbol and relocation emitter. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact native qualification gate.
+The native chain is: pinned portable compiler → first native Stage-2 ELF object → native Stage 2 → byte-identical native Stage 3 → byte-identical native Stage 4. The VM participates only in producing the first native object; it does not execute Stage 2 or Stage 3. Native machine-code emission lives in `Compiler/selfhost/x64_encoder.noqeri`, and ELF object generation lives in `Compiler/selfhost/elf_native_writer.noqeri`.
+
+A thin C++ adapter, `Runtime/native/native_compiler_host.cpp`, still supplies filesystem/manifest I/O and links to the Noqeri-generated compiler object. It contains no frontend or backend semantics. The compiler is therefore natively self-hosted on Linux x86-64, but a source release still requires C++ to build that host adapter. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact trust boundary.
 
 ## Build locally
 
@@ -116,9 +118,15 @@ A fresh checkout verifies the committed, SHA-256-pinned `Compiler/selfhost/trust
 
 An externally audited Stage-1 NQRI artifact can be supplied with both `NOQERI_STAGE1_NQRI` and its independently checked `NOQERI_STAGE1_SHA256`. No independently trusted Stage-1 seed is currently committed. NQRI byte equality does not eliminate the VM/bootstrap trust boundary.
 
-`scripts/bootstrap-native.*` intentionally fails until a Noqeri-written backend can produce and execute native Stage-2/Stage-3 compiler artifacts. Use `scripts/bootstrap-nqri.*` for the current self-rebuild proof.
+For the separate Linux x86-64 native self-host proof, run:
 
-Node.js is not part of the compiler self-rebuild executor. It remains in optional ecosystem, benchmark, browser and reference tooling.
+```sh
+./scripts/bootstrap-native.sh
+```
+
+That path first requires the pinned NQRI Stage-2/Stage-3 fixed point, emits the first native Stage-2 compiler object, then requires byte-identical native Stage 2/3 and Stage 3/4 compiler objects with no VM in either native rebuild.
+
+Node.js is not part of either compiler self-rebuild executor. It remains in optional ecosystem, benchmark, browser and reference tooling.
 
 ## Active Stage-2 CLI commands
 
@@ -152,7 +160,7 @@ Automatic GitHub Actions workflows are intentionally not required for this migra
 
 ## Release readiness
 
-**0.7.0 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
+**0.7.0 development, not verified stable:** Linux x86-64 native compiler self-hosting is proven, but the overall release is not yet production-qualified. The native compiler still uses a thin C++ filesystem/manifest host, cross-target native compiler parity is incomplete, and end-to-end browser/ecosystem qualification remains separate. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
 
 ## License
 
