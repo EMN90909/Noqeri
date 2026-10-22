@@ -34,6 +34,7 @@ export function nqNirFlagUnsigned(): u32 { return 4 as u32 }
 export function nqNirFlagUnsafe(): u32 { return 8 as u32 }
 // For StackAlloc only: immediate carries the array's element count, including zero.
 export function nqNirFlagArrayLength(): u32 { return 16 as u32 }
+export function nqNirFlagZeroInit(): u32 { return 32 as u32 }
 
 export function nqNirNop(): int { return 0 }
 export function nqNirConstI64(): int { return 1 }
