@@ -15,3 +15,55 @@ export function stage2CompileToNativeObject(source: []u8, target: int, debug: bo
     if status < 0 as isize { return status }
     return nqElfNativeWriteObject(source, slice(functions, result.functionCount), slice(instructions, result.instructionCount), target, out)
 }
+
+
+function nqNativeDiagnosticSpanEqual(source: []u8, leftStart: usize, leftEnd: usize, rightStart: usize, rightEnd: usize): bool {
+    if leftStart >= leftEnd || rightStart >= rightEnd || leftEnd > len(source) || rightEnd > len(source) { return false }
+    if leftEnd - leftStart != rightEnd - rightStart { return false }
+    let index: usize = 0 as usize
+    while index < leftEnd - leftStart {
+        if source[leftStart + index] != source[rightStart + index] { return false }
+        index = index + 1 as usize
+    }
+    return true
+}
+
+// Diagnostic encoding for native call resolution:
+// 100 + flags => exact symbol exists
+// 200 + flags => exact source name exists but symbol differs
+// 300         => no function-table entry matches the call
+// negative    => compilation failed before resolution inspection
+export function stage2NativeCallDiagnostic(source: []u8, target: int, unsafeAllowed: bool, callOffset: usize): isize {
+    let nodes: [NqAstNode; 131072]
+    let instructions: [NqNirInstruction; 262144]
+    let functions: [NqNirFunction; 8192]
+    let result: NqCompileResult
+    let status: isize = nqPipelineCompileToNir(source, target, true, unsafeAllowed, slice(nodes), slice(instructions), slice(functions), &result)
+    if status < 0 as isize { return status }
+
+    let callIndex: isize = -1 as isize
+    let index: usize = 0 as usize
+    while index < result.instructionCount {
+        if instructions[index].opcode == nqNirCall() && instructions[index].sourceStart == callOffset {
+            callIndex = index as isize
+            break
+        }
+        index = index + 1 as usize
+    }
+    if callIndex < 0 as isize { return 399 as isize }
+
+    let call: *NqNirInstruction = &instructions[callIndex as usize]
+    let fi: usize = 0 as usize
+    while fi < result.functionCount {
+        if functions[fi].symbol == call.symbol { return 100 as isize + functions[fi].flags as isize }
+        fi = fi + 1 as usize
+    }
+    fi = 0 as usize
+    while fi < result.functionCount {
+        if nqNativeDiagnosticSpanEqual(source,call.sourceStart,call.sourceEnd,functions[fi].nameStart,functions[fi].nameEnd) {
+            return 200 as isize + functions[fi].flags as isize
+        }
+        fi = fi + 1 as usize
+    }
+    return 300 as isize
+}
