@@ -23,15 +23,15 @@ case "$(uname -s 2>/dev/null || true)/$(uname -m 2>/dev/null || true)" in
 esac
 
 command -v "$CXX" >/dev/null 2>&1 || {
-  echo "A C++ compiler is required only for the temporary bootstrap I/O host." >&2
+  echo "A C++ compiler is required for the thin native compiler I/O host." >&2
   exit 2
 }
 
 mkdir -p "$BUILD_DIR" "$PORTABLE_BUILD"
 
-# First refresh the portable compiler from the repository-pinned Stage-1 seed.
-# This VM leg is bootstrap only. It must not appear in Stage-2 -> Stage-3.
-BUILD_DIR="$PORTABLE_BUILD" NOQERI_BOOTSTRAP_STAGE2_ONLY=1 sh "$ROOT/scripts/bootstrap-nqri.sh"
+# First prove the repository-pinned portable compiler reaches its NQRI fixed point.
+# This VM leg is bootstrap-only. No VM participates after the first native Stage-2 object exists.
+BUILD_DIR="$PORTABLE_BUILD" sh "$ROOT/scripts/bootstrap-nqri.sh"
 
 PORTABLE="$PORTABLE_BUILD/noqeri-stage2.nqri"
 [ -f "$PORTABLE" ] || { echo "portable Stage-2 compiler was not produced" >&2; exit 2; }
@@ -55,25 +55,9 @@ fi
 # This host performs filesystem/manifest I/O only. Compiler semantics and native
 # machine-code/object generation are in the linked Noqeri object.
 "$CXX" -std=c++17 -O2 -c "$ROOT/Runtime/native/native_compiler_host.cpp" -o "$HOST_OBJ"
-if command -v readelf >/dev/null 2>&1; then
-  echo "Stage-2 exported symbol diagnostics:"
-  readelf -Ws "$STAGE2_OBJ" | grep -E 'stage1VersionMajor|stage2SyntaxCheck|stage2CompileToNativeObject' || true
-fi
 "$CXX" -no-pie "$HOST_OBJ" "$STAGE2_OBJ" -o "$STAGE2_BIN"
-if command -v nm >/dev/null 2>&1; then
-  echo "Native Stage-2 exported symbols:"
-  nm -n "$STAGE2_BIN" | grep -E 'stage1VersionMajor|stage2Workspace(Ast|Nir|Function)Minimum|stage2Compile' || true
-fi
-if command -v objdump >/dev/null 2>&1; then
-  echo "Native Stage-2 stage1VersionMajor disassembly:"
-  objdump -d --disassemble=stage1VersionMajor "$STAGE2_BIN" || true
-fi
-if command -v nm >/dev/null 2>&1; then
-  nm -n "$STAGE2_BIN" | grep -E 'stage1VersionMajor|stage2SyntaxCheck|stage2CompileToNativeObject' || true
-fi
 
 # From here onward no NQRI VM participates in compilation.
-"$STAGE2_BIN" diagnose-manifest "$ROOT" "$MANIFEST"
 "$STAGE2_BIN" compile-manifest "$ROOT" "$MANIFEST" "$STAGE3_OBJ" 3
 cmp -s "$STAGE2_OBJ" "$STAGE3_OBJ" || {
   echo "Native self-host FAILED: Stage-2 and Stage-3 ELF objects differ." >&2
