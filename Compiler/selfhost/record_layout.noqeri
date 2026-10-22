@@ -95,6 +95,11 @@ function nqRecordTypeStorage(value: *NqTypeRef, records: []NqRecordInfo, recordC
     return size
 }
 
+export function nqRecordTypeStorageBytes(value: *NqTypeRef, records: []NqRecordInfo, recordCount: usize, pointerBytes: usize): usize {
+    let alignment: usize = 1 as usize
+    return nqRecordTypeStorage(value, records, recordCount, pointerBytes, &alignment)
+}
+
 export function nqRecordBuild(source: []u8, nodes: []NqAstNode, first: isize, records: []NqRecordInfo, recordCount: *usize, fields: []NqFieldInfo, fieldCount: *usize, pointerBytes: usize): isize {
     if recordCount == null || fieldCount == null || pointerBytes == 0 as usize { return nqRecordLayoutCapacity() }
     recordCount[0] = 0 as usize
