@@ -77,6 +77,22 @@ fi
 "$STAGE2_BIN" compile-manifest "$ROOT" "$MANIFEST" "$STAGE3_OBJ" 3
 cmp -s "$STAGE2_OBJ" "$STAGE3_OBJ" || {
   echo "Native self-host FAILED: Stage-2 and Stage-3 ELF objects differ." >&2
+  echo "Stage-2 SHA-256: $(sha256sum "$STAGE2_OBJ" | awk '{print $1}')" >&2
+  echo "Stage-3 SHA-256: $(sha256sum "$STAGE3_OBJ" | awk '{print $1}')" >&2
+  echo "First differing bytes (1-based offset, Stage-2 octal, Stage-3 octal):" >&2
+  cmp -l "$STAGE2_OBJ" "$STAGE3_OBJ" | head -n 32 >&2 || true
+  if command -v objcopy >/dev/null 2>&1; then
+    objcopy --dump-section .text="$BUILD_DIR/stage2.text" "$STAGE2_OBJ" 2>/dev/null || true
+    objcopy --dump-section .text="$BUILD_DIR/stage3.text" "$STAGE3_OBJ" 2>/dev/null || true
+    if [ -f "$BUILD_DIR/stage2.text" ] && [ -f "$BUILD_DIR/stage3.text" ]; then
+      echo "Stage-2 .text SHA-256: $(sha256sum "$BUILD_DIR/stage2.text" | awk '{print $1}')" >&2
+      echo "Stage-3 .text SHA-256: $(sha256sum "$BUILD_DIR/stage3.text" | awk '{print $1}')" >&2
+      cmp -s "$BUILD_DIR/stage2.text" "$BUILD_DIR/stage3.text" || {
+        echo "First .text differences:" >&2
+        cmp -l "$BUILD_DIR/stage2.text" "$BUILD_DIR/stage3.text" | head -n 32 >&2 || true
+      }
+    fi
+  fi
   exit 1
 }
 
