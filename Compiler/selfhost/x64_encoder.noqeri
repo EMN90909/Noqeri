@@ -552,7 +552,12 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
             if ins.immediate < 0 as i64 || ins.immediate as usize >= 256 as usize || leftOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
             let argIndex: usize = ins.immediate as usize
             let argOffset: usize = nqX64CallArgOffset(regCount,variableCount,argIndex)
-            argTypes[argIndex] = ins.typeCode
+            let argType: int = ins.typeCode
+            if argType == nqAstTypeUnknown() && ins.left >= minReg && ins.left >= 0 as isize {
+                let local: usize = (ins.left - minReg) as usize
+                if local < regCount { argType = regTypes[local] }
+            }
+            argTypes[argIndex] = argType
             if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitStoreRaxSlot(out,cursor,argOffset) { return nqX64Capacity() }
         }
         else if ins.opcode == nqNirCall() {
