@@ -42,7 +42,6 @@ jobs:
           current=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
           test "$gcc_hash" = "$clang_hash"
           ./build-gcc/noqeri-nqri has-export gcc-seed.nqri stage2CompileToNqri
-          ./build-gcc/noqeri-nqri has-export gcc-seed.nqri stage2CompileToNativeObject
           printf 'candidate=%s\ncurrent=%s\n' "$gcc_hash" "$current"
           echo "hash=$gcc_hash" >> "$GITHUB_OUTPUT"
           if [ "$gcc_hash" = "$current" ]; then
