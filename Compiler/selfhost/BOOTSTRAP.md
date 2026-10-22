@@ -30,22 +30,31 @@ A process being a native C++ executable does not make the code it interprets nat
 
 ## Native self-host status
 
-True native self-hosting is **not qualified yet**. The Noqeri-written `backend.noqeri` currently validates NIR and target/ABI contracts, while the Noqeri ELF/COFF/Mach-O writers currently provide format/header primitives rather than a complete machine-code, symbol and relocation emission pipeline.
+The Noqeri compiler core is now **natively self-hosted on Linux x86-64**. The Noqeri-written pipeline lowers the compiler source through semantic analysis and NIR, `x64_encoder.noqeri` emits x86-64 machine code, and `elf_native_writer.noqeri` writes the ELF64 relocatable compiler object.
 
-For that reason, `scripts/bootstrap-native.sh` and `scripts/bootstrap-native.ps1` fail closed instead of aliasing the NQRI VM path. They may only become successful native proof entry points after the Noqeri-written compiler can emit an executable Stage-2 compiler, run it without `noqeri-nqri`, rebuild Stage 3 natively, and pass the native equivalence/conformance gates.
+`scripts/bootstrap-native.sh` first requires the repository-pinned NQRI bootstrap to reach a byte-identical Stage-2/Stage-3 portable fixed point. The VM then performs exactly one compiler transition: it executes the portable Stage-2 compiler to emit the first native Stage-2 ELF object. From that point onward, `noqeri-nqri` is absent from compilation:
 
-The Stage-0 C++ backend can already emit Linux x86-64 assembly for supported programs. `scripts/native-build.mjs` uses that path to create standalone native executables for runtime benchmarking, but its provenance records `self_hosted_compiler: false`. That solves execution-model honesty for benchmarks; it does not claim the compiler itself is self-hosted natively.
+1. native Stage 2 rebuilds the compiler into native Stage 3;
+2. Stage-2 and Stage-3 ELF objects must be byte-identical;
+3. native Stage 3 rebuilds the compiler into native Stage 4;
+4. Stage-3 and Stage-4 ELF objects must be byte-identical.
+
+A passing proof records `execution_model=native-aot-selfhost`, `native_codegen=true`, `native_selfhost=true`, `native_stage2_runs_without_vm=true`, and both native equality gates as true.
+
+The qualified native target is currently **Linux x86-64**. The native compiler object is linked to `Runtime/native/native_compiler_host.cpp`, a thin filesystem/manifest I/O adapter. Compiler semantics, parsing, type checking, NIR, optimization, machine-code emission and ELF object generation remain Noqeri-owned. Because that adapter is still C++, the proof deliberately records `release_needs_cpp_host=true`; this is not yet a zero-C++ source-release toolchain.
+
+The Stage-0 C++ AOT backend remains available for bootstrap and the existing runtime benchmark helper. `scripts/native-build.mjs` still records `self_hosted_compiler: false` because that helper intentionally measures the Stage-0 program backend, not the native self-host compiler.
 
 ## Canonical Stage-1 pin
 
 The canonical Stage-1 pin currently identifies:
 
 ```text
-sha256 a5b308beafa7510c31edf5eec81782a42128f1add13779287c03212b30264bca
-bytes  4124007
+sha256 f0463167f7c2066e00a3badfcd3e65e07b88e75c26222691aaf026c25978344f
+bytes  4178683
 ```
 
-That exact seed was reproduced by both GCC-built and Clang-built Stage-0 compilers in GitHub Actions run `39585410281`. In the same accepted run, Stage 2 and Stage 3 were byte-identical and both hashed to `7fed1cfc89ae551c3c2eaa5b3309311ddbfe7a075d890e7df5ef06c9e7a0a409`.
+That exact seed was reproduced byte-for-byte by GCC-built and Clang-built Stage-0 compilers during the verified seed rollover in GitHub Actions run `39787638241`. The candidate then produced byte-identical NQRI Stage 2 and Stage 3 artifacts, both hashing to `86d575343000b934ef862c45cb8b2d26066934864ddf4dda0d8bae38feaaab0f`, before it was committed as the new repository pin.
 
 ### Windows
 
