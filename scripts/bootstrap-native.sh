@@ -55,7 +55,7 @@ fi
 # This host performs filesystem/manifest I/O only. Compiler semantics and native
 # machine-code/object generation are in the linked Noqeri object.
 "$CXX" -std=c++17 -O2 -c "$ROOT/Runtime/native/native_compiler_host.cpp" -o "$HOST_OBJ"
-"$CXX" "$HOST_OBJ" "$STAGE2_OBJ" -o "$STAGE2_BIN"
+"$CXX" -no-pie "$HOST_OBJ" "$STAGE2_OBJ" -o "$STAGE2_BIN"
 
 # From here onward no NQRI VM participates in compilation.
 "$STAGE2_BIN" compile-manifest "$ROOT" "$MANIFEST" "$STAGE3_OBJ" 3
@@ -64,7 +64,7 @@ cmp -s "$STAGE2_OBJ" "$STAGE3_OBJ" || {
   exit 1
 }
 
-"$CXX" "$HOST_OBJ" "$STAGE3_OBJ" -o "$STAGE3_BIN"
+"$CXX" -no-pie "$HOST_OBJ" "$STAGE3_OBJ" -o "$STAGE3_BIN"
 "$STAGE3_BIN" compile-manifest "$ROOT" "$MANIFEST" "$STAGE4_OBJ" 3
 cmp -s "$STAGE3_OBJ" "$STAGE4_OBJ" || {
   echo "Native self-host FAILED: Stage-3 and Stage-4 ELF objects differ." >&2
