@@ -39,3 +39,13 @@ export function castNarrowingRel32(): u32 {
     let delta: i64 = -1000 as i64
     return delta as u32
 }
+
+export function unsignedWideDivision(): u64 {
+    let value: u64 = 18446744073709551615 as u64
+    return value / 256 as u64
+}
+
+export function unsignedWideModulo(): u64 {
+    let value: u64 = 18446744073709551615 as u64
+    return value % 256 as u64
+}
