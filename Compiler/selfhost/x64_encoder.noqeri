@@ -22,6 +22,10 @@ function nqX64ExternalAt(sourceStart: usize): isize {
     if sourceStart > 1000000000 as usize { return nqX64External() }
     return (0 as isize - 4000000 as isize) - sourceStart as isize
 }
+function nqX64ExternFlagAt(sourceStart: usize): isize {
+    if sourceStart > 1000000000 as usize { return nqX64External() }
+    return (0 as isize - 5000000 as isize) - sourceStart as isize
+}
 function nqX64InvalidAt(index: usize, opcode: int): isize {
     if index > 10000000 as usize || opcode < 0 || opcode > 63 { return nqX64Invalid() }
     return (0 as isize - 1000000 as isize) - (index as isize * 64 as isize) - opcode as isize
@@ -601,7 +605,8 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
                 if !nqX64Put32(out,cursor,0 as u32)||!nqX64PatchRel32(out,patch,textLengthOffset) { return nqX64Capacity() }
             } else {
                 let targetIndex: isize = nqX64ResolveFunction(source,functions,ins.symbol,ins.sourceStart,ins.sourceEnd)
-                if targetIndex < 0 as isize || nqX64Extern(&functions[targetIndex as usize]) { return nqX64ExternalAt(ins.sourceStart) }
+                if targetIndex < 0 as isize { return nqX64ExternalAt(ins.sourceStart) }
+                if nqX64Extern(&functions[targetIndex as usize]) { return nqX64ExternFlagAt(ins.sourceStart) }
                 if !nqX64Put8(out,cursor,0xe8 as u8) { return nqX64Capacity() }
                 let patch: usize = cursor[0]
                 if !nqX64Put32(out,cursor,0 as u32)||!nqX64AddFixup(fixups,fixupCount,2,patch,0 as usize,functions[targetIndex as usize].symbol,ins.sourceStart,ins.sourceEnd) { return nqX64Capacity() }
@@ -695,7 +700,8 @@ export function nqX64EncodeProgram(source: []u8, functions: []NqNirFunction, ins
             if target == 0 as usize || !nqX64PatchRel32(out,fix.patchOffset,target) { return nqX64Range() }
         } else if fix.kind == 2 {
             let targetIndex: isize = nqX64ResolveFunction(source,functions,fix.targetSymbol,fix.sourceStart,fix.sourceEnd)
-            if targetIndex < 0 as isize || functionOffsets[targetIndex as usize] == 0 as usize { return nqX64ExternalAt(fix.sourceStart) }
+            if targetIndex < 0 as isize { return nqX64ExternalAt(fix.sourceStart) }
+            if functionOffsets[targetIndex as usize] == 0 as usize { return nqX64ExternFlagAt(fix.sourceStart) }
             if !nqX64PatchRel32(out,fix.patchOffset,functionOffsets[targetIndex as usize]) { return nqX64Range() }
         }
         fx = fx + 1 as usize
