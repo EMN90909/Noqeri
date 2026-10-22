@@ -117,7 +117,8 @@ export function nqElfNativeWriteObject(source: []u8, functions: []NqNirFunction,
     while fi < len(functions) {
         let fn: *NqNirFunction = &functions[fi]
         if nqElfNativeExported(fn) && !nqElfNativeExtern(fn) {
-            if functionOffsets[fi] < textOffset { return nqElfNativeInvalid() }
+            if functionOffsets[fi] < textOffset || functionOffsets[fi] > textEnd { return nqElfNativeInvalid() }
+            if functionSizes[fi] > textEnd - functionOffsets[fi] { return nqElfNativeInvalid() }
             if !nqElfNativeWriteSymbol(out,cursor,nameOffsets[fi],0x12 as u8,1 as u16,(functionOffsets[fi] - textOffset) as u64,functionSizes[fi] as u64) { return nqElfNativeCapacity() }
             cursor = cursor + nqElfSymbolBytes64()
         }
