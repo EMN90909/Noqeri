@@ -1,5 +1,8 @@
 #include "noqeri/mailbox_runtime.h"
 #include <atomic>
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <cerrno>
 #include <cstring>
