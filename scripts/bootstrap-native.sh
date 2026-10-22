@@ -58,6 +58,7 @@ fi
 "$CXX" -no-pie "$HOST_OBJ" "$STAGE2_OBJ" -o "$STAGE2_BIN"
 
 # From here onward no NQRI VM participates in compilation.
+"$STAGE2_BIN" diagnose-manifest "$ROOT" "$MANIFEST"
 "$STAGE2_BIN" compile-manifest "$ROOT" "$MANIFEST" "$STAGE3_OBJ" 3
 cmp -s "$STAGE2_OBJ" "$STAGE3_OBJ" || {
   echo "Native self-host FAILED: Stage-2 and Stage-3 ELF objects differ." >&2
