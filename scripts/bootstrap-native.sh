@@ -90,6 +90,16 @@ cmp -s "$STAGE2_OBJ" "$STAGE3_OBJ" || {
       cmp -s "$BUILD_DIR/stage2.text" "$BUILD_DIR/stage3.text" || {
         echo "First .text differences:" >&2
         cmp -l "$BUILD_DIR/stage2.text" "$BUILD_DIR/stage3.text" | head -n 32 >&2 || true
+        first_text_diff=$(cmp -l "$BUILD_DIR/stage2.text" "$BUILD_DIR/stage3.text" | awk 'NR==1 { print $1 }')
+        if [ -n "$first_text_diff" ] && command -v objdump >/dev/null 2>&1; then
+          first_addr=$((first_text_diff - 1))
+          start_addr=$((first_addr > 48 ? first_addr - 48 : 0))
+          stop_addr=$((first_addr + 96))
+          echo "Stage-2 disassembly around first .text difference (0x$(printf '%x' "$first_addr")):" >&2
+          objdump -d --start-address="$start_addr" --stop-address="$stop_addr" "$STAGE2_OBJ" >&2 || true
+          echo "Stage-3 disassembly around first .text difference:" >&2
+          objdump -d --start-address="$start_addr" --stop-address="$stop_addr" "$STAGE3_OBJ" >&2 || true
+        fi
       }
     fi
   fi
