@@ -163,6 +163,16 @@ function nqX64EmitLeaRaxSlot(out: []u8, cursor: *usize, offset: usize): bool {
 function nqX64EmitLeaR11Slot(out: []u8, cursor: *usize, offset: usize): bool {
     return nqX64Put8(out,cursor,0x4c as u8) && nqX64Put8(out,cursor,0x8d as u8) && nqX64Put8(out,cursor,0x9d as u8) && nqX64PutDisp32(out,cursor,offset)
 }
+function nqX64EmitLeaRdiSlot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x48 as u8) && nqX64Put8(out,cursor,0x8d as u8) && nqX64Put8(out,cursor,0xbd as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitZeroBytes(out: []u8, cursor: *usize, offset: usize, bytes: usize): bool {
+    if bytes == 0 as usize { return true }
+    if !nqX64EmitLeaRdiSlot(out,cursor,offset) { return false }
+    if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xb9 as u8)||!nqX64Put64(out,cursor,bytes as u64) { return false }
+    if !nqX64Put8(out,cursor,0x31 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return false }
+    return nqX64Put8(out,cursor,0xf3 as u8)&&nqX64Put8(out,cursor,0xaa as u8)
+}
 
 function nqX64EmitLoadIntegerArg(out: []u8, cursor: *usize, registerIndex: usize, slotOffset: usize): bool {
     if registerIndex == 0 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0xbd as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
@@ -464,7 +474,11 @@ function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionInd
         }
         else if ins.opcode == nqNirStackAlloc() {
             storageCursor = storageCursor + nqX64Align8(ins.width)
-            if storageCursor > frameBytes || destOffset == 0 as usize || !nqX64EmitLeaRaxSlot(out,cursor,storageCursor)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+            if storageCursor > frameBytes || destOffset == 0 as usize { return nqX64Capacity() }
+            if (ins.flags / nqNirFlagZeroInit()) % 2 as u32 == 1 as u32 {
+                if !nqX64EmitZeroBytes(out,cursor,storageCursor,ins.width) { return nqX64Capacity() }
+            }
+            if !nqX64EmitLeaRaxSlot(out,cursor,storageCursor)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
         }
         else if ins.opcode == nqNirMakeSlice() {
             storageCursor = storageCursor + 16 as usize
