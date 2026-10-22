@@ -10,8 +10,24 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <sys/resource.h>
 
 namespace {
+
+void ensureCompilerStackBudget() {
+    constexpr rlim_t kDesired = static_cast<rlim_t>(512ull * 1024ull * 1024ull);
+    rlimit limit{};
+    if (getrlimit(RLIMIT_STACK, &limit) != 0)
+        throw std::runtime_error("cannot read RLIMIT_STACK for native compiler");
+    if (limit.rlim_cur >= kDesired || limit.rlim_cur == RLIM_INFINITY) return;
+    rlim_t target = kDesired;
+    if (limit.rlim_max != RLIM_INFINITY && target > limit.rlim_max) target = limit.rlim_max;
+    if (target <= limit.rlim_cur)
+        throw std::runtime_error("native compiler requires a larger stack budget; hard RLIMIT_STACK is too small");
+    limit.rlim_cur = target;
+    if (setrlimit(RLIMIT_STACK, &limit) != 0)
+        throw std::runtime_error("cannot raise RLIMIT_STACK for native compiler arenas");
+}
 
 struct Slice {
     std::uint8_t* data;
@@ -139,6 +155,7 @@ int compileManifest(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     try {
+        ensureCompilerStackBudget();
         if (argc >= 2 && std::string(argv[1]) == "compile-manifest") return compileManifest(argc, argv);
         std::cerr << "usage: noqeri-native-stage compile-manifest <repo-root> <manifest> <output.o> [target]\n";
         return 2;
