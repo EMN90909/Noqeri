@@ -1,0 +1,115 @@
+name: Temporary Stage-1 Seed Rollover
+
+on:
+  push:
+    branches: [feat/native-selfhost-compiler]
+    paths:
+      - 'Compiler/**'
+      - 'Runtime/native/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/stage1-seed-rollover.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  rollover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build GCC and Clang Stage-0 compilers
+        run: |
+          set -euo pipefail
+          command -v clang++
+          cmake -S . -B build-gcc -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build-gcc --target noqeri noqeri-nqri --parallel 2 --config Release
+          cmake -S . -B build-clang -DCMAKE_CXX_COMPILER=clang++ -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build-clang --target noqeri --parallel 2 --config Release
+
+      - name: Generate independent Stage-1 candidates
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-gcc/noqeri bootstrap-seed Compiler/selfhost/main.noqeri gcc-seed.nqri
+          ./build-clang/noqeri bootstrap-seed Compiler/selfhost/main.noqeri clang-seed.nqri
+          cmp gcc-seed.nqri clang-seed.nqri
+          gcc_hash=$(sha256sum gcc-seed.nqri | awk '{print $1}')
+          clang_hash=$(sha256sum clang-seed.nqri | awk '{print $1}')
+          current=$(awk 'NF { print $1; exit }' Compiler/selfhost/stage1-seed.sha256)
+          test "$gcc_hash" = "$clang_hash"
+          ./build-gcc/noqeri-nqri has-export gcc-seed.nqri stage2CompileToNqri
+          ./build-gcc/noqeri-nqri has-export gcc-seed.nqri stage2CompileToNativeObject
+          printf 'candidate=%s\ncurrent=%s\n' "$gcc_hash" "$current"
+          echo "hash=$gcc_hash" >> "$GITHUB_OUTPUT"
+          if [ "$gcc_hash" = "$current" ]; then
+            echo "needs_rollover=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_rollover=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prove candidate NQRI fixed point
+        if: steps.candidate.outputs.needs_rollover == 'true'
+        id: proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="${{ steps.candidate.outputs.hash }}"
+          BUILD_DIR="$PWD/build-rollover" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-gcc/noqeri-nqri" \
+          NOQERI_STAGE1_NQRI="$PWD/gcc-seed.nqri" \
+          NOQERI_STAGE1_SHA256="$candidate" \
+          sh ./scripts/bootstrap-nqri.sh
+          cmp build-rollover/noqeri-stage2.nqri build-rollover/noqeri-stage3.nqri
+          stage_hash=$(sha256sum build-rollover/noqeri-stage2.nqri | awk '{print $1}')
+          echo "stage_hash=$stage_hash" >> "$GITHUB_OUTPUT"
+
+      - name: Commit verified Stage-1 rollover
+        if: steps.candidate.outputs.needs_rollover == 'true'
+        shell: bash
+        env:
+          CANDIDATE_HASH: ${{ steps.candidate.outputs.hash }}
+          STAGE_HASH: ${{ steps.proof.outputs.stage_hash }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          cp gcc-seed.nqri Compiler/selfhost/trusted-stage1.nqri
+          printf '%s  Compiler/selfhost/trusted-stage1.nqri\n' "$CANDIDATE_HASH" > Compiler/selfhost/trusted-stage1.sha256
+          printf '%s  noqeri-stage1.nqri\n' "$CANDIDATE_HASH" > Compiler/selfhost/stage1-seed.sha256
+          SEED_BYTES=$(wc -c < Compiler/selfhost/trusted-stage1.nqri | tr -d ' ')
+          export SEED_BYTES
+          node <<'NODE'
+          const fs = require('fs')
+          const path = 'Compiler/selfhost/stage1-seed.json'
+          const p = JSON.parse(fs.readFileSync(path, 'utf8'))
+          p.schema = 1
+          p.pin_algorithm = 'sha256'
+          p.pin_file = 'Compiler/selfhost/stage1-seed.sha256'
+          p.seed_sha256 = process.env.CANDIDATE_HASH
+          p.seed_bytes = Number(process.env.SEED_BYTES)
+          p.source_commit = process.env.SOURCE_COMMIT
+          p.workflow_run_id = Number(process.env.RUN_ID)
+          p.workflow_run_number = Number(process.env.RUN_NUMBER)
+          p.bootstrap_verification_target = 3
+          p.stage2_sha256 = process.env.STAGE_HASH
+          p.stage3_sha256 = process.env.STAGE_HASH
+          p.stage2_stage3_byte_equal = true
+          p.gcc_clang_stage1_byte_equal = true
+          p.stage1_independently_trusted = false
+          p.provenance_note = 'This Stage-1 NQRI seed was regenerated on the native-selfhost branch. GCC-built and Clang-built Stage-0 compilers produced byte-identical Stage-1 files, and the candidate reproduced byte-identical NQRI Stage-2/Stage-3 artifacts before the rollover commit.'
+          p.seed_path = 'Compiler/selfhost/trusted-stage1.nqri'
+          p.seed_digest_path = 'Compiler/selfhost/trusted-stage1.sha256'
+          p.seed_file_committed = true
+          fs.writeFileSync(path, JSON.stringify(p, null, 2) + '\n')
+          NODE
+          node --test tests/bootstrap_seed_pin.test.mjs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Compiler/selfhost/trusted-stage1.nqri Compiler/selfhost/trusted-stage1.sha256 Compiler/selfhost/stage1-seed.sha256 Compiler/selfhost/stage1-seed.json
+          git commit -m 'bootstrap: roll trusted Stage-1 seed to native compiler generation'
+          git push origin HEAD:feat/native-selfhost-compiler
