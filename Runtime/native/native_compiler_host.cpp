@@ -61,6 +61,8 @@ struct Slice {
 };
 
 extern "C" std::int64_t stage1VersionMajor();
+extern "C" std::uint64_t stage1TokenCount(const Slice* source);
+extern "C" std::uint64_t stage1Fingerprint(const Slice* source);
 extern "C" std::uint64_t stage2SecurityPolicyMaxSourceBytes();
 extern "C" std::int64_t stage2SecuritySourceAllowed(std::uint64_t sourceBytes);
 extern "C" std::int64_t stage2SyntaxCheck(const Slice* source);
@@ -193,6 +195,8 @@ int diagnoseManifest(int argc, char** argv) {
     std::cerr << "native-compiler diagnostic: source-bytes=" << source.size() << "\n";
     std::cerr << "native-compiler diagnostic: max-source=" << stage2SecurityPolicyMaxSourceBytes() << "\n";
     std::cerr << "native-compiler diagnostic: source-allowed=" << stage2SecuritySourceAllowed(static_cast<std::uint64_t>(source.size())) << "\n";
+    std::cerr << "native-compiler diagnostic: token-count=" << stage1TokenCount(&sourceSlice) << "\n";
+    std::cerr << "native-compiler diagnostic: fingerprint=" << stage1Fingerprint(&sourceSlice) << "\n";
     const auto syntax = stage2SyntaxCheck(&sourceSlice);
     std::cerr << "native-compiler diagnostic: syntax=" << syntax << "\n";
     if (syntax < 0) return 20;
