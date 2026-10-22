@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <mutex>
