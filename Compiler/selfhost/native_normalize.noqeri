@@ -5,6 +5,10 @@ import "ast.noqeri"
 export function nqNativeNormalizeOk(): isize { return 0 as isize }
 export function nqNativeNormalizeUnsupportedBuiltin(): isize { return -920 as isize }
 export function nqNativeNormalizeInvalid(): isize { return -921 as isize }
+function nqNativeNormalizeUnsupportedAt(sourceStart: usize, reason: int): isize {
+    if sourceStart > 1000000000 as usize || reason < 0 || reason > 99 { return nqNativeNormalizeUnsupportedBuiltin() }
+    return (0 as isize - 6000000 as isize) - sourceStart as isize * 100 as isize - reason as isize
+}
 
 function nqNativeNormalizeNameEqual(source: []u8, start: usize, end: usize, text: []u8): bool {
     if start >= end || end > len(source) || end - start != len(text) { return false }
@@ -111,7 +115,7 @@ function nqNativeNormalizeLen(instructions: []NqNirInstruction, callIndex: usize
 
     if argumentType == nqAstTypeArray() {
         let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(instructions,argInstruction,argRegister,0 as usize)
-        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedBuiltin() }
+        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,11) }
         nqNativeNormalizeResetInstruction(&instructions[argInstruction])
         call.opcode = nqNirConstI64()
         call.left = nqNirNoValue()
@@ -123,7 +127,7 @@ function nqNativeNormalizeLen(instructions: []NqNirInstruction, callIndex: usize
         return nqNativeNormalizeOk()
     }
 
-    return nqNativeNormalizeUnsupportedBuiltin()
+    return nqNativeNormalizeUnsupportedAt(call.sourceStart,10 + argumentType)
 }
 
 function nqNativeNormalizeFreshRegister(instructions: []NqNirInstruction): isize {
@@ -149,9 +153,9 @@ function nqNativeNormalizeSlice(instructions: []NqNirInstruction, callIndex: usi
     let lengthRegister: isize = nqNirNoValue()
     let secondInstruction: usize = 0 as usize
     if call.width == 1 as usize {
-        if firstType != nqAstTypeArray() { return nqNativeNormalizeUnsupportedBuiltin() }
+        if firstType != nqAstTypeArray() { return nqNativeNormalizeUnsupportedAt(call.sourceStart,30 + firstType) }
         let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(instructions,firstInstruction,firstRegister,0 as usize)
-        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedBuiltin() }
+        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,41) }
         lengthRegister = nextRegister[0]
         nextRegister[0] = nextRegister[0] + 1 as isize
         let lengthInstruction: *NqNirInstruction = &instructions[firstInstruction]
@@ -167,7 +171,7 @@ function nqNativeNormalizeSlice(instructions: []NqNirInstruction, callIndex: usi
 
     let dataRegister: isize = firstRegister
     if firstType == nqAstTypeSlice() {
-        if call.width == 1 as usize { return nqNativeNormalizeUnsupportedBuiltin() }
+        if call.width == 1 as usize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,50) }
         dataRegister = nextRegister[0]
         nextRegister[0] = nextRegister[0] + 1 as isize
         let dataInstruction: *NqNirInstruction = &instructions[firstInstruction]
