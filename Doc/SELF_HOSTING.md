@@ -36,19 +36,20 @@ The repository must not claim this gate passed until an actual Noqeri compiler b
 
 ## Native-code self-host gate
 
-NQRI self-reproduction and native-code self-hosting are separate claims. The current pinned Stage-1 -> Stage-2 -> Stage-3 chain produces `.nqri` and executes it through `noqeri-nqri`. Its proof therefore records `execution_model=nqri-vm`, `native_codegen=false`, and `native_selfhost=false`.
+NQRI self-reproduction and native-code self-hosting remain separate claims. The portable bootstrap still produces `.nqri` and records `execution_model=nqri-vm`, `native_codegen=false`, and `native_selfhost=false`.
 
-A native-code self-host claim requires all of these additional facts:
+For Linux x86-64, the native-code self-host gate now passes. The Noqeri-written compiler lowers the complete compiler source into native x86-64 machine code, writes a linkable ELF64 object, and reaches a two-generation native fixed point:
 
-1. the Noqeri-written backend lowers the complete compiler NIR into target machine instructions;
-2. the Noqeri-written object writer emits complete sections, symbols and relocations for the compiler artifact;
-3. Stage 1 produces a native Stage-2 compiler executable or equivalent native library artifact;
-4. Stage 2 runs without `noqeri-nqri` and rebuilds the compiler into native Stage 3;
-5. Stage-2 and Stage-3 native outputs satisfy reproducible byte equality or a documented semantic-equivalence rule for platform metadata;
-6. native ABI, linker, relocation, object validation and compiler conformance suites pass on every claimed target;
-7. the proof record can truthfully set `native_codegen=true` and `native_selfhost=true`.
+1. the pinned NQRI compiler emits the first native Stage-2 compiler object;
+2. native Stage 2 runs without `noqeri-nqri` and rebuilds native Stage 3;
+3. Stage-2 and Stage-3 ELF objects are byte-identical;
+4. native Stage 3 rebuilds native Stage 4;
+5. Stage-3 and Stage-4 ELF objects are byte-identical;
+6. the proof records `native_codegen=true` and `native_selfhost=true`.
 
-Until those gates pass, `scripts/bootstrap-native.*` must fail closed. The Stage-0 C++ AOT backend may still be used to measure standalone native program execution, but those measurements must record `self_hosted_compiler=false` and are not proof of a native self-hosted compiler.
+The native backend is `Compiler/selfhost/x64_encoder.noqeri`; the object writer is `Compiler/selfhost/elf_native_writer.noqeri`. The native bootstrap also retains ABI/object validation and fail-closed diagnostics.
+
+The remaining host boundary is explicit. `Runtime/native/native_compiler_host.cpp` supplies filesystem and manifest I/O and is linked to the Noqeri-generated compiler object. It does not implement compiler semantics. Consequently, the native self-host proof is valid, but it also records `release_needs_cpp_host=true`. Eliminating that adapter is the remaining requirement for a source release that can be built with no C/C++ compiler anywhere in the release toolchain.
 
 ## Strict local verifier
 

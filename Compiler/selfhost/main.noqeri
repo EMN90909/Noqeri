@@ -7,6 +7,7 @@ import "stage2.noqeri"
 import "ast.noqeri"
 import "nir.noqeri"
 import "nqri_writer.noqeri"
+import "security.noqeri"
 
 // Compatibility exports used by the portable Stage-1 loader. `check` now owns
 // the complete Noqeri grammar rather than the old token/syntax-only seed path.
@@ -21,6 +22,16 @@ export function stage1PackageCoordinateValid(value: []u8): bool { return nqPacka
 
 // Stage-2 exports are host-independent. The caller provides AST/NIR/function
 // arenas; parsing, semantics, lowering, safety and optimisation stay in Noqeri.
+export function stage2SecurityPolicyMaxSourceBytes(): usize {
+    let policy: NqSecurityPolicy
+    nqSecurityProductionPolicy(&policy)
+    return policy.maxSourceBytes
+}
+export function stage2SecuritySourceAllowed(sourceBytes: usize): bool {
+    let policy: NqSecurityPolicy
+    nqSecurityProductionPolicy(&policy)
+    return nqSecuritySourceAllowed(&policy, sourceBytes)
+}
 export function stage2SyntaxCheck(source: []u8): isize { return nqPipelineSyntaxCheck(source) }
 export function stage2SyntaxErrorOffset(source: []u8): usize { return nqParserFirstErrorOffset(source) }
 export function stage2SemanticCheckMerged(source: []u8, unsafeAllowed: bool): isize { return nqPipelineSemanticCheckMerged(source, unsafeAllowed) }

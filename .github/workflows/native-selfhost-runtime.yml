@@ -148,6 +148,14 @@ jobs:
           test "$cast_result" = "1"
           promotion_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri integerLiteralPromotion)
           test "$promotion_result" = "14"
+          narrowing_result=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri castNarrowingRel32)
+          test "$narrowing_result" = "4294966296"
+          unsigned_div=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideDivision)
+          test "$unsigned_div" = "72057594037927935"
+          unsigned_mod=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideModulo)
+          test "$unsigned_mod" = "255"
+          unsigned_cmp=$(./build-native/noqeri-nqri build-native/bootstrap-language.nqri unsignedWideComparison)
+          test "$unsigned_cmp" = "1"
       - name: Verify bootstrap language compatibility (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -162,6 +170,14 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $castResult -ne '1') { throw "cast/comparison compatibility returned '$castResult'" }
           $promotionResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri integerLiteralPromotion).Trim()
           if ($LASTEXITCODE -ne 0 -or $promotionResult -ne '14') { throw "integer literal promotion returned '$promotionResult'" }
+          $narrowingResult = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri castNarrowingRel32).Trim()
+          if ($LASTEXITCODE -ne 0 -or $narrowingResult -ne '4294966296') { throw "integer narrowing returned '$narrowingResult'" }
+          $unsignedDiv = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideDivision).Trim()
+          if ($LASTEXITCODE -ne 0 -or $unsignedDiv -ne '72057594037927935') { throw "unsigned wide division returned '$unsignedDiv'" }
+          $unsignedMod = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideModulo).Trim()
+          if ($LASTEXITCODE -ne 0 -or $unsignedMod -ne '255') { throw "unsigned wide modulo returned '$unsignedMod'" }
+          $unsignedCmp = (& .\build-native\Release\noqeri-nqri.exe build-native\bootstrap-language.nqri unsignedWideComparison).Trim()
+          if ($LASTEXITCODE -ne 0 -or $unsignedCmp -ne '1') { throw "unsigned wide comparison returned '$unsignedCmp'" }
       - name: Build Stage-1 NQRI seed candidate (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -219,7 +235,7 @@ jobs:
           result=$(./build-native/noqeri-nqri build-native/record-array-stride.nqri recordArrayStride)
           test "$result" = "41"
       - name: Upload generated Stage-1 seed candidate
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4
         with:
           name: noqeri-stage1-seed-${{ github.sha }}
@@ -272,6 +288,21 @@ jobs:
           if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false -or $proof.execution_model -ne 'nqri-vm' -or $proof.native_codegen -ne $false -or $proof.native_selfhost -ne $false) {
             throw 'NQRI bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality while explicitly rejecting native qualification'
           }
+      - name: Verify native compiler Stage-2 -> Stage-3 -> Stage-4 (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_DIR="$PWD/build-native-selfhost" \
+          NOQERI_NQRI_RUNTIME="$PWD/build-native/noqeri-nqri" \
+          sh ./scripts/bootstrap-native.sh
+          grep -qx 'execution_model=native-aot-selfhost' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_codegen=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_selfhost=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_stage2_runs_without_vm=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'native_stage3_runs_without_vm=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage2_stage3_byte_equal=true' build-native-selfhost/native-selfhost-proof.txt
+          grep -qx 'stage3_stage4_byte_equal=true' build-native-selfhost/native-selfhost-proof.txt
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -283,6 +314,10 @@ jobs:
             build-selfhost/noqeri-stage2.nqri
             build-selfhost/noqeri-stage3.nqri
             build-selfhost/nqri-selfhost-proof.txt
+            build-native-selfhost/noqeri-stage2-native.o
+            build-native-selfhost/noqeri-stage3-native.o
+            build-native-selfhost/noqeri-stage4-native.o
+            build-native-selfhost/native-selfhost-proof.txt
 
   stage1-cross-compiler:
     name: Stage-1 pin reproducibility (GCC versus Clang)

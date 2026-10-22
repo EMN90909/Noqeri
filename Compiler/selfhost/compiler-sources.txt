@@ -5,6 +5,7 @@ Compiler/selfhost/bootstrap.noqeri
 Compiler/selfhost/coff_writer.noqeri
 Compiler/selfhost/driver.noqeri
 Compiler/selfhost/elf_writer.noqeri
+Compiler/selfhost/elf_native_writer.noqeri
 Compiler/selfhost/formatter.noqeri
 Compiler/selfhost/generic_metadata.noqeri
 Compiler/selfhost/generics.noqeri
@@ -36,4 +37,7 @@ Compiler/selfhost/syntax.noqeri
 Compiler/selfhost/targets.noqeri
 Compiler/selfhost/type_ref.noqeri
 Compiler/selfhost/types.noqeri
+Compiler/selfhost/x64_encoder.noqeri
 Compiler/selfhost/zero_init.noqeri
+Compiler/selfhost/native_normalize.noqeri
+Compiler/selfhost/native_exports.noqeri

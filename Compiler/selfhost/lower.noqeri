@@ -147,6 +147,12 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
     if nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return nqLowerBadAst() }
     let node: *NqAstNode = &nodes[nodeIndex as usize]
     if node.tag == nqAstName() {
+        // Aggregate variables are represented by a pointer to their backing
+        // storage. Their language-level address is that backing pointer, not
+        // the address of the scalar stack slot that stores the pointer.
+        if node.typeCode == nqAstTypeRecord() || node.typeCode == nqAstTypeArray() || node.typeCode == nqAstTypeSlice() {
+            return nqLowerExpressionInternal(source, nodes, nodeIndex, instructions, state)
+        }
         let symbol: u64 = nqLowerNodeSymbol(source, nodes, nodeIndex)
         if symbol == 0 as u64 { return nqLowerBadAst() }
         let reg: isize = nqLowerAllocRegister(state)
@@ -155,6 +161,7 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         instructions[emitted as usize].symbol = symbol
         instructions[emitted as usize].sourceStart = node.start
         instructions[emitted as usize].sourceEnd = node.end
+        instructions[emitted as usize].typeCode = nqAstTypePointer()
         return reg
     }
     if node.tag == nqAstUnary() && node.flags == 42 as u32 { return nqLowerExpressionInternal(source, nodes, node.left, instructions, state) }
@@ -196,7 +203,13 @@ function nqLowerAddress(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
         return address
     }
     if node.tag == nqAstMember() {
-        let base: isize = nqLowerAddress(source, nodes, node.left, instructions, state)
+        let baseNode: *NqAstNode = &nodes[node.left as usize]
+        let base: isize = nqLowerBadTarget()
+        if baseNode.typeCode == nqAstTypePointer() {
+            base = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
+        } else {
+            base = nqLowerAddress(source, nodes, node.left, instructions, state)
+        }
         if base < 0 as isize { return base }
         let member: isize = node.right
         // The index register must be initialized before pointer arithmetic
@@ -438,6 +451,34 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let callee: *NqAstNode = &nodes[node.left as usize]
         let symbol: u64 = nqNirSymbolId(source, callee.start, callee.end)
         if symbol == 0 as u64 { return nqLowerBadAst() }
+        if (node.flags / nqAstFlagZeroInit()) % 2 as u32 == 1 as u32 {
+            let reg: isize = nqLowerAllocRegister(state)
+            if node.typeCode == nqAstTypeFloat() {
+                let emitted: isize = nqLowerEmit(instructions, state, nqNirConstF64(), reg)
+                if emitted < 0 as isize { return emitted }
+                instructions[emitted as usize].floatImmediate = 0.0
+                instructions[emitted as usize].typeCode = nqAstTypeFloat()
+                return reg
+            }
+            if node.typeCode == nqAstTypeRecord() || node.typeCode == nqAstTypeArray() || node.typeCode == nqAstTypeSlice() {
+                if node.storageBytes == 0 as usize { return nqLowerBadAst() }
+                let emitted: isize = nqLowerEmit(instructions, state, nqNirStackAlloc(), reg)
+                if emitted < 0 as isize { return emitted }
+                instructions[emitted as usize].width = node.storageBytes
+                instructions[emitted as usize].typeCode = node.typeCode
+                instructions[emitted as usize].flags = nqNirFlagZeroInit()
+                if node.typeCode == nqAstTypeArray() {
+                    instructions[emitted as usize].flags = instructions[emitted as usize].flags + nqNirFlagArrayLength()
+                    instructions[emitted as usize].immediate = node.arrayLength as i64
+                }
+                return reg
+            }
+            let emitted: isize = nqLowerEmit(instructions, state, nqNirConstI64(), reg)
+            if emitted < 0 as isize { return emitted }
+            instructions[emitted as usize].immediate = 0 as i64
+            instructions[emitted as usize].typeCode = node.typeCode
+            return reg
+        }
         // Evaluate all arguments before pushing any call-argument instruction.
         // Nested calls consume the VM's pending argument slots. Emitting each
         // slot immediately after evaluating its expression lets a nested call

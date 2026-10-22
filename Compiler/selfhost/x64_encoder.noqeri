@@ -1,0 +1,731 @@
+module noqeri.compiler.selfhost.x64_encoder
+import "nir.noqeri"
+import "ast.noqeri"
+import "object_formats.noqeri"
+
+record NqX64Fixup {
+    kind: int
+    patchOffset: usize
+    targetInstruction: usize
+    targetSymbol: u64
+    sourceStart: usize
+    sourceEnd: usize
+}
+
+export function nqX64Ok(): isize { return 0 as isize }
+export function nqX64Unsupported(): isize { return -900 as isize }
+export function nqX64Capacity(): isize { return -901 as isize }
+export function nqX64Invalid(): isize { return -902 as isize }
+export function nqX64Range(): isize { return -903 as isize }
+export function nqX64External(): isize { return -904 as isize }
+function nqX64ExternalAt(sourceStart: usize): isize {
+    if sourceStart > 1000000000 as usize { return nqX64External() }
+    return (0 as isize - 4000000 as isize) - sourceStart as isize
+}
+function nqX64ExternFlagAt(sourceStart: usize): isize {
+    if sourceStart > 1000000000 as usize { return nqX64External() }
+    return (0 as isize - 5000000 as isize) - sourceStart as isize
+}
+function nqX64InvalidAt(index: usize, opcode: int): isize {
+    if index > 10000000 as usize || opcode < 0 || opcode > 63 { return nqX64Invalid() }
+    return (0 as isize - 1000000 as isize) - (index as isize * 64 as isize) - opcode as isize
+}
+function nqX64InvalidDetail(index: usize, opcode: int, reason: int): isize {
+    if index > 10000000 as usize || opcode < 0 || opcode > 63 || reason < 0 || reason > 15 { return nqX64InvalidAt(index, opcode) }
+    return (0 as isize - 2000000 as isize) - (index as isize * 4096 as isize) - (opcode as isize * 16 as isize) - reason as isize
+}
+
+function nqX64Align8(value: usize): usize { return nqObjectAlignUp(value, 8 as usize) }
+function nqX64Align16(value: usize): usize { return nqObjectAlignUp(value, 16 as usize) }
+function nqX64IsFloat(code: int): bool { return code == nqAstTypeFloat() }
+function nqX64IsUnsigned(code: int): bool { return code == nqAstTypeU8() || code == nqAstTypeU16() || code == nqAstTypeU32() || code == nqAstTypeU64() || code == nqAstTypeUsize() }
+
+function nqX64Put8(out: []u8, cursor: *usize, value: u8): bool {
+    if cursor == null || cursor[0] >= len(out) { return false }
+    out[cursor[0]] = value
+    cursor[0] = cursor[0] + 1 as usize
+    return true
+}
+function nqX64Put32(out: []u8, cursor: *usize, value: u32): bool {
+    if cursor == null || !nqObjectRangeValid(out, cursor[0], 4 as usize) { return false }
+    if !nqObjectWriteU32LE(out, cursor[0], value) { return false }
+    cursor[0] = cursor[0] + 4 as usize
+    return true
+}
+function nqX64Put64(out: []u8, cursor: *usize, value: u64): bool {
+    if cursor == null || !nqObjectRangeValid(out, cursor[0], 8 as usize) { return false }
+    if !nqObjectWriteU64LE(out, cursor[0], value) { return false }
+    cursor[0] = cursor[0] + 8 as usize
+    return true
+}
+function nqX64PatchRel32(out: []u8, patchOffset: usize, targetOffset: usize): bool {
+    if !nqObjectRangeValid(out, patchOffset, 4 as usize) { return false }
+    let delta: i64 = targetOffset as i64 - (patchOffset + 4 as usize) as i64
+    if delta < -2147483648 as i64 || delta > 2147483647 as i64 { return false }
+    return nqObjectWriteU32LE(out, patchOffset, delta as u32)
+}
+function nqX64PutDisp32(out: []u8, cursor: *usize, offset: usize): bool {
+    if offset > 2147483647 as usize { return false }
+    return nqX64Put32(out, cursor, (0 as i64 - offset as i64) as u32)
+}
+function nqX64PutPositiveDisp32(out: []u8, cursor: *usize, offset: usize): bool {
+    if offset > 2147483647 as usize { return false }
+    return nqX64Put32(out, cursor, offset as u32)
+}
+function nqX64FloatBits(value: *float): u64 {
+    if value == null { return 0 as u64 }
+    let bits: *u64 = value as *u64
+    return bits[0]
+}
+
+function nqX64RegOffset(reg: isize, minReg: isize, regCount: usize): usize {
+    if reg < minReg || regCount == 0 as usize { return 0 as usize }
+    let index: usize = (reg - minReg) as usize
+    if index >= regCount { return 0 as usize }
+    return (index + 1 as usize) * 8 as usize
+}
+function nqX64VariableIndex(symbols: []u64, count: usize, symbol: u64): isize {
+    let index: usize = 0 as usize
+    while index < count {
+        if symbols[index] == symbol { return index as isize }
+        index = index + 1 as usize
+    }
+    return -1 as isize
+}
+function nqX64VariableOffset(symbols: []u64, count: usize, regCount: usize, symbol: u64): usize {
+    let index: isize = nqX64VariableIndex(symbols, count, symbol)
+    if index < 0 as isize { return 0 as usize }
+    return (regCount + index as usize + 1 as usize) * 8 as usize
+}
+function nqX64CallArgOffset(regCount: usize, variableCount: usize, argument: usize): usize {
+    return (regCount + variableCount + argument + 1 as usize) * 8 as usize
+}
+function nqX64AddVariable(symbols: []u64, count: *usize, symbol: u64): bool {
+    if count == null || symbol == 0 as u64 { return false }
+    if nqX64VariableIndex(symbols, count[0], symbol) >= 0 as isize { return true }
+    if count[0] >= len(symbols) { return false }
+    symbols[count[0]] = symbol
+    count[0] = count[0] + 1 as usize
+    return true
+}
+function nqX64FunctionIndex(functions: []NqNirFunction, symbol: u64): isize {
+    let index: usize = 0 as usize
+    while index < len(functions) {
+        if functions[index].symbol == symbol { return index as isize }
+        index = index + 1 as usize
+    }
+    return -1 as isize
+}
+
+function nqX64SourceSpanEqual(source: []u8, leftStart: usize, leftEnd: usize, rightStart: usize, rightEnd: usize): bool {
+    if leftStart >= leftEnd || rightStart >= rightEnd || leftEnd > len(source) || rightEnd > len(source) { return false }
+    if leftEnd - leftStart != rightEnd - rightStart { return false }
+    let index: usize = 0 as usize
+    while index < leftEnd - leftStart {
+        if source[leftStart + index] != source[rightStart + index] { return false }
+        index = index + 1 as usize
+    }
+    return true
+}
+
+function nqX64FunctionIndexByName(source: []u8, functions: []NqNirFunction, start: usize, end: usize): isize {
+    let index: usize = 0 as usize
+    while index < len(functions) {
+        if nqX64SourceSpanEqual(source,start,end,functions[index].nameStart,functions[index].nameEnd) { return index as isize }
+        index = index + 1 as usize
+    }
+    return -1 as isize
+}
+
+function nqX64ResolveFunction(source: []u8, functions: []NqNirFunction, symbol: u64, start: usize, end: usize): isize {
+    let bySymbol: isize = nqX64FunctionIndex(functions,symbol)
+    if bySymbol >= 0 as isize { return bySymbol }
+    return nqX64FunctionIndexByName(source,functions,start,end)
+}
+function nqX64Exported(function: *NqNirFunction): bool { return function != null && (function.flags / 1 as u32) % 2 as u32 == 1 as u32 }
+function nqX64Extern(function: *NqNirFunction): bool { return function != null && (function.flags / 2 as u32) % 2 as u32 == 1 as u32 }
+
+function nqX64EmitLoadRaxSlot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x48 as u8) && nqX64Put8(out,cursor,0x8b as u8) && nqX64Put8(out,cursor,0x85 as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitLoadR10Slot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x4c as u8) && nqX64Put8(out,cursor,0x8b as u8) && nqX64Put8(out,cursor,0x95 as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitStoreRaxSlot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x48 as u8) && nqX64Put8(out,cursor,0x89 as u8) && nqX64Put8(out,cursor,0x85 as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitStoreR10Slot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x4c as u8) && nqX64Put8(out,cursor,0x89 as u8) && nqX64Put8(out,cursor,0x95 as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitLeaRaxSlot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x48 as u8) && nqX64Put8(out,cursor,0x8d as u8) && nqX64Put8(out,cursor,0x85 as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitLeaR11Slot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x4c as u8) && nqX64Put8(out,cursor,0x8d as u8) && nqX64Put8(out,cursor,0x9d as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitLeaRdiSlot(out: []u8, cursor: *usize, offset: usize): bool {
+    return nqX64Put8(out,cursor,0x48 as u8) && nqX64Put8(out,cursor,0x8d as u8) && nqX64Put8(out,cursor,0xbd as u8) && nqX64PutDisp32(out,cursor,offset)
+}
+function nqX64EmitZeroBytes(out: []u8, cursor: *usize, offset: usize, bytes: usize): bool {
+    if bytes == 0 as usize { return true }
+    if !nqX64EmitLeaRdiSlot(out,cursor,offset) { return false }
+    if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xb9 as u8)||!nqX64Put64(out,cursor,bytes as u64) { return false }
+    if !nqX64Put8(out,cursor,0x31 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return false }
+    return nqX64Put8(out,cursor,0xf3 as u8)&&nqX64Put8(out,cursor,0xaa as u8)
+}
+
+function nqX64EmitLoadIntegerArg(out: []u8, cursor: *usize, registerIndex: usize, slotOffset: usize): bool {
+    if registerIndex == 0 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0xbd as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 1 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0xb5 as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 2 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0x95 as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 3 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0x8d as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 4 as usize { return nqX64Put8(out,cursor,0x4c as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0x85 as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 5 as usize { return nqX64Put8(out,cursor,0x4c as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0x8d as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    return false
+}
+function nqX64EmitStoreIntegerParam(out: []u8, cursor: *usize, registerIndex: usize, slotOffset: usize): bool {
+    if registerIndex == 0 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0xbd as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 1 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0xb5 as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 2 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x95 as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 3 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x8d as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 4 as usize { return nqX64Put8(out,cursor,0x4c as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x85 as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    if registerIndex == 5 as usize { return nqX64Put8(out,cursor,0x4c as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x8d as u8)&&nqX64PutDisp32(out,cursor,slotOffset) }
+    return false
+}
+function nqX64EmitLoadFloatArg(out: []u8, cursor: *usize, registerIndex: usize, slotOffset: usize): bool {
+    if registerIndex >= 8 as usize { return false }
+    if !nqX64Put8(out,cursor,0xf3 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x7e as u8) { return false }
+    if !nqX64Put8(out,cursor,(0x85 as usize + registerIndex * 8 as usize) as u8) { return false }
+    return nqX64PutDisp32(out,cursor,slotOffset)
+}
+function nqX64EmitStoreFloatParam(out: []u8, cursor: *usize, registerIndex: usize, slotOffset: usize): bool {
+    if registerIndex >= 8 as usize { return false }
+    if !nqX64Put8(out,cursor,0x66 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xd6 as u8) { return false }
+    if !nqX64Put8(out,cursor,(0x85 as usize + registerIndex * 8 as usize) as u8) { return false }
+    return nqX64PutDisp32(out,cursor,slotOffset)
+}
+
+function nqX64EmitLoadMemory(out: []u8, cursor: *usize, width: usize, typeCode: int): bool {
+    if width == 1 as usize {
+        if nqX64IsUnsigned(typeCode) { return nqX64Put8(out,cursor,0x0f as u8)&&nqX64Put8(out,cursor,0xb6 as u8)&&nqX64Put8(out,cursor,0x00 as u8) }
+        return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x0f as u8)&&nqX64Put8(out,cursor,0xbe as u8)&&nqX64Put8(out,cursor,0x00 as u8)
+    }
+    if width == 2 as usize {
+        if nqX64IsUnsigned(typeCode) { return nqX64Put8(out,cursor,0x0f as u8)&&nqX64Put8(out,cursor,0xb7 as u8)&&nqX64Put8(out,cursor,0x00 as u8) }
+        return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x0f as u8)&&nqX64Put8(out,cursor,0xbf as u8)&&nqX64Put8(out,cursor,0x00 as u8)
+    }
+    if width == 4 as usize {
+        if nqX64IsUnsigned(typeCode) { return nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0x00 as u8) }
+        return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x63 as u8)&&nqX64Put8(out,cursor,0x00 as u8)
+    }
+    if width == 8 as usize { return nqX64Put8(out,cursor,0x48 as u8)&&nqX64Put8(out,cursor,0x8b as u8)&&nqX64Put8(out,cursor,0x00 as u8) }
+    return false
+}
+function nqX64EmitStoreMemory(out: []u8, cursor: *usize, width: usize): bool {
+    if width == 1 as usize { return nqX64Put8(out,cursor,0x44 as u8)&&nqX64Put8(out,cursor,0x88 as u8)&&nqX64Put8(out,cursor,0x10 as u8) }
+    if width == 2 as usize { return nqX64Put8(out,cursor,0x66 as u8)&&nqX64Put8(out,cursor,0x44 as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x10 as u8) }
+    if width == 4 as usize { return nqX64Put8(out,cursor,0x44 as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x10 as u8) }
+    if width == 8 as usize { return nqX64Put8(out,cursor,0x4c as u8)&&nqX64Put8(out,cursor,0x89 as u8)&&nqX64Put8(out,cursor,0x10 as u8) }
+    return false
+}
+
+function nqX64EmitCheckedTrap(out: []u8, cursor: *usize): bool {
+    return nqX64Put8(out,cursor,0x0f as u8)&&nqX64Put8(out,cursor,0x81 as u8)&&nqX64Put32(out,cursor,2 as u32)&&nqX64Put8(out,cursor,0x0f as u8)&&nqX64Put8(out,cursor,0x0b as u8)
+}
+
+function nqX64BuildLayout(function: *NqNirFunction, instructions: []NqNirInstruction, variableSymbols: []u64, variableCount: *usize, outMinReg: *isize, outRegCount: *usize, outCallArgs: *usize, outFrame: *usize): isize {
+    if function == null || variableCount == null || outMinReg == null || outRegCount == null || outCallArgs == null || outFrame == null { return nqX64Invalid() }
+    variableCount[0] = 0 as usize
+    let minReg: isize = 9223372036854775807 as isize
+    let maxReg: isize = -1 as isize
+    let maxCallArgs: usize = 0 as usize
+    let fixedBytes: usize = 0 as usize
+    let index: usize = function.firstInstruction
+    let end: usize = function.firstInstruction + function.instructionCount
+    while index < end {
+        let ins: *NqNirInstruction = &instructions[index]
+        if ins.dest >= 0 as isize { if ins.dest < minReg { minReg = ins.dest } if ins.dest > maxReg { maxReg = ins.dest } }
+        if (ins.opcode == nqNirLoad() || ins.opcode == nqNirStore() || ins.opcode == nqNirAddr() || ins.opcode == nqNirParameter()) && ins.symbol != 0 as u64 {
+            if !nqX64AddVariable(variableSymbols, variableCount, ins.symbol) { return nqX64Capacity() }
+        }
+        if ins.opcode == nqNirCallArg() && ins.immediate >= 0 as i64 {
+            let needed: usize = ins.immediate as usize + 1 as usize
+            if needed > maxCallArgs { maxCallArgs = needed }
+        }
+        if ins.opcode == nqNirStackAlloc() { fixedBytes = fixedBytes + nqX64Align8(ins.width) }
+        else if ins.opcode == nqNirMakeSlice() { fixedBytes = fixedBytes + 16 as usize }
+        index = index + 1 as usize
+    }
+    let regCount: usize = 0 as usize
+    if maxReg >= minReg && minReg >= 0 as isize { regCount = (maxReg - minReg + 1 as isize) as usize }
+    let base: usize = (regCount + variableCount[0] + maxCallArgs) * 8 as usize
+    outMinReg[0] = minReg
+    if regCount == 0 as usize { outMinReg[0] = 0 as isize }
+    outRegCount[0] = regCount
+    outCallArgs[0] = maxCallArgs
+    outFrame[0] = nqX64Align16(base + fixedBytes)
+    return nqX64Ok()
+}
+
+function nqX64AddFixup(fixups: []NqX64Fixup, count: *usize, kind: int, patchOffset: usize, targetInstruction: usize, targetSymbol: u64, sourceStart: usize, sourceEnd: usize): bool {
+    if count == null || count[0] >= len(fixups) { return false }
+    fixups[count[0]].kind = kind
+    fixups[count[0]].patchOffset = patchOffset
+    fixups[count[0]].targetInstruction = targetInstruction
+    fixups[count[0]].targetSymbol = targetSymbol
+    fixups[count[0]].sourceStart = sourceStart
+    fixups[count[0]].sourceEnd = sourceEnd
+    count[0] = count[0] + 1 as usize
+    return true
+}
+
+function nqX64EmitJumpFixup(out: []u8, cursor: *usize, fixups: []NqX64Fixup, fixupCount: *usize, opcode2: int, target: usize): bool {
+    if opcode2 < 0 {
+        if !nqX64Put8(out,cursor,0xe9 as u8) { return false }
+    } else {
+        if !nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,opcode2 as u8) { return false }
+    }
+    let patch: usize = cursor[0]
+    if !nqX64Put32(out,cursor,0 as u32) { return false }
+    return nqX64AddFixup(fixups,fixupCount,1,patch,target,0 as u64,0 as usize,0 as usize)
+}
+
+function nqX64DecodeString(source: []u8, start: usize, end: usize, out: []u8, cursor: *usize): bool {
+    if start >= end || end > len(source) || cursor == null { return false }
+    let i: usize = start
+    let limit: usize = end
+    if source[i] == 34 as u8 { i = i + 1 as usize }
+    if limit > i && source[limit - 1 as usize] == 34 as u8 { limit = limit - 1 as usize }
+    while i < limit {
+        let b: u8 = source[i]
+        if b == 92 as u8 && i + 1 as usize < limit {
+            i = i + 1 as usize
+            let e: u8 = source[i]
+            if e == 110 as u8 { if !nqX64Put8(out,cursor,10 as u8) { return false } }
+            else if e == 114 as u8 { if !nqX64Put8(out,cursor,13 as u8) { return false } }
+            else if e == 116 as u8 { if !nqX64Put8(out,cursor,9 as u8) { return false } }
+            else if e == 48 as u8 { if !nqX64Put8(out,cursor,0 as u8) { return false } }
+            else { if !nqX64Put8(out,cursor,e) { return false } }
+        } else { if !nqX64Put8(out,cursor,b) { return false } }
+        i = i + 1 as usize
+    }
+    return nqX64Put8(out,cursor,0 as u8)
+}
+
+function nqX64BuiltinTextLengthSymbol(): u64 {
+    let name: [u8; 10] = [116 as u8,101 as u8,120 as u8,116 as u8,76 as u8,101 as u8,110 as u8,103 as u8,116 as u8,104 as u8]
+    return nqNirSymbolId(slice(name),0 as usize,10 as usize)
+}
+
+function nqX64EmitTextLengthHelper(out: []u8, cursor: *usize): isize {
+    let start: usize = cursor[0]
+    if !nqX64Put8(out,cursor,0x31 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64Put8(out,cursor,0xff as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0x74 as u8)||!nqX64Put8(out,cursor,0x0b as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0x80 as u8)||!nqX64Put8(out,cursor,0x3c as u8)||!nqX64Put8(out,cursor,0x07 as u8)||!nqX64Put8(out,cursor,0x00 as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0x74 as u8)||!nqX64Put8(out,cursor,0x05 as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xff as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0xeb as u8)||!nqX64Put8(out,cursor,0xf5 as u8) { return nqX64Capacity() }
+    if !nqX64Put8(out,cursor,0xc3 as u8) { return nqX64Capacity() }
+    return start as isize
+}
+
+function nqX64EmitFunction(source: []u8, functions: []NqNirFunction, functionIndex: usize, instructions: []NqNirInstruction, out: []u8, cursor: *usize, instructionOffsets: []usize, fixups: []NqX64Fixup, fixupCount: *usize, functionOffsets: []usize, functionSizes: []usize, textLengthOffset: usize): isize {
+    let fn: *NqNirFunction = &functions[functionIndex]
+    if nqX64Extern(fn) { functionOffsets[functionIndex] = 0 as usize functionSizes[functionIndex] = 0 as usize return nqX64Ok() }
+
+    let variableSymbols: [u64; 8192]
+    let variableCount: usize = 0 as usize
+    let minReg: isize = 0 as isize
+    let regCount: usize = 0 as usize
+    let callArgCount: usize = 0 as usize
+    let frameBytes: usize = 0 as usize
+    let layoutStatus: isize = nqX64BuildLayout(fn,instructions,slice(variableSymbols),&variableCount,&minReg,&regCount,&callArgCount,&frameBytes)
+    if layoutStatus < 0 as isize { return layoutStatus }
+
+    let regTypes: [int; 65536]
+    if regCount > 65536 as usize { return nqX64Capacity() }
+    let scan: usize = fn.firstInstruction
+    let scanEnd: usize = fn.firstInstruction + fn.instructionCount
+    while scan < scanEnd {
+        let ins: *NqNirInstruction = &instructions[scan]
+        if ins.dest >= minReg && ins.dest >= 0 as isize {
+            let local: usize = (ins.dest - minReg) as usize
+            if local < regCount { regTypes[local] = ins.typeCode }
+        }
+        scan = scan + 1 as usize
+    }
+
+    let functionStart: usize = cursor[0]
+    functionOffsets[functionIndex] = functionStart
+    if !nqX64Put8(out,cursor,0x55 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x89 as u8)||!nqX64Put8(out,cursor,0xe5 as u8) { return nqX64Capacity() }
+    if frameBytes > 0 as usize {
+        if frameBytes > 2147483647 as usize { return nqX64Range() }
+        if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x81 as u8)||!nqX64Put8(out,cursor,0xec as u8)||!nqX64Put32(out,cursor,frameBytes as u32) { return nqX64Capacity() }
+    }
+
+    let storageCursor: usize = (regCount + variableCount + callArgCount) * 8 as usize
+    let argTypes: [int; 256]
+    let paramInt: usize = 0 as usize
+    let paramFloat: usize = 0 as usize
+    let paramStack: usize = 0 as usize
+    let index: usize = fn.firstInstruction
+    let end: usize = fn.firstInstruction + fn.instructionCount
+    while index < end {
+        if index >= len(instructionOffsets) { return nqX64Capacity() }
+        instructionOffsets[index] = cursor[0]
+        let ins: *NqNirInstruction = &instructions[index]
+        let destOffset: usize = 0 as usize
+        let leftOffset: usize = 0 as usize
+        let rightOffset: usize = 0 as usize
+        if ins.dest >= 0 as isize { destOffset = nqX64RegOffset(ins.dest,minReg,regCount) }
+        if ins.left >= 0 as isize { leftOffset = nqX64RegOffset(ins.left,minReg,regCount) }
+        if ins.right >= 0 as isize { rightOffset = nqX64RegOffset(ins.right,minReg,regCount) }
+
+        if ins.opcode == nqNirNop() || ins.opcode == nqNirLabel() { }
+        else if ins.opcode == nqNirConstI64() {
+            if destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xb8 as u8)||!nqX64Put64(out,cursor,ins.immediate as u64)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirConstF64() {
+            if destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            let bits: u64 = nqX64FloatBits(&ins.floatImmediate)
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xb8 as u8)||!nqX64Put64(out,cursor,bits)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirConstString() {
+            if destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x8d as u8)||!nqX64Put8(out,cursor,0x05 as u8) { return nqX64Capacity() }
+            let patch: usize = cursor[0]
+            if !nqX64Put32(out,cursor,0 as u32)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+            if !nqX64AddFixup(fixups,fixupCount,3,patch,0 as usize,0 as u64,ins.sourceStart,ins.sourceEnd) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirMove() {
+            if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode == nqNirLoad() {
+            let variableOffset: usize = nqX64VariableOffset(slice(variableSymbols),variableCount,regCount,ins.symbol)
+            if variableOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,variableOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode == nqNirStore() {
+            let variableOffset: usize = nqX64VariableOffset(slice(variableSymbols),variableCount,regCount,ins.symbol)
+            if variableOffset == 0 as usize || leftOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitStoreRaxSlot(out,cursor,variableOffset) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode == nqNirAddr() {
+            let variableOffset: usize = nqX64VariableOffset(slice(variableSymbols),variableCount,regCount,ins.symbol)
+            if variableOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLeaRaxSlot(out,cursor,variableOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if (ins.opcode >= nqNirAdd() && ins.opcode <= nqNirMod()) || (ins.opcode >= nqNirEq() && ins.opcode <= nqNirGe()) {
+            if leftOffset == 0 as usize || rightOffset == 0 as usize || destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            let isFloat: bool = nqX64IsFloat(ins.typeCode)
+            if isFloat {
+                if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x10 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutDisp32(out,cursor,leftOffset) { return nqX64Capacity() }
+                if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x10 as u8)||!nqX64Put8(out,cursor,0x8d as u8)||!nqX64PutDisp32(out,cursor,rightOffset) { return nqX64Capacity() }
+                if ins.opcode == nqNirAdd() { if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x58 as u8)||!nqX64Put8(out,cursor,0xc1 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirSub() { if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x5c as u8)||!nqX64Put8(out,cursor,0xc1 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirMul() { if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x59 as u8)||!nqX64Put8(out,cursor,0xc1 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirDiv() { if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x5e as u8)||!nqX64Put8(out,cursor,0xc1 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirMod() { return nqX64Unsupported() }
+                else {
+                    if !nqX64Put8(out,cursor,0x66 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x2e as u8)||!nqX64Put8(out,cursor,0xc1 as u8) { return nqX64Capacity() }
+                    let cc: u8 = 0x94 as u8
+                    if ins.opcode == nqNirNe() { cc = 0x95 as u8 }
+                    else if ins.opcode == nqNirLt() { cc = 0x92 as u8 }
+                    else if ins.opcode == nqNirLe() { cc = 0x96 as u8 }
+                    else if ins.opcode == nqNirGt() { cc = 0x97 as u8 }
+                    else if ins.opcode == nqNirGe() { cc = 0x93 as u8 }
+                    if !nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,cc)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xb6 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+                    index = index + 1 as usize
+                    continue
+                }
+                if !nqX64Put8(out,cursor,0x66 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xd6 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutDisp32(out,cursor,destOffset) { return nqX64Capacity() }
+            } else {
+                if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitLoadR10Slot(out,cursor,rightOffset) { return nqX64Capacity() }
+                if ins.opcode == nqNirAdd() { if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x01 as u8)||!nqX64Put8(out,cursor,0xd0 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirSub() { if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x29 as u8)||!nqX64Put8(out,cursor,0xd0 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirMul() { if !nqX64Put8(out,cursor,0x49 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xaf as u8)||!nqX64Put8(out,cursor,0xc2 as u8) { return nqX64Capacity() } }
+                else if ins.opcode == nqNirDiv() || ins.opcode == nqNirMod() {
+                    if nqX64IsUnsigned(ins.typeCode) {
+                        if !nqX64Put8(out,cursor,0x31 as u8)||!nqX64Put8(out,cursor,0xd2 as u8)||!nqX64Put8(out,cursor,0x49 as u8)||!nqX64Put8(out,cursor,0xf7 as u8)||!nqX64Put8(out,cursor,0xf2 as u8) { return nqX64Capacity() }
+                    } else {
+                        if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x99 as u8)||!nqX64Put8(out,cursor,0x49 as u8)||!nqX64Put8(out,cursor,0xf7 as u8)||!nqX64Put8(out,cursor,0xfa as u8) { return nqX64Capacity() }
+                    }
+                    if ins.opcode == nqNirMod() { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x89 as u8)||!nqX64Put8(out,cursor,0xd0 as u8) { return nqX64Capacity() } }
+                } else {
+                    if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x39 as u8)||!nqX64Put8(out,cursor,0xd0 as u8) { return nqX64Capacity() }
+                    let cc: u8 = 0x94 as u8
+                    if ins.opcode == nqNirNe() { cc = 0x95 as u8 }
+                    else if ins.opcode == nqNirLt() { cc = 0x9c as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x92 as u8 } }
+                    else if ins.opcode == nqNirLe() { cc = 0x9e as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x96 as u8 } }
+                    else if ins.opcode == nqNirGt() { cc = 0x9f as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x97 as u8 } }
+                    else if ins.opcode == nqNirGe() { cc = 0x9d as u8 if nqX64IsUnsigned(ins.typeCode) { cc = 0x93 as u8 } }
+                    if !nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,cc)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xb6 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() }
+                }
+                if (ins.flags / nqNirFlagChecked()) % 2 as u32 == 1 as u32 && (ins.opcode == nqNirAdd() || ins.opcode == nqNirSub() || ins.opcode == nqNirMul()) { if !nqX64EmitCheckedTrap(out,cursor) { return nqX64Capacity() } }
+                if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+            }
+        }
+        else if ins.opcode == nqNirNeg() || ins.opcode == nqNirNot() {
+            if leftOffset == 0 as usize { return nqX64InvalidDetail(index,ins.opcode,1) }
+            if destOffset == 0 as usize { return nqX64InvalidDetail(index,ins.opcode,2) }
+            if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidDetail(index,ins.opcode,3) }
+            if ins.opcode == nqNirNeg() { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xf7 as u8)||!nqX64Put8(out,cursor,0xd8 as u8) { return nqX64Capacity() } }
+            else { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x94 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xb6 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
+            if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirStackAlloc() {
+            storageCursor = storageCursor + nqX64Align8(ins.width)
+            if storageCursor > frameBytes || destOffset == 0 as usize { return nqX64Capacity() }
+            if (ins.flags / nqNirFlagZeroInit()) % 2 as u32 == 1 as u32 {
+                if !nqX64EmitZeroBytes(out,cursor,storageCursor,ins.width) { return nqX64Capacity() }
+            }
+            if !nqX64EmitLeaRaxSlot(out,cursor,storageCursor)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirMakeSlice() {
+            storageCursor = storageCursor + 16 as usize
+            if storageCursor > frameBytes || leftOffset == 0 as usize || rightOffset == 0 as usize || destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64EmitLeaR11Slot(out,cursor,storageCursor)||!nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64Capacity() }
+            if !nqX64Put8(out,cursor,0x49 as u8)||!nqX64Put8(out,cursor,0x89 as u8)||!nqX64Put8(out,cursor,0x03 as u8) { return nqX64Capacity() }
+            if !nqX64EmitLoadRaxSlot(out,cursor,rightOffset)||!nqX64Put8(out,cursor,0x49 as u8)||!nqX64Put8(out,cursor,0x89 as u8)||!nqX64Put8(out,cursor,0x43 as u8)||!nqX64Put8(out,cursor,0x08 as u8) { return nqX64Capacity() }
+            if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x89 as u8)||!nqX64Put8(out,cursor,0xd8 as u8)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirSliceData() || ins.opcode == nqNirSliceLen() {
+            if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x8b as u8) { return nqX64Capacity() }
+            if ins.opcode == nqNirSliceData() {
+                if !nqX64Put8(out,cursor,0x00 as u8) { return nqX64Capacity() }
+            } else {
+                if !nqX64Put8(out,cursor,0x40 as u8)||!nqX64Put8(out,cursor,0x08 as u8) { return nqX64Capacity() }
+            }
+            if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirPtrAdd() {
+            if leftOffset == 0 as usize || rightOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitLoadR10Slot(out,cursor,rightOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if ins.width > 1 as usize {
+                if ins.width > 2147483647 as usize { return nqX64Range() }
+                if !nqX64Put8(out,cursor,0x4d as u8)||!nqX64Put8(out,cursor,0x69 as u8)||!nqX64Put8(out,cursor,0xd2 as u8)||!nqX64Put32(out,cursor,ins.width as u32) { return nqX64Capacity() }
+            }
+            if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x01 as u8)||!nqX64Put8(out,cursor,0xd0 as u8) { return nqX64Capacity() }
+            if ins.immediate != 0 as i64 {
+                if ins.immediate < -2147483648 as i64 || ins.immediate > 2147483647 as i64 { return nqX64Range() }
+                if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x05 as u8)||!nqX64Put32(out,cursor,ins.immediate as u32) { return nqX64Capacity() }
+            }
+            if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirLoadMemory() {
+            if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitLoadMemory(out,cursor,ins.width,ins.typeCode)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode == nqNirStoreMemory() {
+            if leftOffset == 0 as usize || rightOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitLoadR10Slot(out,cursor,rightOffset)||!nqX64EmitStoreMemory(out,cursor,ins.width) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode == nqNirBoundsCheck() {
+            if leftOffset == 0 as usize || rightOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitLoadR10Slot(out,cursor,rightOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x4c as u8)||!nqX64Put8(out,cursor,0x39 as u8)||!nqX64Put8(out,cursor,0xd0 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x82 as u8)||!nqX64Put32(out,cursor,2 as u32)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x0b as u8) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirCast() {
+            if leftOffset == 0 as usize || destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            let sourceType: int = 0
+            if ins.left >= minReg && ins.left >= 0 as isize {
+                let local: usize = (ins.left - minReg) as usize
+                if local < regCount { sourceType = regTypes[local] }
+            }
+            if nqX64IsFloat(ins.typeCode) && !nqX64IsFloat(sourceType) {
+                if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x2a as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x66 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xd6 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutDisp32(out,cursor,destOffset) { return nqX64Capacity() }
+            } else if !nqX64IsFloat(ins.typeCode) && nqX64IsFloat(sourceType) {
+                if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x10 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutDisp32(out,cursor,leftOffset)||!nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x2c as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() }
+                if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+            } else {
+                if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64Capacity() }
+                if ins.typeCode == nqAstTypeU8() { if !nqX64Put8(out,cursor,0x25 as u8)||!nqX64Put32(out,cursor,255 as u32) { return nqX64Capacity() } }
+                else if ins.typeCode == nqAstTypeU16() { if !nqX64Put8(out,cursor,0x25 as u8)||!nqX64Put32(out,cursor,65535 as u32) { return nqX64Capacity() } }
+                else if ins.typeCode == nqAstTypeU32() { if !nqX64Put8(out,cursor,0x89 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
+                else if ins.typeCode == nqAstTypeI8() { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xbe as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
+                else if ins.typeCode == nqAstTypeI16() { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xbf as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
+                else if ins.typeCode == nqAstTypeI32() { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x63 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
+                if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+            }
+        }
+        else if ins.opcode == nqNirParameter() {
+            if destOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            if nqX64IsFloat(ins.typeCode) {
+                if paramFloat < 8 as usize { if !nqX64EmitStoreFloatParam(out,cursor,paramFloat,destOffset) { return nqX64Capacity() } paramFloat = paramFloat + 1 as usize }
+                else {
+                    let stackOffset: usize = 16 as usize + paramStack * 8 as usize
+                    if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x8b as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutPositiveDisp32(out,cursor,stackOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+                    paramStack = paramStack + 1 as usize
+                }
+            } else {
+                if paramInt < 6 as usize { if !nqX64EmitStoreIntegerParam(out,cursor,paramInt,destOffset) { return nqX64Capacity() } paramInt = paramInt + 1 as usize }
+                else {
+                    let stackOffset: usize = 16 as usize + paramStack * 8 as usize
+                    if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x8b as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutPositiveDisp32(out,cursor,stackOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+                    paramStack = paramStack + 1 as usize
+                }
+            }
+        }
+        else if ins.opcode == nqNirCallArg() {
+            if ins.immediate < 0 as i64 || ins.immediate as usize >= 256 as usize || leftOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+            let argIndex: usize = ins.immediate as usize
+            let argOffset: usize = nqX64CallArgOffset(regCount,variableCount,argIndex)
+            let argType: int = ins.typeCode
+            if argType == nqAstTypeUnknown() && ins.left >= minReg && ins.left >= 0 as isize {
+                let local: usize = (ins.left - minReg) as usize
+                if local < regCount { argType = regTypes[local] }
+            }
+            argTypes[argIndex] = argType
+            if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitStoreRaxSlot(out,cursor,argOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirCall() {
+            let argc: usize = ins.width
+            if argc > 256 as usize { return nqX64Capacity() }
+            let stackFlags: [bool; 256]
+            let intSeen: usize = 0 as usize
+            let floatSeen: usize = 0 as usize
+            let stackCount: usize = 0 as usize
+            let ai: usize = 0 as usize
+            while ai < argc {
+                if nqX64IsFloat(argTypes[ai]) {
+                    stackFlags[ai] = floatSeen >= 8 as usize
+                    floatSeen = floatSeen + 1 as usize
+                } else {
+                    stackFlags[ai] = intSeen >= 6 as usize
+                    intSeen = intSeen + 1 as usize
+                }
+                if stackFlags[ai] { stackCount = stackCount + 1 as usize }
+                ai = ai + 1 as usize
+            }
+            let pad: usize = 0 as usize
+            if stackCount % 2 as usize == 1 as usize { pad = 8 as usize }
+            if pad > 0 as usize { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x83 as u8)||!nqX64Put8(out,cursor,0xec as u8)||!nqX64Put8(out,cursor,0x08 as u8) { return nqX64Capacity() } }
+            let ri: usize = argc
+            while ri > 0 as usize {
+                let idx: usize = ri - 1 as usize
+                if stackFlags[idx] {
+                    let argOffset: usize = nqX64CallArgOffset(regCount,variableCount,idx)
+                    if !nqX64EmitLoadRaxSlot(out,cursor,argOffset)||!nqX64Put8(out,cursor,0x50 as u8) { return nqX64Capacity() }
+                }
+                ri = idx
+            }
+            intSeen = 0 as usize
+            floatSeen = 0 as usize
+            ai = 0 as usize
+            while ai < argc {
+                if !stackFlags[ai] {
+                    let argOffset: usize = nqX64CallArgOffset(regCount,variableCount,ai)
+                    if nqX64IsFloat(argTypes[ai]) { if !nqX64EmitLoadFloatArg(out,cursor,floatSeen,argOffset) { return nqX64Capacity() } floatSeen = floatSeen + 1 as usize }
+                    else { if !nqX64EmitLoadIntegerArg(out,cursor,intSeen,argOffset) { return nqX64Capacity() } intSeen = intSeen + 1 as usize }
+                } else {
+                    if nqX64IsFloat(argTypes[ai]) { floatSeen = floatSeen + 1 as usize } else { intSeen = intSeen + 1 as usize }
+                }
+                ai = ai + 1 as usize
+            }
+            if ins.symbol == nqX64BuiltinTextLengthSymbol() {
+                if !nqX64Put8(out,cursor,0xe8 as u8) { return nqX64Capacity() }
+                let patch: usize = cursor[0]
+                if !nqX64Put32(out,cursor,0 as u32)||!nqX64PatchRel32(out,patch,textLengthOffset) { return nqX64Capacity() }
+            } else {
+                let targetIndex: isize = nqX64ResolveFunction(source,functions,ins.symbol,ins.sourceStart,ins.sourceEnd)
+                if targetIndex < 0 as isize { return nqX64ExternalAt(ins.sourceStart) }
+                if nqX64Extern(&functions[targetIndex as usize]) { return nqX64ExternFlagAt(ins.sourceStart) }
+                if !nqX64Put8(out,cursor,0xe8 as u8) { return nqX64Capacity() }
+                let patch: usize = cursor[0]
+                if !nqX64Put32(out,cursor,0 as u32)||!nqX64AddFixup(fixups,fixupCount,2,patch,0 as usize,functions[targetIndex as usize].symbol,ins.sourceStart,ins.sourceEnd) { return nqX64Capacity() }
+            }
+            let cleanup: usize = stackCount * 8 as usize + pad
+            if cleanup > 0 as usize {
+                if cleanup <= 127 as usize { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x83 as u8)||!nqX64Put8(out,cursor,0xc4 as u8)||!nqX64Put8(out,cursor,cleanup as u8) { return nqX64Capacity() } }
+                else { if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x81 as u8)||!nqX64Put8(out,cursor,0xc4 as u8)||!nqX64Put32(out,cursor,cleanup as u32) { return nqX64Capacity() } }
+            }
+            if destOffset > 0 as usize {
+                if nqX64IsFloat(ins.typeCode) {
+                    if !nqX64Put8(out,cursor,0x66 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0xd6 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutDisp32(out,cursor,destOffset) { return nqX64Capacity() }
+                } else if !nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+            }
+        }
+        else if ins.opcode == nqNirJump() {
+            if ins.immediate < 0 as i64 || !nqX64EmitJumpFixup(out,cursor,fixups,fixupCount,-1,ins.immediate as usize) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode == nqNirBranch() {
+            if leftOffset == 0 as usize || ins.immediate < 0 as i64 || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64EmitJumpFixup(out,cursor,fixups,fixupCount,0x84,ins.immediate as usize) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirReturn() {
+            if ins.left >= 0 as isize {
+                if leftOffset == 0 as usize { return nqX64InvalidAt(index,ins.opcode) }
+                let returnType: int = 0
+                let local: usize = (ins.left - minReg) as usize
+                if local < regCount { returnType = regTypes[local] }
+                if nqX64IsFloat(returnType) {
+                    if !nqX64Put8(out,cursor,0xf2 as u8)||!nqX64Put8(out,cursor,0x0f as u8)||!nqX64Put8(out,cursor,0x10 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64PutDisp32(out,cursor,leftOffset) { return nqX64Capacity() }
+                } else if !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64Capacity() }
+            } else { if !nqX64Put8(out,cursor,0x31 as u8)||!nqX64Put8(out,cursor,0xc0 as u8) { return nqX64Capacity() } }
+            if !nqX64Put8(out,cursor,0xc9 as u8)||!nqX64Put8(out,cursor,0xc3 as u8) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirTry() {
+            if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x79 as u8)||!nqX64Put8(out,cursor,0x02 as u8)||!nqX64Put8(out,cursor,0xc9 as u8)||!nqX64Put8(out,cursor,0xc3 as u8)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirThrow() {
+            if leftOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset) { return nqX64InvalidAt(index,ins.opcode) }
+            if !nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x85 as u8)||!nqX64Put8(out,cursor,0xc0 as u8)||!nqX64Put8(out,cursor,0x78 as u8)||!nqX64Put8(out,cursor,0x07 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0xf7 as u8)||!nqX64Put8(out,cursor,0xd8 as u8)||!nqX64Put8(out,cursor,0x48 as u8)||!nqX64Put8(out,cursor,0x83 as u8)||!nqX64Put8(out,cursor,0xe8 as u8)||!nqX64Put8(out,cursor,0x01 as u8)||!nqX64Put8(out,cursor,0xc9 as u8)||!nqX64Put8(out,cursor,0xc3 as u8) { return nqX64Capacity() }
+        }
+        else if ins.opcode == nqNirPhi() {
+            if leftOffset == 0 as usize || destOffset == 0 as usize || !nqX64EmitLoadRaxSlot(out,cursor,leftOffset)||!nqX64EmitStoreRaxSlot(out,cursor,destOffset) { return nqX64InvalidAt(index,ins.opcode) }
+        }
+        else if ins.opcode >= nqNirAtomicLoad() && ins.opcode <= nqNirFence() { return nqX64Unsupported() }
+        else if ins.opcode == nqNirIntrinsic() || ins.opcode == nqNirAsm() || ins.opcode == nqNirOverflowCheck() { return nqX64Unsupported() }
+        else { return nqX64Unsupported() }
+
+        index = index + 1 as usize
+    }
+    functionSizes[functionIndex] = cursor[0] - functionStart
+    return nqX64Ok()
+}
+
+export function nqX64EncodeProgram(source: []u8, functions: []NqNirFunction, instructions: []NqNirInstruction, out: []u8, textOffset: usize, functionOffsets: []usize, functionSizes: []usize, outTextEnd: *usize): isize {
+    if outTextEnd == null || len(functionOffsets) < len(functions) || len(functionSizes) < len(functions) || textOffset >= len(out) { return nqX64Capacity() }
+    let cursor: usize = textOffset
+    let instructionOffsets: [usize; 262144]
+    if len(instructions) > 262144 as usize { return nqX64Capacity() }
+    let fixups: [NqX64Fixup; 262144]
+    let fixupCount: usize = 0 as usize
+
+    let helperStatus: isize = nqX64EmitTextLengthHelper(out,&cursor)
+    if helperStatus < 0 as isize { return helperStatus }
+    let textLengthOffset: usize = helperStatus as usize
+
+    let fi: usize = 0 as usize
+    while fi < len(functions) {
+        let status: isize = nqX64EmitFunction(source,functions,fi,instructions,out,&cursor,slice(instructionOffsets),slice(fixups),&fixupCount,functionOffsets,functionSizes,textLengthOffset)
+        if status < 0 as isize { return status }
+        fi = fi + 1 as usize
+    }
+
+    let stringFixup: usize = 0 as usize
+    while stringFixup < fixupCount {
+        if fixups[stringFixup].kind == 3 {
+            let target: usize = cursor
+            if !nqX64DecodeString(source,fixups[stringFixup].sourceStart,fixups[stringFixup].sourceEnd,out,&cursor) { return nqX64Capacity() }
+            if !nqX64PatchRel32(out,fixups[stringFixup].patchOffset,target) { return nqX64Range() }
+        }
+        stringFixup = stringFixup + 1 as usize
+    }
+
+    let fx: usize = 0 as usize
+    while fx < fixupCount {
+        let fix: *NqX64Fixup = &fixups[fx]
+        if fix.kind == 1 {
+            if fix.targetInstruction >= len(instructions) { return nqX64Invalid() }
+            let target: usize = instructionOffsets[fix.targetInstruction]
+            if target == 0 as usize || !nqX64PatchRel32(out,fix.patchOffset,target) { return nqX64Range() }
+        } else if fix.kind == 2 {
+            let targetIndex: isize = nqX64ResolveFunction(source,functions,fix.targetSymbol,fix.sourceStart,fix.sourceEnd)
+            if targetIndex < 0 as isize { return nqX64ExternalAt(fix.sourceStart) }
+            if functionOffsets[targetIndex as usize] == 0 as usize { return nqX64ExternFlagAt(fix.sourceStart) }
+            if !nqX64PatchRel32(out,fix.patchOffset,functionOffsets[targetIndex as usize]) { return nqX64Range() }
+        }
+        fx = fx + 1 as usize
+    }
+
+    outTextEnd[0] = cursor
+    return (cursor - textOffset) as isize
+}

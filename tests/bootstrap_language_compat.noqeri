@@ -33,3 +33,25 @@ export function integerLiteralPromotion(): usize {
     let widened: u32 = narrowedLiteral + 2
     return advanced + widened as usize
 }
+
+
+export function castNarrowingRel32(): u32 {
+    let delta: i64 = -1000 as i64
+    return delta as u32
+}
+
+export function unsignedWideDivision(): u64 {
+    let value: u64 = 0 as u64 - 1 as u64
+    return value / 256 as u64
+}
+
+export function unsignedWideModulo(): u64 {
+    let value: u64 = 0 as u64 - 1 as u64
+    return value % 256 as u64
+}
+
+export function unsignedWideComparison(): int {
+    let value: u64 = 0 as u64 - 1 as u64
+    if value > 1 as u64 { return 1 }
+    return 0
+}

@@ -1,0 +1,143 @@
+module noqeri.compiler.selfhost.elf_native_writer
+import "nir.noqeri"
+import "targets.noqeri"
+import "object_formats.noqeri"
+import "elf_writer.noqeri"
+import "x64_encoder.noqeri"
+
+export function nqElfNativeUnsupported(): isize { return -950 as isize }
+export function nqElfNativeCapacity(): isize { return -951 as isize }
+export function nqElfNativeInvalid(): isize { return -952 as isize }
+
+function nqElfNativeWriteSectionHeader(out: []u8, offset: usize, name: u32, type: u32, flags: u64, fileOffset: u64, size: u64, link: u32, info: u32, alignment: u64, entrySize: u64): bool {
+    if !nqObjectRangeValid(out,offset,nqElfSectionHeaderBytes64()) || !nqObjectZero(out,offset,nqElfSectionHeaderBytes64()) { return false }
+    if !nqObjectWriteU32LE(out,offset,name) { return false }
+    if !nqObjectWriteU32LE(out,offset + 4 as usize,type) { return false }
+    if !nqObjectWriteU64LE(out,offset + 8 as usize,flags) { return false }
+    if !nqObjectWriteU64LE(out,offset + 24 as usize,fileOffset) { return false }
+    if !nqObjectWriteU64LE(out,offset + 32 as usize,size) { return false }
+    if !nqObjectWriteU32LE(out,offset + 40 as usize,link) { return false }
+    if !nqObjectWriteU32LE(out,offset + 44 as usize,info) { return false }
+    if !nqObjectWriteU64LE(out,offset + 48 as usize,alignment) { return false }
+    if !nqObjectWriteU64LE(out,offset + 56 as usize,entrySize) { return false }
+    return true
+}
+
+function nqElfNativeWriteSymbol(out: []u8, offset: usize, name: u32, info: u8, sectionIndex: u16, value: u64, size: u64): bool {
+    if !nqObjectRangeValid(out,offset,nqElfSymbolBytes64()) || !nqObjectZero(out,offset,nqElfSymbolBytes64()) { return false }
+    if !nqObjectWriteU32LE(out,offset,name) { return false }
+    out[offset + 4 as usize] = info
+    out[offset + 5 as usize] = 0 as u8
+    if !nqObjectWriteU16LE(out,offset + 6 as usize,sectionIndex) { return false }
+    if !nqObjectWriteU64LE(out,offset + 8 as usize,value) { return false }
+    if !nqObjectWriteU64LE(out,offset + 16 as usize,size) { return false }
+    return true
+}
+
+function nqElfNativeAppendByte(out: []u8, cursor: *usize, value: u8): bool {
+    if cursor == null || cursor[0] >= len(out) { return false }
+    out[cursor[0]] = value
+    cursor[0] = cursor[0] + 1 as usize
+    return true
+}
+
+function nqElfNativeAppendSource(out: []u8, cursor: *usize, source: []u8, start: usize, end: usize): bool {
+    if cursor == null || start > end || end > len(source) || end - start > len(out) - cursor[0] { return false }
+    let index: usize = start
+    while index < end {
+        out[cursor[0]] = source[index]
+        cursor[0] = cursor[0] + 1 as usize
+        index = index + 1 as usize
+    }
+    return true
+}
+
+function nqElfNativeWriteShstr(out: []u8, cursor: *usize): bool {
+    let names: [u8; 49] = [
+        0 as u8,
+        46 as u8,116 as u8,101 as u8,120 as u8,116 as u8,0 as u8,
+        46 as u8,115 as u8,121 as u8,109 as u8,116 as u8,97 as u8,98 as u8,0 as u8,
+        46 as u8,115 as u8,116 as u8,114 as u8,116 as u8,97 as u8,98 as u8,0 as u8,
+        46 as u8,110 as u8,111 as u8,116 as u8,101 as u8,46 as u8,71 as u8,78 as u8,85 as u8,45 as u8,115 as u8,116 as u8,97 as u8,99 as u8,107 as u8,0 as u8,
+        46 as u8,115 as u8,104 as u8,115 as u8,116 as u8,114 as u8,116 as u8,97 as u8,98 as u8,0 as u8
+    ]
+    let index: usize = 0 as usize
+    while index < len(names) {
+        if !nqElfNativeAppendByte(out,cursor,names[index]) { return false }
+        index = index + 1 as usize
+    }
+    return true
+}
+
+function nqElfNativeExported(function: *NqNirFunction): bool { return function != null && (function.flags / 1 as u32) % 2 as u32 == 1 as u32 }
+function nqElfNativeExtern(function: *NqNirFunction): bool { return function != null && (function.flags / 2 as u32) % 2 as u32 == 1 as u32 }
+
+export function nqElfNativeWriteObject(source: []u8, functions: []NqNirFunction, instructions: []NqNirInstruction, target: int, out: []u8): isize {
+    if target != nqTargetLinuxX64() { return nqElfNativeUnsupported() }
+    if len(functions) > 8192 as usize { return nqElfNativeCapacity() }
+
+    let sectionCount: usize = 6 as usize
+    let sectionHeaderOffset: usize = nqElfHeaderBytes64()
+    let sectionHeaderBytes: usize = sectionCount * nqElfSectionHeaderBytes64()
+    let textOffset: usize = nqObjectAlignUp(sectionHeaderOffset + sectionHeaderBytes,16 as usize)
+    if textOffset >= len(out) || !nqObjectZero(out,0 as usize,textOffset) { return nqElfNativeCapacity() }
+
+    let functionOffsets: [usize; 8192]
+    let functionSizes: [usize; 8192]
+    let textEnd: usize = textOffset
+    let encoded: isize = nqX64EncodeProgram(source,functions,instructions,out,textOffset,slice(functionOffsets),slice(functionSizes),&textEnd)
+    if encoded < 0 as isize { return encoded }
+
+    let cursor: usize = textEnd
+    let strtabOffset: usize = cursor
+    if !nqElfNativeAppendByte(out,&cursor,0 as u8) { return nqElfNativeCapacity() }
+    let nameOffsets: [u32; 8192]
+    let exportCount: usize = 0 as usize
+    let fi: usize = 0 as usize
+    while fi < len(functions) {
+        let fn: *NqNirFunction = &functions[fi]
+        if nqElfNativeExported(fn) && !nqElfNativeExtern(fn) {
+            if fn.nameStart >= fn.nameEnd || fn.nameEnd > len(source) || cursor - strtabOffset > 4294967295 as usize { return nqElfNativeInvalid() }
+            nameOffsets[fi] = (cursor - strtabOffset) as u32
+            if !nqElfNativeAppendSource(out,&cursor,source,fn.nameStart,fn.nameEnd)||!nqElfNativeAppendByte(out,&cursor,0 as u8) { return nqElfNativeCapacity() }
+            exportCount = exportCount + 1 as usize
+        }
+        fi = fi + 1 as usize
+    }
+    let strtabSize: usize = cursor - strtabOffset
+
+    let symtabOffset: usize = nqObjectAlignUp(cursor,8 as usize)
+    if symtabOffset > len(out) || !nqObjectZero(out,cursor,symtabOffset - cursor) { return nqElfNativeCapacity() }
+    cursor = symtabOffset
+    let symbolCount: usize = exportCount + 1 as usize
+    if symbolCount > 4294967295 as usize || !nqObjectRangeValid(out,cursor,symbolCount * nqElfSymbolBytes64()) { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSymbol(out,cursor,0 as u32,0 as u8,0 as u16,0 as u64,0 as u64) { return nqElfNativeCapacity() }
+    cursor = cursor + nqElfSymbolBytes64()
+    fi = 0 as usize
+    while fi < len(functions) {
+        let fn: *NqNirFunction = &functions[fi]
+        if nqElfNativeExported(fn) && !nqElfNativeExtern(fn) {
+            if functionOffsets[fi] < textOffset || functionOffsets[fi] > textEnd { return nqElfNativeInvalid() }
+            if functionSizes[fi] > textEnd - functionOffsets[fi] { return nqElfNativeInvalid() }
+            if !nqElfNativeWriteSymbol(out,cursor,nameOffsets[fi],0x12 as u8,1 as u16,(functionOffsets[fi] - textOffset) as u64,functionSizes[fi] as u64) { return nqElfNativeCapacity() }
+            cursor = cursor + nqElfSymbolBytes64()
+        }
+        fi = fi + 1 as usize
+    }
+    let symtabSize: usize = symbolCount * nqElfSymbolBytes64()
+
+    let noteOffset: usize = cursor
+    let shstrtabOffset: usize = cursor
+    if !nqElfNativeWriteShstr(out,&cursor) { return nqElfNativeCapacity() }
+    let shstrtabSize: usize = cursor - shstrtabOffset
+
+    if nqElfWriteHeader64(out,0 as usize,target,sectionHeaderOffset as u64,sectionCount,5 as usize) < 0 as isize { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSectionHeader(out,sectionHeaderOffset + nqElfSectionHeaderBytes64() * 0 as usize,0 as u32,0 as u32,0 as u64,0 as u64,0 as u64,0 as u32,0 as u32,0 as u64,0 as u64) { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSectionHeader(out,sectionHeaderOffset + nqElfSectionHeaderBytes64() * 1 as usize,1 as u32,1 as u32,6 as u64,textOffset as u64,(textEnd - textOffset) as u64,0 as u32,0 as u32,16 as u64,0 as u64) { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSectionHeader(out,sectionHeaderOffset + nqElfSectionHeaderBytes64() * 2 as usize,7 as u32,2 as u32,0 as u64,symtabOffset as u64,symtabSize as u64,3 as u32,1 as u32,8 as u64,nqElfSymbolBytes64() as u64) { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSectionHeader(out,sectionHeaderOffset + nqElfSectionHeaderBytes64() * 3 as usize,15 as u32,3 as u32,0 as u64,strtabOffset as u64,strtabSize as u64,0 as u32,0 as u32,1 as u64,0 as u64) { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSectionHeader(out,sectionHeaderOffset + nqElfSectionHeaderBytes64() * 4 as usize,23 as u32,1 as u32,0 as u64,noteOffset as u64,0 as u64,0 as u32,0 as u32,1 as u64,0 as u64) { return nqElfNativeCapacity() }
+    if !nqElfNativeWriteSectionHeader(out,sectionHeaderOffset + nqElfSectionHeaderBytes64() * 5 as usize,39 as u32,3 as u32,0 as u64,shstrtabOffset as u64,shstrtabSize as u64,0 as u32,0 as u32,1 as u64,0 as u64) { return nqElfNativeCapacity() }
+
+    return cursor as isize
+}

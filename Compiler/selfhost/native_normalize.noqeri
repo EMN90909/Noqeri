@@ -1,0 +1,236 @@
+module noqeri.compiler.selfhost.native_normalize
+import "nir.noqeri"
+import "ast.noqeri"
+import "type_ref.noqeri"
+
+export function nqNativeNormalizeOk(): isize { return 0 as isize }
+export function nqNativeNormalizeUnsupportedBuiltin(): isize { return -920 as isize }
+export function nqNativeNormalizeInvalid(): isize { return -921 as isize }
+function nqNativeNormalizeUnsupportedAt(sourceStart: usize, reason: int): isize {
+    if sourceStart > 1000000000 as usize || reason < 0 || reason > 99 { return nqNativeNormalizeUnsupportedBuiltin() }
+    return (0 as isize - 6000000 as isize) - sourceStart as isize * 100 as isize - reason as isize
+}
+
+function nqNativeNormalizeNameEqual(source: []u8, start: usize, end: usize, text: []u8): bool {
+    if start >= end || end > len(source) || end - start != len(text) { return false }
+    let index: usize = 0 as usize
+    while index < len(text) {
+        if source[start + index] != text[index] { return false }
+        index = index + 1 as usize
+    }
+    return true
+}
+
+function nqNativeNormalizeResetInstruction(instruction: *NqNirInstruction): void {
+    if instruction == null { return }
+    instruction.opcode = nqNirNop()
+    instruction.dest = nqNirNoValue()
+    instruction.left = nqNirNoValue()
+    instruction.right = nqNirNoValue()
+    instruction.immediate = 0 as i64
+    instruction.floatImmediate = 0.0
+    instruction.symbol = 0 as u64
+    instruction.width = 0 as usize
+    instruction.typeCode = nqAstTypeUnknown()
+    instruction.flags = 0 as u32
+}
+
+function nqNativeNormalizeFindDefinition(instructions: []NqNirInstruction, before: usize, reg: isize): isize {
+    if reg < 0 as isize || before > len(instructions) { return -1 as isize }
+    let cursor: usize = before
+    while cursor > 0 as usize {
+        cursor = cursor - 1 as usize
+        if instructions[cursor].dest == reg { return cursor as isize }
+    }
+    return -1 as isize
+}
+
+function nqNativeNormalizeArrayLengthFromReg(source: []u8, instructions: []NqNirInstruction, before: usize, reg: isize, depth: usize): isize {
+    if depth > 16 as usize { return -1 as isize }
+    let definition: isize = nqNativeNormalizeFindDefinition(instructions,before,reg)
+    if definition < 0 as isize { return -1 as isize }
+    let ins: *NqNirInstruction = &instructions[definition as usize]
+    if ins.opcode == nqNirStackAlloc() && (ins.flags / nqNirFlagArrayLength()) % 2 as u32 == 1 as u32 && ins.immediate >= 0 as i64 {
+        return ins.immediate as isize
+    }
+    if ins.opcode == nqNirMove() || ins.opcode == nqNirCast() {
+        return nqNativeNormalizeArrayLengthFromReg(source,instructions,definition as usize,ins.left,depth + 1 as usize)
+    }
+    if ins.opcode == nqNirLoad() && ins.symbol != 0 as u64 {
+        let cursor: usize = definition as usize
+        while cursor > 0 as usize {
+            cursor = cursor - 1 as usize
+            if instructions[cursor].opcode == nqNirStore() && instructions[cursor].symbol == ins.symbol {
+                return nqNativeNormalizeArrayLengthFromReg(source,instructions,cursor,instructions[cursor].left,depth + 1 as usize)
+            }
+        }
+    }
+    if ins.opcode == nqNirCall() && ins.width == 0 as usize && ins.sourceStart < ins.sourceEnd && ins.sourceEnd <= len(source) {
+        let ref: NqTypeRef
+        let parsedEnd: usize = nqTypeRefParse(source,ins.sourceStart,&ref)
+        if parsedEnd == ins.sourceEnd && ref.code == nqAstTypeArray() && ref.arrayLength > 0 as usize {
+            return ref.arrayLength as isize
+        }
+    }
+    return -1 as isize
+}
+
+function nqNativeNormalizeArgument(instructions: []NqNirInstruction, callIndex: usize, slot: usize, outInstructionIndex: *usize, outRegister: *isize): bool {
+    if outInstructionIndex == null || outRegister == null || callIndex == 0 as usize { return false }
+    let cursor: usize = callIndex
+    while cursor > 0 as usize {
+        cursor = cursor - 1 as usize
+        let ins: *NqNirInstruction = &instructions[cursor]
+        if ins.opcode != nqNirCallArg() {
+            if cursor + 1 as usize < callIndex { return false }
+            return false
+        }
+        if ins.immediate >= 0 as i64 && ins.immediate as usize == slot {
+            outInstructionIndex[0] = cursor
+            outRegister[0] = ins.left
+            return ins.left >= 0 as isize
+        }
+    }
+    return false
+}
+
+function nqNativeNormalizeRegisterType(instructions: []NqNirInstruction, before: usize, reg: isize): int {
+    let definition: isize = nqNativeNormalizeFindDefinition(instructions,before,reg)
+    if definition < 0 as isize { return nqAstTypeUnknown() }
+    let ins: *NqNirInstruction = &instructions[definition as usize]
+    if ins.typeCode != nqAstTypeUnknown() { return ins.typeCode }
+    if ins.opcode == nqNirStackAlloc() && (ins.flags / nqNirFlagArrayLength()) % 2 as u32 == 1 as u32 { return nqAstTypeArray() }
+    if ins.opcode == nqNirMakeSlice() { return nqAstTypeSlice() }
+    if ins.opcode == nqNirSliceData() || ins.opcode == nqNirAddr() || ins.opcode == nqNirPtrAdd() { return nqAstTypePointer() }
+    if ins.opcode == nqNirMove() || ins.opcode == nqNirCast() { return nqNativeNormalizeRegisterType(instructions,definition as usize,ins.left) }
+    if ins.opcode == nqNirLoad() && ins.symbol != 0 as u64 {
+        let cursor: usize = definition as usize
+        while cursor > 0 as usize {
+            cursor = cursor - 1 as usize
+            if instructions[cursor].opcode == nqNirStore() && instructions[cursor].symbol == ins.symbol {
+                return nqNativeNormalizeRegisterType(instructions,cursor,instructions[cursor].left)
+            }
+        }
+    }
+    return nqAstTypeUnknown()
+}
+
+function nqNativeNormalizeLen(source: []u8, instructions: []NqNirInstruction, callIndex: usize): isize {
+    let call: *NqNirInstruction = &instructions[callIndex]
+    if call.width != 1 as usize { return nqNativeNormalizeInvalid() }
+
+    let argInstruction: usize = 0 as usize
+    let argRegister: isize = nqNirNoValue()
+    if !nqNativeNormalizeArgument(instructions,callIndex,0 as usize,&argInstruction,&argRegister) { return nqNativeNormalizeInvalid() }
+
+    let argumentType: int = nqNativeNormalizeRegisterType(instructions,argInstruction,argRegister)
+    if argumentType == nqAstTypeSlice() {
+        nqNativeNormalizeResetInstruction(&instructions[argInstruction])
+        call.opcode = nqNirSliceLen()
+        call.left = argRegister
+        call.right = nqNirNoValue()
+        call.immediate = 0 as i64
+        call.symbol = 0 as u64
+        call.width = 0 as usize
+        call.typeCode = nqAstTypeUsize()
+        return nqNativeNormalizeOk()
+    }
+
+    if argumentType == nqAstTypeArray() {
+        let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(source,instructions,argInstruction,argRegister,0 as usize)
+        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,11) }
+        nqNativeNormalizeResetInstruction(&instructions[argInstruction])
+        call.opcode = nqNirConstI64()
+        call.left = nqNirNoValue()
+        call.right = nqNirNoValue()
+        call.immediate = arrayLength as i64
+        call.symbol = 0 as u64
+        call.width = 0 as usize
+        call.typeCode = nqAstTypeUsize()
+        return nqNativeNormalizeOk()
+    }
+
+    return nqNativeNormalizeUnsupportedAt(call.sourceStart,10 + argumentType)
+}
+
+function nqNativeNormalizeFreshRegister(instructions: []NqNirInstruction): isize {
+    let maximum: isize = -1 as isize
+    let index: usize = 0 as usize
+    while index < len(instructions) {
+        if instructions[index].dest > maximum { maximum = instructions[index].dest }
+        index = index + 1 as usize
+    }
+    return maximum + 1 as isize
+}
+
+function nqNativeNormalizeSlice(source: []u8, instructions: []NqNirInstruction, callIndex: usize, nextRegister: *isize): isize {
+    if nextRegister == null { return nqNativeNormalizeInvalid() }
+    let call: *NqNirInstruction = &instructions[callIndex]
+    if call.width != 1 as usize && call.width != 2 as usize { return nqNativeNormalizeInvalid() }
+
+    let firstInstruction: usize = 0 as usize
+    let firstRegister: isize = nqNirNoValue()
+    if !nqNativeNormalizeArgument(instructions,callIndex,0 as usize,&firstInstruction,&firstRegister) { return nqNativeNormalizeInvalid() }
+    let firstType: int = nqNativeNormalizeRegisterType(instructions,firstInstruction,firstRegister)
+
+    let lengthRegister: isize = nqNirNoValue()
+    let secondInstruction: usize = 0 as usize
+    if call.width == 1 as usize {
+        if firstType != nqAstTypeArray() { return nqNativeNormalizeUnsupportedAt(call.sourceStart,30 + firstType) }
+        let arrayLength: isize = nqNativeNormalizeArrayLengthFromReg(source,instructions,firstInstruction,firstRegister,0 as usize)
+        if arrayLength < 0 as isize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,41) }
+        lengthRegister = nextRegister[0]
+        nextRegister[0] = nextRegister[0] + 1 as isize
+        let lengthInstruction: *NqNirInstruction = &instructions[firstInstruction]
+        nqNativeNormalizeResetInstruction(lengthInstruction)
+        lengthInstruction.opcode = nqNirConstI64()
+        lengthInstruction.dest = lengthRegister
+        lengthInstruction.immediate = arrayLength as i64
+        lengthInstruction.typeCode = nqAstTypeUsize()
+    } else {
+        if !nqNativeNormalizeArgument(instructions,callIndex,1 as usize,&secondInstruction,&lengthRegister) { return nqNativeNormalizeInvalid() }
+        nqNativeNormalizeResetInstruction(&instructions[secondInstruction])
+    }
+
+    let dataRegister: isize = firstRegister
+    if firstType == nqAstTypeSlice() {
+        if call.width == 1 as usize { return nqNativeNormalizeUnsupportedAt(call.sourceStart,50) }
+        dataRegister = nextRegister[0]
+        nextRegister[0] = nextRegister[0] + 1 as isize
+        let dataInstruction: *NqNirInstruction = &instructions[firstInstruction]
+        nqNativeNormalizeResetInstruction(dataInstruction)
+        dataInstruction.opcode = nqNirSliceData()
+        dataInstruction.dest = dataRegister
+        dataInstruction.left = firstRegister
+        dataInstruction.typeCode = nqAstTypePointer()
+    } else if call.width == 2 as usize {
+        nqNativeNormalizeResetInstruction(&instructions[firstInstruction])
+    }
+
+    call.opcode = nqNirMakeSlice()
+    call.left = dataRegister
+    call.right = lengthRegister
+    call.immediate = 0 as i64
+    call.symbol = 0 as u64
+    call.width = 0 as usize
+    call.typeCode = nqAstTypeSlice()
+    return nqNativeNormalizeOk()
+}
+
+export function nqNativeNormalizeBuiltins(source: []u8, instructions: []NqNirInstruction): isize {
+    let nextRegister: isize = nqNativeNormalizeFreshRegister(instructions)
+    let index: usize = 0 as usize
+    while index < len(instructions) {
+        if instructions[index].opcode == nqNirCall() {
+            if nqNativeNormalizeNameEqual(source,instructions[index].sourceStart,instructions[index].sourceEnd,slice([108 as u8,101 as u8,110 as u8])) {
+                let status: isize = nqNativeNormalizeLen(source,instructions,index)
+                if status < 0 as isize { return status }
+            } else if nqNativeNormalizeNameEqual(source,instructions[index].sourceStart,instructions[index].sourceEnd,slice([115 as u8,108 as u8,105 as u8,99 as u8,101 as u8])) {
+                let status: isize = nqNativeNormalizeSlice(source,instructions,index,&nextRegister)
+                if status < 0 as isize { return status }
+            }
+        }
+        index = index + 1 as usize
+    }
+    return nqNativeNormalizeOk()
+}

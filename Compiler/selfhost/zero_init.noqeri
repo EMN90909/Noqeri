@@ -4,7 +4,7 @@ import "parser.noqeri"
 
 // Internal-only AST marker. Typed declarations without an explicit initializer
 // are safe-zero-initialized; const declarations are rejected earlier by parser.
-export function nqZeroInitFlag(): u32 { return 32 as u32 }
+export function nqZeroInitFlag(): u32 { return nqAstFlagZeroInit() }
 export function nqZeroInitOk(): isize { return 0 as isize }
 export function nqZeroInitCapacity(): isize { return -330 as isize }
 export function nqZeroInitMalformed(): isize { return -331 as isize }
