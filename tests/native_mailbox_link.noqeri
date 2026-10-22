@@ -1,0 +1,14 @@
+extern function nq_mail_listen_loopback(port: u16, backlog: int): int
+extern function nq_mail_local_port(fd: int): int
+extern function nq_mail_close(fd: int): int
+
+let fd: int = nq_mail_listen_loopback(0 as u16, 8)
+if fd < 0 {
+    print("LISTEN_FAILED")
+} else {
+    let port: int = nq_mail_local_port(fd)
+    if port > 0 {
+        print("NATIVE_MAILBOX_LINK_OK")
+    }
+    nq_mail_close(fd)
+}
