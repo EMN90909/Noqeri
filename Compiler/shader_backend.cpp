@@ -39,6 +39,18 @@ bool shaderError(Diagnostics& d, Span span, const std::string& message) {
     d.error("NQR-GPU100",span,message);
     return false;
 }
+bool constantZero(const ExprPtr& value) {
+    if(auto cast=std::dynamic_pointer_cast<CastExpr>(value))
+        return constantZero(cast->value);
+    if(auto unary=std::dynamic_pointer_cast<UnaryExpr>(value))
+        if(unary->op==TokenKind::Plus||unary->op==TokenKind::Minus)
+            return constantZero(unary->operand);
+    if(auto literal=std::dynamic_pointer_cast<LiteralExpr>(value)) {
+        if(auto integer=std::get_if<std::int64_t>(&literal->value))return *integer==0;
+        if(auto number=std::get_if<double>(&literal->value))return *number==0.0;
+    }
+    return false;
+}
 std::string u32Literal(std::uint32_t v) {return std::to_string(v)+"u";}
 std::optional<std::string> f32Literal(double value) {
     if(!std::isfinite(value)||std::abs(value)>std::numeric_limits<float>::max())
@@ -261,7 +273,7 @@ private:
                 return std::nullopt;
             }
             if((binary->op==TokenKind::Slash||binary->op==TokenKind::Percent)&&
-               (right->code=="0u"||right->code=="0.0f")){
+               constantZero(binary->right)){
                 shaderError(d_,binary->span,"division by a literal zero is not allowed");
                 return std::nullopt;
             }
