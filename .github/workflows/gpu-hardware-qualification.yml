@@ -13,6 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify browser and physical accelerator prerequisites
+        env:
+          NOQERI_GPU_CHROMIUM: ${{ vars.NOQERI_GPU_CHROMIUM }}
         shell: bash
         run: |
           test -n "${NOQERI_GPU_CHROMIUM:-}" || { echo "NOQERI_GPU_CHROMIUM not configured" >&2; exit 1; }
