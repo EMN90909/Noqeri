@@ -1,0 +1,8 @@
+import "../Lib/std/os_framebuffer.noqeri"
+
+// Demonstrates native framebuffer drawing without libc, SDL or a window API.
+// The host/kernel provides a mapped ARGB u32 pointer and valid pitch.
+extern function nq_os_framebuffer_memory(): *volatile u32
+let framebuffer: *volatile u32 = nq_os_framebuffer_memory()
+nqOsFbClear(framebuffer, 4 as usize, 3 as usize, 6 as usize, 4279312947 as u32)
+nqOsFbChecker(framebuffer, 4 as usize, 3 as usize, 6 as usize, 2 as usize)
