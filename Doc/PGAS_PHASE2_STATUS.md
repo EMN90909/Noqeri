@@ -52,9 +52,12 @@ This does not qualify 0.1.43 as a stable compiler release.
   are absent.
 - Optional Linux `libibverbs` RC RDMA endpoint registration, QP setup and
   one-sided read/write implementation is present. CI compiles the real provider
-  and probes hardware absence, but **two-NIC peer qualification, authenticated
-  descriptor exchange, persistence and packet-level security are not yet
-  integrated**; TLS remains the qualified test path.
+  and probes hardware absence. The new TLS 1.3/mTLS RDMA control-plane
+  API exchanges versioned QP descriptors with verified peer certificates,
+  and its synthetic capability and unauthorized-SAN tests pass. **Two-NIC
+  hardware qualification, RDMA data-path encryption, persistence and
+  automatic failover remain unimplemented or unverified**. TLS RPC remains
+  the qualified remote data path. See [RDMA control](PGAS_RDMA_CONTROL.md).
 - Native Stage-0 Noqeri-generated machine-code linking for fixed i64
   partition arrays has passed local and TLS-gateway tests. Stage-2 compiler
   parity, 2+ physical-machine integration,
