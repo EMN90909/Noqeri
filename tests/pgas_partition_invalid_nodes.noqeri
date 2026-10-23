@@ -1,0 +1,2 @@
+@partition(strategy: "cyclic", nodes: 0)
+let dataset: [i64; 8]
