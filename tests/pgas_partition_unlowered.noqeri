@@ -1,0 +1,3 @@
+// Compiler must not silently compile an annotated local array as distributed.
+@partition(strategy: "block", nodes: 4)
+let dataset: [i64; 8]
