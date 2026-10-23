@@ -330,7 +330,7 @@ bool ShaderBackend::emitWgsl(const Program& program,
 
     std::ostringstream wgsl;
     wgsl<<"// Generated from typechecked Noqeri source; pure bounded shader profile.\n";
-    wgsl<<"fn noqeri_shade("<<emitter.parameters()<<") -> "<<wgslType(*resultType)<<" {\n"
+    wgsl<<"fn noqeri_shade("<<emitter.parameters(*shader)<<") -> "<<wgslType(*resultType)<<" {\n"
         <<emitter.result()<<"}\n";
     if(stage=="compute"){
         const auto type=wgslType(*resultType);
