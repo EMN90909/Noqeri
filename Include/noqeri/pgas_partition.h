@@ -2,6 +2,7 @@
 #define NOQERI_PGAS_PARTITION_H
 #include <stdint.h>
 #include "pgas_runtime.h"
+#include "pgas_tls_gateway.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -14,6 +15,14 @@ extern "C" {
  */
 int nq_pgas_partition_bind(const char *symbol, uint64_t elements,
     uint32_t nodes, uint32_t strategy, nq_pgas_client *const *clients);
+/* Alternative binding for authenticated cross-host TLS sessions. Each TLS
+ * connection must already have verified its expected server certificate DNS.
+ * Exactly one transport can bind a symbol. A binding is immutable until
+ * unbound; remote failures always fail closed instead of falling back to
+ * plaintext or selecting another node.
+ */
+int nq_pgas_partition_bind_tls(const char *symbol, uint64_t elements,
+    uint32_t nodes, uint32_t strategy, nq_pgas_tls_client *const *clients);
 int nq_pgas_partition_unbind(const char *symbol);
 /* These are called by compiler-generated native assembly, not application
  * code. Remote failures, unbound partitions and out-of-range indices fail
