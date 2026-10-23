@@ -102,7 +102,7 @@ Type TypeChecker::substituteGeneric(const Type& type,const std::unordered_map<st
 }
 
 bool TypeChecker::check(const Program&program){
-    functions_.clear();records_.clear();
+    functions_.clear();records_.clear();partitionNames_.clear();
     functions_["print"]={std::vector<Type>{simple(TypeKind::Unknown)},simple(TypeKind::Void),{}};
     functions_["clockMillis"]={{},simple(TypeKind::I64),{}};
     functions_["platform"]={{},simple(TypeKind::String),{}};
@@ -139,6 +139,13 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
     if(std::dynamic_pointer_cast<RecordStmt>(stmt)||std::dynamic_pointer_cast<ImportStmt>(stmt)||std::dynamic_pointer_cast<ModuleStmt>(stmt))return;
     if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){
         if(s->partition){
+            // A distributed array must never escape its native topology-aware
+            // accessors or masquerade as locally addressable memory.
+            if(insideFunction_ || scopes_.size()!=1) {
+                diagnostics_.error("NQR-PGAS203",s->span,
+                    "native PGAS array declarations must be at module scope");
+                return;
+            }
             if(!s->annotation||!s->zeroInitialized){
                 diagnostics_.error("NQR-PGAS201",s->span,"partition declarations require uninitialized typed storage: let name: [i64; N]");
                 return;
@@ -152,6 +159,7 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
             }
             s->partition->elements=p.count;
             define(s->name,p,false,s->span);
+            partitionNames_.insert(s->name);
             return;
         }
         if(s->zeroInitialized){
@@ -199,8 +207,21 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         Type element=checkExpr(e->elements.front());for(std::size_t i=1;i<e->elements.size();++i){Type t=checkExpr(e->elements[i]);if(!canAssignValue(element,t,e->elements[i]))diagnostics_.error("NOE-T3035",e->elements[i]->span,"array literal elements must have one compatible type");}
         e->elementSize=std::max<std::size_t>(1,element.size());Type out;out.kind=TypeKind::Array;out.element=std::make_shared<Type>(element);out.count=e->elements.size();return out;
     }
-    if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t)return*t;if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
+    if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){
+        if(partitionNames_.count(e->name)) {
+            diagnostics_.error("NQR-PGAS204",e->span,
+                "partitioned storage cannot be used as a local array or pointer; use direct indexing or len()");
+            return simple(TypeKind::Unknown);
+        }
+        auto t=resolve(e->name);if(t)return*t;if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
+        if(e->op==TokenKind::Ampersand) {
+            if(auto idx=std::dynamic_pointer_cast<IndexExpr>(e->operand))
+                if(auto name=std::dynamic_pointer_cast<NameExpr>(idx->object))
+                    if(partitionNames_.count(name->name))
+                        diagnostics_.error("NQR-PGAS205",e->span,
+                            "cannot take the address of remote partition storage");
+        }
         Type t=checkExpr(e->operand);
         if(e->op==TokenKind::Try){if(!insideFunction_)diagnostics_.error("NOE-T3036",e->span,"try is only valid inside a function");if(!t.isInteger()&&t.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3037",e->span,"try expects an integer status value");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3038",e->span,"try propagation requires an integer-returning function");return t;}
         if(e->op==TokenKind::Ampersand){bool lvalue=std::dynamic_pointer_cast<NameExpr>(e->operand)||std::dynamic_pointer_cast<MemberExpr>(e->operand)||std::dynamic_pointer_cast<IndexExpr>(e->operand);if(auto u=std::dynamic_pointer_cast<UnaryExpr>(e->operand))lvalue=u->op==TokenKind::Star;if(!lvalue)diagnostics_.error("NOE-T3022",e->span,"address-of requires an addressable value");Type p;p.kind=TypeKind::Pointer;p.pointee=std::make_shared<Type>(t);return p;}
@@ -210,7 +231,15 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     }
     if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Type b=checkExpr(e->object);auto f=resolveField(b,e->member);if(!f){diagnostics_.error("NOE-T3024",e->span,"type '"+b.name()+"' has no field '"+e->member+"'");return simple(TypeKind::Unknown);}e->offset=f->offset;e->fieldSize=f->size;if(b.kind==TypeKind::Pointer){e->volatileAccess=b.isVolatile;e->baseIsPointer=true;}return resolveType(f->typeName,e->span);}
     if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
-        Type container=checkExpr(e->object);Type idx=checkExpr(e->index);if(!idx.isInteger()&&idx.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3025",e->index->span,"index must be an integer");
+        Type container;
+        if(auto named=std::dynamic_pointer_cast<NameExpr>(e->object);
+           named && partitionNames_.count(named->name)) {
+            if(insideFunction_)
+                diagnostics_.error("NQR-PGAS206",e->span,
+                    "this native PGAS preview permits partition indexing only in the module entry scope");
+            container=resolve(named->name).value_or(simple(TypeKind::Unknown));
+        } else container=checkExpr(e->object);
+        Type idx=checkExpr(e->index);if(!idx.isInteger()&&idx.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3025",e->index->span,"index must be an integer");
         if(container.kind==TypeKind::Pointer&&container.pointee){e->elementSize=std::max<std::size_t>(1,container.pointee->size());e->volatileAccess=container.isVolatile;return*container.pointee;}
         if(container.kind==TypeKind::Array&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());return*container.element;}
         if(container.kind==TypeKind::Slice&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());e->baseIsSlice=true;return*container.element;}
@@ -238,7 +267,15 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
         if(name=="host"||name=="abi"){if(e->args.empty()){diagnostics_.error("NOE-T3015",e->span,name+" requires a service name");return simple(TypeKind::Unknown);}Type service=checkExpr(e->args[0]);if(service.kind!=TypeKind::String&&service.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3016",e->args[0]->span,"service name must be a string");for(std::size_t i=1;i<e->args.size();++i)checkExpr(e->args[i]);return simple(TypeKind::Unknown);}
         if(name=="len"){
-            if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array or slice");return simple(TypeKind::Usize);
+            if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}
+            Type t;
+            if(auto named=std::dynamic_pointer_cast<NameExpr>(e->args[0]);
+               named && partitionNames_.count(named->name)) {
+                if(insideFunction_)
+                    diagnostics_.error("NQR-PGAS206",e->span,
+                        "partitioned storage cannot be referenced from a native function yet");
+                t=resolve(named->name).value_or(simple(TypeKind::Unknown));
+            } else t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array or slice");return simple(TypeKind::Usize);
         }
         if(name=="slice"){
             if(e->args.size()==1){Type a=checkExpr(e->args[0]);if(a.kind!=TypeKind::Array||!a.element){diagnostics_.error("NOE-T3042",e->span,"slice(array) expects a fixed array");return simple(TypeKind::Unknown);}e->builtinCount=a.count;e->builtinCountKnown=true;e->builtinWidth=std::max<std::size_t>(1,a.element->size());Type s;s.kind=TypeKind::Slice;s.element=a.element;return s;}
