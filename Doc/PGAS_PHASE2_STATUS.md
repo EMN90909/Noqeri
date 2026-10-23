@@ -30,12 +30,20 @@ This does not qualify 0.1.3 as a stable compiler release.
   kernel over TLS with one signed-64-bit argument and result. It is NOT remote
   executable code upload, a sandbox, or a distributed closure scheduler.
   Callback execution is concurrent and not automatically replay-safe.
-- Global address mapping remains a library/ABI operation. Compiler
-  `@partition` attribute lowering has not been verified end to end.
+- The bootstrap compiler now recognizes and validates the declared
+  `@partition(strategy: "block"|"cyclic", nodes: N)` syntax on explicitly
+  typed fixed i64 arrays. Crucially, it emits a specific diagnostic and
+  **fails compilation** rather than silently lowering it to local storage.
+  Allocation, typed remote references, native code generation and Stage-2
+  compiler parity for this attribute remain unimplemented. Global address
+  mapping is still a library/ABI operation.
 - Memory ordering is node-local. Global barriers, global linearizability,
   distributed transactions, leases, fencing and membership are absent.
 - RDMA is **not** implemented, and there is no hardware-tested verbs/UCX
   provider; the portable fallback is TCP/TLS only.
+- A two-container test on independent network namespaces covers mTLS
+  encrypted RPC, remote atomics and registered worker execution. It is
+  **not** a two-physical-machine certification.
 - Full Noqeri-native machine-code linking, 2+ physical-machine integration,
   failure-injection matrices, certificate rotation, node revocation,
   high-throughput load tests, and hardened production deployment are
