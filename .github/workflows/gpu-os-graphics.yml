@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'Compiler/shader_backend.cpp'
+      - 'Lib/std/gpu_shaders.noqeri'
+      - 'tests/shader-vectors-textures.test.mjs'
       - 'Include/noqeri/shader_backend.hpp'
       - 'Compiler/bootstrap/cli_host.cpp'
       - 'CMakeLists.txt'
@@ -24,6 +26,8 @@ on:
   push:
     paths:
       - 'Compiler/shader_backend.cpp'
+      - 'Lib/std/gpu_shaders.noqeri'
+      - 'tests/shader-vectors-textures.test.mjs'
       - 'Include/noqeri/shader_backend.hpp'
       - 'Compiler/bootstrap/cli_host.cpp'
       - 'CMakeLists.txt'
@@ -50,7 +54,7 @@ jobs:
           cmake -S . -B /tmp/noqeri-graphics-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
           cmake --build /tmp/noqeri-graphics-build --target noqeri noqeri_os_renderer_sdl -j 2
       - name: Check typed shader source and reject unsafe GPU programs
-        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/webgpu-host.test.mjs
+        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/webgpu-host.test.mjs tests/shader-vectors-textures.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
         run: node --check examples/shaders/webgpu_host.mjs
       - name: Naga syntax and semantic validation of both generated GPU stages
@@ -60,7 +64,11 @@ jobs:
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/float_compute.noqeri /tmp/noqeri-float-compute.wgsl --stage=compute --workgroup-size=128
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/posterize_fragment.noqeri /tmp/noqeri-posterize.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/grayscale_fragment.noqeri /tmp/noqeri-grayscale.wgsl --stage=fragment
-          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_gradient_fragment.noqeri /tmp/noqeri-vector.wgsl --stage=fragment
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/texture_fragment.noqeri /tmp/noqeri-texture.wgsl --stage=fragment
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/texture_load_fragment.noqeri /tmp/noqeri-texture-load.wgsl --stage=fragment
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_compute.noqeri /tmp/noqeri-vector-compute.wgsl --stage=compute --workgroup-size=128
+          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl /tmp/noqeri-vector.wgsl /tmp/noqeri-texture.wgsl /tmp/noqeri-texture-load.wgsl /tmp/noqeri-vector-compute.wgsl
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
