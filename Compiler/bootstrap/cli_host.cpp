@@ -481,6 +481,8 @@ int main(int argc, char** argv) {
                 std::cerr<<"NQR-GPU103: shader output requires the .wgsl extension\n";
                 return 1;
             }
+            std::filesystem::create_directories(output.parent_path().empty() ?
+                std::filesystem::path(".") : output.parent_path());
             Diagnostics d;
             if(!ShaderBackend{}.emitWgsl(compilation.ast,output,stage,d,workgroup)) {
                 d.print(path.string());
