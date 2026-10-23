@@ -206,6 +206,9 @@ if(UNIX AND NOT APPLE)
  if(BUILD_TESTING)
   add_test(NAME noqeri-pgas-native-partition-link
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/scripts/pgas-native-partition-link.sh $<TARGET_FILE:noqeri>)
+  add_test(NAME noqeri-pgas-compiled-pure-closure
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/scripts/pgas-compiler-bytecode.sh $<TARGET_FILE:noqeri>)
+  set_tests_properties(noqeri-pgas-compiled-pure-closure PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(noqeri-pgas-native-partition-link PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_executable(noqeri-pgas-runtime-test tests/cpp/pgas_runtime_test.cpp)
   target_link_libraries(noqeri-pgas-runtime-test PRIVATE noqeri_pgas_runtime)
