@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 const read = file => readFile(new URL('../' + file, import.meta.url), 'utf8')
 
-test('active public language and toolchain release fields agree on 0.1.3', async () => {
+test('active public language and toolchain release fields agree on 0.1.43', async () => {
   const checks = [
     ['CMakeLists.txt', /project\(noqeri VERSION 0\.1\.3 LANGUAGES CXX\)/],
     ['Include/noqeri/version.hpp', /NOQERI_COMPILER_VERSION = "0\.1\.3"/],
