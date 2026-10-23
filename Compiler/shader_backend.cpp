@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <locale>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -58,6 +59,7 @@ std::optional<std::string> f32Literal(double value) {
     const float narrowed=static_cast<float>(value);
     if(!std::isfinite(narrowed))return std::nullopt;
     std::ostringstream s;
+    s.imbue(std::locale::classic());
     s<<std::setprecision(std::numeric_limits<float>::max_digits10)<<narrowed;
     std::string n=s.str();
     if(n.find_first_of(".eE")==std::string::npos)n+=".0";
