@@ -1,0 +1,58 @@
+name: Noqeri physical GPU acceptance (opt-in)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physical-gpu:
+    # No test will run without an administrator-provisioned, real physical GPU
+    # and dedicated labels. Standard hosted runners do NOT count as hardware
+    # qualification, and must never silently substitute software adapters.
+    runs-on: [self-hosted, linux, x64, noqeri-physical-gpu]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify browser and physical accelerator prerequisites
+        shell: bash
+        run: |
+          test -n "${NOQERI_GPU_CHROMIUM:-}" || { echo "NOQERI_GPU_CHROMIUM not configured" >&2; exit 1; }
+          test -x "$NOQERI_GPU_CHROMIUM"
+          command -v lspci >/dev/null
+          lspci -nn | grep -E 'VGA compatible controller|3D controller|Display controller'
+          node --version
+          "$NOQERI_GPU_CHROMIUM" --version
+      - name: Build compiler with shader backends
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build --target noqeri -j 2
+          build/noqeri shader examples/shaders/color_gradient.noqeri build/gradient.wgsl --stage=fragment
+          build/noqeri shader examples/shaders/invert_compute.noqeri build/invert.wgsl --stage=compute
+          build/noqeri shader examples/shaders/float_compute.noqeri build/float-compute.wgsl --stage=compute
+          build/noqeri shader examples/shaders/vector_compute.noqeri build/vector-compute.wgsl --stage=compute
+          build/noqeri shader examples/shaders/textured_fragment.noqeri build/textured-fragment.wgsl --stage=fragment
+      - name: Install bounded browser-driver tooling
+        run: npm install --prefix tests/gpu-hardware --no-audit --no-fund
+      - name: Start local secured-origin-compatible test server
+        shell: bash
+        run: |
+          python3 -m http.server 8000 --bind 127.0.0.1 > build/gpu-server.log 2>&1 &
+          echo $! > build/gpu-server.pid
+      - name: Run actual GPU pipelines and retain driver evidence
+        env:
+          NOQERI_GPU_CHROMIUM: ${{ vars.NOQERI_GPU_CHROMIUM }}
+          NOQERI_GPU_EVIDENCE: build/gpu-qualification
+        run: node tests/gpu-hardware/qualify.mjs
+      - name: Terminate test server
+        if: always()
+        shell: bash
+        run: |
+          if test -f build/gpu-server.pid; then kill "$(cat build/gpu-server.pid)" || true; fi
+      - name: Retain hardware evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-physical-gpu-evidence
+          path: |
+            build/gpu-qualification
+            build/gpu-server.log
+          if-no-files-found: warn
