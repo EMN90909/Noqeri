@@ -42,7 +42,7 @@ public:
             return push(*n);
         }
         if(auto name=std::dynamic_pointer_cast<NameExpr>(expression)){
-            if(name->name==parameter_)return op(1,1,0);
+            if(name->name==parameter_)return op(1,0,1);
             auto capture=captures_.find(name->name);
             if(capture==captures_.end())
                 return failure(name->span,"remote code cannot capture mutable, unknown or private state");
