@@ -73,7 +73,9 @@ Pixel filling and geometry are authored in
 
 The OS example `examples/graphics_demo.noqeri` allocates a fixed Noqeri
 framebuffer, passes it to Noqeri rasterizer functions, and presents the
-pixels via `nq_os_renderer_present`. This call is a **narrow native OS bridge**,
+pixels via `nq_os_renderer_present`, passing the actual buffer length as
+an additional guard against out-of-bounds native texture uploads. This call
+is a **narrow native OS bridge**,
 not a C++ rewrite of the rasterizer.
 
 Compile the app to freestanding x86-64 Noqeri assembly:
