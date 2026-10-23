@@ -1,0 +1,9 @@
+module examples.shaders.textured_fragment
+
+// A real WebGPU texture_2d<f32> is sampled through group 0 bindings 0/1.
+// The host uploads RGBA8 texels and creates a filterable sampler.
+export function shade(x: float, y: float): vec4 {
+    const uv: vec2 = vec2(x / 640.0, y / 360.0)
+    const color: vec4 = sampleTexture(uv)
+    return vec4(color.r, color.g, color.b, 1.0)
+}
