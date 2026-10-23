@@ -17,6 +17,11 @@ on:
       - "Runtime/native/pgas_partition.cpp"
       - "Include/noqeri/pgas_partition.h"
       - "tests/pgas_partition_native.noqeri"
+      - "Compiler/pgas_bytecode.cpp"
+      - "Include/noqeri/pgas_bytecode.hpp"
+      - "tests/pgas-bytecode.test.mjs"
+      - "tests/pgas_remote_closure.noqeri"
+      - "tests/scripts/pgas-compiler-bytecode.sh"
       - "tests/scripts/pgas-native-partition-link.sh"
       - "Include/noqeri/ast.hpp"
       - "Include/noqeri/nir.hpp"
@@ -95,3 +100,7 @@ jobs:
           NOQERI_PGAS_COMPILER=/tmp/noqeri-pgas-build/noqeri node --test tests/pgas-attribute.test.mjs
       - name: Compile and link actual distributed Noqeri array executable
         run: timeout 90s bash tests/scripts/pgas-native-partition-link.sh /tmp/noqeri-pgas-build/noqeri
+      - name: Compile pure Noqeri remote closures to sandboxed programs
+        run: |
+          timeout 45s bash tests/scripts/pgas-compiler-bytecode.sh /tmp/noqeri-pgas-build/noqeri
+          NOQERI_PGAS_COMPILER=/tmp/noqeri-pgas-build/noqeri node --test tests/pgas-bytecode.test.mjs
