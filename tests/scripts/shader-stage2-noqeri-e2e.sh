@@ -3,6 +3,10 @@ set -euo pipefail
 compiler="${1:?Pass stage-0 compiler path}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+"$compiler" build tests/native_sysv_stack_args.noqeri "$work/sysv.s" -O0
+g++ -std=c++17 -Wall -Wextra -Werror -pthread "$work/sysv.s" \
+  tests/cpp/native_sysv_stack_args_test.cpp -o "$work/sysv"
+timeout 20s "$work/sysv"
 "$compiler" check Compiler/selfhost/shader_wgsl.noqeri --unsafe
 "$compiler" build tests/shader_stage2_native.noqeri "$work/shader_backend.s" -O0 --unsafe
 g++ -std=c++17 -Wall -Wextra -Werror -pthread "$work/shader_backend.s" \
