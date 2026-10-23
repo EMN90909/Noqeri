@@ -13,6 +13,16 @@ extern function nq_pgas_compare_exchange(client: usize, local: u32, expected: i6
 extern function nq_pgas_fetch_add(client: usize, local: u32, delta: i64, previous: *i64): int
 extern function nq_pgas_barrier(client: usize): int
 extern function nq_pgas_run_task(client: usize, task_id: u32, argument: i64, out: *i64): int
+extern function nq_pgas_execute_program(client: usize, bytecode: *u8, length: usize, argument: i64, fuel: u32, out: *i64): int
+
+// Bytecode instructions: 0 NOP, 1 argument, 2 signed 8-bit immediate,
+// 3 add, 4 subtract, 5 multiply, 6 divide, 7 dup, 8 swap, 9 drop,
+// 10 relative jump, 11 jump-if-zero, 12 equal, 13 less-than,
+// 14 return, 15 constant zero. No host capabilities.
+export function pgas_run_sandbox(client: usize, bytecode: []u8, argument: i64, fuel: u32, out: *i64): int {
+    if out == null || len(bytecode) == 0 as usize || len(bytecode) > 256 as usize || fuel == 0 as u32 || fuel > 4096 as u32 { return -22 }
+    return nq_pgas_execute_program(client, &bytecode[0 as usize], len(bytecode), argument, fuel, out)
+}
 
 record PgasLocation {
     node: u32
