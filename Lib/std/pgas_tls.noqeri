@@ -5,6 +5,8 @@ module noqeri.std.pgas_tls
 // resolved on the local machine; the server authenticates the client SAN.
 extern function nq_pgas_tls_client_connect(ipv4: string, port: u16, ca_pem: string, cert_pem: string, key_pem: string, expected_server_dns: string, timeout_ms: u32, out: *usize): int
 extern function nq_pgas_tls_client_close(client: usize): int
+extern function nq_pgas_tls_client_set_epoch(client: usize, epoch: u32): int
+export function pgas_tls_client_epoch(client: usize, epoch: u32): int { return nq_pgas_tls_client_set_epoch(client, epoch) }
 extern function nq_pgas_tls_ping(client: usize): int
 extern function nq_pgas_tls_read(client: usize, slot: u32, out: *i64): int
 extern function nq_pgas_tls_write(client: usize, slot: u32, value: i64): int
