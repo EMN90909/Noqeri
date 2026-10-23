@@ -54,8 +54,11 @@ node-local generation; participants must coordinate before attempting another.
   durable data, global memory consistency, failover, idempotency keys, and
   cluster-wide barriers are **not implemented**. Production deployment is
   not qualified.
-- Partition placement is an explicit library/ABI operation. The illustrative
-  `@partition(...)` syntax is **not a compiler-recognized attribute**.
+- Partition placement is an explicit library/ABI operation. The bootstrap
+  parser now recognizes `@partition(strategy: ..., nodes: ...)` on typed
+  fixed arrays, but correctly **rejects compilation** until distributed
+  allocation and compiler lowering exist. The self-hosted parser does not
+  yet support the attribute.
 
 ## Next qualification gates
 
