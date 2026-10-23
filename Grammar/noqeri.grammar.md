@@ -248,3 +248,23 @@ Atomic operands must be bool, integer, or pointer values no wider than 8 bytes i
 `record` uses declaration-order, naturally aligned field layout. `extern function` declares a symbol supplied by the embedding/linking environment. `export function` emits the declared name as an externally visible native symbol.
 
 These are general language facilities for applications, libraries, embedded software, runtimes, concurrency, FFI, kernels, and other performance-sensitive programs. They are not an operating-system-specific dialect.
+
+## Reserved PGAS partition declaration (incomplete lowering)
+
+The bootstrap parser recognizes this proposed declaration:
+
+```noqeri
+@partition(strategy: "block", nodes: 4)
+let values: [i64; 128]
+```
+
+`strategy` is either `"block"` or `"cyclic"`; `nodes` must be a
+literal integer from 1 through 65535. A fixed-sized, explicitly typed
+`[i64; N]` `let` declaration is currently required.
+
+**This syntax is not executable.** The bootstrap compiler intentionally
+emits `NQR-PGAS0008` because it has no distributed allocation or native
+lowering for this metadata. Until the self-hosting compiler, type checker,
+NIR, interpreter and native backend agree on semantics, use
+`std.pgas` global-index APIs instead. This prevents falsely treating
+a local array as distributed memory.
