@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3-development — 2026-10-23 (version alignment, not a stable release)
+
+- Reset active compiler, language API, project metadata, and release-report version declarations to 0.1.3 at the user's request.
+- Historical changelog entries, Git commits, and published immutable registry packages retain their original versions. This is a deliberate SemVer downgrade from the previous 0.7.0 development line, **not** an assertion of feature removal or backward compatibility.
+- PGAS 0.1 preview was merged; secure multi-host, RDMA, compiler attributes, remote job execution, and crash recovery remain separately qualified.
+
+
 ## 0.7.0-development — 2026-10-18 (not yet released)
 
 - Added portable NQON (`.nqon`) with a standalone parser/serializer, validation, comments, JSON conversion and canonical `project.nqon` manifests; legacy `project.noqeri` remains readable during migration.
