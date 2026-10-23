@@ -8,26 +8,40 @@ import "parser_stmt.noqeri"
 // pure single-return u32 compute functions. It is standalone and does not
 // alter the checksum-pinned trusted Stage-1 seed. The Stage-0 GPU v3 backend
 // retains a broader vec/texture surface until full parity is qualified.
+// Only the cursor load/store helpers touch raw pointer memory; all parser,
+// output slice and index operations retain normal Noqeri bounds checking.
+function nqGpuOffset(offset: *usize): usize {
+    if offset == null { return 0 as usize }
+    unsafe { return offset[0] }
+}
+function nqGpuStoreOffset(offset: *usize, next: usize): void {
+    if offset == null { return }
+    unsafe { offset[0] = next }
+}
 function nqGpuAppend(out: []u8, offset: *usize, bytes: []u8): bool {
-    if offset == null || offset[0] > len(out) { return false }
-    if len(bytes) > len(out) - offset[0] { return false }
+    if offset == null { return false }
+    let position: usize = nqGpuOffset(offset)
+    if position > len(out) || len(bytes) > len(out) - position { return false }
     let index: usize = 0 as usize
     while index < len(bytes) {
-        out[offset[0] + index] = bytes[index]
+        out[position + index] = bytes[index]
         index = index + 1 as usize
     }
-    offset[0] = offset[0] + len(bytes)
+    nqGpuStoreOffset(offset, position + len(bytes))
     return true
 }
 function nqGpuByte(out: []u8, offset: *usize, value: u8): bool {
-    if offset == null || offset[0] >= len(out) { return false }
-    out[offset[0]] = value
-    offset[0] = offset[0] + 1 as usize
+    if offset == null { return false }
+    let position: usize = nqGpuOffset(offset)
+    if position >= len(out) { return false }
+    out[position] = value
+    nqGpuStoreOffset(offset, position + 1 as usize)
     return true
 }
 function nqGpuRange(out: []u8, offset: *usize, source: []u8, first: usize, end: usize): bool {
     if first >= end || end > len(source) || offset == null { return false }
-    if offset[0] > len(out) || end - first > len(out) - offset[0] { return false }
+    let position: usize = nqGpuOffset(offset)
+    if position > len(out) || end - first > len(out) - position { return false }
     let at: usize = first
     while at < end {
         if !nqGpuByte(out, offset, source[at]) { return false }
