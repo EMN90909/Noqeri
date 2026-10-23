@@ -25,6 +25,7 @@ int nq_pgas_tls_gateway_stop(nq_pgas_tls_gateway *gateway);
 int nq_pgas_tls_client_connect(const char *server_ipv4, uint16_t port,
     const char *ca_pem, const char *client_cert_pem, const char *client_key_pem,
     const char *expected_server_dns, uint32_t timeout_ms, nq_pgas_tls_client **out);
+int nq_pgas_tls_client_set_epoch(nq_pgas_tls_client *client, uint32_t epoch);
 int nq_pgas_tls_client_close(nq_pgas_tls_client *client);
 int nq_pgas_tls_ping(nq_pgas_tls_client *client);
 int nq_pgas_tls_read(nq_pgas_tls_client *client, uint32_t index, int64_t *value);
