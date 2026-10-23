@@ -397,6 +397,14 @@ bool NqriBackend::emitModule(const NirProgram& program,
                              const std::filesystem::path& output,
                              Diagnostics& diagnostics) const {
     try {
+        if(!program.entry.partitions.empty()){
+            diagnostics.error("NQR-PGAS302",{},"NQRI backend cannot yet lower distributed PGAS arrays; refusing local bytecode");
+            return false;
+        }
+        for(const auto&fn:program.functions)if(!fn.partitions.empty()){
+            diagnostics.error("NQR-PGAS302",{},"NQRI backend cannot yet lower distributed PGAS arrays; refusing local bytecode");
+            return false;
+        }
         SourcePool source(modules);
         std::vector<StableInstruction> instructions;
         std::vector<StableFunction> functions;
