@@ -32,7 +32,10 @@ This does not qualify 0.1.43 as a stable compiler release.
   numeric ID (`nq_pgas_register_task`) with one signed-64-bit argument and
   result. The additional bounded sandbox bytecode runtime permits unprivileged
   client-supplied arithmetic programs with strict fuel, stack and size caps.
-  Neither path supports arbitrary Noqeri closure compilation/distribution.
+  Stage-0 also compiles a small pure Noqeri `remote(i64): i64` function
+  with baked immutable captures into this sandbox VM. That profile has
+  end-to-end execution tests but cannot serialize general closures or
+  perform effects. See [remote programs](PGAS_REMOTE_PROGRAMS.md).
   Callback execution is concurrent and not automatically replay-safe.
 - Stage-0 recognizes, typechecks and retains `@partition` metadata.
   In 0.1.43, native x86-64 AOT emits real remote indexed `i64` reads/writes
