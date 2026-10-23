@@ -14,7 +14,7 @@ static int increment_task(int64_t in, void *, int64_t *out) {
   return 0;
 }
 int main(int argc,char **argv) {
-  assert(argc==6);
+  assert(argc==8);
   const char *ca=argv[1], *server_cert=argv[2], *server_key=argv[3];
   const char *client_cert=argv[4],*client_key=argv[5];
   const char *token="local-backend-protected-token-2026";
@@ -45,6 +45,13 @@ int main(int argc,char **argv) {
   assert(nq_pgas_tls_client_connect("127.0.0.1",port,ca,client_cert,client_key,
     "not-localhost.example",3000,&remote)<0);
   assert(remote==nullptr);
+  // A CA-signed but unauthorized client SAN cannot access any PGAS RPC.
+  const int unauthorized=nq_pgas_tls_client_connect("127.0.0.1",port,ca,
+    argv[6],argv[7],"localhost",3000,&remote);
+  if(unauthorized==0){
+    assert(nq_pgas_tls_ping(remote)<0);
+    assert(nq_pgas_tls_client_close(remote)==0);
+  }else assert(remote==nullptr);
   assert(nq_pgas_tls_gateway_stop(gateway)==0);
   assert(nq_pgas_server_stop(node)==0);
   std::puts("PGAS TLS1.3 mTLS encrypted RPC and hostname rejection: PASS");
