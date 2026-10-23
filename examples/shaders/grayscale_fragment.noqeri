@@ -1,0 +1,11 @@
+module examples.shaders.grayscale_fragment
+
+// This shader returns a float intensity. The WGSL wrapper clamps [0, 1]
+// and writes it to all three RGB channels.
+export function shade(x: float, y: float): float {
+    if x < 120.0 {
+        return 0.2
+    }
+    const brightness: float = 0.8
+    return brightness
+}
