@@ -1,0 +1,9 @@
+{
+  "name": "noqeri-gpu-hardware-qualification",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.56.0"
+  }
+}
