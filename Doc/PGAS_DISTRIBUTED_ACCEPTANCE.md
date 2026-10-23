@@ -37,18 +37,23 @@ Supported opcodes: `0` noop, `1` push argument, `2` signed-i8 immediate,
 `8` swap, `9` drop, `10` signed relative branch, `11` branch-if-zero,
 `12` equality, `13` less-than, `14` return, `15` push zero.
 Arithmetic overflow wraps for add/sub/mul; division by zero traps. A stalled
-or endless loop exhausts fuel. Programs are **not arbitrary Noqeri closures or
-native code**; they cannot call host services. Remote task execution remains
-subject to timeout/uncertain-outcome rules.
+or endless loop exhausts fuel. Programs are **not arbitrary unrestricted Noqeri closures or
+native code**; they cannot call host services. In 0.1.43, the
+`noqeri pgas-compile` command compiles a small pure `remote(i64): i64`
+function and immutable i8-range captures to this sandbox format.
+See [restricted remote Noqeri programs](PGAS_REMOTE_PROGRAMS.md).
+Remote task execution remains subject to timeout/uncertain-outcome rules.
 
 ## Optional real RDMA
 
 `noqeri_pgas_rdma` is a Linux-only optional `libibverbs` backend with actual
 RC QP setup, registered memory and one-sided i64 read/write work requests.
-Peer descriptors include RDMA memory keys and MUST be exchanged through a
-separate authenticated mTLS control channel. The provider **does not implement
-that exchange for you**, nor does it encrypt the data path or persist direct
-RDMA writes. Only enable RDMA on an appropriately secured private fabric.
+Peer descriptors include RDMA memory keys and MUST be exchanged through
+an authenticated TLS 1.3/mTLS control channel. The new
+`noqeri_pgas_rdma_control` API implements a 52-byte versioned,
+mutually authenticated descriptor exchange with SAN allowlisting.
+It **does not encrypt RDMA's data path** or persist direct RDMA writes.
+See [authenticated RDMA exchange](PGAS_RDMA_CONTROL.md). Only enable RDMA on an appropriately secured private fabric.
 If no usable device exists, the native ABI fails closed with `-ENODEV`;
 without rdma-core headers/library it returns `-ENOTSUP`, not pretend-RDMA
 over TCP. Test runners probe provider compilation/absence; **real RDMA NIC
@@ -116,8 +121,9 @@ runner cannot produce that evidence.
   distributed-array machine-code lowering, RDMA transport selection and
   distributed pointer ownership. Stage-0 native indexed i64 calls are
   implemented but not the full general language ABI.
-- Actual libibverbs RDMA pairs with authenticated peer-exchange protocol and
-  security/packet-loss testing, plus intentional TLS fallback.
+- Actual two-node libibverbs RDMA pairing, authenticated peer-exchange
+  on real NICs, security/packet-loss tests and intentional TLS fallback.
+  The metadata TLS control implementation has passing synthetic tests.
 - A securely sandboxed general task VM with stronger language surface,
   per-tenant quotas and durable job deduplication/replay.
 - Proven multi-node membership, consensus, leases, fencing, snapshots,
