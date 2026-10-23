@@ -1,6 +1,6 @@
 # PGAS distributed expansion: acceptance and limitations
 
-This feature set remains **experimental** on Noqeri 0.1.3. It adds useful
+This feature set remains **experimental** on Noqeri 0.1.43. It adds useful
 capabilities, but it is **not** evidence of complete, production-qualified PGAS.
 
 ## Compiler `@partition` (Stage-0)
