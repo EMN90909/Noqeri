@@ -29,6 +29,13 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
   const device = await getDevice(gpu)
   let source, result, readback
   try {
+    if (pixels.byteLength > device.limits.maxStorageBufferBindingSize) {
+      throw new RangeError('Input exceeds this GPU device storage binding size limit.')
+    }
+    const workgroups = Math.ceil(pixels.length / 64)
+    if (workgroups > device.limits.maxComputeWorkgroupsPerDimension) {
+      throw new RangeError('Input exceeds this GPU device workgroup dispatch limit.')
+    }
     const module = await checkedModule(device, wgsl)
     const pipeline = device.createComputePipeline({
       layout: 'auto', compute: {module, entryPoint: 'main'}
@@ -48,7 +55,7 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
     const pass = encoder.beginComputePass()
     pass.setPipeline(pipeline)
     pass.setBindGroup(0, bindGroup)
-    pass.dispatchWorkgroups(Math.ceil(pixels.length / 64))
+    pass.dispatchWorkgroups(workgroups)
     pass.end()
     encoder.copyBufferToBuffer(result, 0, readback, 0, pixels.byteLength)
     device.queue.submit([encoder.finish()])
