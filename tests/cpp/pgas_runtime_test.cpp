@@ -1,0 +1,72 @@
+#include "noqeri/pgas_runtime.h"
+#include <cassert>
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
+#include <thread>
+#include <vector>
+
+static constexpr const char *token = "a-demo-long-shared-secret-not-for-production";
+static nq_pgas_client *dial(uint16_t port) {
+  nq_pgas_client *c = nullptr;
+  assert(nq_pgas_client_connect("127.0.0.1", port, token, 6000, &c) == 0);
+  assert(c); return c;
+}
+int main() {
+  uint32_t owner = 99, local = 99;
+  for (uint32_t n = 1; n <= 10; ++n) {
+    for (uint32_t size = 1; size <= 100; ++size) {
+      for (uint32_t strategy = 0; strategy < 2; ++strategy) {
+        std::vector<uint32_t> counts(n, 0);
+        for (uint32_t i = 0; i < size; ++i) {
+          assert(nq_pgas_location(i, size, n, strategy, &owner, &local) == 0);
+          assert(owner < n && local == counts[owner]++);
+        }
+      }
+    }
+  }
+  assert(nq_pgas_location(0, 0, 2, 0, &owner, &local) == -EINVAL);
+  assert(nq_pgas_location(1, 1, 1, 0, &owner, &local) == -EINVAL);
+  assert(nq_pgas_location(0, 1, 1, 4, &owner, &local) == -EINVAL);
+  nq_pgas_server *s0 = nullptr, *s1 = nullptr;
+  assert(nq_pgas_server_start(0, token, 16, 2, &s0) == 0);
+  assert(nq_pgas_server_start(0, token, 16, 0, &s1) == 0);
+  uint16_t p0 = nq_pgas_server_port(s0), p1 = nq_pgas_server_port(s1);
+  assert(p0 && p1);
+  nq_pgas_client *c0 = dial(p0), *c1 = dial(p1);
+  assert(nq_pgas_ping(c0) == 0 && nq_pgas_ping(c1) == 0);
+  assert(nq_pgas_write(c0, 0, 12) == 0);
+  assert(nq_pgas_write(c1, 0, 73) == 0);
+  int64_t value = 0;
+  assert(nq_pgas_read(c0, 0, &value) == 0 && value == 12);
+  assert(nq_pgas_read(c1, 0, &value) == 0 && value == 73);
+  assert(nq_pgas_compare_exchange(c0, 0, 4, 30, &value) == 0 && value == 12);
+  assert(nq_pgas_compare_exchange(c0, 0, 12, 30, &value) == 0 && value == 12);
+  assert(nq_pgas_fetch_add(c0, 0, 5, &value) == 0 && value == 30);
+  assert(nq_pgas_read(c0, 0, &value) == 0 && value == 35);
+  assert(nq_pgas_read(c0, 16, &value) == -ERANGE);
+  assert(nq_pgas_barrier(c1) == -ENOTSUP);
+  nq_pgas_client *invalid = nullptr;
+  assert(nq_pgas_client_connect("10.0.0.1", p0, token, 1000, &invalid) == -EACCES);
+  assert(nq_pgas_client_connect("127.0.0.1", p0, "incorrect-test-token", 1000, &invalid) == -EACCES);
+  nq_pgas_client *barrier_peer = dial(p0);
+  std::thread b([&] { assert(nq_pgas_barrier(barrier_peer) == 0); });
+  assert(nq_pgas_barrier(c0) == 0); b.join();
+  assert(nq_pgas_client_close(barrier_peer) == 0);
+  std::vector<std::thread> workers;
+  for (int i = 0; i < 8; ++i) workers.emplace_back([&,i] {
+    nq_pgas_client *c = dial(p1);
+    for (int j = 0; j < 100; ++j) {
+      int64_t before;
+      assert(nq_pgas_fetch_add(c, 2, 1, &before) == 0);
+    }
+    assert(nq_pgas_client_close(c) == 0);
+  });
+  for (auto &t : workers) t.join();
+  assert(nq_pgas_read(c1, 2, &value) == 0 && value == 800);
+  assert(nq_pgas_client_close(c0) == 0);
+  assert(nq_pgas_client_close(c1) == 0);
+  assert(nq_pgas_server_stop(s0) == 0);
+  assert(nq_pgas_server_stop(s1) == 0);
+  std::puts("PGAS native loopback transport and partition mapping: PASS");
+}
