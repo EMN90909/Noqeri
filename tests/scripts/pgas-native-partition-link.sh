@@ -8,12 +8,16 @@ trap 'rm -rf "$work"' EXIT
 grep -q 'call nq_pgas_compiler_partition_read' "$work/program.s"
 grep -q 'call nq_pgas_compiler_partition_write' "$work/program.s"
 g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude \
-  "$work/program.s" Runtime/native/pgas_runtime.cpp Runtime/native/pgas_partition.cpp \
-  tests/cpp/pgas_compiled_partition_test.cpp -o "$work/native_partition"
+  "$work/program.s" Runtime/native/pgas_runtime.cpp Runtime/native/pgas_partition.cpp Runtime/native/pgas_tls_gateway.cpp \
+  tests/cpp/pgas_compiled_partition_test.cpp -lssl -lcrypto -o "$work/native_partition"
 timeout 30s "$work/native_partition"
 g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude \
-  "$work/program.s" Runtime/native/pgas_runtime.cpp Runtime/native/pgas_partition.cpp \
-  tests/cpp/pgas_compiled_unbound_test.cpp -o "$work/unbound_partition"
+  "$work/program.s" Runtime/native/pgas_runtime.cpp Runtime/native/pgas_partition.cpp Runtime/native/pgas_tls_gateway.cpp \
+  tests/cpp/pgas_compiled_partition_tls_test.cpp -lssl -lcrypto -o "$work/native_partition_tls"
+timeout 30s bash tests/scripts/pgas-tls-cert-test.sh "$work/native_partition_tls"
+g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude \
+  "$work/program.s" Runtime/native/pgas_runtime.cpp Runtime/native/pgas_partition.cpp Runtime/native/pgas_tls_gateway.cpp \
+  tests/cpp/pgas_compiled_unbound_test.cpp -lssl -lcrypto -o "$work/unbound_partition"
 ulimit -c 0 || true
 if timeout 10s "$work/unbound_partition" > "$work/failure.txt" 2>&1; then
   echo "unbound partition incorrectly returned successfully" >&2
