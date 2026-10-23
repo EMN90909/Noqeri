@@ -1,8 +1,8 @@
 #pragma once
 
 namespace noe {
-inline constexpr const char* NOQERI_LANGUAGE_VERSION = "0.7";
-inline constexpr const char* NOQERI_COMPILER_VERSION = "0.7.0";
+inline constexpr const char* NOQERI_LANGUAGE_VERSION = "0.1.3";
+inline constexpr const char* NOQERI_COMPILER_VERSION = "0.1.3";
 inline constexpr const char* NOQERI_EDITION = "2026";
 inline constexpr const char* NOQERI_ABI_VERSION = "2";
 inline constexpr const char* NOQERI_PACKAGE_FORMAT = "2";
