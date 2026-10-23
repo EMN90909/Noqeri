@@ -2,6 +2,7 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -12,8 +13,9 @@ namespace {
 int presented=0,pumped=0,closed=0;
 }
 
-extern "C" int nq_os_renderer_present(uint32_t*argb,uint32_t width,uint32_t height) {
+extern "C" int nq_os_renderer_present(uint32_t*argb,size_t pixel_count,uint32_t width,uint32_t height) {
     assert(argb);
+    assert(pixel_count==1024);
     assert(width==32 && height==32);
     assert(argb[0]==0xff000040u);
     assert(argb[31]==0xffff0040u);
