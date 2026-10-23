@@ -23,7 +23,18 @@ NirProgram Lowerer::lower(const Program&program){
     NirInstruction r;r.op=NirOp::Return;out.entry.code.push_back(r);return out;
 }
 void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
-    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){Reg r=0;if(s->zeroInitialized){NirInstruction z;if(s->zeroRequiresStorage){z.op=NirOp::StackAlloc;z.dest=fn.nextReg++;z.width=std::max<std::size_t>(1,s->zeroStorageBytes);}else{z.op=NirOp::Call;z.dest=fn.nextReg++;z.text=s->annotation.value_or("int");}emit(fn,z);r=*z.dest;}else r=lowerExpr(fn,s->initializer);NirInstruction i;i.op=NirOp::Store;i.text=s->name;i.args={r};emit(fn,std::move(i));return;}
+    if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){
+        if(s->partition){
+            // Persist compiler-validated placement in NIR. No local array
+            // is allocated: executing a distributed array as local storage
+            // would silently corrupt its meaning. Backends must fail closed
+            // until they implement actual topology-backed lowering.
+            fn.partitions.push_back(NirPartitionDescriptor{s->name,
+                s->partition->strategy,s->partition->nodes,
+                s->partition->elements});
+            return;
+        }
+        Reg r=0;if(s->zeroInitialized){NirInstruction z;if(s->zeroRequiresStorage){z.op=NirOp::StackAlloc;z.dest=fn.nextReg++;z.width=std::max<std::size_t>(1,s->zeroStorageBytes);}else{z.op=NirOp::Call;z.dest=fn.nextReg++;z.text=s->annotation.value_or("int");}emit(fn,z);r=*z.dest;}else r=lowerExpr(fn,s->initializer);NirInstruction i;i.op=NirOp::Store;i.text=s->name;i.args={r};emit(fn,std::move(i));return;}
     if(auto s=std::dynamic_pointer_cast<ExprStmt>(stmt)){lowerExpr(fn,s->expr);return;}
     if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){for(auto&x:s->statements)lowerStmt(fn,x);return;}
     if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){NirInstruction i;i.op=NirOp::Return;if(s->value)i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
@@ -124,6 +135,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
 
 std::string printNir(const NirProgram&p){
     std::ostringstream out;auto one=[&](const NirFunction&f){if(f.isExport)out<<"export ";if(f.isExtern)out<<"extern ";out<<"function "<<f.name;if(!f.genericParams.empty()){out<<'<';for(std::size_t g=0;g<f.genericParams.size();++g){if(g)out<<", ";out<<f.genericParams[g];}out<<'>'; }out<<'(';for(std::size_t i=0;i<f.params.size();++i){if(i)out<<", ";out<<f.params[i];}out<<") {\n";
+        for(const auto&part:f.partitions)out<<"  @partition "<<part.name<<" strategy="<<part.strategy<<" nodes="<<part.nodes<<" elements="<<part.elements<<"\n";
         for(std::size_t pc=0;pc<f.code.size();++pc){const auto&i=f.code[pc];out<<"  "<<pc<<": ";if(i.dest)out<<'%'<<*i.dest<<" = ";switch(i.op){
             case NirOp::Const:out<<"const "<<literalText(i.literal);break;case NirOp::Load:out<<"load "<<i.text;break;case NirOp::Store:out<<"store "<<i.text<<", %"<<i.args[0];break;case NirOp::Unary:out<<"unary "<<i.text<<" %"<<i.args[0];break;case NirOp::Binary:out<<"binary "<<i.text<<" %"<<i.args[0]<<", %"<<i.args[1];break;case NirOp::Cast:out<<"cast "<<i.text<<" %"<<i.args[0];break;case NirOp::AddressOf:out<<"address_of "<<i.text;break;
             case NirOp::LoadMemory:out<<(i.isVolatile?"volatile_":"")<<"load_memory."<<i.width<<" %"<<i.args[0];break;case NirOp::StoreMemory:out<<(i.isVolatile?"volatile_":"")<<"store_memory."<<i.width<<" %"<<i.args[0]<<", %"<<i.args[1];break;case NirOp::PtrOffset:out<<"ptr_offset %"<<i.args[0];if(i.args.size()>1)out<<", %"<<i.args[1]<<" * "<<i.width;else out<<", +"<<i.target;break;case NirOp::StackAlloc:out<<"stack_alloc "<<i.width;break;
