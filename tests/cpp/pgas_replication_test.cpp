@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 int main(int argc,char **argv) {
-  assert(argc==6);
+  assert(argc==8);
   char name[]="/tmp/noqeri-pgas-pair-XXXXXX";
   char *directory=mkdtemp(name);assert(directory);
   std::string first=std::string(directory)+"/primary.wal";
