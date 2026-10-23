@@ -6,6 +6,11 @@ module noqeri.std.pgas
 extern function nq_pgas_location(index: u64, elements: u64, nodes: u32, strategy: u32, owner: *u32, local: *u32): int
 extern function nq_pgas_client_connect(host: string, port: u16, token: string, timeout_ms: u32, out: *usize): int
 extern function nq_pgas_client_close(client: usize): int
+extern function nq_pgas_client_set_epoch(client: usize, epoch: u32): int
+extern function nq_pgas_server_get_epoch(server: usize, out: *u32): int
+extern function nq_pgas_server_promote_epoch(server: usize, newer_epoch: u32): int
+export function pgas_fence_promote(server: usize, newer_epoch: u32): int { return nq_pgas_server_promote_epoch(server, newer_epoch) }
+export function pgas_client_epoch(client: usize, epoch: u32): int { return nq_pgas_client_set_epoch(client, epoch) }
 extern function nq_pgas_ping(client: usize): int
 extern function nq_pgas_read(client: usize, local: u32, out: *i64): int
 extern function nq_pgas_write(client: usize, local: u32, value: i64): int
