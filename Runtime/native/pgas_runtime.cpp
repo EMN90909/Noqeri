@@ -381,7 +381,12 @@ static void serve_client(nq_pgas_server *s, int fd) {
     else if (operation < op_read || operation > op_add) status = -ENOTSUP;
     else {
       std::lock_guard<std::mutex> lock(s->data_mu);
-      if (index >= s->values.size()) status = -ERANGE;
+      // Epoch must be rechecked UNDER the same lock as WAL mutation.
+      // Otherwise an old client can pass the outer check before promotion,
+      // block on data_mu and write after the new epoch is committed.
+      if (get32(req + 12) != s->epoch.load(std::memory_order_acquire))
+        status = -ESTALE;
+      else if (index >= s->values.size()) status = -ERANGE;
       else {
         int64_t &slot = s->values[index];
         switch (operation) {
