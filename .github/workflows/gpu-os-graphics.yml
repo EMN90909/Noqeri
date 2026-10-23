@@ -45,6 +45,8 @@ jobs:
           cmake --build /tmp/noqeri-graphics-build --target noqeri -j 2
       - name: Check typed shader source and reject unsafe GPU programs
         run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs
+      - name: Verify WebGPU browser host is valid JavaScript
+        run: node --check examples/shaders/webgpu_host.mjs
       - name: Naga syntax and semantic validation of both generated GPU stages
         run: |
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/color_gradient.noqeri /tmp/noqeri-fragment.wgsl --stage=fragment
