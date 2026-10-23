@@ -1,0 +1,8 @@
+Compiler/selfhost/ast.noqeri
+Compiler/selfhost/lexer.noqeri
+Compiler/selfhost/syntax.noqeri
+Compiler/selfhost/parser.noqeri
+Compiler/selfhost/parser_expr.noqeri
+Compiler/selfhost/parser_stmt.noqeri
+Compiler/selfhost/shader_wgsl.noqeri
+tests/shader_stage2_fixture.noqeri
