@@ -1,0 +1,207 @@
+module noqeri.compiler.shaders.selfhost_wgsl
+import "../selfhost/lexer.noqeri"
+import "../selfhost/parser.noqeri"
+import "../selfhost/parser_expr.noqeri"
+import "../selfhost/parser_stmt.noqeri"
+import "../selfhost/ast.noqeri"
+import "../selfhost/pipeline.noqeri"
+
+// Stage-2 addon compiled by the Noqeri-written self-hosted compiler and
+// EXECUTED by the NQRI VM. It is independent from the pinned Stage-1 seed.
+// Safe initial profile: scalar u32 fragment/compute, pure return expression.
+// Unsupported branches/vectors/textures fail closed; Stage-0 retains v3 scope.
+
+function nqShaderWrite(out: []u8, offset: *usize, bytes: []u8): bool {
+    if offset == null || offset[0] > len(out) || len(bytes) > len(out)-offset[0] { return false }
+    let index: usize = 0 as usize
+    while index < len(bytes) {
+        out[offset[0]+index] = bytes[index]
+        index = index + 1 as usize
+    }
+    offset[0] = offset[0] + len(bytes)
+    return true
+}
+function nqShaderSpanEquals(source: []u8, start: usize, end: usize, text: []u8): bool {
+    if end < start || end > len(source) || end-start != len(text) { return false }
+    let i: usize = 0 as usize
+    while i < len(text) {
+        if source[start+i] != text[i] { return false }
+        i = i + 1 as usize
+    }
+    return true
+}
+function nqShaderWriteSpan(out: []u8, offset: *usize, src: []u8, start: usize, end: usize): bool {
+    if end < start || end > len(src) { return false }
+    let i: usize = start
+    while i < end {
+        if offset[0] >= len(out) { return false }
+        out[offset[0]] = src[i]
+        offset[0] = offset[0] + 1 as usize
+        i = i + 1 as usize
+    }
+    return true
+}
+function nqShaderLiteralOk(source: []u8, start: usize, end: usize): bool {
+    if end <= start || end-start > 10 as usize || end > len(source) { return false }
+    let i: usize = start
+    let value: u64 = 0 as u64
+    while i < end {
+        if source[i] < 48 as u8 || source[i] > 57 as u8 { return false }
+        value = value * 10 as u64 + (source[i]-48 as u8) as u64
+        if value > 4294967295 as u64 { return false }
+        i = i + 1 as usize
+    }
+    return true
+}
+function nqShaderEmitExpr(source: []u8, nodes: []NqAstNode, index: isize,
+    depth: usize, p0: isize, p1: isize, out: []u8, offset: *usize): bool {
+    if index < 0 as isize || index as usize >= len(nodes) || depth > 64 as usize { return false }
+    let node: *NqAstNode = &nodes[index as usize]
+    if node.tag == nqAstInteger() {
+        if !nqShaderLiteralOk(source,node.start,node.end) { return false }
+        if !nqShaderWriteSpan(out,offset,source,node.start,node.end) { return false }
+        if !nqShaderWrite(out, offset, slice([117 as u8])) { return false }
+        return true
+    }
+    if node.tag == nqAstName() {
+        if p0 >= 0 as isize {
+            let ref: *NqAstNode = &nodes[p0 as usize]
+            if nqShaderSpanEquals(source,node.start,node.end,slice(source[ref.start..ref.end])) {
+                if !nqShaderWrite(out, offset, slice([110 as u8, 113 as u8, 95 as u8, 97 as u8, 114 as u8, 103 as u8, 48 as u8])) { return false }
+                return true
+            }
+        }
+        if p1 >= 0 as isize {
+            let ref: *NqAstNode = &nodes[p1 as usize]
+            if nqShaderSpanEquals(source,node.start,node.end,slice(source[ref.start..ref.end])) {
+                if !nqShaderWrite(out, offset, slice([110 as u8, 113 as u8, 95 as u8, 97 as u8, 114 as u8, 103 as u8, 49 as u8])) { return false }
+                return true
+            }
+        }
+        return false
+    }
+    if node.tag == nqAstCast() {
+        if node.extra < 0 as isize { return false }
+        let typeStart: usize = node.extra as usize
+        if !nqShaderSpanEquals(source,typeStart,nqParserScanType(source,typeStart),slice([117 as u8, 51 as u8, 50 as u8])) { return false }
+        if !nqShaderWrite(out, offset, slice([117 as u8, 51 as u8, 50 as u8, 40 as u8])) { return false }
+        if !nqShaderEmitExpr(source,nodes,node.left,depth+1 as usize,p0,p1,out,offset) { return false }
+        if !nqShaderWrite(out, offset, slice([41 as u8])) { return false }
+        return true
+    }
+    if node.tag == nqAstBinary() {
+        let sign: u8 = node.flags as u8
+        if sign != 43 as u8 && sign != 45 as u8 && sign != 42 as u8 &&
+           sign != 47 as u8 && sign != 37 as u8 { return false }
+        if !nqShaderWrite(out, offset, slice([40 as u8])) { return false }
+        if !nqShaderEmitExpr(source,nodes,node.left,depth+1 as usize,p0,p1,out,offset) { return false }
+        if !nqShaderWrite(out, offset, slice([32 as u8])) { return false }
+        let op: [u8; 1]
+        op[0] = sign
+        if !nqShaderWrite(out,offset,slice(op)) { return false }
+        if !nqShaderWrite(out, offset, slice([32 as u8])) { return false }
+        if !nqShaderEmitExpr(source,nodes,node.right,depth+1 as usize,p0,p1,out,offset) { return false }
+        if !nqShaderWrite(out, offset, slice([41 as u8])) { return false }
+        return true
+    }
+    return false
+}
+function nqShaderFunctionReturnU32(source: []u8, nodes: []NqAstNode, fn: *NqAstNode): bool {
+    if fn == null || fn.left < 0 as isize || fn.extra < 0 as isize { return false }
+    let name: *NqAstNode = &nodes[fn.left as usize]
+    if !nqShaderSpanEquals(source,name.start,name.end,slice([115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8])) { return false }
+    let body: *NqAstNode = &nodes[fn.extra as usize]
+    let cursor: usize = name.end
+    let seenClose: bool = false
+    while cursor < body.start {
+        let token: NqToken
+        nqCompilerNextToken(source,cursor,&token)
+        if token.end <= cursor { return false }
+        if token.first == 41 as u8 { seenClose = true }
+        if seenClose && token.first == 58 as u8 {
+            let typeStart: usize = nqCompilerSkipTrivia(source,token.end)
+            return nqShaderSpanEquals(source,typeStart,nqParserScanType(source,typeStart),slice([117 as u8, 51 as u8, 50 as u8]))
+        }
+        cursor = token.end
+    }
+    return false
+}
+function nqShaderParametersU32(source: []u8, nodes: []NqAstNode, first: isize,
+    expected: usize, p0: *isize, p1: *isize): bool {
+    if p0 == null || p1 == null { return false }
+    p0[0] = -1 as isize
+    p1[0] = -1 as isize
+    let index: isize = first
+    let count: usize = 0 as usize
+    while index >= 0 as isize {
+        if index as usize >= len(nodes) || count >= expected { return false }
+        let param: *NqAstNode = &nodes[index as usize]
+        if param.tag != nqAstParameter() || param.left < 0 as isize ||
+           param.extra < 0 as isize { return false }
+        let typeStart: usize = param.extra as usize
+        if !nqShaderSpanEquals(source,typeStart,nqParserScanType(source,typeStart),slice([117 as u8, 51 as u8, 50 as u8])) { return false }
+        if count == 0 as usize { p0[0] = param.left }
+        else { p1[0] = param.left }
+        count = count + 1 as usize
+        index = param.next
+    }
+    return count == expected
+}
+
+export function stage2ShaderCompile(source: []u8, stage: int, groupSize: int, out: []u8): isize {
+    if (stage != 1 && stage != 2) || (groupSize != 32 && groupSize != 64 && groupSize != 128 && groupSize != 256) { return -1100 as isize }
+    if len(source) > 65536 as usize || len(out) > 131072 as usize { return -1101 as isize }
+    if nqPipelineSemanticCheckMerged(source,false) != 0 as isize { return -1102 as isize }
+    let nodes: [NqAstNode; 8192]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(source,slice(nodes),&count,&first) < 0 as isize { return -1103 as isize }
+    let fn: isize = -1 as isize
+    let current: isize = first
+    let countTop: usize = 0 as usize
+    while current >= 0 as isize {
+        if current as usize >= count || countTop >= 1024 as usize { return -1104 as isize }
+        let node: *NqAstNode = &nodes[current as usize]
+        if node.tag == nqAstFunction() {
+            if fn >= 0 as isize || (node.flags / nqAstFlagExport()) % 2 as u32 != 1 as u32 { return -1105 as isize }
+            fn = current
+        } else {
+            if node.tag != nqAstModule() { return -1106 as isize }
+        }
+        current = node.next
+        countTop = countTop + 1 as usize
+    }
+    if fn < 0 as isize { return -1107 as isize }
+    let function: *NqAstNode = &nodes[fn as usize]
+    let expectParams: usize = 1 as usize
+    if stage == 2 { expectParams = 2 as usize }
+    let p0: isize = -1 as isize
+    let p1: isize = -1 as isize
+    if !nqShaderParametersU32(source,slice(nodes),function.right,expectParams,&p0,&p1) { return -1108 as isize }
+    if !nqShaderFunctionReturnU32(source,slice(nodes),function) { return -1109 as isize }
+    let block: *NqAstNode = &nodes[function.extra as usize]
+    if block.tag != nqAstBlock() || block.left < 0 as isize { return -1110 as isize }
+    let ret: *NqAstNode = &nodes[block.left as usize]
+    if ret.tag != nqAstReturn() || ret.left < 0 as isize || ret.next >= 0 as isize { return -1111 as isize }
+    let offset: usize = 0 as usize
+    if !nqShaderWrite(out, offset, slice([47 as u8, 47 as u8, 32 as u8, 71 as u8, 101 as u8, 110 as u8, 101 as u8, 114 as u8, 97 as u8, 116 as u8, 101 as u8, 100 as u8, 32 as u8, 102 as u8, 114 as u8, 111 as u8, 109 as u8, 32 as u8, 116 as u8, 121 as u8, 112 as u8, 101 as u8, 99 as u8, 104 as u8, 101 as u8, 99 as u8, 107 as u8, 101 as u8, 100 as u8, 32 as u8, 78 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 32 as u8, 115 as u8, 111 as u8, 117 as u8, 114 as u8, 99 as u8, 101 as u8, 59 as u8, 32 as u8, 112 as u8, 117 as u8, 114 as u8, 101 as u8, 32 as u8, 98 as u8, 111 as u8, 117 as u8, 110 as u8, 100 as u8, 101 as u8, 100 as u8, 32 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 114 as u8, 32 as u8, 112 as u8, 114 as u8, 111 as u8, 102 as u8, 105 as u8, 108 as u8, 101 as u8, 46 as u8, 92 as u8, 110 as u8])) { return false }
+    if stage == 1 {
+        if !nqShaderWrite(out, offset, slice([102 as u8, 110 as u8, 32 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 110 as u8, 113 as u8, 95 as u8, 97 as u8, 114 as u8, 103 as u8, 48 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 41 as u8, 32 as u8, 45 as u8, 62 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 32 as u8, 123 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8])) { return false }
+    } else {
+        if !nqShaderWrite(out, offset, slice([102 as u8, 110 as u8, 32 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 110 as u8, 113 as u8, 95 as u8, 97 as u8, 114 as u8, 103 as u8, 48 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 44 as u8, 32 as u8, 110 as u8, 113 as u8, 95 as u8, 97 as u8, 114 as u8, 103 as u8, 49 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 41 as u8, 32 as u8, 45 as u8, 62 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 32 as u8, 123 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8])) { return false }
+    }
+    if !nqShaderEmitExpr(source,slice(nodes),ret.left,0 as usize,p0,p1,out,&offset) { return -1112 as isize }
+    if !nqShaderWrite(out, offset, slice([59 as u8, 92 as u8, 110 as u8, 125 as u8, 92 as u8, 110 as u8])) { return false }
+    if stage == 1 {
+        if !nqShaderWrite(out, offset, slice([64 as u8, 103 as u8, 114 as u8, 111 as u8, 117 as u8, 112 as u8, 40 as u8, 48 as u8, 41 as u8, 32 as u8, 64 as u8, 98 as u8, 105 as u8, 110 as u8, 100 as u8, 105 as u8, 110 as u8, 103 as u8, 40 as u8, 48 as u8, 41 as u8, 32 as u8, 118 as u8, 97 as u8, 114 as u8, 60 as u8, 115 as u8, 116 as u8, 111 as u8, 114 as u8, 97 as u8, 103 as u8, 101 as u8, 44 as u8, 32 as u8, 114 as u8, 101 as u8, 97 as u8, 100 as u8, 62 as u8, 32 as u8, 105 as u8, 110 as u8, 112 as u8, 117 as u8, 116 as u8, 95 as u8, 112 as u8, 105 as u8, 120 as u8, 101 as u8, 108 as u8, 115 as u8, 58 as u8, 32 as u8, 97 as u8, 114 as u8, 114 as u8, 97 as u8, 121 as u8, 60 as u8, 117 as u8, 51 as u8, 50 as u8, 62 as u8, 59 as u8, 92 as u8, 110 as u8])) { return false }
+        if !nqShaderWrite(out, offset, slice([64 as u8, 103 as u8, 114 as u8, 111 as u8, 117 as u8, 112 as u8, 40 as u8, 48 as u8, 41 as u8, 32 as u8, 64 as u8, 98 as u8, 105 as u8, 110 as u8, 100 as u8, 105 as u8, 110 as u8, 103 as u8, 40 as u8, 49 as u8, 41 as u8, 32 as u8, 118 as u8, 97 as u8, 114 as u8, 60 as u8, 115 as u8, 116 as u8, 111 as u8, 114 as u8, 97 as u8, 103 as u8, 101 as u8, 44 as u8, 32 as u8, 114 as u8, 101 as u8, 97 as u8, 100 as u8, 95 as u8, 119 as u8, 114 as u8, 105 as u8, 116 as u8, 101 as u8, 62 as u8, 32 as u8, 111 as u8, 117 as u8, 116 as u8, 112 as u8, 117 as u8, 116 as u8, 95 as u8, 112 as u8, 105 as u8, 120 as u8, 101 as u8, 108 as u8, 115 as u8, 58 as u8, 32 as u8, 97 as u8, 114 as u8, 114 as u8, 97 as u8, 121 as u8, 60 as u8, 117 as u8, 51 as u8, 50 as u8, 62 as u8, 59 as u8, 92 as u8, 110 as u8])) { return false }
+        if groupSize == 32 { if !nqShaderWrite(out, offset, slice([64 as u8, 99 as u8, 111 as u8, 109 as u8, 112 as u8, 117 as u8, 116 as u8, 101 as u8, 32 as u8, 64 as u8, 119 as u8, 111 as u8, 114 as u8, 107 as u8, 103 as u8, 114 as u8, 111 as u8, 117 as u8, 112 as u8, 95 as u8, 115 as u8, 105 as u8, 122 as u8, 101 as u8, 40 as u8, 51 as u8, 50 as u8, 41 as u8, 92 as u8, 110 as u8])) { return false } }
+        if groupSize == 64 { if !nqShaderWrite(out, offset, slice([64 as u8, 99 as u8, 111 as u8, 109 as u8, 112 as u8, 117 as u8, 116 as u8, 101 as u8, 32 as u8, 64 as u8, 119 as u8, 111 as u8, 114 as u8, 107 as u8, 103 as u8, 114 as u8, 111 as u8, 117 as u8, 112 as u8, 95 as u8, 115 as u8, 105 as u8, 122 as u8, 101 as u8, 40 as u8, 54 as u8, 52 as u8, 41 as u8, 92 as u8, 110 as u8])) { return false } }
+        if groupSize == 128 { if !nqShaderWrite(out, offset, slice([64 as u8, 99 as u8, 111 as u8, 109 as u8, 112 as u8, 117 as u8, 116 as u8, 101 as u8, 32 as u8, 64 as u8, 119 as u8, 111 as u8, 114 as u8, 107 as u8, 103 as u8, 114 as u8, 111 as u8, 117 as u8, 112 as u8, 95 as u8, 115 as u8, 105 as u8, 122 as u8, 101 as u8, 40 as u8, 49 as u8, 50 as u8, 56 as u8, 41 as u8, 92 as u8, 110 as u8])) { return false } }
+        if groupSize == 256 { if !nqShaderWrite(out, offset, slice([64 as u8, 99 as u8, 111 as u8, 109 as u8, 112 as u8, 117 as u8, 116 as u8, 101 as u8, 32 as u8, 64 as u8, 119 as u8, 111 as u8, 114 as u8, 107 as u8, 103 as u8, 114 as u8, 111 as u8, 117 as u8, 112 as u8, 95 as u8, 115 as u8, 105 as u8, 122 as u8, 101 as u8, 40 as u8, 50 as u8, 53 as u8, 54 as u8, 41 as u8, 92 as u8, 110 as u8])) { return false } }
+        if !nqShaderWrite(out, offset, slice([102 as u8, 110 as u8, 32 as u8, 109 as u8, 97 as u8, 105 as u8, 110 as u8, 40 as u8, 64 as u8, 98 as u8, 117 as u8, 105 as u8, 108 as u8, 116 as u8, 105 as u8, 110 as u8, 40 as u8, 103 as u8, 108 as u8, 111 as u8, 98 as u8, 97 as u8, 108 as u8, 95 as u8, 105 as u8, 110 as u8, 118 as u8, 111 as u8, 99 as u8, 97 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 95 as u8, 105 as u8, 100 as u8, 41 as u8, 32 as u8, 105 as u8, 100 as u8, 58 as u8, 32 as u8, 118 as u8, 101 as u8, 99 as u8, 51 as u8, 60 as u8, 117 as u8, 51 as u8, 50 as u8, 62 as u8, 41 as u8, 32 as u8, 123 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 105 as u8, 32 as u8, 61 as u8, 32 as u8, 105 as u8, 100 as u8, 46 as u8, 120 as u8, 59 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 105 as u8, 102 as u8, 32 as u8, 40 as u8, 105 as u8, 32 as u8, 62 as u8, 61 as u8, 32 as u8, 97 as u8, 114 as u8, 114 as u8, 97 as u8, 121 as u8, 76 as u8, 101 as u8, 110 as u8, 103 as u8, 116 as u8, 104 as u8, 40 as u8, 38 as u8, 105 as u8, 110 as u8, 112 as u8, 117 as u8, 116 as u8, 95 as u8, 112 as u8, 105 as u8, 120 as u8, 101 as u8, 108 as u8, 115 as u8, 41 as u8, 32 as u8, 124 as u8, 124 as u8, 32 as u8, 105 as u8, 32 as u8, 62 as u8, 61 as u8, 32 as u8, 97 as u8, 114 as u8, 114 as u8, 97 as u8, 121 as u8, 76 as u8, 101 as u8, 110 as u8, 103 as u8, 116 as u8, 104 as u8, 40 as u8, 38 as u8, 111 as u8, 117 as u8, 116 as u8, 112 as u8, 117 as u8, 116 as u8, 95 as u8, 112 as u8, 105 as u8, 120 as u8, 101 as u8, 108 as u8, 115 as u8, 41 as u8, 41 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 59 as u8, 32 as u8, 125 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 111 as u8, 117 as u8, 116 as u8, 112 as u8, 117 as u8, 116 as u8, 95 as u8, 112 as u8, 105 as u8, 120 as u8, 101 as u8, 108 as u8, 115 as u8, 91 as u8, 105 as u8, 93 as u8, 32 as u8, 61 as u8, 32 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 105 as u8, 110 as u8, 112 as u8, 117 as u8, 116 as u8, 95 as u8, 112 as u8, 105 as u8, 120 as u8, 101 as u8, 108 as u8, 115 as u8, 91 as u8, 105 as u8, 93 as u8, 41 as u8, 59 as u8, 92 as u8, 110 as u8, 125 as u8, 92 as u8, 110 as u8])) { return false }
+    } else {
+        if !nqShaderWrite(out, offset, slice([64 as u8, 102 as u8, 114 as u8, 97 as u8, 103 as u8, 109 as u8, 101 as u8, 110 as u8, 116 as u8, 92 as u8, 110 as u8, 102 as u8, 110 as u8, 32 as u8, 109 as u8, 97 as u8, 105 as u8, 110 as u8, 40 as u8, 64 as u8, 98 as u8, 117 as u8, 105 as u8, 108 as u8, 116 as u8, 105 as u8, 110 as u8, 40 as u8, 112 as u8, 111 as u8, 115 as u8, 105 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 41 as u8, 32 as u8, 112 as u8, 111 as u8, 115 as u8, 105 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 58 as u8, 32 as u8, 118 as u8, 101 as u8, 99 as u8, 52 as u8, 60 as u8, 102 as u8, 51 as u8, 50 as u8, 62 as u8, 41 as u8, 32 as u8, 45 as u8, 62 as u8, 32 as u8, 64 as u8, 108 as u8, 111 as u8, 99 as u8, 97 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 40 as u8, 48 as u8, 41 as u8, 32 as u8, 118 as u8, 101 as u8, 99 as u8, 52 as u8, 60 as u8, 102 as u8, 51 as u8, 50 as u8, 62 as u8, 32 as u8, 123 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 112 as u8, 32 as u8, 61 as u8, 32 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 117 as u8, 51 as u8, 50 as u8, 40 as u8, 112 as u8, 111 as u8, 115 as u8, 105 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 46 as u8, 120 as u8, 41 as u8, 44 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 40 as u8, 112 as u8, 111 as u8, 115 as u8, 105 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 46 as u8, 121 as u8, 41 as u8, 41 as u8, 59 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 114 as u8, 32 as u8, 61 as u8, 32 as u8, 102 as u8, 51 as u8, 50 as u8, 40 as u8, 40 as u8, 112 as u8, 32 as u8, 62 as u8, 62 as u8, 32 as u8, 49 as u8, 54 as u8, 117 as u8, 41 as u8, 32 as u8, 38 as u8, 32 as u8, 50 as u8, 53 as u8, 53 as u8, 117 as u8, 41 as u8, 32 as u8, 47 as u8, 32 as u8, 50 as u8, 53 as u8, 53 as u8, 46 as u8, 48 as u8, 59 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 103 as u8, 32 as u8, 61 as u8, 32 as u8, 102 as u8, 51 as u8, 50 as u8, 40 as u8, 40 as u8, 112 as u8, 32 as u8, 62 as u8, 62 as u8, 32 as u8, 56 as u8, 117 as u8, 41 as u8, 32 as u8, 38 as u8, 32 as u8, 50 as u8, 53 as u8, 53 as u8, 117 as u8, 41 as u8, 32 as u8, 47 as u8, 32 as u8, 50 as u8, 53 as u8, 53 as u8, 46 as u8, 48 as u8, 59 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 98 as u8, 32 as u8, 61 as u8, 32 as u8, 102 as u8, 51 as u8, 50 as u8, 40 as u8, 112 as u8, 32 as u8, 38 as u8, 32 as u8, 50 as u8, 53 as u8, 53 as u8, 117 as u8, 41 as u8, 32 as u8, 47 as u8, 32 as u8, 50 as u8, 53 as u8, 53 as u8, 46 as u8, 48 as u8, 59 as u8, 92 as u8, 110 as u8, 32 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 118 as u8, 101 as u8, 99 as u8, 52 as u8, 60 as u8, 102 as u8, 51 as u8, 50 as u8, 62 as u8, 40 as u8, 114 as u8, 44 as u8, 32 as u8, 103 as u8, 44 as u8, 32 as u8, 98 as u8, 44 as u8, 32 as u8, 49 as u8, 46 as u8, 48 as u8, 41 as u8, 59 as u8, 92 as u8, 110 as u8, 125 as u8, 92 as u8, 110 as u8])) { return false }
+    }
+    return offset as isize
+}
