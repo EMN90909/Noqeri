@@ -99,7 +99,7 @@ int nq_pgas_rdma_available(void) {
     if (!ctx) continue;
     ibv_device_attr device{};
     if (ibv_query_device(ctx, &device) == 0) {
-      for (uint8_t port = 1; port <= device.phys_port_cnt; ++port) {
+      for (unsigned port = 1; port <= device.phys_port_cnt; ++port) {
         ibv_port_attr attributes{};
         if (ibv_query_port(ctx, port, &attributes) == 0 &&
             attributes.state == IBV_PORT_ACTIVE) { available = 1; break; }
