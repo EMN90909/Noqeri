@@ -33,6 +33,8 @@ int nq_pgas_tls_compare_exchange(nq_pgas_tls_client *client, uint32_t index,
 int nq_pgas_tls_fetch_add(nq_pgas_tls_client *client, uint32_t index,
     int64_t delta, int64_t *previous);
 int nq_pgas_tls_barrier(nq_pgas_tls_client *client);
+int nq_pgas_tls_run_task(nq_pgas_tls_client *client, uint32_t task_id,
+                          int64_t argument, int64_t *output);
 #ifdef __cplusplus
 }
 #endif
