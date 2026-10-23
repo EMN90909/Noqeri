@@ -11,6 +11,15 @@ extern "C" {
  */
 typedef struct nq_pgas_server nq_pgas_server;
 typedef struct nq_pgas_client nq_pgas_client;
+/* Explicitly registered worker kernels, not arbitrary uploaded machine code.
+ * The callback and context must remain alive until server shutdown; callback
+ * invocation is concurrent and must protect its own state. Only 1..65535 IDs
+ * are accepted; operation results are not transparently retried. */
+typedef int (*nq_pgas_task_callback)(int64_t input, void *context, int64_t *output);
+int nq_pgas_register_task(nq_pgas_server *server, uint32_t task_id,
+                          nq_pgas_task_callback callback, void *context);
+int nq_pgas_run_task(nq_pgas_client *client, uint32_t task_id,
+                     int64_t argument, int64_t *output);
 /* Tokens must be 16..64 ASCII bytes, with no whitespace or control chars.
  * A port of zero requests an ephemeral port. slots must be nonzero.
  * barrier_participants=0 disables the barrier on this node. */
