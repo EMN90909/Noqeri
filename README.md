@@ -1,10 +1,10 @@
 <p align="center"><img src="Brand/noqeri-icon.svg" alt="Noqeri fox icon" width="560"></p>
 <h1 align="center">Noqeri</h1>
 
-**Version on `main`: 0.7.0 (development, not production-qualified).** The `1.0.0` proposal is **not** a published stable compiler version. `CMakeLists.txt`, `Include/noqeri/version.hpp`, and `Compiler/selfhost/driver.noqeri` still report 0.7.0 on this branch. Do not claim `v1.0.0` solely from documentation. Release readiness requires native Stage-2 parity, reviewed bootstrap provenance, a passing platform matrix, and actual NoeSQL/Registry cross-repository tests.
+**Version on `main`: 0.1.3 (development, not production-qualified).** The `1.0.0` proposal is **not** a published stable compiler version. `CMakeLists.txt`, `Include/noqeri/version.hpp`, and `Compiler/selfhost/driver.noqeri` report 0.1.3 on this branch. Do not claim `v1.0.0` solely from documentation. Release readiness requires native Stage-2 parity, reviewed bootstrap provenance, a passing platform matrix, and actual NoeSQL/Registry cross-repository tests.
 <p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
 
-Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and portable compiler bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main is still version **0.7.0**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
+Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and portable compiler bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main uses version **0.1.3**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
 
 ## Reactive web development (experimental, implemented on `main`)
 
@@ -152,7 +152,7 @@ Automatic GitHub Actions workflows are intentionally not required for this migra
 
 ## Release readiness
 
-**0.7.0 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
+**0.1.3 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
 
 ## License
 
