@@ -1,0 +1,7 @@
+module examples.shaders.vector_compute
+
+// Each GPU storage element is a packed float32 RGBA vector.
+export function shade(value: vec4): vec4 {
+    const gain: vec4 = vec4(1.0, 0.5, 0.25, 1.0)
+    return value * gain
+}
