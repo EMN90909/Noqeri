@@ -99,8 +99,12 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null) {
     pass.end()
     device.queue.submit([encoder.finish()])
     await device.queue.onSubmittedWorkDone()
-    context.unconfigure()
-  } finally {
+    return () => {
+      context.unconfigure()
+      device.destroy()
+    }
+  } catch (error) {
     device.destroy()
+    throw error
   }
 }
