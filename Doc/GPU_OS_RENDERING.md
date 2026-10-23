@@ -23,7 +23,10 @@ output at group 0 binding 1 (read/write storage), and dispatches with 64
 invocations per workgroup. The generated entry checks **both** buffer
 boundaries before reading/writing. An application must create WebGPU buffers,
 bind them, and issue `ceil(pixel_count/64)` workgroups. A GPU device and
-runtime are **not** embedded in this compiler.
+runtime are **not** embedded in this compiler. A small browser-only
+WebGPU host in `examples/shaders/webgpu_host.mjs` can compile the output
+into actual browser compute and render pipelines on supported devices.
+This is necessary OS/browser interop, not replacement shader logic.
 
 The compiler runs the existing Noqeri parser and type checker, then a
 shader-specific pure AST emitter. It accepts numeric `u32` inputs and one
@@ -37,8 +40,26 @@ a shader target. The shader target is not yet a full Noqeri language profile.
 CI compiles both Noqeri source examples to WGSL and validates the generated
 programs using the **Naga WGSL frontend and shader validator**, not just
 text matching. Noqeri's compiler does not directly emit SPIR-V, HLSL, MSL or
-GPU machine instructions in this phase. WebGPU runtime driver/device
-qualification is a separate acceptance requirement.
+GPU machine instructions in this phase. Browser runtime code uses
+`navigator.gpu` and reports device/module/pipeline failures explicitly.
+Actual driver/device qualification remains a separate acceptance requirement.
+
+### Run the shaders in a WebGPU browser
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target noqeri -j 2
+build/noqeri shader examples/shaders/color_gradient.noqeri build/gradient.wgsl --stage=fragment
+build/noqeri shader examples/shaders/invert_compute.noqeri build/invert.wgsl --stage=compute
+python3 -m http.server 8000
+```
+
+Open `http://localhost:8000/examples/shaders/webgpu_demo.html` in a
+browser with WebGPU enabled and a compatible GPU/driver. The page displays
+the fragment gradient and offers a compute button demonstrating real
+storage-buffer dispatch and readback. Run from a secure origin such as
+`localhost`; the browser host is optional and is not used by the
+Noqeri native SDL2 CPU renderer.
 
 ## OS window and framebuffer rendering
 
