@@ -12,6 +12,7 @@
 #include <cstring>
 #include <mutex>
 #include <new>
+#include <string>
 
 namespace {
 constexpr size_t wire_size=52;
@@ -188,9 +189,12 @@ int nq_pgas_rdma_control_server_exchange(nq_pgas_rdma_control_server*s,
 }
 int nq_pgas_rdma_control_server_stop(nq_pgas_rdma_control_server*s){
   if(!s)return -EINVAL;
-  std::lock_guard<std::mutex> lock(s->mu);
-  shutdown(s->listener,SHUT_RDWR);close(s->listener);
-  SSL_CTX_free(s->ctx);delete s;return 0;
+  {
+    std::lock_guard<std::mutex> lock(s->mu);
+    shutdown(s->listener,SHUT_RDWR);close(s->listener);
+    SSL_CTX_free(s->ctx);
+  }
+  delete s;return 0;
 }
 int nq_pgas_rdma_control_client_exchange(const char*ip,uint16_t port,
  const char*ca,const char*crt,const char*key,const char*expected,
