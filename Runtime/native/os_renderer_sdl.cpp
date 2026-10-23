@@ -3,6 +3,7 @@
 // SDL2 is an external host dependency, not a rewritten Noqeri GPU driver.
 #include <SDL.h>
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
@@ -24,8 +25,9 @@ void cleanup(){
 }
 }
 extern "C" {
-int nq_os_renderer_present(const uint32_t*argb,uint32_t w,uint32_t h){
+int nq_os_renderer_present(const uint32_t*argb,size_t pixel_count,uint32_t w,uint32_t h){
     if(!argb||!w||!h||w>4096||h>4096)return -EINVAL;
+    if(static_cast<size_t>(w)*static_cast<size_t>(h)>pixel_count)return -ERANGE;
     if(w>static_cast<uint32_t>(std::numeric_limits<int>::max()/4))return -ERANGE;
     if(!window){
         if((SDL_WasInit(SDL_INIT_VIDEO)&SDL_INIT_VIDEO)==0){
