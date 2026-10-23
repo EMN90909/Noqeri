@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include "pgas_bytecode.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -415,6 +416,23 @@ int main(int argc, char** argv) {
             Diagnostics d;
             if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
             std::cout << "emitted Stage-1 NQRI seed candidate (provenance not yet verified): " << output << "\n";
+            return 0;
+        }
+        if (cmd == "pgas-compile") {
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ?
+                std::filesystem::path(argv[3]) :
+                std::filesystem::path("build") / (selected->projectName + ".nqpg");
+            if (output.extension() != ".nqpg") {
+                std::cerr << "NQR-PGAS510: remote code must use the .nqpg sandbox bytecode extension\\n";
+                return 1;
+            }
+            std::filesystem::create_directories(output.parent_path().empty() ?
+                std::filesystem::path(".") : output.parent_path());
+            Diagnostics d;
+            if (!PgasBytecodeBackend{}.emitModule(compilation.ast,output,d)) {
+                d.print(path.string());return 1;
+            }
+            std::cout << "emitted bounded pure Noqeri PGAS sandbox program: " << output << "\\n";
             return 0;
         }
         if (cmd == "nqri") {
