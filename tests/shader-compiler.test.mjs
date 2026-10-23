@@ -13,12 +13,12 @@ test('Noqeri shader command generates actual compute and fragment WGSL',async()=
   try{
     const cases=[
       ['examples/shaders/color_gradient.noqeri','fragment',[
-        '@fragment','@builtin(position)','@location(0)','fn noqeri_shade(x: u32, y: u32)',
+        '@fragment','@builtin(position)','@location(0)','fn noqeri_shade(nq_arg0: u32, nq_arg1: u32)',
         'return vec4<f32>(r, g, b, 1.0);'
       ]],
       ['examples/shaders/invert_compute.noqeri','compute',[
         '@compute @workgroup_size(64)','@group(0) @binding(0)','@group(0) @binding(1)',
-        'arrayLength(&input_pixels)','fn noqeri_shade(value: u32)'
+        'arrayLength(&input_pixels)','fn noqeri_shade(nq_arg0: u32)'
       ]]
     ]
     for(const [source,stage,expected] of cases){
@@ -27,7 +27,7 @@ test('Noqeri shader command generates actual compute and fragment WGSL',async()=
       assert.equal(out.status,0,out.stderr)
       const wgsl=await readFile(dest,'utf8')
       for(const fragment of expected)assert.ok(wgsl.includes(fragment),fragment)
-      assert.ok(wgsl.startsWith('// Generated from typed Noqeri shader source'))
+      assert.ok(wgsl.startsWith('// Generated from typechecked Noqeri source'))
     }
   }finally{await rm(dir,{recursive:true,force:true})}
 })
