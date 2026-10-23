@@ -1,0 +1,12 @@
+module examples.shaders.texture_fragment
+import "../../Lib/std/gpu_shaders.noqeri"
+
+// Every texture read is a declared Noqeri intrinsic, typechecked as NqVec4.
+// The WebGPU host binds a sampled rgba8unorm texture and linear sampler.
+export function shade(x: float, y: float): NqVec4 {
+    const dimensions: NqVec2 = nqTextureSize()
+    const uv: NqVec2 = nqVec2(x / dimensions.x, y / dimensions.y)
+    const sample: NqVec4 = nqTextureSample(uv)
+    const tint: NqVec4 = nqVec4(0.08, 0.12, 0.20, 1.0)
+    return nqVec4Mix(sample, tint, 0.20)
+}
