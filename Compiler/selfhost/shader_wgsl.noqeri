@@ -82,8 +82,22 @@ function nqGpuIntegerValid(source: []u8, first: usize, end: usize): bool {
     }
     return true
 }
-function nqGpuComputeExpression(source: []u8, nodes: []NqAstNode, index: isize,
-            parameter: isize, expected: int, out: []u8, cursor: *usize, depth: usize): int {
+record NqGpuExpressionContext {
+    source: []u8
+    nodes: []NqAstNode
+    parameter: isize
+    expected: int
+    out: []u8
+    cursor: *usize
+}
+function nqGpuComputeExpression(ctx: *NqGpuExpressionContext, index: isize, depth: usize): int {
+    if ctx == null { return -1 }
+    let source: []u8 = ctx.source
+    let nodes: []NqAstNode = ctx.nodes
+    let parameter: isize = ctx.parameter
+    let expected: int = ctx.expected
+    let out: []u8 = ctx.out
+    let cursor: *usize = ctx.cursor
     if index < 0 as isize || index as usize >= len(nodes) || depth > 48 as usize { return -1 }
     let node: NqAstNode = nodes[index as usize]
     if node.tag == nqAstName() {
@@ -114,7 +128,7 @@ function nqGpuComputeExpression(source: []u8, nodes: []NqAstNode, index: isize,
         if kind == 0 { return -1 }
         if kind == 1 { if !nqGpuAppend(out, cursor, slice([117 as u8, 51 as u8, 50 as u8, 40 as u8])) { return -1 } }
         else { if !nqGpuAppend(out, cursor, slice([102 as u8, 51 as u8, 50 as u8, 40 as u8])) { return -1 } }
-        let sourceKind: int = nqGpuComputeExpression(source, nodes, node.left, parameter, expected, out, cursor, depth + 1 as usize)
+        let sourceKind: int = nqGpuComputeExpression(ctx, node.left, depth + 1 as usize)
         if sourceKind != 1 && sourceKind != 2 { return -1 }
         if !nqGpuByte(out, cursor, 41 as u8) { return -1 }
         return kind
@@ -124,11 +138,11 @@ function nqGpuComputeExpression(source: []u8, nodes: []NqAstNode, index: isize,
         if code != 43 as u32 && code != 45 as u32 &&
            code != 42 as u32 && code != 47 as u32 && code != 37 as u32 { return -1 }
         if !nqGpuByte(out, cursor, 40 as u8) { return -1 }
-        let left: int = nqGpuComputeExpression(source, nodes, node.left, parameter, expected, out, cursor, depth + 1 as usize)
+        let left: int = nqGpuComputeExpression(ctx, node.left, depth + 1 as usize)
         if left < 0 { return -1 }
         if !nqGpuByte(out, cursor, 32 as u8) || !nqGpuByte(out, cursor, code as u8) ||
            !nqGpuByte(out, cursor, 32 as u8) { return -1 }
-        let right: int = nqGpuComputeExpression(source, nodes, node.right, parameter, expected, out, cursor, depth + 1 as usize)
+        let right: int = nqGpuComputeExpression(ctx, node.right, depth + 1 as usize)
         if right != left || (left == 2 && code == 37 as u32) { return -1 }
         if !nqGpuByte(out, cursor, 41 as u8) { return -1 }
         return left
@@ -192,8 +206,14 @@ export function nqStage2ShaderComputeWgsl(source: []u8, out: []u8): isize {
     } else {
        if !nqGpuAppend(out, &written, slice([102 as u8, 110 as u8, 32 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 110 as u8, 113 as u8, 95 as u8, 97 as u8, 114 as u8, 103 as u8, 48 as u8, 58 as u8, 32 as u8, 102 as u8, 51 as u8, 50 as u8, 41 as u8, 32 as u8, 45 as u8, 62 as u8, 32 as u8, 102 as u8, 51 as u8, 50 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8])) { return -17 }
     }
-    let expressionType: int = nqGpuComputeExpression(source, slice(nodes, count),
-                        returnNode.left, parameterName, scalar, out, &written, 0 as usize)
+    let ctx: NqGpuExpressionContext
+    ctx.source = source
+    ctx.nodes = slice(nodes, count)
+    ctx.parameter = parameterName
+    ctx.expected = scalar
+    ctx.out = out
+    ctx.cursor = &written
+    let expressionType: int = nqGpuComputeExpression(&ctx, returnNode.left, 0 as usize)
     if expressionType != scalar { return -18 }
     if !nqGpuAppend(out, &written, slice([59 as u8, 32 as u8, 125 as u8, 10 as u8])) { return -19 }
     if scalar == 1 {
