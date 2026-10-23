@@ -3,6 +3,7 @@
 #endif
 #include "noqeri/pgas_runtime.h"
 #include <cassert>
+#include <cstdlib>
 #include <cerrno>
 #include <csignal>
 #include <cstdint>
