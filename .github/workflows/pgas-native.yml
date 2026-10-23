@@ -3,6 +3,15 @@ on:
   push:
     paths:
       - "Runtime/native/pgas_runtime.cpp"
+      - "Lib/std/pgas.noqeri"
+      - "Lib/std/pgas_tls.noqeri"
+      - "tests/version-track.test.mjs"
+      - "Include/noqeri/version.hpp"
+      - "Compiler/selfhost/driver.noqeri"
+      - "project.nqon"
+      - "Runtime/native/pgas_tls_gateway.cpp"
+      - "Include/noqeri/pgas_tls_gateway.h"
+      - "tests/scripts/pgas-tls-cert-test.sh"
       - "Include/noqeri/pgas_runtime.h"
       - "tests/cpp/pgas_*"
       - ".github/workflows/pgas-native.yml"
@@ -18,16 +27,23 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Check active 0.1.3 versions
+        run: node --test tests/version-track.test.mjs
       - name: Compile with warnings as errors
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_runtime_test.cpp -o /tmp/pgas_runtime_test
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_process_test.cpp -o /tmp/pgas_process_test
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_durable_test.cpp -o /tmp/pgas_durable_test
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp Runtime/native/pgas_tls_gateway.cpp tests/cpp/pgas_tls_test.cpp -lssl -lcrypto -o /tmp/pgas_tls_test
       - name: Run transport and crash tests
         run: |
           timeout 30s /tmp/pgas_runtime_test
           timeout 30s /tmp/pgas_process_test
+          timeout 30s /tmp/pgas_durable_test
+          timeout 30s bash tests/scripts/pgas-tls-cert-test.sh /tmp/pgas_tls_test
       - name: CMake integration and Noqeri source check
         run: |
           cmake -S . -B /tmp/noqeri-pgas-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build /tmp/noqeri-pgas-build --target noqeri noqeri_pgas_runtime -j 2
+          cmake --build /tmp/noqeri-pgas-build --target noqeri noqeri_pgas_runtime noqeri_pgas_tls_gateway -j 2
           /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas.noqeri
+          /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas_tls.noqeri

@@ -1,6 +1,11 @@
-# PGAS in Noqeri: experimental transport (0.1)
+# PGAS in Noqeri: experimental runtime (0.1.3 language track)
 
-This feature is **not a full multi-host PGAS runtime**. The first implementation
+Phase 2 adds an experimental TLS 1.3 mutual-certificate gateway, local
+durable WAL recovery, and allowlisted remote worker kernels. See
+[qualification and trust boundaries](PGAS_PHASE2_STATUS.md) for the current
+implementation matrix and tests.
+
+This feature is **not a full fault-tolerant multi-host PGAS runtime**. The first implementation
 provides a native POSIX loopback RPC server, per-node `i64` storage, a deterministic
 block/cyclic global-index mapping, linearizable per-node read/write/CAS/fetch-add,
 node-local barriers, and bounded connection timeouts. The native host is opt-in.
@@ -41,10 +46,14 @@ node-local generation; participants must coordinate before attempting another.
 - The server uses concurrent POSIX threads for independent clients. This is
   **not** a general-purpose remote task scheduler and does not ship executable
   code or lambda closures across nodes.
-- RDMA, multi-host authenticated TLS, membership/leader election, durable data,
-  crash recovery, global memory consistency, replica failover, idempotency
-  keys, and cluster-wide barriers are **not implemented**. Production deployment
-  and untrusted cross-host use are unsupported.
+- The legacy loopback-only protocol remains plaintext. Use the **separate**
+  `noqeri_pgas_tls_gateway` for TLS 1.3/mTLS; direct remote access to the
+  plaintext node is intentionally forbidden.
+- Experimental durable local WAL, registered task dispatch and mTLS are
+  available, but RDMA, cluster membership/leader election, replicated
+  durable data, global memory consistency, failover, idempotency keys, and
+  cluster-wide barriers are **not implemented**. Production deployment is
+  not qualified.
 - Partition placement is an explicit library/ABI operation. The illustrative
   `@partition(...)` syntax is **not a compiler-recognized attribute**.
 
