@@ -2,7 +2,7 @@
 
 ## 0.1.3-development — 2026-10-23 (version alignment, not a stable release)
 
-- Reset active compiler, language API, project metadata, and release-report version declarations to 0.1.3 at the user's request.
+- Reset the active C++ compiler, language API, project metadata, and release-report version declarations to 0.1.3 at the user's request. The trusted Stage-1 compiler source and bytecode remain pinned to the historical 0.7.0 bootstrap artifact pending an independently reproducible trust rotation.
 - Historical changelog entries, Git commits, and published immutable registry packages retain their original versions. This is a deliberate SemVer downgrade from the previous 0.7.0 development line, **not** an assertion of feature removal or backward compatibility.
 - PGAS 0.1 preview was merged; secure multi-host, RDMA, compiler attributes, remote job execution, and crash recovery remain separately qualified.
 
