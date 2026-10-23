@@ -3,6 +3,14 @@
 This document describes what the experimental PGAS components **actually**
 support, not a production-ready distributed-memory platform.
 
+## Version and bootstrap provenance
+
+The active Noqeri project and C++ toolchain report 0.1.3. The immutable,
+checksum-verified Stage-1 seed and its self-hosted source still report 0.7.0.
+Rebuilding Stage-1 from modified self-hosted source requires reseeding and
+independent multi-stage reproducibility evidence, not a cosmetic string edit.
+This does not qualify 0.1.3 as a stable compiler release.
+
 ## Native features and trust boundaries
 
 - Durable i64 node state: `nq_pgas_server_start_durable` opens a mode-0600
