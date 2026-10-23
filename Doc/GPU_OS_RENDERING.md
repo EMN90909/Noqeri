@@ -84,9 +84,14 @@ Compile the app to freestanding x86-64 Noqeri assembly:
 noqeri build examples/graphics_demo.noqeri build/graphics.s -O0
 ```
 
-On desktop systems with SDL2 development libraries, link the generated
-assembly with `Runtime/native/os_renderer_sdl.cpp` and SDL2 for native OS
-window/presentation integration. The adapter tries hardware-accelerated
+On desktop systems with SDL2 development libraries, CMake exposes an
+optional reusable `noqeri_os_renderer_sdl` static library with a small
+`Include/noqeri/os_renderer_sdl.h` ABI. Link your generated assembly and
+host entrypoint against that library for native OS window/presentation.
+For a standalone demo with a test entrypoint, the integration script
+compiles the SDL2 adapter using `NOQERI_OS_RENDERER_TEST_APP`.
+The bridge is deliberately not a mandatory dependency of the Noqeri
+compiler, native runtime or kernel framebuffer library. The adapter tries hardware-accelerated
 SDL rendering first, falls back to software, checks texture dimensions and
 format, and pumps window events. SDL2 abstracts Linux, Windows and macOS
 window systems. **Native Noqeri AOT x86-64 ABI support is currently verified
