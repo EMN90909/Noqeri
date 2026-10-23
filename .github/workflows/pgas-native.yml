@@ -22,10 +22,12 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_runtime_test.cpp -o /tmp/pgas_runtime_test
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_process_test.cpp -o /tmp/pgas_process_test
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_durable_test.cpp -o /tmp/pgas_durable_test
       - name: Run transport and crash tests
         run: |
           timeout 30s /tmp/pgas_runtime_test
           timeout 30s /tmp/pgas_process_test
+          timeout 30s /tmp/pgas_durable_test
       - name: CMake integration and Noqeri source check
         run: |
           cmake -S . -B /tmp/noqeri-pgas-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
