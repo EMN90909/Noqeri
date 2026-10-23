@@ -1,0 +1,27 @@
+module noqeri.std.pgas_replication
+
+// Experimental synchronous two-node mirror. The host ABI is opt-in and must
+// link noqeri_pgas_replication. Both connected clients must be TLS 1.3/mTLS,
+// and both backing nodes must be WAL-durable. This is not Raft or automatic
+// failover; an operator must externally fence the old leader before promotion.
+extern function nq_pgas_replica_pair_create(primary: usize, standby: usize, out: *usize): int
+extern function nq_pgas_replica_pair_write(pair: usize, slot: u32, value: i64): int
+extern function nq_pgas_replica_pair_read_verified(pair: usize, slot: u32, out: *i64): int
+extern function nq_pgas_replica_pair_close(pair: usize): int
+
+export function pgas_mirror_open(primary: usize, standby: usize, out: *usize): int {
+    if primary == 0 as usize || standby == 0 as usize || out == null { return -22 }
+    return nq_pgas_replica_pair_create(primary, standby, out)
+}
+export function pgas_mirror_write(pair: usize, slot: u32, value: i64): int {
+    if pair == 0 as usize { return -22 }
+    return nq_pgas_replica_pair_write(pair, slot, value)
+}
+export function pgas_mirror_read_verified(pair: usize, slot: u32, out: *i64): int {
+    if pair == 0 as usize || out == null { return -22 }
+    return nq_pgas_replica_pair_read_verified(pair, slot, out)
+}
+export function pgas_mirror_close(pair: usize): int {
+    if pair == 0 as usize { return -22 }
+    return nq_pgas_replica_pair_close(pair)
+}
