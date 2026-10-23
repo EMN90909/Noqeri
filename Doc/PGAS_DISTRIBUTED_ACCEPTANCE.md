@@ -15,12 +15,16 @@ let dataset: [i64; 1024]
 The Stage-0 lexer/parser/typechecker validates the strategy (block/cyclic), a
 node count from 1 to 1024, and an uninitialized fixed i64 array of 1..1,000,000
 elements. NIR retains the symbol and resolved distribution metadata, visible
-through `noqeri nir file.noqeri`. This is **not distributed-address lowering**:
-the interpreter, native backend and NQRI backend **explicitly reject execution**
-rather than dangerously converting a remote array to local stack memory.
-Stage-2/self-host compiler parity and native distributed-array indexing remain
-unimplemented. Existing library APIs can route explicit global-index i64
-operations through authenticated node clients.
+through `noqeri nir file.noqeri`. In Noqeri 0.1.43, the Stage-0
+**native x86-64 backend now lowers direct `i64` indexed reads and writes**
+to externally linked topology-bound PGAS calls. Callers must explicitly bind
+authenticated loopback or TLS node connections before invoking the compiled
+entry. Unbound/stale/broken remote accesses abort; there is **no local
+fallback**. See [native arrays](PGAS_NATIVE_ARRAYS.md) and their end-to-end
+Noqeri-generated machine-code tests. The interpreter and NQRI backend
+still reject partitioned execution, and Stage-2/self-host compiler parity,
+general distributed references and real RDMA-lowered indexing remain
+unimplemented.
 
 ## Safe remotely supplied programs
 
@@ -108,8 +112,10 @@ runner cannot produce that evidence.
 
 ## Outstanding release gates
 
-- Verified self-host Stage-2 parser/typechecker/NIR and distributed-array
-  machine-code lowering through an explicit topology-aware runtime.
+- Verified self-host Stage-2 parser/typechecker/NIR parity and general
+  distributed-array machine-code lowering, RDMA transport selection and
+  distributed pointer ownership. Stage-0 native indexed i64 calls are
+  implemented but not the full general language ABI.
 - Actual libibverbs RDMA pairs with authenticated peer-exchange protocol and
   security/packet-loss testing, plus intentional TLS fallback.
 - A securely sandboxed general task VM with stronger language surface,
