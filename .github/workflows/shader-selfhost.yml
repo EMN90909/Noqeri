@@ -1,0 +1,30 @@
+name: Noqeri self-hosted shader emitter verification
+on:
+  pull_request:
+    paths:
+      - 'Compiler/selfhost/shader_wgsl.noqeri'
+      - 'Compiler/selfhost/shader-plugin-sources.txt'
+      - 'tests/shader_stage2_native.noqeri'
+      - 'tests/shader_stage2_fixture.noqeri'
+      - 'tests/scripts/shader-stage2-noqeri-e2e.sh'
+      - 'tests/cpp/shader_stage2_native_test.cpp'
+      - '.github/workflows/shader-selfhost.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/shader_wgsl.noqeri'
+      - 'tests/shader_stage2_native.noqeri'
+      - 'tests/scripts/shader-stage2-noqeri-e2e.sh'
+      - '.github/workflows/shader-selfhost.yml'
+jobs:
+  compiler-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Stage-0 host for Noqeri-authored shader emitter
+        run: |
+          cmake -S . -B /tmp/noqeri-shader-host -DBUILD_TESTING=OFF -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/noqeri-shader-host --target noqeri -j 2
+      - name: Link and execute native Noqeri shader compiler then validate WGSL with Naga
+        run: timeout 180s bash tests/scripts/shader-stage2-noqeri-e2e.sh /tmp/noqeri-shader-host/noqeri
