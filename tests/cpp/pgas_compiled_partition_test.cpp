@@ -4,6 +4,7 @@
 #include "noqeri/pgas_runtime.h"
 #include "noqeri/pgas_partition.h"
 #include <cassert>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 
