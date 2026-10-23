@@ -12,6 +12,11 @@ static nq_pgas_client *dial(uint16_t port) {
   assert(nq_pgas_client_connect("127.0.0.1", port, token, 6000, &c) == 0);
   assert(c); return c;
 }
+static int multiply_three(int64_t in, void *, int64_t *out) {
+  if (!out) return -EINVAL;
+  *out = in * 3;
+  return 0;
+}
 int main() {
   uint32_t owner = 99, local = 99;
   for (uint32_t n = 1; n <= 10; ++n) {
@@ -31,10 +36,15 @@ int main() {
   nq_pgas_server *s0 = nullptr, *s1 = nullptr;
   assert(nq_pgas_server_start(0, token, 16, 2, &s0) == 0);
   assert(nq_pgas_server_start(0, token, 16, 0, &s1) == 0);
+  assert(nq_pgas_register_task(s0, 7, multiply_three, nullptr) == 0);
+  assert(nq_pgas_register_task(s0, 7, multiply_three, nullptr) == -EEXIST);
   uint16_t p0 = nq_pgas_server_port(s0), p1 = nq_pgas_server_port(s1);
   assert(p0 && p1);
   nq_pgas_client *c0 = dial(p0), *c1 = dial(p1);
   assert(nq_pgas_ping(c0) == 0 && nq_pgas_ping(c1) == 0);
+  int64_t remote_result = 0;
+  assert(nq_pgas_run_task(c0, 7, 21, &remote_result) == 0 && remote_result == 63);
+  assert(nq_pgas_run_task(c1, 7, 21, &remote_result) == -ENOENT);
   assert(nq_pgas_write(c0, 0, 12) == 0);
   assert(nq_pgas_write(c1, 0, 73) == 0);
   int64_t value = 0;
