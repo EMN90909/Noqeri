@@ -434,32 +434,59 @@ int main(int argc, char** argv) {
         }
         if (cmd == "shader") {
             std::string stage;
+            std::uint32_t workgroup = 64;
+            bool hasWorkgroupOption = false;
+            std::optional<std::filesystem::path> positionalOutput;
             for(int i=3;i<argc;++i) {
                 const std::string option(argv[i]);
                 if(option.rfind("--stage=",0)==0) {
                     if(!stage.empty()) {
-                        std::cerr << "NQR-GPU101: shader stage must be specified exactly once\n";
+                        std::cerr<<"NQR-GPU101: stage cannot be specified twice\n";
                         return 1;
                     }
-                    stage=option.substr(8);
+                    stage=option.substr(std::string("--stage=").size());
+                } else if(option.rfind("--workgroup-size=",0)==0) {
+                    if(hasWorkgroupOption) {
+                        std::cerr<<"NQR-GPU104: workgroup size specified twice\n";
+                        return 1;
+                    }
+                    hasWorkgroupOption=true;
+                    const auto value=option.substr(std::string("--workgroup-size=").size());
+                    if(value!="32"&&value!="64"&&value!="128"&&value!="256") {
+                        std::cerr<<"NQR-GPU105: workgroup size must be 32, 64, 128 or 256\n";
+                        return 1;
+                    }
+                    workgroup=static_cast<std::uint32_t>(std::stoul(value));
+                } else if(option.size()>0 && option[0]=='-') {
+                    std::cerr<<"NQR-GPU106: unknown shader option: "<<option<<"\n";
+                    return 1;
+                } else if(positionalOutput) {
+                    std::cerr<<"NQR-GPU107: shader command accepts one output filename\n";
+                    return 1;
+                } else {
+                    positionalOutput=std::filesystem::path(option);
                 }
             }
-            if(stage!="compute" && stage!="fragment") {
-                std::cerr << "NQR-GPU102: choose --stage=compute or --stage=fragment\n";
+            if(stage!="compute"&&stage!="fragment") {
+                std::cerr<<"NQR-GPU102: choose --stage=compute or --stage=fragment\n";
                 return 1;
             }
-            std::filesystem::path output=argc>=4 && argv[3][0]!='-' ?
-                std::filesystem::path(argv[3]) :
-                std::filesystem::path("build")/(selected->projectName+".wgsl");
+            if(stage!="compute"&&hasWorkgroupOption) {
+                std::cerr<<"NQR-GPU108: workgroup size applies only to compute shaders\n";
+                return 1;
+            }
+            const auto output=positionalOutput.value_or(
+                std::filesystem::path("build")/(selected->projectName+".wgsl"));
             if(output.extension()!=".wgsl") {
-                std::cerr<<"NQR-GPU103: shaders must use the .wgsl output extension\n";
+                std::cerr<<"NQR-GPU103: shader output requires the .wgsl extension\n";
                 return 1;
             }
             std::filesystem::create_directories(output.parent_path().empty() ?
                 std::filesystem::path(".") : output.parent_path());
             Diagnostics d;
-            if(!ShaderBackend{}.emitWgsl(compilation.ast,output,stage,d)){
-                d.print(path.string());return 1;
+            if(!ShaderBackend{}.emitWgsl(compilation.ast,output,stage,d,workgroup)) {
+                d.print(path.string());
+                return 1;
             }
             std::cout<<"emitted Noqeri WebGPU "<<stage<<" shader: "<<output<<"\n";
             return 0;

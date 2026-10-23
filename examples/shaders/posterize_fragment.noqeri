@@ -1,0 +1,14 @@
+module examples.shaders.posterize_fragment
+
+// Noqeri conditional and immutable local compiled into a GPU fragment stage.
+export function shade(x: u32, y: u32): u32 {
+    const band: u32 = (x + y) % 256 as u32
+    if band < 85 as u32 {
+        return 16711680 as u32
+    } else {
+        if band < 170 as u32 {
+            return 65280 as u32
+        }
+        return 255 as u32
+    }
+}

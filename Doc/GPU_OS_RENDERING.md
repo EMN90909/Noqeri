@@ -29,13 +29,18 @@ into actual browser compute and render pipelines on supported devices.
 This is necessary OS/browser interop, not replacement shader logic.
 
 The compiler runs the existing Noqeri parser and type checker, then a
-shader-specific pure AST emitter. It accepts numeric `u32` inputs and one
-return expression made from unsigned constants, explicit `as u32` casts,
-parameters, and `+`, `-`, `*`, `/`, `%`. It rejects loops,
-mutable state, arbitrary calls, other source declarations, unknown variables,
-pointers, FFI, large/negative literals, and malformed stage signatures. This
-avoids silently compiling general-purpose Noqeri semantics incorrectly for
-a shader target. The shader target is not yet a full Noqeri language profile.
+bounded, shader-specific pure AST emitter. **Shader v2** accepts `u32` and
+`float` signatures, immutable typed locals, conditional `if/else`, pure
+arithmetic, comparisons, and boolean operators. The Noqeri `float` source
+type maps to WebGPU `f32` and therefore loses precision compared with
+the CPU floating-point type. GPU shader names are hygienically mapped to
+WGSL symbols, preventing source keyword clashes.
+
+The compiler still rejects loops, mutable state, arbitrary host calls,
+pointers, FFI, unsupported types and stages. Compute shader workgroup size
+is configurable with `--workgroup-size=32|64|128|256`. The WebGPU browser
+adapter reads that generated workgroup size and checks the adapter's hardware
+limits. See [Shader v2 details and examples](GPU_SHADER_V2.md).
 
 CI compiles both Noqeri source examples to WGSL and validates the generated
 programs using the **Naga WGSL frontend and shader validator**, not just
@@ -51,13 +56,16 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target noqeri -j 2
 build/noqeri shader examples/shaders/color_gradient.noqeri build/gradient.wgsl --stage=fragment
 build/noqeri shader examples/shaders/invert_compute.noqeri build/invert.wgsl --stage=compute
+build/noqeri shader examples/shaders/posterize_fragment.noqeri build/posterize.wgsl --stage=fragment
+build/noqeri shader examples/shaders/grayscale_fragment.noqeri build/grayscale.wgsl --stage=fragment
+build/noqeri shader examples/shaders/float_compute.noqeri build/float-compute.wgsl --stage=compute --workgroup-size=128
 python3 -m http.server 8000
 ```
 
 Open `http://localhost:8000/examples/shaders/webgpu_demo.html` in a
-browser with WebGPU enabled and a compatible GPU/driver. The page displays
-the fragment gradient and offers a compute button demonstrating real
-storage-buffer dispatch and readback. Run from a secure origin such as
+browser with WebGPU enabled and a compatible GPU/driver. The page offers gradient, posterized and grayscale fragment previews,
+plus separate integer and floating-point compute dispatch buttons with
+storage-buffer readback. It releases GPU devices when switching shaders. Run from a secure origin such as
 `localhost`; the browser host is optional and is not used by the
 Noqeri native SDL2 CPU renderer.
 
