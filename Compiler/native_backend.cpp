@@ -39,7 +39,17 @@ std::string regSlot(Reg r){return"QWORD PTR [rbp-"+std::to_string((static_cast<s
 std::size_t varOffset(const NirFunction&fn,const FunctionLayout&l,const std::string&name){auto it=l.variableIndex.find(name);auto index=static_cast<std::size_t>(fn.nextReg)+(it==l.variableIndex.end()?0:it->second)+1;return index*8;}
 std::string varSlot(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"QWORD PTR [rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
 std::string varAddress(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"[rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
-std::string symbolForCall(const NirProgram&p,const std::string&name){for(const auto&f:p.functions)if(f.name==name)return(f.isExtern||f.isExport)?safe(f.name):internalSymbol(f.name);return safe(name);}
+std::string symbolForCall(const NirProgram&p,const std::string&name){
+    // The parser and self-hosted compiler use forward declarations before
+    // definitions. Never resolve their calls to a raw C ABI symbol when the
+    // actual implementation lives in this module as an internal function.
+    for(const auto&f:p.functions)
+        if(f.name==name&&!f.isExtern)
+            return f.isExport?safe(f.name):internalSymbol(f.name);
+    for(const auto&f:p.functions)
+        if(f.name==name)return safe(f.name);
+    return safe(name);
+}
 
 void emitRuntime(std::ostream&out){out<<R"ASM(
 .data
