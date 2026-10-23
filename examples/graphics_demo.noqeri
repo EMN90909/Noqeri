@@ -1,0 +1,22 @@
+import "../Lib/std/render2d.noqeri"
+
+// Window creation and GPU/OS ownership belongs to the host. Pixel generation,
+// filling, geometry and frame orchestration stay in Noqeri.
+// Native SDL2 is one optional presenter; headless tests use a capture presenter.
+extern function nq_os_renderer_present(pixels: *u32, width: u32, height: u32): int
+extern function nq_os_renderer_pump(duration_ms: u32): int
+extern function nq_os_renderer_close(): int
+
+let framebuffer: [u32; 1024]
+let surface: []u32 = slice(framebuffer)
+if nqRenderGradient(surface, 32 as usize, 32 as usize) {
+    let result: int = nq_os_renderer_present(&framebuffer[0], 32 as u32, 32 as u32)
+    if result == 0 {
+        nq_os_renderer_pump(750 as u32)
+    } else {
+        print("Noqeri: OS renderer unavailable")
+    }
+} else {
+    print("Noqeri: invalid framebuffer")
+}
+nq_os_renderer_close()
