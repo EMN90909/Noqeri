@@ -152,6 +152,7 @@ struct nq_pgas_tls_client {
   SSL *ssl=nullptr;
   int fd=-1;
   std::mutex mu;
+  uint32_t epoch = 0;
 };
 namespace {
 static void worker(nq_pgas_tls_gateway *g,int fd){
@@ -208,6 +209,7 @@ static int tls_request_locked(nq_pgas_tls_client *c,uint32_t op,uint32_t index,
   if(!c->ssl)return -ENOTCONN;
   unsigned char req[32]{},response[16];
   put32(req,magic);put32(req+4,op);put32(req+8,index);
+  put32(req+12,c->epoch);
   if(payload)std::memcpy(req+16,payload,16);
   else {put64(req+16,static_cast<uint64_t>(a));put64(req+24,static_cast<uint64_t>(b));}
   int rc=ssl_write_full(c->ssl,req,sizeof(req));
@@ -282,6 +284,13 @@ int nq_pgas_tls_client_connect(const char *server_ipv4,uint16_t port,
     return -EACCES;
   }
   *out=c.release();return 0;
+}
+int nq_pgas_tls_client_set_epoch(nq_pgas_tls_client *c,uint32_t epoch){
+  if(!c)return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  if(!c->ssl)return -ENOTCONN;
+  c->epoch=epoch;
+  return 0;
 }
 int nq_pgas_tls_client_close(nq_pgas_tls_client *c){
   if(!c)return -EINVAL;
