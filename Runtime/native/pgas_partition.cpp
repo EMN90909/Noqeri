@@ -16,6 +16,7 @@ struct Binding {
   uint64_t elements=0;
   uint32_t nodes=0, strategy=0;
   std::vector<nq_pgas_client *> clients;
+  std::vector<nq_pgas_tls_client *> tls_clients;
 };
 std::mutex bindings_mu;
 std::unordered_map<std::string,Binding> bindings;
@@ -50,11 +51,20 @@ int64_t access(const char* name,int64_t index,uint64_t elements,
   const int rc=nq_pgas_location(static_cast<uint64_t>(index),elements,
                                  nodes,strategy,&owner,&local);
   if(rc!=0)fail_stop("global index out of bounds",rc);
-  if(owner>=b.clients.size()||!b.clients[owner])
-    fail_stop("node owner is unavailable",-ENOTCONN);
+  if(owner>=b.nodes)fail_stop("invalid partition placement",-ERANGE);
   int64_t result=0;
-  const int status=write ? nq_pgas_write(b.clients[owner],local,value) :
-                           nq_pgas_read(b.clients[owner],local,&result);
+  int status=0;
+  if(!b.tls_clients.empty()) {
+    if(owner>=b.tls_clients.size() || !b.tls_clients[owner])
+      fail_stop("TLS node owner is unavailable",-ENOTCONN);
+    status=write ? nq_pgas_tls_write(b.tls_clients[owner],local,value) :
+                   nq_pgas_tls_read(b.tls_clients[owner],local,&result);
+  } else {
+    if(owner>=b.clients.size() || !b.clients[owner])
+      fail_stop("node owner is unavailable",-ENOTCONN);
+    status=write ? nq_pgas_write(b.clients[owner],local,value) :
+                   nq_pgas_read(b.clients[owner],local,&result);
+  }
   if(status!=0)fail_stop("remote request failed or epoch is stale",status);
   return write?value:result;
 }
@@ -73,6 +83,21 @@ int nq_pgas_partition_bind(const char *symbol,uint64_t elements,
     Binding b;
     b.elements=elements;b.nodes=nodes;b.strategy=strategy;
     b.clients.assign(clients,clients+nodes);
+    bindings.emplace(symbol,std::move(b));
+  }catch(const std::bad_alloc&){return -ENOMEM;}
+  return 0;
+}
+int nq_pgas_partition_bind_tls(const char *symbol,uint64_t elements,
+    uint32_t nodes,uint32_t strategy,nq_pgas_tls_client *const *clients) {
+  if(!good_name(symbol)||!elements||!nodes||nodes>1024||strategy>1||!clients)
+    return -EINVAL;
+  for(uint32_t i=0;i<nodes;++i)if(!clients[i])return -EINVAL;
+  std::lock_guard<std::mutex> lock(bindings_mu);
+  if(bindings.find(symbol)!=bindings.end())return -EEXIST;
+  try {
+    Binding b;
+    b.elements=elements;b.nodes=nodes;b.strategy=strategy;
+    b.tls_clients.assign(clients,clients+nodes);
     bindings.emplace(symbol,std::move(b));
   }catch(const std::bad_alloc&){return -ENOMEM;}
   return 0;
