@@ -53,6 +53,56 @@ Program Parser::parse(){
 }
 
 StmtPtr Parser::declaration(){
+    // Typed PGAS placement metadata, parsed as an actual compiler attribute.
+    // Syntax is intentionally canonical: @partition(strategy: "block", nodes: 4)
+    if (match({TokenKind::At})) {
+        const Token& attribute=consumeName("expected attribute name");
+        if(attribute.lexeme!="partition") {
+            diagnostics_.error("NQR-PGAS100",attribute.span,"unknown attribute @"+attribute.lexeme);
+            throw ParseError("parse");
+        }
+        consume(TokenKind::LParen,"expected '(' after @partition");
+        const Token& strategyKey=consumeName("expected strategy property");
+        if(strategyKey.lexeme!="strategy") {
+            diagnostics_.error("NQR-PGAS101",strategyKey.span,"@partition first property must be strategy");
+            throw ParseError("parse");
+        }
+        consume(TokenKind::Colon,"expected ':' after strategy");
+        const Token& strategyValue=consume(TokenKind::String,"expected quoted block/cyclic strategy");
+        const std::string strategy=decodeStringLiteral(strategyValue.lexeme);
+        if(strategy!="block"&&strategy!="cyclic") {
+            diagnostics_.error("NQR-PGAS102",strategyValue.span,"partition strategy must be block or cyclic");
+            throw ParseError("parse");
+        }
+        consume(TokenKind::Comma,"expected ',' before nodes property");
+        const Token& nodesKey=consumeName("expected nodes property");
+        if(nodesKey.lexeme!="nodes") {
+            diagnostics_.error("NQR-PGAS103",nodesKey.span,"@partition second property must be nodes");
+            throw ParseError("parse");
+        }
+        consume(TokenKind::Colon,"expected ':' after nodes");
+        const Token& count=consume(TokenKind::Integer,"expected integer number of nodes");
+        // Bound lexical numeric parsing before conversion to prevent overflow.
+        if(count.lexeme.size()>4||count.lexeme.empty()||
+           count.lexeme.find_first_not_of("0123456789")!=std::string::npos) {
+            diagnostics_.error("NQR-PGAS104",count.span,"nodes must be an integer between 1 and 1024");
+            throw ParseError("parse");
+        }
+        const unsigned long parsed=std::stoul(count.lexeme);
+        if(parsed==0||parsed>1024) {
+            diagnostics_.error("NQR-PGAS104",count.span,"nodes must be an integer between 1 and 1024");
+            throw ParseError("parse");
+        }
+        consume(TokenKind::RParen,"expected ')' after @partition properties");
+        if(!match({TokenKind::Let})) {
+            diagnostics_.error("NQR-PGAS105",attribute.span,"@partition can annotate only a typed let declaration");
+            throw ParseError("parse");
+        }
+        auto declared=letDeclaration(false);
+        auto variable=std::dynamic_pointer_cast<LetStmt>(declared);
+        variable->partition=PartitionAttribute{strategy,static_cast<std::uint32_t>(parsed),0};
+        return declared;
+    }
     bool isExport=false,isExtern=false;
     if(match({TokenKind::Export})) isExport=true;
     if(match({TokenKind::Extern})) isExtern=true;

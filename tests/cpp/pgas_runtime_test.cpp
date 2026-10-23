@@ -45,6 +45,18 @@ int main() {
   int64_t remote_result = 0;
   assert(nq_pgas_run_task(c0, 7, 21, &remote_result) == 0 && remote_result == 63);
   assert(nq_pgas_run_task(c1, 7, 21, &remote_result) == -ENOENT);
+  const uint8_t script[] = {1,2,3,5,2,5,3,14}; // input*3+5
+  assert(nq_pgas_execute_program(c0, script, sizeof(script), 7, 32, &remote_result) == 0);
+  assert(remote_result == 26);
+  const uint8_t divide_zero[] = {1,15,6,14};
+  assert(nq_pgas_execute_program(c0, divide_zero, sizeof(divide_zero), 7, 32, &remote_result) == -EDOM);
+  const uint8_t invalid_program[] = {255};
+  assert(nq_pgas_execute_program(c0, invalid_program, 1, 7, 32, &remote_result) == -ENOTSUP);
+  const uint8_t infinite_loop[] = {10,254};
+  assert(nq_pgas_execute_program(c0, infinite_loop, 2, 7, 8, &remote_result) == -ETIMEDOUT);
+  const uint8_t underflow[] = {3,14};
+  assert(nq_pgas_execute_program(c0, underflow, 2, 7, 32, &remote_result) == -EBADMSG);
+  assert(nq_pgas_execute_program(c0, script, sizeof(script), 7, 0, &remote_result) == -EINVAL);
   assert(nq_pgas_write(c0, 0, 12) == 0);
   assert(nq_pgas_write(c1, 0, 73) == 0);
   int64_t value = 0;

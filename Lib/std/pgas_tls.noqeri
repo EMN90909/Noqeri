@@ -5,6 +5,8 @@ module noqeri.std.pgas_tls
 // resolved on the local machine; the server authenticates the client SAN.
 extern function nq_pgas_tls_client_connect(ipv4: string, port: u16, ca_pem: string, cert_pem: string, key_pem: string, expected_server_dns: string, timeout_ms: u32, out: *usize): int
 extern function nq_pgas_tls_client_close(client: usize): int
+extern function nq_pgas_tls_client_set_epoch(client: usize, epoch: u32): int
+export function pgas_tls_client_epoch(client: usize, epoch: u32): int { return nq_pgas_tls_client_set_epoch(client, epoch) }
 extern function nq_pgas_tls_ping(client: usize): int
 extern function nq_pgas_tls_read(client: usize, slot: u32, out: *i64): int
 extern function nq_pgas_tls_write(client: usize, slot: u32, value: i64): int
@@ -12,6 +14,12 @@ extern function nq_pgas_tls_compare_exchange(client: usize, slot: u32, expected:
 extern function nq_pgas_tls_fetch_add(client: usize, slot: u32, delta: i64, previous: *i64): int
 extern function nq_pgas_tls_barrier(client: usize): int
 extern function nq_pgas_tls_run_task(client: usize, task_id: u32, argument: i64, out: *i64): int
+extern function nq_pgas_tls_execute_program(client: usize, bytecode: *u8, length: usize, argument: i64, fuel: u32, out: *i64): int
+
+export function pgas_tls_run_sandbox(client: usize, bytecode: []u8, argument: i64, fuel: u32, out: *i64): int {
+    if out == null || len(bytecode) == 0 as usize || len(bytecode) > 256 as usize || fuel == 0 as u32 || fuel > 4096 as u32 { return -22 }
+    return nq_pgas_tls_execute_program(client, &bytecode[0 as usize], len(bytecode), argument, fuel, out)
+}
 
 export function pgas_tls_connect(ipv4: string, port: u16, ca: string, cert: string, key: string, server_dns: string, timeout_ms: u32, out: *usize): int {
     if out == null || port == 0 as u16 || timeout_ms == 0 as u32 { return -22 }

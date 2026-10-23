@@ -2,7 +2,7 @@
 
 Phase 2 adds an experimental TLS 1.3 mutual-certificate gateway, local
 durable WAL recovery, and allowlisted remote worker kernels. See
-[qualification and trust boundaries](PGAS_PHASE2_STATUS.md) for the current
+[qualification and trust boundaries](PGAS_PHASE2_STATUS.md) and [experimental distributed acceptance](PGAS_DISTRIBUTED_ACCEPTANCE.md) for the current
 implementation matrix and tests.
 
 This feature is **not a full fault-tolerant multi-host PGAS runtime**. The first implementation

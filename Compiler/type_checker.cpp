@@ -138,6 +138,22 @@ bool TypeChecker::check(const Program&program){
 void TypeChecker::checkStmt(const StmtPtr&stmt){
     if(std::dynamic_pointer_cast<RecordStmt>(stmt)||std::dynamic_pointer_cast<ImportStmt>(stmt)||std::dynamic_pointer_cast<ModuleStmt>(stmt))return;
     if(auto s=std::dynamic_pointer_cast<LetStmt>(stmt)){
+        if(s->partition){
+            if(!s->annotation||!s->zeroInitialized){
+                diagnostics_.error("NQR-PGAS201",s->span,"partition declarations require uninitialized typed storage: let name: [i64; N]");
+                return;
+            }
+            Type p=resolveType(*s->annotation,s->span);
+            if(p.kind!=TypeKind::Array||!p.element||
+               p.element->kind!=TypeKind::I64||p.count==0||
+               p.count>1000000){
+                diagnostics_.error("NQR-PGAS202",s->span,"PGAS partitions require fixed [i64; N] arrays with 1..1000000 elements");
+                return;
+            }
+            s->partition->elements=p.count;
+            define(s->name,p,false,s->span);
+            return;
+        }
         if(s->zeroInitialized){
             if(!s->annotation){diagnostics_.error("NOE-T3055",s->span,"zero-initialized local requires a type annotation");define(s->name,simple(TypeKind::Unknown),s->isConst,s->span);return;}
             Type declared=resolveType(*s->annotation,s->span);

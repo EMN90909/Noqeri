@@ -61,6 +61,14 @@ int main() {
   int64_t value = 0;
   assert(nq_pgas_read(client, 1, &value) == 0 && value == 999);
   assert(nq_pgas_read(client, 7, &value) == 0 && value == -991);
+  uint32_t epoch = 99;
+  assert(nq_pgas_server_get_epoch(restored, &epoch) == 0 && epoch == 0);
+  // The operator must externally fence the former leader BEFORE promotion.
+  assert(nq_pgas_server_promote_epoch(restored, 7) == 0);
+  assert(nq_pgas_server_promote_epoch(restored, 7) == -ESTALE);
+  assert(nq_pgas_read(client, 7, &value) == -ESTALE);
+  assert(nq_pgas_client_set_epoch(client, 7) == 0);
+  assert(nq_pgas_write(client, 6, 444) == 0);
   assert(nq_pgas_client_close(client) == 0);
   assert(nq_pgas_server_stop(restored) == 0);
 
@@ -71,14 +79,21 @@ int main() {
   assert(write(fd,partial,sizeof(partial)) == sizeof(partial));
   close(fd);
   assert(nq_pgas_server_start_durable(0,secret,8,0,path.c_str(),&restored) == 0);
+  assert(nq_pgas_server_get_epoch(restored, &epoch) == 0 && epoch == 7);
+  nq_pgas_client *stale = nullptr;
+  assert(nq_pgas_client_connect("127.0.0.1",nq_pgas_server_port(restored),secret,3000,&stale)==0);
+  assert(nq_pgas_read(stale,6,&value)==-ESTALE);
+  assert(nq_pgas_client_set_epoch(stale,7)==0);
+  assert(nq_pgas_read(stale,6,&value)==0 && value==444);
+  assert(nq_pgas_client_close(stale)==0);
   assert(nq_pgas_server_stop(restored) == 0);
   struct stat st{}; assert(stat(path.c_str(), &st) == 0);
-  assert(st.st_size == 16 + 4*32);
+  assert(st.st_size == 16 + 6*32);
 
   // A valid-length but corrupt record cannot be silently replayed.
   fd = open(path.c_str(), O_RDWR);
   assert(fd >= 0);
-  assert(lseek(fd, 16 + 3*32 + 24, SEEK_SET) >= 0);
+  assert(lseek(fd, 16 + 5*32 + 24, SEEK_SET) >= 0);
   unsigned char garbage=0xFF;
   assert(write(fd,&garbage,1) == 1);
   assert(fsync(fd) == 0); close(fd);

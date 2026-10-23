@@ -1,6 +1,7 @@
 #ifndef NOQERI_PGAS_TLS_GATEWAY_H
 #define NOQERI_PGAS_TLS_GATEWAY_H
 #include <stdint.h>
+#include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,6 +25,7 @@ int nq_pgas_tls_gateway_stop(nq_pgas_tls_gateway *gateway);
 int nq_pgas_tls_client_connect(const char *server_ipv4, uint16_t port,
     const char *ca_pem, const char *client_cert_pem, const char *client_key_pem,
     const char *expected_server_dns, uint32_t timeout_ms, nq_pgas_tls_client **out);
+int nq_pgas_tls_client_set_epoch(nq_pgas_tls_client *client, uint32_t epoch);
 int nq_pgas_tls_client_close(nq_pgas_tls_client *client);
 int nq_pgas_tls_ping(nq_pgas_tls_client *client);
 int nq_pgas_tls_read(nq_pgas_tls_client *client, uint32_t index, int64_t *value);
@@ -33,6 +35,10 @@ int nq_pgas_tls_compare_exchange(nq_pgas_tls_client *client, uint32_t index,
 int nq_pgas_tls_fetch_add(nq_pgas_tls_client *client, uint32_t index,
     int64_t delta, int64_t *previous);
 int nq_pgas_tls_barrier(nq_pgas_tls_client *client);
+/* TLS-authenticated sandbox program invocation. See pgas_runtime.h opcodes. */
+int nq_pgas_tls_execute_program(nq_pgas_tls_client *client,
+    const uint8_t *bytecode, size_t length, int64_t argument,
+    uint32_t fuel, int64_t *output);
 int nq_pgas_tls_run_task(nq_pgas_tls_client *client, uint32_t task_id,
                           int64_t argument, int64_t *output);
 #ifdef __cplusplus

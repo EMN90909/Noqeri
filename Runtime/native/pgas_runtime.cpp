@@ -32,6 +32,8 @@ constexpr uint32_t max_clients = 64;
 constexpr uint32_t max_slots = 1000000;
 constexpr uint32_t max_timeout_ms = 60000;
 constexpr uint32_t op_run_task = 7;
+constexpr uint32_t op_program_chunk = 8, op_program_exec = 9;
+constexpr uint32_t max_program_bytes = 256, max_program_fuel = 4096;
 constexpr size_t req_bytes = 32, response_bytes = 16;
 static void put32(unsigned char *p, uint32_t x) {
   x = htonl(x); std::memcpy(p, &x, 4);
@@ -100,6 +102,7 @@ struct nq_pgas_server {
   std::unordered_map<uint32_t, RegisteredTask> registered_tasks;
   int wal_fd = -1;
   uint64_t wal_sequence = 0;
+  std::atomic<uint32_t> epoch{0};
   std::mutex barrier_mu;
   std::condition_variable barrier_cv;
   uint32_t participants = 0, arrivals = 0;
@@ -115,6 +118,7 @@ struct nq_pgas_client {
   int fd = -1;
   std::mutex mu;
   uint32_t timeout_ms = 0;
+  uint32_t epoch = 0;
 };
 
 namespace {
@@ -177,11 +181,17 @@ static int load_wal(nq_pgas_server *s, const char *path) {
       rc = wal_read_all(fd, entry, sizeof(entry));
       if (rc) return fail(rc);
       const uint32_t slot = get32(entry + 4);
-      if (get32(entry) != rec_magic || slot >= s->values.size() ||
+      if (get32(entry) != rec_magic ||
+          (slot != UINT32_MAX && slot >= s->values.size()) ||
           get64(entry + 8) != s->wal_sequence + 1 ||
           get32(entry + 24) != wal_checksum(entry, 24) ||
           get32(entry + 28) != 0) return fail(-EBADMSG);
-      s->values[slot] = static_cast<int64_t>(get64(entry + 16));
+      if(slot == UINT32_MAX) {
+        const uint64_t next = get64(entry + 16);
+        if (next == 0 || next > UINT32_MAX || next <= s->epoch.load())
+          return fail(-EBADMSG);
+        s->epoch.store(static_cast<uint32_t>(next));
+      } else s->values[slot] = static_cast<int64_t>(get64(entry + 16));
       ++s->wal_sequence;
     }
     if (remaining % wal_record_bytes) {
@@ -242,6 +252,62 @@ static void disconnect_client(nq_pgas_server *s, int fd) {
   if (it != s->sockets.end()) s->sockets.erase(it);
   shutdown(fd, SHUT_RDWR); close(fd);
 }
+// Isolated arithmetic/branch VM. No syscalls, pointers, FFI, or host memory.
+// Length and fuel are bounded; all stack operations reject underflow/overflow.
+static int run_sandbox(const unsigned char *code, uint32_t length,
+                       int64_t argument, uint32_t fuel, int64_t *out) {
+  if (!code || !out || !length || length > max_program_bytes ||
+      !fuel || fuel > max_program_fuel) return -EINVAL;
+  int64_t stack[32]{}; size_t depth = 0, pc = 0;
+  const auto push = [&](int64_t value) -> bool {
+    if (depth >= 32) return false;
+    stack[depth++] = value; return true;
+  };
+  const auto pop = [&](int64_t &value) -> bool {
+    if (!depth) return false;
+    value = stack[--depth]; return true;
+  };
+  for (uint32_t step = 0; step < fuel; ++step) {
+    if (pc >= length) return -EBADMSG;
+    const unsigned op = code[pc++];
+    int64_t a = 0, b = 0;
+    switch(op) {
+      case 0: break;  // NOP
+      case 1: if (!push(argument)) return -EOVERFLOW; break;
+      case 2: if (pc >= length || !push(static_cast<int8_t>(code[pc++]))) return -EBADMSG; break;
+      case 3: case 4: case 5: case 6: case 12: case 13:
+        if (!pop(b) || !pop(a)) return -EBADMSG;
+        if (op == 3) a = static_cast<int64_t>(static_cast<uint64_t>(a) + static_cast<uint64_t>(b));
+        if (op == 4) a = static_cast<int64_t>(static_cast<uint64_t>(a) - static_cast<uint64_t>(b));
+        if (op == 5) a = static_cast<int64_t>(static_cast<uint64_t>(a) * static_cast<uint64_t>(b));
+        if (op == 6) {
+          if (!b) return -EDOM;
+          if (a == INT64_MIN && b == -1) return -ERANGE;
+          a /= b;
+        }
+        if (op == 12) a = (a == b) ? 1 : 0;
+        if (op == 13) a = (a < b) ? 1 : 0;
+        if (!push(a)) return -EOVERFLOW;
+        break;
+      case 7: if (!depth || !push(stack[depth - 1])) return -EBADMSG; break;
+      case 8: if (depth < 2) return -EBADMSG; std::swap(stack[depth - 1], stack[depth - 2]); break;
+      case 9: if (!pop(a)) return -EBADMSG; break;
+      case 10: case 11: {
+        if (pc >= length) return -EBADMSG;
+        const int8_t offset = static_cast<int8_t>(code[pc++]);
+        if (op == 11) { if (!pop(a)) return -EBADMSG; if (a) break; }
+        const int64_t next = static_cast<int64_t>(pc) + offset;
+        if (next < 0 || next >= static_cast<int64_t>(length)) return -ERANGE;
+        pc = static_cast<size_t>(next);
+        break;
+      }
+      case 14: if (!pop(a)) return -EBADMSG; *out = a; return 0;
+      case 15: if (!push(0)) return -EOVERFLOW; break;
+      default: return -ENOTSUP;
+    }
+  }
+  return -ETIMEDOUT;
+}
 static void serve_client(nq_pgas_server *s, int fd) {
   // Fixed-length token exchange, bounded before any RPC is accepted.
   socket_timeout(fd, 5000);
@@ -262,6 +328,9 @@ static void serve_client(nq_pgas_server *s, int fd) {
   if (!error && diff) error = -EACCES;
   encode_response(reply, error, 0);
   if (send_full(fd, reply, sizeof(reply)) != 0 || error) { disconnect_client(s, fd); return; }
+  // Each authenticated client gets isolated, bounded upload state.
+  unsigned char sandbox_code[max_program_bytes]{};
+  uint32_t sandbox_loaded = 0;
   // The read timeout bounds dead clients. Caller reconnects for further work.
   for (;;) {
     unsigned char req[req_bytes];
@@ -272,8 +341,26 @@ static void serve_client(nq_pgas_server *s, int fd) {
     uint32_t index = get32(req + 8);
     int64_t arg1 = static_cast<int64_t>(get64(req + 16));
     int64_t arg2 = static_cast<int64_t>(get64(req + 24));
-    if (get32(req) != magic || get32(req + 12) != 0) status = -EPROTO;
+    if (get32(req) != magic) status = -EPROTO;
     else if (operation == op_ping) {}
+    else if (get32(req + 12) != s->epoch.load(std::memory_order_acquire))
+      status = -ESTALE;
+    else if (operation == op_program_chunk) {
+      if (index >= max_program_bytes || index % 16 != 0 ||
+          index > sandbox_loaded) status = -ERANGE;
+      else {
+        if (index == 0) { std::memset(sandbox_code, 0, sizeof(sandbox_code)); sandbox_loaded = 0; }
+        std::memcpy(sandbox_code + index, req + 16, 16);
+        sandbox_loaded = index + 16;
+      }
+    }
+    else if (operation == op_program_exec) {
+      if (!index || index > sandbox_loaded || index > max_program_bytes ||
+          get64(req + 24) > max_program_fuel) status = -EINVAL;
+      else status = run_sandbox(sandbox_code, index, arg1,
+                                static_cast<uint32_t>(get64(req + 24)), &result);
+      sandbox_loaded = 0;
+    }
     else if (operation == op_barrier) status = wait_barrier(s);
     else if (operation == op_run_task) {
       nq_pgas_server::RegisteredTask task{};
@@ -294,7 +381,12 @@ static void serve_client(nq_pgas_server *s, int fd) {
     else if (operation < op_read || operation > op_add) status = -ENOTSUP;
     else {
       std::lock_guard<std::mutex> lock(s->data_mu);
-      if (index >= s->values.size()) status = -ERANGE;
+      // Epoch must be rechecked UNDER the same lock as WAL mutation.
+      // Otherwise an old client can pass the outer check before promotion,
+      // block on data_mu and write after the new epoch is committed.
+      if (get32(req + 12) != s->epoch.load(std::memory_order_acquire))
+        status = -ESTALE;
+      else if (index >= s->values.size()) status = -ERANGE;
       else {
         int64_t &slot = s->values[index];
         switch (operation) {
@@ -350,15 +442,19 @@ static void accept_loop(nq_pgas_server *s) {
     }
   }
 }
-static int request(nq_pgas_client *c, uint32_t operation, uint32_t index,
-                   int64_t a, int64_t b, int64_t *out) {
+static int request_locked(nq_pgas_client *c, uint32_t operation, uint32_t index,
+                          int64_t a, int64_t b, int64_t *out,
+                          const unsigned char *payload = nullptr) {
   if (!c) return -EINVAL;
-  std::lock_guard<std::mutex> lock(c->mu);
   if (c->fd < 0) return -ENOTCONN;
   unsigned char req[req_bytes]{};
   put32(req, magic); put32(req + 4, operation); put32(req + 8, index);
-  put64(req + 16, static_cast<uint64_t>(a));
-  put64(req + 24, static_cast<uint64_t>(b));
+  put32(req + 12, c->epoch);
+  if (payload) std::memcpy(req + 16, payload, 16);
+  else {
+    put64(req + 16, static_cast<uint64_t>(a));
+    put64(req + 24, static_cast<uint64_t>(b));
+  }
   int rc = send_full(c->fd, req, sizeof(req));
   unsigned char response[response_bytes];
   if (!rc) rc = recv_full(c->fd, response, sizeof(response));
@@ -367,6 +463,12 @@ static int request(nq_pgas_client *c, uint32_t operation, uint32_t index,
   int32_t status = static_cast<int32_t>(get32(response + 4));
   if (status == 0 && out) *out = static_cast<int64_t>(get64(response + 8));
   return status;
+}
+static int request(nq_pgas_client *c, uint32_t operation, uint32_t index,
+                   int64_t a, int64_t b, int64_t *out) {
+  if (!c) return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  return request_locked(c, operation, index, a, b, out);
 }
 }
 
@@ -417,6 +519,21 @@ int nq_pgas_server_start_durable(uint16_t port, const char *token, uint32_t slot
   return 0;
 }
 uint16_t nq_pgas_server_port(nq_pgas_server *s) { return s ? s->port : 0; }
+int nq_pgas_server_get_epoch(nq_pgas_server *s, uint32_t *out) {
+  if (!s || !out) return -EINVAL;
+  *out = s->epoch.load(std::memory_order_acquire);
+  return 0;
+}
+int nq_pgas_server_promote_epoch(nq_pgas_server *s, uint32_t proposed) {
+  if (!s || s->stopping || proposed == 0) return -EINVAL;
+  std::lock_guard<std::mutex> lock(s->data_mu);
+  if (s->wal_fd < 0) return -ENOTSUP;
+  if (proposed <= s->epoch.load()) return -ESTALE;
+  const int rc = append_wal(s, UINT32_MAX, proposed);
+  if (rc) return rc;
+  s->epoch.store(proposed, std::memory_order_release);
+  return 0;
+}
 int nq_pgas_server_stop(nq_pgas_server *s) {
   if (!s) return -EINVAL;
   s->stopping = true;
@@ -463,6 +580,13 @@ int nq_pgas_client_connect(const char *host, uint16_t port, const char *token,
   c->fd = fd; c->timeout_ms = timeout; *out = c.release();
   return 0;
 }
+int nq_pgas_client_set_epoch(nq_pgas_client *c, uint32_t epoch) {
+  if (!c) return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  if (c->fd < 0) return -ENOTCONN;
+  c->epoch = epoch;
+  return 0;
+}
 int nq_pgas_client_close(nq_pgas_client *c) {
   if (!c) return -EINVAL;
   { std::lock_guard<std::mutex> lock(c->mu);
@@ -482,6 +606,22 @@ int nq_pgas_register_task(nq_pgas_server *s, uint32_t id,
 int nq_pgas_run_task(nq_pgas_client *c, uint32_t id, int64_t input, int64_t *out) {
   if (!out || id == 0 || id > 65535) return -EINVAL;
   return request(c, op_run_task, id, input, 0, out);
+}
+int nq_pgas_execute_program(nq_pgas_client *c, const uint8_t *code,
+                            size_t length, int64_t input, uint32_t fuel,
+                            int64_t *output) {
+  if (!c || !code || !output || !length || length > max_program_bytes ||
+      !fuel || fuel > max_program_fuel) return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  for (size_t at = 0; at < length; at += 16) {
+    unsigned char chunk[16]{};
+    std::memcpy(chunk, code + at, std::min<size_t>(16, length - at));
+    int rc = request_locked(c, op_program_chunk, static_cast<uint32_t>(at), 0, 0,
+                            nullptr, chunk);
+    if (rc) return rc;
+  }
+  return request_locked(c, op_program_exec, static_cast<uint32_t>(length),
+                         input, fuel, output);
 }
 int nq_pgas_ping(nq_pgas_client *c) { return request(c, op_ping, 0, 0, 0, nullptr); }
 int nq_pgas_read(nq_pgas_client *c, uint32_t index, int64_t *out) {

@@ -20,6 +20,13 @@ int nq_pgas_register_task(nq_pgas_server *server, uint32_t task_id,
                           nq_pgas_task_callback callback, void *context);
 int nq_pgas_run_task(nq_pgas_client *client, uint32_t task_id,
                      int64_t argument, int64_t *output);
+/* Execute client-supplied, sandboxed arithmetic bytecode (not host machine
+ * code). A private per-connection upload, at most 256 bytes; fuel 1..4096.
+ * No memory/file/network access or native calls. Failure is negative errno.
+ * Non-idempotent remote execution must NOT be blindly replayed. */
+int nq_pgas_execute_program(nq_pgas_client *client, const uint8_t *bytecode,
+                            size_t length, int64_t argument, uint32_t fuel,
+                            int64_t *output);
 /* Tokens must be 16..64 ASCII bytes, with no whitespace or control chars.
  * A port of zero requests an ephemeral port. slots must be nonzero.
  * barrier_participants=0 disables the barrier on this node. */
@@ -33,11 +40,18 @@ int nq_pgas_server_start(uint16_t port, const char *token, uint32_t slots,
 int nq_pgas_server_start_durable(uint16_t port, const char *token, uint32_t slots,
                                  uint32_t barrier_participants,
                                  const char *wal_path, nq_pgas_server **out);
+/* Monotonic epochs are fsynced as WAL control records. Promotion is local,
+ * requires durable storage, and MUST follow externally proven fencing of the
+ * old leader. This is not a consensus protocol. Clients with stale epochs
+ * receive -ESTALE for all operations except health checks. */
+int nq_pgas_server_get_epoch(nq_pgas_server *server, uint32_t *out);
+int nq_pgas_server_promote_epoch(nq_pgas_server *server, uint32_t newer_epoch);
 uint16_t nq_pgas_server_port(nq_pgas_server *server);
 int nq_pgas_server_stop(nq_pgas_server *server);
 /* Rejects non-loopback hosts, intentionally. */
 int nq_pgas_client_connect(const char *host, uint16_t port, const char *token,
                            uint32_t timeout_ms, nq_pgas_client **out);
+int nq_pgas_client_set_epoch(nq_pgas_client *client, uint32_t epoch);
 int nq_pgas_client_close(nq_pgas_client *client);
 int nq_pgas_ping(nq_pgas_client *client);
 int nq_pgas_read(nq_pgas_client *client, uint32_t local_index, int64_t *out);

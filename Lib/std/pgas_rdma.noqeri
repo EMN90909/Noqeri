@@ -1,0 +1,27 @@
+module noqeri.std.pgas_rdma
+
+// Optional Linux libibverbs RC transport (not a TLS replacement).
+// Node descriptors carry address/rkey capabilities. They must be exchanged
+// only via a separately authorized encrypted control channel, and the native
+// host must establish a QP connection before these reads/writes can succeed.
+// RDMA mutations bypass the PGAS WAL and are NOT crash-durable.
+extern function nq_pgas_rdma_available(): int
+extern function nq_pgas_rdma_open(slots: u32, port: u8, gid_index: u8, out: *usize): int
+extern function nq_pgas_rdma_read(node: usize, remote_slot: u32, timeout_ms: u32, out: *i64): int
+extern function nq_pgas_rdma_write(node: usize, remote_slot: u32, value: i64, timeout_ms: u32): int
+extern function nq_pgas_rdma_close(node: usize): int
+
+export function pgas_rdma_available(): int { return nq_pgas_rdma_available() }
+export function pgas_rdma_open(slots: u32, port: u8, gid_index: u8, out: *usize): int {
+    if out == null || slots == 0 as u32 || port == 0 as u8 { return -22 }
+    return nq_pgas_rdma_open(slots, port, gid_index, out)
+}
+export function pgas_rdma_read(node: usize, slot: u32, timeout_ms: u32, out: *i64): int {
+    if node == 0 as usize || out == null { return -22 }
+    return nq_pgas_rdma_read(node, slot, timeout_ms, out)
+}
+export function pgas_rdma_write(node: usize, slot: u32, value: i64, timeout_ms: u32): int {
+    if node == 0 as usize { return -22 }
+    return nq_pgas_rdma_write(node, slot, value, timeout_ms)
+}
+export function pgas_rdma_close(node: usize): int { return nq_pgas_rdma_close(node) }
