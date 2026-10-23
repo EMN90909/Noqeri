@@ -9,6 +9,10 @@
 #include <cstdio>
 #include <cstring>
 
+static int increment_task(int64_t in, void *, int64_t *out) {
+  *out = in + 1;
+  return 0;
+}
 int main(int argc,char **argv) {
   assert(argc==6);
   const char *ca=argv[1], *server_cert=argv[2], *server_key=argv[3];
@@ -16,6 +20,7 @@ int main(int argc,char **argv) {
   const char *token="local-backend-protected-token-2026";
   nq_pgas_server *node=nullptr;
   assert(nq_pgas_server_start(0,token,16,0,&node)==0);
+  assert(nq_pgas_register_task(node, 91, increment_task, nullptr) == 0);
   nq_pgas_tls_gateway *gateway=nullptr;
   assert(nq_pgas_tls_gateway_start("127.0.0.1",0,nq_pgas_server_port(node),
     token,ca,server_cert,server_key,"worker.local",&gateway)==0);
@@ -25,6 +30,8 @@ int main(int argc,char **argv) {
   assert(nq_pgas_tls_client_connect("127.0.0.1",port,ca,client_cert,client_key,
     "localhost",3000,&remote)==0);
   assert(nq_pgas_tls_ping(remote)==0);
+  int64_t task_result=0;
+  assert(nq_pgas_tls_run_task(remote,91,123,&task_result)==0 && task_result==124);
   assert(nq_pgas_tls_write(remote,0,1001)==0);
   int64_t value=0;
   assert(nq_pgas_tls_read(remote,0,&value)==0 && value==1001);
