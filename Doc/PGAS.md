@@ -54,8 +54,11 @@ node-local generation; participants must coordinate before attempting another.
   durable data, global memory consistency, failover, idempotency keys, and
   cluster-wide barriers are **not implemented**. Production deployment is
   not qualified.
-- Partition placement is an explicit library/ABI operation. The illustrative
-  `@partition(...)` syntax is **not a compiler-recognized attribute**.
+- Partition placement is an explicit library/ABI operation. Stage-0
+  `@partition(...)` syntax is compiler-recognized and, as of 0.1.43,
+  native x86-64 direct i64 indexing lowers through explicit remote calls.
+  It requires a bound topology and is not yet available in Stage-2 or NQRI.
+  See [native arrays](PGAS_NATIVE_ARRAYS.md).
 
 ## Next qualification gates
 
