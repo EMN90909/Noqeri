@@ -32,6 +32,10 @@ int main(int argc,char **argv) {
   assert(nq_pgas_tls_ping(remote)==0);
   int64_t task_result=0;
   assert(nq_pgas_tls_run_task(remote,91,123,&task_result)==0 && task_result==124);
+  const uint8_t program[]={1,2,3,5,2,5,3,14}; // input*3+5
+  assert(nq_pgas_tls_execute_program(remote,program,sizeof(program),9,32,&task_result)==0 && task_result==32);
+  const uint8_t infinite_loop[]={10,254};
+  assert(nq_pgas_tls_execute_program(remote,infinite_loop,2,9,8,&task_result)==-ETIMEDOUT);
   assert(nq_pgas_tls_write(remote,0,1001)==0);
   int64_t value=0;
   assert(nq_pgas_tls_read(remote,0,&value)==0 && value==1001);
