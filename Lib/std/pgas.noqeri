@@ -1,0 +1,38 @@
+module noqeri.std.pgas
+
+// Experimental PGAS host ABI: node-local slots are i64, and transport is
+// loopback-only TCP. All operations use negative errno-style status codes.
+// A global address is (owner node, local slot), never a raw remote pointer.
+extern function nq_pgas_location(index: u64, elements: u64, nodes: u32, strategy: u32, owner: *u32, local: *u32): int
+extern function nq_pgas_client_connect(host: string, port: u16, token: string, timeout_ms: u32, out: *usize): int
+extern function nq_pgas_client_close(client: usize): int
+extern function nq_pgas_ping(client: usize): int
+extern function nq_pgas_read(client: usize, local: u32, out: *i64): int
+extern function nq_pgas_write(client: usize, local: u32, value: i64): int
+extern function nq_pgas_compare_exchange(client: usize, local: u32, expected: i64, desired: i64, observed: *i64): int
+extern function nq_pgas_fetch_add(client: usize, local: u32, delta: i64, previous: *i64): int
+extern function nq_pgas_barrier(client: usize): int
+
+record PgasLocation {
+    node: u32
+    slot: u32
+}
+
+export function pgas_block(): u32 { return 0 as u32 }
+export function pgas_cyclic(): u32 { return 1 as u32 }
+export function pgas_strategy_valid(strategy: u32): bool { return strategy == pgas_block() || strategy == pgas_cyclic() }
+export function pgas_partition_valid(elements: u64, nodes: u32, strategy: u32): bool { return elements > 0 as u64 && nodes > 0 as u32 && pgas_strategy_valid(strategy) }
+
+export function pgas_locate(index: u64, elements: u64, nodes: u32, strategy: u32, result: *PgasLocation): int {
+    if result == null || !pgas_partition_valid(elements, nodes, strategy) || index >= elements { return -22 }
+    return nq_pgas_location(index, elements, nodes, strategy, &result.node, &result.slot)
+}
+
+// The caller owns all node connections, and must provision each node's local
+// slot capacity according to its selected block/cyclic mapping.
+export function pgas_read_i64(client: usize, slot: u32, out: *i64): int { return nq_pgas_read(client, slot, out) }
+export function pgas_write_i64(client: usize, slot: u32, value: i64): int { return nq_pgas_write(client, slot, value) }
+export function pgas_cas_i64(client: usize, slot: u32, expected: i64, desired: i64, observed: *i64): int { return nq_pgas_compare_exchange(client, slot, expected, desired, observed) }
+export function pgas_add_i64(client: usize, slot: u32, delta: i64, previous: *i64): int { return nq_pgas_fetch_add(client, slot, delta, previous) }
+export function pgas_sync(client: usize): int { return nq_pgas_barrier(client) }
+export function pgas_health(client: usize): int { return nq_pgas_ping(client) }
