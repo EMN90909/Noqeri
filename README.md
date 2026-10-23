@@ -162,6 +162,16 @@ Use `node scripts/check-game-sdk.mjs --source-only` for a reproducible asset-too
 Automatic GitHub Actions workflows are intentionally not required for this migration; local verification is the canonical path.
 
 
+## Experimental PGAS native arrays
+
+In the 0.1.43 development track, the Stage-0 x86-64 native backend can
+compile direct indexed reads and writes on fixed `@partition` i64 arrays
+into actual remote node calls with explicit authenticated topology binding.
+This is qualified with a Noqeri-generated native executable and a two-node
+mTLS gateway test, **not** with separate physical hosts or RDMA NICs.
+See [PGAS native arrays](Doc/PGAS_NATIVE_ARRAYS.md) and
+[distributed acceptance gates](Doc/PGAS_DISTRIBUTED_ACCEPTANCE.md).
+
 ## Release readiness
 
 **0.1.43 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
