@@ -1,0 +1,7 @@
+module examples.shaders.invert_compute
+
+// A pure compute kernel. Its host provides input/output u32 storage buffers.
+// WebGPU dispatch size = ceil(number_of_pixels / 64).
+export function shade(value: u32): u32 {
+    return 4294967295 as u32 - value
+}

@@ -1,0 +1,8 @@
+[package]
+name = "noqeri-wgsl-validator"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+naga = { version = "25.0.1", default-features = false, features = ["wgsl-in"] }

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noqeri native source to WebGPU</title>
+<style>
+body { font: 16px system-ui,sans-serif; background:#101828; color:#f3f4f6; margin:2rem auto; max-width:720px; padding:0 1rem; }
+canvas { display:block; background:#16263d; border:1px solid #45546a; width:100%; max-width:640px; image-rendering:pixelated; }
+code { color:#d2bbff; } button { padding:0.7rem 1rem; border-radius:8px; cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>Noqeri shaders running through WebGPU</h1>
+<p>The fragment and compute shaders are authored in <code>.noqeri</code> and compiled to WGSL.</p>
+<canvas id="frame" width="640" height="360" aria-label="Noqeri compiled gradient fragment shader"></canvas>
+<p><button id="compute" type="button">Run Noqeri compute shader</button></p>
+<p id="result" role="status">Preparing WebGPU…</p>
+<script type="module">
+import {renderNoqeriFragment,runNoqeriCompute} from './webgpu_host.mjs'
+const status=document.getElementById('result')
+const gpu=globalThis.navigator?.gpu
+async function source(file) {
+ const response=await fetch('../../build/'+file)
+ if(!response.ok) throw new Error('Missing build/'+file+'. Compile the Noqeri shader source first.')
+ return response.text()
+}
+try {
+ await renderNoqeriFragment(document.getElementById('frame'),await source('gradient.wgsl'),gpu)
+ status.textContent='Noqeri fragment shader rendered using WebGPU.'
+} catch(error) {
+ status.textContent=String(error.message ?? error)
+}
+document.getElementById('compute').addEventListener('click',async()=>{
+ try {
+  const output=await runNoqeriCompute(await source('invert.wgsl'),new Uint32Array([0,1,255,4294967295]),gpu)
+  status.textContent='Noqeri GPU compute result: '+[...output].join(', ')
+ } catch(error) {status.textContent=String(error.message??error)}
+})
+</script>
+</body>
+</html>

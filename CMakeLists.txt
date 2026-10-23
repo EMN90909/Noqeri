@@ -16,7 +16,7 @@ set(NOQERI_FRONTEND_SOURCES
  Compiler/bootstrap/lexer_host.cpp Compiler/bootstrap/parser_host.cpp Compiler/bootstrap/abi_runtime_host.cpp Compiler/bootstrap/interpreter_host.cpp
  Compiler/bootstrap/noqeridb_host.cpp)
 set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
- Compiler/native_backend.cpp Compiler/web_backend.cpp Compiler/nqri_backend.cpp Compiler/linker.cpp
+ Compiler/native_backend.cpp Compiler/web_backend.cpp Compiler/nqri_backend.cpp Compiler/shader_backend.cpp Compiler/linker.cpp
  Compiler/bootstrap/cli_host.cpp Compiler/bootstrap/formatter_host.cpp Compiler/bootstrap/package_host.cpp Compiler/bootstrap/lsp_host.cpp
  Compiler/bootstrap/test_runner_host.cpp Compiler/bootstrap/production_doctor_host.cpp
  Compiler/bootstrap/security_audit_host.cpp)
@@ -229,5 +229,20 @@ if(UNIX AND NOT APPLE)
   add_executable(noqeri-pgas-cross-host-smoke tests/cpp/pgas_cross_host_smoke.cpp)
   target_link_libraries(noqeri-pgas-cross-host-smoke PRIVATE noqeri_pgas_runtime noqeri_pgas_tls_gateway)
   noqeri_apply_warnings(noqeri-pgas-cross-host-smoke)
+ endif()
+endif()
+
+# Optional cross-platform OS presentation bridge: only the SDL2 surface/window
+# adapter is native. All raster algorithms live in Lib/std/render2d.noqeri.
+# No SDL2 dependency is imposed on freestanding compiler/runtime targets.
+option(NOQERI_ENABLE_SDL2 "Build optional Noqeri OS framebuffer SDL2 adapter" ON)
+if(NOQERI_ENABLE_SDL2)
+ find_package(SDL2 CONFIG QUIET)
+ if(TARGET SDL2::SDL2)
+  add_library(noqeri_os_renderer_sdl STATIC Runtime/native/os_renderer_sdl.cpp)
+  target_include_directories(noqeri_os_renderer_sdl PUBLIC Include)
+  target_link_libraries(noqeri_os_renderer_sdl PUBLIC SDL2::SDL2)
+  target_compile_features(noqeri_os_renderer_sdl PUBLIC cxx_std_17)
+  noqeri_apply_warnings(noqeri_os_renderer_sdl)
  endif()
 endif()

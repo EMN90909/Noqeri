@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include "shader_backend.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -24,6 +25,7 @@ void usage() {
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
+              << "  shader [file] [out.wgsl] --stage=compute|fragment  emit WebGPU WGSL\n"
               << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
@@ -428,6 +430,38 @@ int main(int argc, char** argv) {
             Diagnostics d;
             if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
             std::cout << "emitted portable NQRI module: " << output << "\n";
+            return 0;
+        }
+        if (cmd == "shader") {
+            std::string stage;
+            for(int i=3;i<argc;++i) {
+                const std::string option(argv[i]);
+                if(option.rfind("--stage=",0)==0) {
+                    if(!stage.empty()) {
+                        std::cerr << "NQR-GPU101: shader stage must be specified exactly once\n";
+                        return 1;
+                    }
+                    stage=option.substr(8);
+                }
+            }
+            if(stage!="compute" && stage!="fragment") {
+                std::cerr << "NQR-GPU102: choose --stage=compute or --stage=fragment\n";
+                return 1;
+            }
+            std::filesystem::path output=argc>=4 && argv[3][0]!='-' ?
+                std::filesystem::path(argv[3]) :
+                std::filesystem::path("build")/(selected->projectName+".wgsl");
+            if(output.extension()!=".wgsl") {
+                std::cerr<<"NQR-GPU103: shaders must use the .wgsl output extension\n";
+                return 1;
+            }
+            std::filesystem::create_directories(output.parent_path().empty() ?
+                std::filesystem::path(".") : output.parent_path());
+            Diagnostics d;
+            if(!ShaderBackend{}.emitWgsl(compilation.ast,output,stage,d)){
+                d.print(path.string());return 1;
+            }
+            std::cout<<"emitted Noqeri WebGPU "<<stage<<" shader: "<<output<<"\n";
             return 0;
         }
         if (cmd == "web") {

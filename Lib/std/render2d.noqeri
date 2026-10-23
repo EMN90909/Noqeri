@@ -1,0 +1,64 @@
+module noqeri.std.render2d
+
+// Entire pixel-generation and raster logic is written in Noqeri.
+// This is a portable CPU ARGB8888 framebuffer, with optional native OS
+// presentation through a separately linked SDL2 surface adapter.
+// No GPU, graphics driver, or unsafe pointer API is needed by these functions.
+
+export function nqArgb8888(red: u32, green: u32, blue: u32): u32 {
+    let r: u32 = red % 256 as u32
+    let g: u32 = green % 256 as u32
+    let b: u32 = blue % 256 as u32
+    return 4278190080 as u32 + r * 65536 as u32 + g * 256 as u32 + b
+}
+
+export function nqRenderClear(pixels: []u32, color: u32): bool {
+    let i: usize = 0 as usize
+    while i < len(pixels) {
+        pixels[i] = color
+        i = i + 1 as usize
+    }
+    return true
+}
+
+export function nqRenderGradient(pixels: []u32, width: usize, height: usize): bool {
+    // Bound dimensions before multiplication and integer color arithmetic.
+    if width == 0 as usize || height == 0 as usize { return false }
+    if width > 4096 as usize || height > 4096 as usize { return false }
+    if height > len(pixels) / width { return false }
+    let count: usize = width * height
+    let i: usize = 0 as usize
+    while i < count {
+        let x: usize = i % width
+        let y: usize = i / width
+        let red: u32 = 0 as u32
+        let green: u32 = 0 as u32
+        if width > 1 as usize {
+            red = ((x * 255 as usize) / (width - 1 as usize)) as u32
+        }
+        if height > 1 as usize {
+            green = ((y * 255 as usize) / (height - 1 as usize)) as u32
+        }
+        pixels[i] = nqArgb8888(red, green, 64 as u32)
+        i = i + 1 as usize
+    }
+    return true
+}
+
+export function nqRenderChecker(pixels: []u32, width: usize, height: usize, cell: usize, first: u32, second: u32): bool {
+    if width == 0 as usize || height == 0 as usize || cell == 0 as usize { return false }
+    if height > len(pixels) / width { return false }
+    let i: usize = 0 as usize
+    while i < width * height {
+        let x: usize = i % width
+        let y: usize = i / width
+        let pattern: usize = ((x / cell) + (y / cell)) % 2 as usize
+        if pattern == 0 as usize {
+            pixels[i] = first
+        } else {
+            pixels[i] = second
+        }
+        i = i + 1 as usize
+    }
+    return true
+}
