@@ -4,6 +4,8 @@ on:
     paths:
       - "Runtime/native/pgas_runtime.cpp"
       - "Runtime/native/pgas_rdma.cpp"
+      - "Runtime/native/pgas_replication.cpp"
+      - "Include/noqeri/pgas_replication.h"
       - "Include/noqeri/pgas_rdma.h"
       - "Compiler/bootstrap/parser_host.cpp"
       - "Compiler/bootstrap/lexer_host.cpp"
@@ -53,6 +55,7 @@ jobs:
       - name: Compile with warnings as errors
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude -DNOQERI_HAS_IBVERBS Runtime/native/pgas_rdma.cpp tests/cpp/pgas_rdma_probe_test.cpp -libverbs -o /tmp/pgas_rdma_probe_test
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp Runtime/native/pgas_tls_gateway.cpp Runtime/native/pgas_replication.cpp tests/cpp/pgas_replication_test.cpp -lssl -lcrypto -o /tmp/pgas_replication_test
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_runtime_test.cpp -o /tmp/pgas_runtime_test
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_process_test.cpp -o /tmp/pgas_process_test
           g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_durable_test.cpp -o /tmp/pgas_durable_test
@@ -60,6 +63,7 @@ jobs:
       - name: Run transport and crash tests
         run: |
           timeout 30s /tmp/pgas_rdma_probe_test
+          timeout 30s bash tests/scripts/pgas-tls-cert-test.sh /tmp/pgas_replication_test
           timeout 30s /tmp/pgas_runtime_test
           timeout 30s /tmp/pgas_process_test
           timeout 30s /tmp/pgas_durable_test
@@ -67,7 +71,7 @@ jobs:
       - name: CMake integration and Noqeri source check
         run: |
           cmake -S . -B /tmp/noqeri-pgas-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build /tmp/noqeri-pgas-build --target noqeri noqeri_pgas_runtime noqeri_pgas_tls_gateway noqeri_pgas_rdma -j 2
+          cmake --build /tmp/noqeri-pgas-build --target noqeri noqeri_pgas_runtime noqeri_pgas_tls_gateway noqeri_pgas_rdma noqeri_pgas_replication -j 2
           /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas.noqeri
           /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas_tls.noqeri
           NOQERI_PGAS_COMPILER=/tmp/noqeri-pgas-build/noqeri node --test tests/pgas-attribute.test.mjs
