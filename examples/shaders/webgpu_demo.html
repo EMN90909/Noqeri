@@ -3,40 +3,81 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Noqeri native source to WebGPU</title>
+<title>Noqeri shaders: WebGPU live examples</title>
 <style>
-body { font: 16px system-ui,sans-serif; background:#101828; color:#f3f4f6; margin:2rem auto; max-width:720px; padding:0 1rem; }
+body { font:16px system-ui,sans-serif; background:#101828; color:#f3f4f6; margin:2rem auto; max-width:760px; padding:0 1rem; }
 canvas { display:block; background:#16263d; border:1px solid #45546a; width:100%; max-width:640px; image-rendering:pixelated; }
-code { color:#d2bbff; } button { padding:0.7rem 1rem; border-radius:8px; cursor:pointer; }
+code { color:#d2bbff; }
+button,select { padding:0.6rem 0.85rem; border-radius:8px; font:inherit; }
+button { cursor:pointer; }
+.controls { display:flex; flex-wrap:wrap; align-items:center; gap:0.7rem; margin:1rem 0; }
+#result { min-height:2.5rem; }
 </style>
 </head>
 <body>
 <h1>Noqeri shaders running through WebGPU</h1>
-<p>The fragment and compute shaders are authored in <code>.noqeri</code> and compiled to WGSL.</p>
-<canvas id="frame" width="640" height="360" aria-label="Noqeri compiled gradient fragment shader"></canvas>
-<p><button id="compute" type="button">Run Noqeri compute shader</button></p>
-<p id="result" role="status">Preparing WebGPU…</p>
+<p>Fragment and compute algorithms are written in <code>.noqeri</code> and compiled by Noqeri into validated WGSL. The browser supplies the GPU device.</p>
+<div class="controls">
+  <label for="fragment">Fragment shader</label>
+  <select id="fragment">
+    <option value="gradient.wgsl">RGB gradient</option>
+    <option value="posterize.wgsl">Conditional posterization</option>
+    <option value="grayscale.wgsl">Float grayscale</option>
+  </select>
+  <button id="render" type="button">Render</button>
+</div>
+<canvas id="frame" width="640" height="360" aria-label="Result of the selected Noqeri fragment shader"></canvas>
+<div class="controls">
+  <button id="compute" type="button">Run integer compute</button>
+  <button id="float-compute" type="button">Run float compute</button>
+</div>
+<p id="result" role="status" aria-live="polite">Preparing WebGPU…</p>
 <script type="module">
 import {renderNoqeriFragment,runNoqeriCompute} from './webgpu_host.mjs'
 const status=document.getElementById('result')
+const shader=document.getElementById('fragment')
+const renderButton=document.getElementById('render')
+const integerButton=document.getElementById('compute')
+const floatButton=document.getElementById('float-compute')
+const canvas=document.getElementById('frame')
 const gpu=globalThis.navigator?.gpu
+let release=()=>{}
 async function source(file) {
- const response=await fetch('../../build/'+file)
- if(!response.ok) throw new Error('Missing build/'+file+'. Compile the Noqeri shader source first.')
- return response.text()
+  const known=new Set(['gradient.wgsl','posterize.wgsl','grayscale.wgsl','invert.wgsl','float-compute.wgsl'])
+  if(!known.has(file))throw new Error('Unknown Noqeri shader output.')
+  const response=await fetch('../../build/'+file,{cache:'no-cache'})
+  if(!response.ok)throw new Error('Missing build/'+file+'. Compile the Noqeri shader source first.')
+  return response.text()
 }
-try {
- await renderNoqeriFragment(document.getElementById('frame'),await source('gradient.wgsl'),gpu)
- status.textContent='Noqeri fragment shader rendered using WebGPU.'
-} catch(error) {
- status.textContent=String(error.message ?? error)
+async function display() {
+  renderButton.disabled=true
+  try {
+    release()
+    release=()=>{}
+    release=await renderNoqeriFragment(canvas,await source(shader.value),gpu)
+    status.textContent='Noqeri '+shader.options[shader.selectedIndex].text+' shader rendered with WebGPU.'
+  }catch(error){
+    status.textContent=String(error.message??error)
+  }finally{renderButton.disabled=false}
 }
-document.getElementById('compute').addEventListener('click',async()=>{
- try {
-  const output=await runNoqeriCompute(await source('invert.wgsl'),new Uint32Array([0,1,255,4294967295]),gpu)
-  status.textContent='Noqeri GPU compute result: '+[...output].join(', ')
- } catch(error) {status.textContent=String(error.message??error)}
+async function compute(button,file,values) {
+  button.disabled=true
+  try{
+    const result=await runNoqeriCompute(await source(file),values,gpu)
+    status.textContent='Noqeri GPU compute ('+values.constructor.name+'): '+[...result].join(', ')
+  }catch(error){
+    status.textContent=String(error.message??error)
+  }finally{button.disabled=false}
+}
+renderButton.addEventListener('click',display)
+integerButton.addEventListener('click',()=>{
+  compute(integerButton,'invert.wgsl',new Uint32Array([0,1,255,4294967295]))
 })
+floatButton.addEventListener('click',()=>{
+  compute(floatButton,'float-compute.wgsl',new Float32Array([-4,0,1,2,8]))
+})
+window.addEventListener('pagehide',()=>{release();release=()=>{}})
+display()
 </script>
 </body>
 </html>
