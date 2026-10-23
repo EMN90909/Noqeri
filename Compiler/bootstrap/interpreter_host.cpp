@@ -84,7 +84,10 @@ std::uintptr_t allocateBytes(std::size_t bytes){auto p=std::make_unique<std::uin
 }
 
 std::string Interpreter::valueToString(const NirValue&v)const{if(std::holds_alternative<std::monostate>(v))return"null";if(auto p=std::get_if<std::int64_t>(&v))return std::to_string(*p);if(auto p=std::get_if<double>(&v))return std::to_string(*p);if(auto p=std::get_if<bool>(&v))return*p?"true":"false";return std::get<std::string>(v);}
-int Interpreter::run(const NirProgram&p){try{allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
+int Interpreter::run(const NirProgram&p){try{
+    if(!p.entry.partitions.empty())throw std::runtime_error("PGAS partitions require a distributed backend; local interpreter is disabled");
+    for(const auto&fn:p.functions)if(!fn.partitions.empty())throw std::runtime_error("PGAS partitions require a distributed backend; local interpreter is disabled");
+    allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
 NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const std::vector<NirValue>&argv){
     if(fn.isExtern)throw std::runtime_error("cannot directly interpret extern function "+fn.name);
     std::unordered_map<std::string,NirValue>vars;std::unordered_map<std::string,std::uint64_t>cells;std::unordered_set<std::string>addressTaken;std::vector<NirValue>regs(fn.nextReg);
