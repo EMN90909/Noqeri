@@ -25,7 +25,7 @@ export function pgas_partition_valid(elements: u64, nodes: u32, strategy: u32): 
 
 export function pgas_locate(index: u64, elements: u64, nodes: u32, strategy: u32, result: *PgasLocation): int {
     if result == null || !pgas_partition_valid(elements, nodes, strategy) || index >= elements { return -22 }
-    return nq_pgas_location(index, elements, nodes, strategy, &result.node, &result.slot)
+    unsafe { return nq_pgas_location(index, elements, nodes, strategy, &result.node, &result.slot) }
 }
 
 // The caller owns all node connections, and must provision each node's local
