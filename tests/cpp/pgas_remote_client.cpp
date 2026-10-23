@@ -2,6 +2,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <cassert>
+#include <cstdlib>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
