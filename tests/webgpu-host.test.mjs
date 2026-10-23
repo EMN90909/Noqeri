@@ -55,7 +55,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
           return {setPipeline(){},setBindGroup(){},dispatchWorkgroups(n){events.dispatches.push(n)},end(){}}
         },
         beginRenderPass(){
-          return {setPipeline(){},draw(){events.dispatches.push('fragment')},end(){}}
+          return {setPipeline(){},setBindGroup(){},draw(){events.dispatches.push('fragment')},end(){}}
         },
         copyBufferToBuffer(source,so,target,to,bytes){
           new Uint8Array(target.data,to,bytes).set(new Uint8Array(source.data,so,bytes))
