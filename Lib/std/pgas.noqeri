@@ -12,6 +12,7 @@ extern function nq_pgas_write(client: usize, local: u32, value: i64): int
 extern function nq_pgas_compare_exchange(client: usize, local: u32, expected: i64, desired: i64, observed: *i64): int
 extern function nq_pgas_fetch_add(client: usize, local: u32, delta: i64, previous: *i64): int
 extern function nq_pgas_barrier(client: usize): int
+extern function nq_pgas_run_task(client: usize, task_id: u32, argument: i64, out: *i64): int
 
 record PgasLocation {
     node: u32
@@ -36,6 +37,10 @@ export function pgas_cas_i64(client: usize, slot: u32, expected: i64, desired: i
 export function pgas_add_i64(client: usize, slot: u32, delta: i64, previous: *i64): int { return nq_pgas_fetch_add(client, slot, delta, previous) }
 export function pgas_sync(client: usize): int { return nq_pgas_barrier(client) }
 export function pgas_health(client: usize): int { return nq_pgas_ping(client) }
+export function pgas_remote_registered_task(client: usize, task_id: u32, argument: i64, out: *i64): int {
+    if out == null || task_id == 0 as u32 { return -22 }
+    return nq_pgas_run_task(client, task_id, argument, out)
+}
 
  
 // Node lifecycle and global-address operations. The ABI is opt-in: consumers
