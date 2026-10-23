@@ -28,6 +28,7 @@ enum class NirOp {
 //              optimizers can later prove and remove redundant checks without weakening
 //              the source-language safety contract.
 struct NirInstruction { NirOp op=NirOp::Nop; std::optional<Reg> dest; Type type{}; std::string text; NirValue literal; std::vector<Reg> args; std::size_t target=0; std::size_t width=8; bool isVolatile=false; };
+struct NirPartitionDescriptor { std::string name; std::string strategy; std::uint32_t nodes=0; std::size_t elements=0; };
 struct NirBasicBlock { BlockId id=0; std::size_t begin=0; std::size_t end=0; std::vector<BlockId> successors; };
 struct NirFunction {
     std::string name;
@@ -36,6 +37,7 @@ struct NirFunction {
     std::vector<Type> paramTypes;
     Type resultType{};
     std::vector<NirInstruction> code;
+    std::vector<NirPartitionDescriptor> partitions;
     std::vector<Type> registerTypes;
     std::vector<NirBasicBlock> blocks;
     Reg nextReg=0;
