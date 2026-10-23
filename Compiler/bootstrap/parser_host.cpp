@@ -53,6 +53,51 @@ Program Parser::parse(){
 }
 
 StmtPtr Parser::declaration(){
+    // @partition declarations are parsed and checked, but never silently
+    // lowered to ordinary local allocations. Native PGAS lowering is a
+    // separate compiler milestone.
+    bool partitioned=false;
+    std::string partitionStrategy;
+    std::uint32_t partitionNodes=0;
+    if(match({TokenKind::At})){
+        const auto at=previous();
+        const auto &name=consumeName("expected partition attribute");
+        if(name.lexeme!="partition"){
+            diagnostics_.error("NQR-PGAS0001",at.span,"unknown attribute; expected @partition");
+            throw ParseError("partition attribute");
+        }
+        consume(TokenKind::LParen,"expected '(' after @partition");
+        const auto &strategyName=consumeName("expected strategy argument");
+        if(strategyName.lexeme!="strategy"){
+            diagnostics_.error("NQR-PGAS0002",strategyName.span,"first partition argument must be strategy");
+            throw ParseError("partition strategy");
+        }
+        consume(TokenKind::Colon,"expected ':' after strategy");
+        const auto &strategy=consume(TokenKind::String,"expected quoted partition strategy");
+        partitionStrategy=decodeStringLiteral(strategy.lexeme);
+        if(partitionStrategy!="block" && partitionStrategy!="cyclic"){
+            diagnostics_.error("NQR-PGAS0003",strategy.span,"partition strategy must be block or cyclic");
+            throw ParseError("partition strategy");
+        }
+        consume(TokenKind::Comma,"expected ',' after strategy");
+        const auto &nodesName=consumeName("expected nodes argument");
+        if(nodesName.lexeme!="nodes"){
+            diagnostics_.error("NQR-PGAS0004",nodesName.span,"second partition argument must be nodes");
+            throw ParseError("partition nodes");
+        }
+        consume(TokenKind::Colon,"expected ':' after nodes");
+        const auto &nodes=consume(TokenKind::Integer,"expected positive integer node count");
+        try{
+            const auto number=std::stoull(nodes.lexeme,nullptr,10);
+            if(number==0 || number>65535)throw std::out_of_range("nodes");
+            partitionNodes=static_cast<std::uint32_t>(number);
+        }catch(const std::exception&){
+            diagnostics_.error("NQR-PGAS0005",nodes.span,"partition nodes must be between 1 and 65535");
+            throw ParseError("partition nodes");
+        }
+        consume(TokenKind::RParen,"expected ')' after partition attributes");
+        partitioned=true;
+    }
     bool isExport=false,isExtern=false;
     if(match({TokenKind::Export})) isExport=true;
     if(match({TokenKind::Extern})) isExtern=true;
@@ -71,7 +116,27 @@ StmtPtr Parser::declaration(){
     if(check(TokenKind::Module)&&isNameKind(nextKind(1))){advance();return moduleDeclaration();}
     if(check(TokenKind::Import)&&nextKind(1)==TokenKind::String){advance();return importDeclaration();}
     if(check(TokenKind::Record)&&isNameKind(nextKind(1))&&nextKind(2)==TokenKind::LBrace){advance();return recordDeclaration();}
-    if(match({TokenKind::Let}))return letDeclaration(false);
+    if(partitioned && !check(TokenKind::Let)){
+        diagnostics_.error("NQR-PGAS0006",peek().span,"@partition is only valid on let array declarations");
+        throw ParseError("partition target");
+    }
+    if(match({TokenKind::Let})){
+        auto s=letDeclaration(false);
+        if(partitioned){
+            auto value=std::dynamic_pointer_cast<LetStmt>(s);
+            if(!value || !value->annotation || value->annotation->find("[i64;")!=0){
+                diagnostics_.error("NQR-PGAS0007",s->span,"@partition requires an explicitly typed fixed [i64; N] array");
+                throw ParseError("partition type");
+            }
+            value->hasPartition=true;
+            value->partitionStrategy=partitionStrategy;
+            value->partitionNodes=partitionNodes;
+            // Fail closed: a local array is not remote PGAS storage.
+            diagnostics_.error("NQR-PGAS0008",s->span,
+                "PGAS compiler lowering is not available: use std.pgas global access API; do not treat this as distributed memory");
+        }
+        return s;
+    }
     if(match({TokenKind::Const}))return letDeclaration(true);
     return statement();
 }
