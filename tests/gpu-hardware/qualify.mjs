@@ -17,7 +17,7 @@ try {
   await page.waitForFunction(()=>{
     const result=document.querySelector('#result')?.textContent??''
     return result.includes('rendered with WebGPU.')||result.includes('Noqeri fragment shader rendered using WebGPU.')
-  },{timeout:25000})
+  },undefined,{timeout:25000})
   const result=await page.evaluate(async()=>{
     const gpu=navigator.gpu
     if(!gpu)throw new Error('navigator.gpu unavailable')
@@ -27,6 +27,9 @@ try {
     const info=adapter.info
     if(!info||!info.vendor)
       throw new Error('GPU driver vendor not reported')
+    const fingerprint=[info.vendor,info.device,info.architecture,info.description].join(' ')
+    if(/swiftshader|llvmpipe|lavapipe|software|softpipe|swrast/i.test(fingerprint))
+      throw new Error('Software renderer cannot count as physical GPU qualification')
     const {runNoqeriCompute,renderNoqeriFragment}=await import('/examples/shaders/webgpu_host.mjs')
     async function shader(name) {
       const response=await fetch('/build/'+name,{cache:'no-store'})
@@ -55,7 +58,7 @@ try {
     ])
     const release=await renderNoqeriFragment(canvas,
       await shader('textured-fragment.wgsl'),gpu,{pixels,width:2,height:2})
-    release()
+    window.__noqeriGpuDispose=release
     return {
       fallback:adapter.isFallbackAdapter,
       vendor:info.vendor,
@@ -68,6 +71,7 @@ try {
   })
   if(result.fallback!==false)throw new Error('GPU fallback adapter incorrectly accepted')
   await page.screenshot({path:resolve(evidenceDir,'noqeri-gpu-hardware.png'),fullPage:true})
+  await page.evaluate(()=>{window.__noqeriGpuDispose?.()})
   const evidence={
     ...result,
     verifiedPhysicalAdapter:true,
