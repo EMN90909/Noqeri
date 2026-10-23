@@ -16,6 +16,14 @@ typedef struct nq_pgas_client nq_pgas_client;
  * barrier_participants=0 disables the barrier on this node. */
 int nq_pgas_server_start(uint16_t port, const char *token, uint32_t slots,
                          uint32_t barrier_participants, nq_pgas_server **out);
+/* Absolute path to a mode-0600 WAL. Exclusive lock prevents simultaneous
+ * owners. Every acknowledged mutation is fsynced before reply. On restart,
+ * complete valid records replay; truncated tails are discarded. Complete
+ * malformed records fail closed (-EBADMSG). No replicas or transparent retries.
+ * Bounded log: once full, mutations return -ENOSPC until offline maintenance. */
+int nq_pgas_server_start_durable(uint16_t port, const char *token, uint32_t slots,
+                                 uint32_t barrier_participants,
+                                 const char *wal_path, nq_pgas_server **out);
 uint16_t nq_pgas_server_port(nq_pgas_server *server);
 int nq_pgas_server_stop(nq_pgas_server *server);
 /* Rejects non-loopback hosts, intentionally. */
