@@ -1,0 +1,30 @@
+name: PGAS network namespace integration
+on:
+  pull_request:
+    paths:
+      - 'Runtime/native/pgas_*.cpp'
+      - 'Include/noqeri/pgas_*.h'
+      - 'tests/cpp/pgas_remote_*.cpp'
+      - 'tests/scripts/pgas-network-namespaces.sh'
+      - 'tests/docker/pgas-test.Dockerfile'
+      - '.github/workflows/pgas-network.yml'
+  push:
+    paths:
+      - 'Runtime/native/pgas_*.cpp'
+      - 'Include/noqeri/pgas_*.h'
+      - 'tests/cpp/pgas_remote_*.cpp'
+      - 'tests/scripts/pgas-network-namespaces.sh'
+      - 'tests/docker/pgas-test.Dockerfile'
+      - '.github/workflows/pgas-network.yml'
+jobs:
+  network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile two independent client and server programs
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp Runtime/native/pgas_tls_gateway.cpp tests/cpp/pgas_remote_node.cpp -lssl -lcrypto -o /tmp/pgas_remote_node
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_tls_gateway.cpp tests/cpp/pgas_remote_client.cpp -lssl -lcrypto -o /tmp/pgas_remote_client
+      - name: Run separated network namespace mTLS test
+        run: timeout 180s bash tests/scripts/pgas-network-namespaces.sh /tmp/pgas_remote_node /tmp/pgas_remote_client
