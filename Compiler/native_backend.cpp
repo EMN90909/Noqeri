@@ -258,6 +258,14 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
 }
 
 bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&output,Diagnostics&diagnostics)const{
+    if(!p.entry.partitions.empty()){
+        diagnostics.error("NQR-PGAS301",{},"native backend does not yet lower @partition arrays to remote addresses; refusing local execution");
+        return false;
+    }
+    for(const auto&fn:p.functions)if(!fn.partitions.empty()){
+        diagnostics.error("NQR-PGAS301",{},"native backend does not yet lower @partition arrays to remote addresses; refusing local execution");
+        return false;
+    }
     std::ofstream out(output,std::ios::trunc);if(!out){diagnostics.error("NQR-N5000",{},"cannot write assembly output: "+output.string());return false;}
     std::map<std::string,std::string>strings;std::size_t sid=0;auto collect=[&](const NirFunction&f){for(const auto&i:f.code)if(i.op==NirOp::Const)if(auto s=std::get_if<std::string>(&i.literal))if(!strings.count(*s))strings[*s]=".L_noqeri_str_"+std::to_string(sid++);};collect(p.entry);for(const auto&f:p.functions)collect(f);
     std::unordered_map<std::string,ValueKind>returns;for(int pass=0;pass<3;++pass)for(const auto&f:p.functions)if(!f.isExtern)returns[f.name]=inferReturn(f,returns);
