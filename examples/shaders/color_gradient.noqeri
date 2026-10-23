@@ -1,0 +1,8 @@
+module examples.shaders.color_gradient
+
+// Noqeri source is the single source of truth. Compile to WebGPU WGSL:
+// noqeri shader examples/shaders/color_gradient.noqeri out.wgsl --stage=fragment
+// Packed RGB returned as u32, full alpha is supplied by the WGSL entrypoint.
+export function shade(x: u32, y: u32): u32 {
+    return ((x % 256 as u32) * 65536 as u32) + ((y % 256 as u32) * 256 as u32) + 64 as u32
+}
