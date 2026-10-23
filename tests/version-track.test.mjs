@@ -16,6 +16,10 @@ test('active language/compiler release declarations all agree on 0.1.3',async()=
     ['scripts/qualify-release.mjs',/version: '0\.1\.3'/],
     ['README.md',/Version on `main`: 0\.1\.3/]
   ]
+  // The archived, checksum-pinned Stage-1 seed is a trust artifact and stays
+  // at the historical 0.7.0 version until a verified seed rotation.
+  const bootstrap = await read('Compiler/selfhost/driver.noqeri')
+  assert.match(bootstrap, /nqCompilerVersionMinor\\(\\): int \\{ return 7 \\}/)
   for(const [file,pattern] of checks)
     assert.match(await read(file),pattern,'incorrect active version in '+file)
 })
