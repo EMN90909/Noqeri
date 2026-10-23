@@ -20,6 +20,13 @@ int nq_pgas_register_task(nq_pgas_server *server, uint32_t task_id,
                           nq_pgas_task_callback callback, void *context);
 int nq_pgas_run_task(nq_pgas_client *client, uint32_t task_id,
                      int64_t argument, int64_t *output);
+/* Execute client-supplied, sandboxed arithmetic bytecode (not host machine
+ * code). A private per-connection upload, at most 256 bytes; fuel 1..4096.
+ * No memory/file/network access or native calls. Failure is negative errno.
+ * Non-idempotent remote execution must NOT be blindly replayed. */
+int nq_pgas_execute_program(nq_pgas_client *client, const uint8_t *bytecode,
+                            size_t length, int64_t argument, uint32_t fuel,
+                            int64_t *output);
 /* Tokens must be 16..64 ASCII bytes, with no whitespace or control chars.
  * A port of zero requests an ephemeral port. slots must be nonzero.
  * barrier_participants=0 disables the barrier on this node. */
