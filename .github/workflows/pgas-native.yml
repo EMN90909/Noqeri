@@ -1,0 +1,28 @@
+name: PGAS experimental native tests
+on:
+  push:
+    paths:
+      - "Runtime/native/pgas_runtime.cpp"
+      - "Include/noqeri/pgas_runtime.h"
+      - "tests/cpp/pgas_*"
+      - ".github/workflows/pgas-native.yml"
+  pull_request:
+    paths:
+      - "Runtime/native/pgas_runtime.cpp"
+      - "Include/noqeri/pgas_runtime.h"
+      - "tests/cpp/pgas_*"
+      - ".github/workflows/pgas-native.yml"
+jobs:
+  pgas:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile with warnings as errors
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_runtime_test.cpp -o /tmp/pgas_runtime_test
+          g++ -std=c++17 -Wall -Wextra -Werror -pthread -IInclude Runtime/native/pgas_runtime.cpp tests/cpp/pgas_process_test.cpp -o /tmp/pgas_process_test
+      - name: Run transport and crash tests
+        run: |
+          timeout 30s /tmp/pgas_runtime_test
+          timeout 30s /tmp/pgas_process_test
