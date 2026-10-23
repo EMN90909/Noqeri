@@ -1,0 +1,4 @@
+const bias: i64 = 5 as i64
+export function remote(value: i64): i64 {
+    return value + bias
+}
