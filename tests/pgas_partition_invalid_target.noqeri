@@ -1,0 +1,2 @@
+@partition(strategy: "block", nodes: 2)
+function notAnArray(): int { return 1 }
