@@ -25,7 +25,7 @@ test('missing compiler seed and required suites produce nonzero exit with machin
     assert.equal(result.status, 1, result.stderr)
     assert.ok(existsSync(join(root, 'build/release-qualification/report.json')))
     const report = JSON.parse(readFileSync(join(root, 'build/release-qualification/report.json'), 'utf8'))
-    assert.equal(report.version, '0.7.0')
+    assert.equal(report.version, '0.1.43')
     assert.equal(report.scope, 'general-purpose-language')
     assert.equal(report.passed, false)
     assert.equal(report.steps.find(s => s.name === 'trusted-bootstrap-seed').passed, false)
