@@ -10,4 +10,7 @@ openssl x509 -req -in "$tmp/server.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -
 openssl req -newkey rsa:2048 -sha256 -noenc -keyout "$tmp/client.key" -out "$tmp/client.csr" -subj "/CN=worker.local" >/dev/null 2>&1
 printf 'subjectAltName=DNS:worker.local\nextendedKeyUsage=clientAuth\n' > "$tmp/client.ext"
 openssl x509 -req -in "$tmp/client.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -CAcreateserial -days 1 -out "$tmp/client.crt" -extfile "$tmp/client.ext" >/dev/null 2>&1
-"$1" "$tmp/ca.crt" "$tmp/server.crt" "$tmp/server.key" "$tmp/client.crt" "$tmp/client.key"
+openssl req -newkey rsa:2048 -sha256 -noenc -keyout "$tmp/intruder.key" -out "$tmp/intruder.csr" -subj "/CN=intruder.local" >/dev/null 2>&1
+printf 'subjectAltName=DNS:intruder.local\nextendedKeyUsage=clientAuth\n' > "$tmp/intruder.ext"
+openssl x509 -req -in "$tmp/intruder.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -CAcreateserial -days 1 -out "$tmp/intruder.crt" -extfile "$tmp/intruder.ext" >/dev/null 2>&1
+"$1" "$tmp/ca.crt" "$tmp/server.crt" "$tmp/server.key" "$tmp/client.crt" "$tmp/client.key" "$tmp/intruder.crt" "$tmp/intruder.key"
