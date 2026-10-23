@@ -40,6 +40,12 @@ int nq_pgas_server_start(uint16_t port, const char *token, uint32_t slots,
 int nq_pgas_server_start_durable(uint16_t port, const char *token, uint32_t slots,
                                  uint32_t barrier_participants,
                                  const char *wal_path, nq_pgas_server **out);
+/* Monotonic epochs are fsynced as WAL control records. Promotion is local,
+ * requires durable storage, and MUST follow externally proven fencing of the
+ * old leader. This is not a consensus protocol. Clients with stale epochs
+ * receive -ESTALE for all operations except health checks. */
+int nq_pgas_server_get_epoch(nq_pgas_server *server, uint32_t *out);
+int nq_pgas_server_promote_epoch(nq_pgas_server *server, uint32_t newer_epoch);
 uint16_t nq_pgas_server_port(nq_pgas_server *server);
 int nq_pgas_server_stop(nq_pgas_server *server);
 /* Rejects non-loopback hosts, intentionally. */
