@@ -16,7 +16,7 @@ enum class TokenKind {
     Let, Const, Function, If, Else, While, Repeat, Break, Continue, Return, True, False, Null,
     Import, Module, Record, Class, Extern, Export, Volatile, As, Throw, Try, Unsafe,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-    Comma, Colon, Semicolon, Dot,
+    Comma, Colon, Semicolon, Dot, At,
     Plus, Minus, Star, Slash, Percent, Ampersand,
     Bang, BangEqual, Equal, EqualEqual,
     Less, LessEqual, Greater, GreaterEqual,
@@ -43,7 +43,7 @@ struct ArrayExpr final : Expr { std::vector<ExprPtr> elements; std::size_t eleme
 struct Stmt { virtual ~Stmt()=default; Span span; };
 using StmtPtr = std::shared_ptr<Stmt>;
 struct ExprStmt final : Stmt { ExprPtr expr; };
-struct LetStmt final : Stmt { bool isConst=false; std::string name; std::optional<std::string> annotation; ExprPtr initializer; bool zeroInitialized=false; bool zeroRequiresStorage=false; std::size_t zeroStorageBytes=0; };
+struct LetStmt final : Stmt { bool isConst=false; bool hasPartition=false; std::string partitionStrategy; std::uint32_t partitionNodes=0; std::string name; std::optional<std::string> annotation; ExprPtr initializer; bool zeroInitialized=false; bool zeroRequiresStorage=false; std::size_t zeroStorageBytes=0; };
 struct BlockStmt final : Stmt { std::vector<StmtPtr> statements; bool isUnsafe=false; };
 struct IfStmt final : Stmt { ExprPtr condition; StmtPtr thenBranch; StmtPtr elseBranch; };
 struct WhileStmt final : Stmt { ExprPtr condition; StmtPtr body; };
