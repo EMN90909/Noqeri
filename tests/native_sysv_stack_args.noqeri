@@ -1,0 +1,14 @@
+// Verify seven and eight integer/pointer ABI arguments with stack overflow
+// slots and 16-byte call-site stack alignment on System V AMD64.
+export function nativeSum8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64): i64 {
+    return a + b + c + d + e + f + g + h
+}
+export function nativeSum7(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64): i64 {
+    return a + b + c + d + e + f + g
+}
+export function nativeInvoke8(): i64 {
+    return nativeSum8(1 as i64, 2 as i64, 3 as i64, 4 as i64, 5 as i64, 6 as i64, 7 as i64, 8 as i64)
+}
+export function nativeInvoke7(): i64 {
+    return nativeSum7(1 as i64, 2 as i64, 3 as i64, 4 as i64, 5 as i64, 6 as i64, 7 as i64)
+}

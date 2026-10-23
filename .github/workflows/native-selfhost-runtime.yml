@@ -242,6 +242,15 @@ jobs:
           grep -qx 'stage1_independently_trusted=false' build-selfhost/nqri-selfhost-proof.txt
           grep -qx 'byte_equal=true' build-selfhost/nqri-selfhost-proof.txt
           grep -qx 'equivalent=true' build-selfhost/nqri-selfhost-proof.txt
+      - name: Compile and execute Noqeri-written shader backend with verified Stage-2 (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri-nqri compile-manifest build-selfhost/noqeri-stage2.nqri "$PWD" Compiler/selfhost/shader-plugin-sources.txt build-selfhost/stage2-shader-check.nqri 3
+          result=$(./build-native/noqeri-nqri build-selfhost/stage2-shader-check.nqri stage2ShaderFixture)
+          test "$result" = "0"
+          echo "Actual verified Stage-2 compiler emitted and executed Noqeri shader compiler: PASS"
       - name: Build Stage-1 NQRI seed candidate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -272,6 +281,14 @@ jobs:
           if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false -or $proof.execution_model -ne 'nqri-vm' -or $proof.native_codegen -ne $false -or $proof.native_selfhost -ne $false) {
             throw 'NQRI bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality while explicitly rejecting native qualification'
           }
+      - name: Compile and execute Noqeri-written shader backend with verified Stage-2 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-native\Release\noqeri-nqri.exe compile-manifest build-selfhost\noqeri-stage2.nqri $PWD Compiler\selfhost\shader-plugin-sources.txt build-selfhost\stage2-shader-check.nqri 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $result = (& .\build-native\Release\noqeri-nqri.exe build-selfhost\stage2-shader-check.nqri stage2ShaderFixture).Trim()
+          if ($LASTEXITCODE -ne 0 -or $result -ne '0') { throw "Noqeri Stage-2 shader emitter returned '$result'" }
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4

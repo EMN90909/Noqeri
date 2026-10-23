@@ -39,7 +39,17 @@ std::string regSlot(Reg r){return"QWORD PTR [rbp-"+std::to_string((static_cast<s
 std::size_t varOffset(const NirFunction&fn,const FunctionLayout&l,const std::string&name){auto it=l.variableIndex.find(name);auto index=static_cast<std::size_t>(fn.nextReg)+(it==l.variableIndex.end()?0:it->second)+1;return index*8;}
 std::string varSlot(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"QWORD PTR [rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
 std::string varAddress(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"[rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
-std::string symbolForCall(const NirProgram&p,const std::string&name){for(const auto&f:p.functions)if(f.name==name)return(f.isExtern||f.isExport)?safe(f.name):internalSymbol(f.name);return safe(name);}
+std::string symbolForCall(const NirProgram&p,const std::string&name){
+    // The parser and self-hosted compiler use forward declarations before
+    // definitions. Never resolve their calls to a raw C ABI symbol when the
+    // actual implementation lives in this module as an internal function.
+    for(const auto&f:p.functions)
+        if(f.name==name&&!f.isExtern)
+            return f.isExport?safe(f.name):internalSymbol(f.name);
+    for(const auto&f:p.functions)
+        if(f.name==name)return safe(f.name);
+    return safe(name);
+}
 
 void emitRuntime(std::ostream&out){out<<R"ASM(
 .data
@@ -188,7 +198,9 @@ bool safeInlineAsm(const std::string& text){if(text.empty())return false;if(text
 bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns,const std::map<std::string,std::string>&strings,Diagnostics&diagnostics){
     if(fn.isExtern)return true;
     auto l=layoutFor(fn,returns);const char*args[]={"rdi","rsi","rdx","rcx","r8","r9"};
-    if(fn.params.size()>6){diagnostics.error("NQR-N5004",{},"Noqeri x86-64 calling convention currently supports at most 6 parameters");return false;}
+    // On System V x86-64 the first six integral/pointer arguments are in
+    // registers; additional arguments are read from the caller's stack.
+    if(fn.params.size()>32){diagnostics.error("NQR-N5004",{},"native functions support at most 32 scalar arguments");return false;}
     std::string symbol=fn.isExport?safe(fn.name):internalSymbol(fn.name);
     if(fn.isExport)out<<"\n.global "<<symbol<<"\n";
     std::vector<std::size_t> fixedStorage(fn.code.size(),0);
@@ -205,7 +217,14 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     }
     std::size_t frame=align16(frameBytes);
     out<<"\n"<<symbol<<":\n    push rbp\n    mov rbp, rsp\n";if(frame)out<<"    sub rsp, "<<frame<<"\n";
-    for(std::size_t i=0;i<fn.params.size();++i)out<<"    mov "<<varSlot(fn,l,fn.params[i])<<", "<<args[i]<<"\n";
+    for(std::size_t i=0;i<fn.params.size();++i){
+        if(i<6)out<<"    mov "<<varSlot(fn,l,fn.params[i])<<", "<<args[i]<<"\n";
+        else {
+            const auto stackOffset=16+(i-6)*8;
+            out<<"    mov rax, QWORD PTR [rbp+"<<stackOffset<<"]\n";
+            out<<"    mov "<<varSlot(fn,l,fn.params[i])<<", rax\n";
+        }
+    }
     auto load=[&](Reg r,const char*cpu){out<<"    mov "<<cpu<<", "<<regSlot(r)<<"\n";};auto store=[&](Reg r,const char*cpu){out<<"    mov "<<regSlot(r)<<", "<<cpu<<"\n";};
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];out<<pcLabel(fn,pc)<<":\n";switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
@@ -248,7 +267,24 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::Cast:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitCast(out,i.text);store(*i.dest,"rax");}break;
         case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-")out<<"    neg rax\n";else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;
         case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}load(i.args[0],"rax");load(i.args[1],"r10");if(i.text=="+")out<<"    add rax, r10\n";else if(i.text=="-")out<<"    sub rax, r10\n";else if(i.text=="*")out<<"    imul rax, r10\n";else if(i.text=="/"||i.text=="%"){out<<"    cqo\n    idiv r10\n";if(i.text=="%")out<<"    mov rax, rdx\n";}else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<"    setl al\n";else if(i.text=="<=")out<<"    setle al\n";else if(i.text==">")out<<"    setg al\n";else if(i.text==">=")out<<"    setge al\n";else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}store(*i.dest,"rax");break;}
-        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float printing is not implemented yet");return false;}else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
+        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float printing is not implemented yet");return false;}else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{
+            if(i.args.size()>32){diagnostics.error("NQR-N5004",{},"native calls support at most 32 scalar arguments");return false;}
+            const std::size_t stackArgs=i.args.size()>6?i.args.size()-6:0;
+            const std::size_t padding=stackArgs%2;
+            // Reserve padding BEFORE pushing stack args so the first stack
+            // argument stays immediately above the return address. Every
+            // outgoing call observes 16-byte stack alignment.
+            if(padding)out<<"    sub rsp, 8\n";
+            for(std::size_t a=i.args.size();a>6;--a){
+                load(i.args[a-1],"rax");
+                out<<"    push rax\n";
+            }
+            for(std::size_t a=0;a<std::min<std::size_t>(i.args.size(),6);++a)
+                load(i.args[a],args[a]);
+            out<<"    call "<<symbolForCall(p,i.text)<<"\n";
+            if(stackArgs+padding)out<<"    add rsp, "<<(stackArgs+padding)*8<<"\n";
+            if(i.dest)store(*i.dest,"rax");
+        }break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";out<<"    leave\n    ret\n";break;

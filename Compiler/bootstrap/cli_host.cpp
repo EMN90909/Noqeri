@@ -390,7 +390,23 @@ int main(int argc, char** argv) {
         }
         auto options = optionsFromArgs(argc, argv, selected->target);
         if (cmd == "bootstrap-seed") options.allowUnsafe = true;
-        auto compilation = compileFile(path, options);
+        // Shader-only vector and texture types are checked by ShaderBackend
+        // against WGSL's type system. Native Noqeri's general-purpose type
+        // checker does not yet have GPU resources or vecN and must not erase
+        // that distinction by treating them as host records or extern calls.
+        CompileResult compilation;
+        if (cmd == "shader") {
+            Diagnostics syntax;
+            Lexer lexer(readTextFile(path),syntax);
+            auto tokens=lexer.lex();
+            if(!syntax.hasErrors()){
+                Parser parser(std::move(tokens),syntax);
+                compilation.ast=parser.parse();
+            }
+            compilation.diagnostics=std::move(syntax);
+        } else {
+            compilation=compileFile(path,options);
+        }
         if (compilation.diagnostics.hasErrors()) { compilation.diagnostics.print(path.string()); return 1; }
         if (cmd == "check") {
             std::cout << "check succeeded: " << path << " modules=" << (compilation.modules ? compilation.modules->modules().size() : 1) << " target=" << options.target << "\n";

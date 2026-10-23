@@ -1,0 +1,20 @@
+import "../Compiler/selfhost/shader_wgsl.noqeri"
+
+extern function nq_shader_write(data: *u8, len: usize): int
+extern function nq_shader_error(status: isize): int
+extern function nq_shader_inspect(data: *u8, len: usize): int
+
+// This exercises a genuine compiler backend written in Noqeri, using the
+// same self-hosted AST parser module as the Stage-2 compiler.
+let source: [u8; 71] = [101 as u8, 120 as u8, 112 as u8, 111 as u8, 114 as u8, 116 as u8, 32 as u8, 102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 118 as u8, 97 as u8, 108 as u8, 117 as u8, 101 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 41 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 32 as u8, 123 as u8, 10 as u8, 32 as u8, 32 as u8, 32 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 118 as u8, 97 as u8, 108 as u8, 117 as u8, 101 as u8, 32 as u8, 43 as u8, 32 as u8, 53 as u8, 32 as u8, 97 as u8, 115 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 10 as u8, 125 as u8, 10 as u8]
+let output: [u8; 8192]
+nq_shader_inspect(&source[0], len(source))
+let count: isize = nqStage2ShaderComputeWgsl(slice(source), slice(output))
+if count > 0 as isize {
+    nq_shader_write(&output[0], count as usize)
+} else {
+    nq_shader_error(count)
+}
+let invalid: [u8; 64] = [101 as u8, 120 as u8, 112 as u8, 111 as u8, 114 as u8, 116 as u8, 32 as u8, 102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 115 as u8, 104 as u8, 97 as u8, 100 as u8, 101 as u8, 40 as u8, 118 as u8, 97 as u8, 108 as u8, 117 as u8, 101 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 41 as u8, 58 as u8, 32 as u8, 117 as u8, 51 as u8, 50 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 99 as u8, 108 as u8, 111 as u8, 99 as u8, 107 as u8, 77 as u8, 105 as u8, 108 as u8, 108 as u8, 105 as u8, 115 as u8, 40 as u8, 41 as u8, 32 as u8, 125 as u8, 10 as u8]
+let invalidResult: isize = nqStage2ShaderComputeWgsl(slice(invalid), slice(output))
+if invalidResult >= 0 as isize { print(999) }

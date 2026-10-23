@@ -23,6 +23,8 @@ button { cursor:pointer; }
     <option value="gradient.wgsl">RGB gradient</option>
     <option value="posterize.wgsl">Conditional posterization</option>
     <option value="grayscale.wgsl">Float grayscale</option>
+    <option value="vector-math.wgsl">Vector distance and tint</option>
+    <option value="textured-fragment.wgsl">Sample RGBA texture</option>
   </select>
   <button id="render" type="button">Render</button>
 </div>
@@ -30,6 +32,7 @@ button { cursor:pointer; }
 <div class="controls">
   <button id="compute" type="button">Run integer compute</button>
   <button id="float-compute" type="button">Run float compute</button>
+  <button id="vector-compute" type="button">Run vec4 compute</button>
 </div>
 <p id="result" role="status" aria-live="polite">Preparing WebGPU…</p>
 <script type="module">
@@ -39,11 +42,12 @@ const shader=document.getElementById('fragment')
 const renderButton=document.getElementById('render')
 const integerButton=document.getElementById('compute')
 const floatButton=document.getElementById('float-compute')
+const vectorButton=document.getElementById('vector-compute')
 const canvas=document.getElementById('frame')
 const gpu=globalThis.navigator?.gpu
 let release=()=>{}
 async function source(file) {
-  const known=new Set(['gradient.wgsl','posterize.wgsl','grayscale.wgsl','invert.wgsl','float-compute.wgsl'])
+  const known=new Set(['gradient.wgsl','posterize.wgsl','grayscale.wgsl','vector-math.wgsl','textured-fragment.wgsl','invert.wgsl','float-compute.wgsl','vector-compute.wgsl'])
   if(!known.has(file))throw new Error('Unknown Noqeri shader output.')
   const response=await fetch('../../build/'+file,{cache:'no-cache'})
   if(!response.ok)throw new Error('Missing build/'+file+'. Compile the Noqeri shader source first.')
@@ -54,7 +58,12 @@ async function display() {
   try {
     release()
     release=()=>{}
-    release=await renderNoqeriFragment(canvas,await source(shader.value),gpu)
+    const image={pixels:new Uint8Array([
+      255,0,0,255, 0,255,0,255,
+      0,0,255,255, 255,255,255,255
+    ]),width:2,height:2}
+    release=await renderNoqeriFragment(canvas,await source(shader.value),gpu,
+      shader.value==='textured-fragment.wgsl'?image:null)
     status.textContent='Noqeri '+shader.options[shader.selectedIndex].text+' shader rendered with WebGPU.'
   }catch(error){
     status.textContent=String(error.message??error)
@@ -75,6 +84,9 @@ integerButton.addEventListener('click',()=>{
 })
 floatButton.addEventListener('click',()=>{
   compute(floatButton,'float-compute.wgsl',new Float32Array([-4,0,1,2,8]))
+})
+vectorButton.addEventListener('click',()=>{
+  compute(vectorButton,'vector-compute.wgsl',new Float32Array([1,2,4,8,2,4,8,16]))
 })
 window.addEventListener('pagehide',()=>{release();release=()=>{}})
 display()
