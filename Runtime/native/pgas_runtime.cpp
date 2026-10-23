@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <unordered_map>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -30,6 +31,7 @@ constexpr uint32_t op_ping = 1, op_read = 2, op_write = 3, op_cas = 4,
 constexpr uint32_t max_clients = 64;
 constexpr uint32_t max_slots = 1000000;
 constexpr uint32_t max_timeout_ms = 60000;
+constexpr uint32_t op_run_task = 7;
 constexpr size_t req_bytes = 32, response_bytes = 16;
 static void put32(unsigned char *p, uint32_t x) {
   x = htonl(x); std::memcpy(p, &x, 4);
@@ -93,6 +95,9 @@ struct nq_pgas_server {
   std::string token;
   std::mutex data_mu;
   std::vector<int64_t> values;
+  std::mutex task_mu;
+  struct RegisteredTask { nq_pgas_task_callback callback; void *context; };
+  std::unordered_map<uint32_t, RegisteredTask> registered_tasks;
   int wal_fd = -1;
   uint64_t wal_sequence = 0;
   std::mutex barrier_mu;
@@ -270,6 +275,22 @@ static void serve_client(nq_pgas_server *s, int fd) {
     if (get32(req) != magic || get32(req + 12) != 0) status = -EPROTO;
     else if (operation == op_ping) {}
     else if (operation == op_barrier) status = wait_barrier(s);
+    else if (operation == op_run_task) {
+      nq_pgas_server::RegisteredTask task{};
+      {
+        std::lock_guard<std::mutex> lock(s->task_mu);
+        const auto it = s->registered_tasks.find(index);
+        if (it == s->registered_tasks.end()) status = -ENOENT;
+        else task = it->second;
+      }
+      if (!status) {
+        // Callbacks are explicit trusted host code, not code supplied over RPC.
+        // Uncaught exceptions must not terminate a worker process.
+        try { status = task.callback(arg1, task.context, &result); }
+        catch (...) { status = -EIO; }
+        if (status > 0) status = -EINVAL;
+      }
+    }
     else if (operation < op_read || operation > op_add) status = -ENOTSUP;
     else {
       std::lock_guard<std::mutex> lock(s->data_mu);
@@ -448,6 +469,19 @@ int nq_pgas_client_close(nq_pgas_client *c) {
     if (c->fd >= 0) { shutdown(c->fd, SHUT_RDWR); close(c->fd); c->fd = -1; }
   }
   delete c; return 0;
+}
+int nq_pgas_register_task(nq_pgas_server *s, uint32_t id,
+                           nq_pgas_task_callback callback, void *context) {
+  if (!s || s->stopping || id == 0 || id > 65535 || !callback) return -EINVAL;
+  std::lock_guard<std::mutex> lock(s->task_mu);
+  if (s->registered_tasks.find(id) != s->registered_tasks.end()) return -EEXIST;
+  try { s->registered_tasks.emplace(id, nq_pgas_server::RegisteredTask{callback, context}); }
+  catch (...) { return -ENOMEM; }
+  return 0;
+}
+int nq_pgas_run_task(nq_pgas_client *c, uint32_t id, int64_t input, int64_t *out) {
+  if (!out || id == 0 || id > 65535) return -EINVAL;
+  return request(c, op_run_task, id, input, 0, out);
 }
 int nq_pgas_ping(nq_pgas_client *c) { return request(c, op_ping, 0, 0, 0, nullptr); }
 int nq_pgas_read(nq_pgas_client *c, uint32_t index, int64_t *out) {
