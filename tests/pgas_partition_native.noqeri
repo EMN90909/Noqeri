@@ -1,0 +1,8 @@
+@partition(strategy: "cyclic", nodes: 2)
+let dataset: [i64; 6]
+dataset[0] = 101 as i64
+dataset[1] = 202 as i64
+dataset[2] = dataset[0] + 5 as i64
+if dataset[2] == 106 as i64 {
+    print(len(dataset))
+}
