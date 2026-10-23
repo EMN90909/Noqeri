@@ -51,6 +51,7 @@ int nq_pgas_server_stop(nq_pgas_server *server);
 /* Rejects non-loopback hosts, intentionally. */
 int nq_pgas_client_connect(const char *host, uint16_t port, const char *token,
                            uint32_t timeout_ms, nq_pgas_client **out);
+int nq_pgas_client_set_epoch(nq_pgas_client *client, uint32_t epoch);
 int nq_pgas_client_close(nq_pgas_client *client);
 int nq_pgas_ping(nq_pgas_client *client);
 int nq_pgas_read(nq_pgas_client *client, uint32_t local_index, int64_t *out);
