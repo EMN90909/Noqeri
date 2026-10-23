@@ -1,6 +1,7 @@
 #pragma once
 #include "ast.hpp"
 #include "diagnostics.hpp"
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -11,6 +12,7 @@ namespace noe {
 class ShaderBackend {
 public:
     bool emitWgsl(const Program& program, const std::filesystem::path& output,
-                  const std::string& stage, Diagnostics& diagnostics) const;
+                  const std::string& stage, Diagnostics& diagnostics,
+                  std::uint32_t workgroupSize = 64) const;
 };
 } // namespace noe
