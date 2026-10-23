@@ -7,5 +7,5 @@ export function shade(x: float, y: float): NqVec4 {
     const scaled: NqVec2 = nqVec2Scale(offset, 0.9)
     const tint: NqVec3 = nqVec3(scaled.x, scaled.y, 0.6)
     const light: NqVec3 = nqVec3Scale(tint, 0.75)
-    return nqVec4(light.x, light.y, light.z, 1.0)
+    return nqVec4Clamp(nqVec4(light.x, light.y, light.z, 1.0), 0.0, 1.0)
 }
