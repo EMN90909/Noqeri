@@ -1,0 +1,13 @@
+module examples.shaders.vector_math_fragment
+
+// All vector math lives in Noqeri source, not WGSL strings or JavaScript.
+export function shade(x: float, y: float): vec4 {
+    const pos: vec2 = vec2(x / 640.0, y / 360.0)
+    const center: vec2 = vec2(0.5, 0.5)
+    const distanceToCenter: float = distance(pos, center)
+    const tint: vec3 = normalize(vec3(0.6, 0.8, 0.0))
+    if distanceToCenter < 0.28 {
+        return vec4(tint.r, tint.g, tint.b, 1.0)
+    }
+    return vec4(0.1, 0.15, 0.22, 1.0)
+}
