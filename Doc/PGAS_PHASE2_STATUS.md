@@ -1,4 +1,7 @@
-# PGAS phase 2 qualification status
+# PGAS qualification status (phase 2 and experimental distributed extensions)
+
+**Current implementation matrix and operator-run acceptance steps:**
+[Distributed PGAS acceptance](PGAS_DISTRIBUTED_ACCEPTANCE.md).
 
 This document describes what the experimental PGAS components **actually**
 support, not a production-ready distributed-memory platform.
@@ -26,16 +29,25 @@ This does not qualify 0.1.3 as a stable compiler release.
   shared token. Never expose the underlying loopback RPC to an untrusted host.
   Certificates are configured at startup; rotate/restart to update trust.
 - Distributed tasks: node owners can register a trusted callback under a
-  numeric ID (`nq_pgas_register_task`). Client nodes can call the registered
-  kernel over TLS with one signed-64-bit argument and result. It is NOT remote
-  executable code upload, a sandbox, or a distributed closure scheduler.
+  numeric ID (`nq_pgas_register_task`) with one signed-64-bit argument and
+  result. The additional bounded sandbox bytecode runtime permits unprivileged
+  client-supplied arithmetic programs with strict fuel, stack and size caps.
+  Neither path supports arbitrary Noqeri closure compilation/distribution.
   Callback execution is concurrent and not automatically replay-safe.
-- Global address mapping remains a library/ABI operation. Compiler
-  `@partition` attribute lowering has not been verified end to end.
-- Memory ordering is node-local. Global barriers, global linearizability,
-  distributed transactions, leases, fencing and membership are absent.
-- RDMA is **not** implemented, and there is no hardware-tested verbs/UCX
-  provider; the portable fallback is TCP/TLS only.
+- Stage-0 now recognizes, typechecks and retains `@partition` placement
+  metadata in NIR. Backends fail closed instead of silently interpreting it as
+  local storage. Stage-2/self-host parity and **actual distributed memory
+  lowering** are still missing.
+- Node epochs are now WAL-durable and stale client operations are refused
+  after controlled external fencing/promotion. A two-node synchronous TLS
+  mirror exists, but split-brain-safe leader election, global barriers,
+  global linearizability, distributed transactions and consensus membership
+  are absent.
+- Optional Linux `libibverbs` RC RDMA endpoint registration, QP setup and
+  one-sided read/write implementation is present. CI compiles the real provider
+  and probes hardware absence, but **two-NIC peer qualification, authenticated
+  descriptor exchange, persistence and packet-level security are not yet
+  integrated**; TLS remains the qualified test path.
 - Full Noqeri-native machine-code linking, 2+ physical-machine integration,
   failure-injection matrices, certificate rotation, node revocation,
   high-throughput load tests, and hardened production deployment are
