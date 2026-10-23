@@ -12,7 +12,11 @@ timeout 20s "$work/sysv"
 g++ -std=c++17 -Wall -Wextra -Werror -pthread "$work/shader_backend.s" \
   tests/cpp/shader_stage2_native_test.cpp -o "$work/noqeri_shader_backend"
 timeout 30s "$work/noqeri_shader_backend" > "$work/noqeri_selfhost_compute.wgsl"
-grep -q 'fn noqeri_shade(nq_arg0: u32) -> u32' "$work/noqeri_selfhost_compute.wgsl"
+if ! grep -q 'fn noqeri_shade(nq_arg0: u32) -> u32' "$work/noqeri_selfhost_compute.wgsl"; then
+  echo "Noqeri shader WGSL did not include the expected function" >&2
+  head -c 800 "$work/noqeri_selfhost_compute.wgsl" >&2 || true
+  exit 1
+fi
 grep -q '@compute @workgroup_size(64)' "$work/noqeri_selfhost_compute.wgsl"
 cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- "$work/noqeri_selfhost_compute.wgsl"
 echo "Noqeri-authored standalone selfhost compute shader emitter: PASS"
