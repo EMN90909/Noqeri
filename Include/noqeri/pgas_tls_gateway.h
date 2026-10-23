@@ -33,6 +33,10 @@ int nq_pgas_tls_compare_exchange(nq_pgas_tls_client *client, uint32_t index,
 int nq_pgas_tls_fetch_add(nq_pgas_tls_client *client, uint32_t index,
     int64_t delta, int64_t *previous);
 int nq_pgas_tls_barrier(nq_pgas_tls_client *client);
+/* TLS-authenticated sandbox program invocation. See pgas_runtime.h opcodes. */
+int nq_pgas_tls_execute_program(nq_pgas_tls_client *client,
+    const uint8_t *bytecode, size_t length, int64_t argument,
+    uint32_t fuel, int64_t *output);
 int nq_pgas_tls_run_task(nq_pgas_tls_client *client, uint32_t task_id,
                           int64_t argument, int64_t *output);
 #ifdef __cplusplus
