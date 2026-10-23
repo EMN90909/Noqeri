@@ -120,10 +120,6 @@ StmtPtr Parser::declaration(){
     if(check(TokenKind::Module)&&isNameKind(nextKind(1))){advance();return moduleDeclaration();}
     if(check(TokenKind::Import)&&nextKind(1)==TokenKind::String){advance();return importDeclaration();}
     if(check(TokenKind::Record)&&isNameKind(nextKind(1))&&nextKind(2)==TokenKind::LBrace){advance();return recordDeclaration();}
-    if(partitioned && !check(TokenKind::Let)){
-        diagnostics_.error("NQR-PGAS0006",peek().span,"@partition is only valid on let array declarations");
-        throw ParseError("partition target");
-    }
     if(match({TokenKind::Let})){
         auto s=letDeclaration(false);
         if(partitioned){
