@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -90,6 +93,8 @@ struct nq_pgas_server {
   std::string token;
   std::mutex data_mu;
   std::vector<int64_t> values;
+  int wal_fd = -1;
+  uint64_t wal_sequence = 0;
   std::mutex barrier_mu;
   std::condition_variable barrier_cv;
   uint32_t participants = 0, arrivals = 0;
@@ -108,6 +113,101 @@ struct nq_pgas_client {
 };
 
 namespace {
+// Durable WAL format: 16-byte header then 32-byte records. All multi-byte
+// integers are network-endian. A fully fsynced record precedes any mutation.
+// Corrupt complete records fail closed; an incomplete trailing record is
+// removed before accepting clients.
+constexpr uint32_t wal_magic = 0x4e515731;  // NQW1
+constexpr uint32_t rec_magic = 0x4e515752;  // NQWR
+constexpr size_t wal_header_bytes = 16, wal_record_bytes = 32;
+constexpr uint64_t wal_max_bytes = 64ull * 1024 * 1024;
+static uint32_t wal_checksum(const unsigned char *p, size_t n) {
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < n; ++i) { hash ^= p[i]; hash *= 16777619u; }
+  return hash;
+}
+static int wal_write_all(int fd, const unsigned char *p, size_t size) {
+  for (size_t written = 0; written < size;) {
+    ssize_t n = write(fd, p + written, size - written);
+    if (n < 0) { if (errno == EINTR) continue; return -errno; }
+    if (n == 0) return -EIO;
+    written += static_cast<size_t>(n);
+  }
+  return 0;
+}
+static int wal_read_all(int fd, unsigned char *p, size_t size) {
+  for (size_t count = 0; count < size;) {
+    ssize_t n = read(fd, p + count, size - count);
+    if (n < 0) { if (errno == EINTR) continue; return -errno; }
+    if (n == 0) return -EIO;
+    count += static_cast<size_t>(n);
+  }
+  return 0;
+}
+static int load_wal(nq_pgas_server *s, const char *path) {
+  if (!path || path[0] != '/' || std::strlen(path) > 4096) return -EINVAL;
+  int fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (fd < 0) return -errno;
+  const auto fail = [&](int code) { close(fd); return code; };
+  if (flock(fd, LOCK_EX | LOCK_NB) != 0) return fail(-errno);
+  struct stat info{};
+  if (fstat(fd, &info) != 0) return fail(-errno);
+  if (!S_ISREG(info.st_mode) || (info.st_mode & 0077) != 0 ||
+      info.st_size < 0 || static_cast<uint64_t>(info.st_size) > wal_max_bytes) return fail(-EPERM);
+  unsigned char header[wal_header_bytes]{};
+  if (info.st_size == 0) {
+    put32(header, wal_magic);
+    put32(header + 4, static_cast<uint32_t>(s->values.size()));
+    if (wal_write_all(fd, header, sizeof(header)) != 0 || fsync(fd) != 0) return fail(-EIO);
+  } else {
+    if (info.st_size < static_cast<off_t>(wal_header_bytes)) return fail(-EBADMSG);
+    int rc = wal_read_all(fd, header, sizeof(header));
+    if (rc) return fail(rc);
+    if (get32(header) != wal_magic || get32(header + 4) != s->values.size() ||
+        get64(header + 8) != 0) return fail(-EBADMSG);
+    uint64_t remaining = static_cast<uint64_t>(info.st_size) - wal_header_bytes;
+    uint64_t complete = remaining / wal_record_bytes;
+    for (uint64_t i = 0; i < complete; ++i) {
+      unsigned char entry[wal_record_bytes];
+      rc = wal_read_all(fd, entry, sizeof(entry));
+      if (rc) return fail(rc);
+      const uint32_t slot = get32(entry + 4);
+      if (get32(entry) != rec_magic || slot >= s->values.size() ||
+          get64(entry + 8) != s->wal_sequence + 1 ||
+          get32(entry + 24) != wal_checksum(entry, 24) ||
+          get32(entry + 28) != 0) return fail(-EBADMSG);
+      s->values[slot] = static_cast<int64_t>(get64(entry + 16));
+      ++s->wal_sequence;
+    }
+    if (remaining % wal_record_bytes) {
+      off_t end = static_cast<off_t>(wal_header_bytes + complete * wal_record_bytes);
+      if (ftruncate(fd, end) != 0 || fsync(fd) != 0) return fail(-EIO);
+    }
+  }
+  if (lseek(fd, 0, SEEK_END) < 0) return fail(-errno);
+  s->wal_fd = fd;
+  return 0;
+}
+static int append_wal(nq_pgas_server *s, uint32_t slot, int64_t value) {
+  if (s->wal_fd < 0) return 0;
+  const off_t end = lseek(s->wal_fd, 0, SEEK_END);
+  if (end < 0) return -errno;
+  if (static_cast<uint64_t>(end) + wal_record_bytes > wal_max_bytes) return -ENOSPC;
+  unsigned char record[wal_record_bytes]{};
+  put32(record, rec_magic); put32(record + 4, slot);
+  put64(record + 8, s->wal_sequence + 1);
+  put64(record + 16, static_cast<uint64_t>(value));
+  put32(record + 24, wal_checksum(record, 24));
+  int rc = wal_write_all(s->wal_fd, record, sizeof(record));
+  if (!rc && fsync(s->wal_fd) != 0) rc = -errno;
+  if (rc) {
+    ftruncate(s->wal_fd, end);
+    lseek(s->wal_fd, 0, SEEK_END);
+    return rc;
+  }
+  ++s->wal_sequence;
+  return 0;
+}
 static int wait_barrier(nq_pgas_server *s) {
   if (s->participants == 0) return -ENOTSUP;
   std::unique_lock<std::mutex> lock(s->barrier_mu);
@@ -178,12 +278,24 @@ static void serve_client(nq_pgas_server *s, int fd) {
         int64_t &slot = s->values[index];
         switch (operation) {
         case op_read: result = slot; break;
-        case op_write: slot = arg1; break;
-        case op_cas: result = slot; if (slot == arg1) slot = arg2; break;
+        case op_write:
+          status = append_wal(s, index, arg1);
+          if (!status) slot = arg1;
+          break;
+        case op_cas:
+          result = slot;
+          if (slot == arg1) {
+            status = append_wal(s, index, arg2);
+            if (!status) slot = arg2;
+          }
+          break;
         case op_add: {
           result = slot;
           // Explicit two's-complement wrapping arithmetic avoids signed UB.
-          slot = static_cast<int64_t>(static_cast<uint64_t>(slot) + static_cast<uint64_t>(arg1));
+          const int64_t next = static_cast<int64_t>(
+              static_cast<uint64_t>(slot) + static_cast<uint64_t>(arg1));
+          status = append_wal(s, index, next);
+          if (!status) slot = next;
           break;
         }
         default: break;
@@ -240,28 +352,46 @@ static int request(nq_pgas_client *c, uint32_t operation, uint32_t index,
 extern "C" {
 int nq_pgas_server_start(uint16_t port, const char *token, uint32_t slots,
                          uint32_t participants, nq_pgas_server **out) {
+  return nq_pgas_server_start_durable(port, token, slots, participants, nullptr, out);
+}
+int nq_pgas_server_start_durable(uint16_t port, const char *token, uint32_t slots,
+                                 uint32_t participants, const char *wal_path,
+                                 nq_pgas_server **out) {
   if (!out || !valid_token(token) || !slots || slots > max_slots || participants > max_clients) return -EINVAL;
   *out = nullptr;
   std::unique_ptr<nq_pgas_server> s(new (std::nothrow) nq_pgas_server);
   if (!s) return -ENOMEM;
   try { s->values.resize(slots, 0); s->token = token; } catch (...) { return -ENOMEM; }
   s->participants = participants;
+  if (wal_path) {
+    int rc = load_wal(s.get(), wal_path);
+    if (rc) return rc;
+  }
   s->listener = socket(AF_INET, SOCK_STREAM, 0);
-  if (s->listener < 0) return -errno;
+  if (s->listener < 0) {
+    int e = errno; if (s->wal_fd >= 0) close(s->wal_fd);
+    return -e;
+  }
   sockaddr_in addr{}; addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port = htons(port);
   if (bind(s->listener, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0 ||
       listen(s->listener, static_cast<int>(max_clients)) != 0) {
-    int e = errno; close(s->listener); return -e;
+    int e = errno; close(s->listener);
+    if (s->wal_fd >= 0) close(s->wal_fd);
+    return -e;
   }
   socklen_t size = sizeof(addr);
   if (getsockname(s->listener, reinterpret_cast<sockaddr *>(&addr), &size) != 0) {
-    int e = errno; close(s->listener); return -e;
+    int e = errno; close(s->listener);
+    if (s->wal_fd >= 0) close(s->wal_fd);
+    return -e;
   }
   s->port = ntohs(addr.sin_port);
   try { s->accept_thread = std::thread([p = s.get()] { accept_loop(p); }); }
-  catch (...) { close(s->listener); return -EAGAIN; }
+  catch (...) { close(s->listener);
+    if (s->wal_fd >= 0) close(s->wal_fd);
+    return -EAGAIN; }
   *out = s.release();
   return 0;
 }
@@ -277,6 +407,11 @@ int nq_pgas_server_stop(nq_pgas_server *s) {
     for (int fd : s->sockets) shutdown(fd, SHUT_RDWR);
   }
   for (auto &t : s->workers) if (t.joinable()) t.join();
+  if (s->wal_fd >= 0) {
+    int rc = fsync(s->wal_fd);
+    close(s->wal_fd);
+    if (rc != 0) { delete s; return -EIO; }
+  }
   delete s;
   return 0;
 }
