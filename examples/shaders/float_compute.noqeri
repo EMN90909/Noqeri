@@ -1,0 +1,11 @@
+module examples.shaders.float_compute
+
+// Float32 GPU compute values use Noqeri's 'float' source type.
+// Converting 64-bit CPU floats to WebGPU f32 is intentional for this target.
+export function shade(value: float): float {
+    const half: float = 0.5
+    if value < 0.0 {
+        return 0.0
+    }
+    return value * half
+}
