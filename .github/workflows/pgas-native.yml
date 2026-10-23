@@ -15,7 +15,7 @@ on:
 jobs:
   pgas:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Compile with warnings as errors
@@ -26,3 +26,8 @@ jobs:
         run: |
           timeout 30s /tmp/pgas_runtime_test
           timeout 30s /tmp/pgas_process_test
+      - name: CMake integration and Noqeri source check
+        run: |
+          cmake -S . -B /tmp/noqeri-pgas-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build /tmp/noqeri-pgas-build --target noqeri noqeri_pgas_runtime -j 2
+          /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas.noqeri
