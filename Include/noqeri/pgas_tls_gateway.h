@@ -1,6 +1,7 @@
 #ifndef NOQERI_PGAS_TLS_GATEWAY_H
 #define NOQERI_PGAS_TLS_GATEWAY_H
 #include <stdint.h>
+#include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
