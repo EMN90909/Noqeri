@@ -1,0 +1,32 @@
+module noqeri.std.pgas_tls
+
+// TLS 1.3 mutually authenticated remote PGAS transport. Native host ABI
+// nq_pgas_tls_gateway must be explicitly linked. Cert files and key files are
+// resolved on the local machine; the server authenticates the client SAN.
+extern function nq_pgas_tls_client_connect(ipv4: string, port: u16, ca_pem: string, cert_pem: string, key_pem: string, expected_server_dns: string, timeout_ms: u32, out: *usize): int
+extern function nq_pgas_tls_client_close(client: usize): int
+extern function nq_pgas_tls_ping(client: usize): int
+extern function nq_pgas_tls_read(client: usize, slot: u32, out: *i64): int
+extern function nq_pgas_tls_write(client: usize, slot: u32, value: i64): int
+extern function nq_pgas_tls_compare_exchange(client: usize, slot: u32, expected: i64, desired: i64, observed: *i64): int
+extern function nq_pgas_tls_fetch_add(client: usize, slot: u32, delta: i64, previous: *i64): int
+extern function nq_pgas_tls_barrier(client: usize): int
+extern function nq_pgas_tls_run_task(client: usize, task_id: u32, argument: i64, out: *i64): int
+
+export function pgas_tls_connect(ipv4: string, port: u16, ca: string, cert: string, key: string, server_dns: string, timeout_ms: u32, out: *usize): int {
+    if out == null || port == 0 as u16 || timeout_ms == 0 as u32 { return -22 }
+    return nq_pgas_tls_client_connect(ipv4, port, ca, cert, key, server_dns, timeout_ms, out)
+}
+export function pgas_tls_close(client: usize): int { return nq_pgas_tls_client_close(client) }
+export function pgas_tls_health(client: usize): int { return nq_pgas_tls_ping(client) }
+export function pgas_tls_read_i64(client: usize, slot: u32, out: *i64): int { return nq_pgas_tls_read(client, slot, out) }
+export function pgas_tls_write_i64(client: usize, slot: u32, value: i64): int { return nq_pgas_tls_write(client, slot, value) }
+export function pgas_tls_cas_i64(client: usize, slot: u32, expected: i64, desired: i64, observed: *i64): int {
+    return nq_pgas_tls_compare_exchange(client, slot, expected, desired, observed)
+}
+export function pgas_tls_add_i64(client: usize, slot: u32, delta: i64, previous: *i64): int { return nq_pgas_tls_fetch_add(client, slot, delta, previous) }
+export function pgas_tls_sync(client: usize): int { return nq_pgas_tls_barrier(client) }
+export function pgas_tls_registered_task(client: usize, task_id: u32, argument: i64, out: *i64): int {
+    if out == null || task_id == 0 as u32 { return -22 }
+    return nq_pgas_tls_run_task(client, task_id, argument, out)
+}
