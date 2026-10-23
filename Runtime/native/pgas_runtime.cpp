@@ -102,6 +102,7 @@ struct nq_pgas_server {
   std::unordered_map<uint32_t, RegisteredTask> registered_tasks;
   int wal_fd = -1;
   uint64_t wal_sequence = 0;
+  std::atomic<uint32_t> epoch{0};
   std::mutex barrier_mu;
   std::condition_variable barrier_cv;
   uint32_t participants = 0, arrivals = 0;
@@ -117,6 +118,7 @@ struct nq_pgas_client {
   int fd = -1;
   std::mutex mu;
   uint32_t timeout_ms = 0;
+  uint32_t epoch = 0;
 };
 
 namespace {
@@ -179,11 +181,17 @@ static int load_wal(nq_pgas_server *s, const char *path) {
       rc = wal_read_all(fd, entry, sizeof(entry));
       if (rc) return fail(rc);
       const uint32_t slot = get32(entry + 4);
-      if (get32(entry) != rec_magic || slot >= s->values.size() ||
+      if (get32(entry) != rec_magic ||
+          (slot != UINT32_MAX && slot >= s->values.size()) ||
           get64(entry + 8) != s->wal_sequence + 1 ||
           get32(entry + 24) != wal_checksum(entry, 24) ||
           get32(entry + 28) != 0) return fail(-EBADMSG);
-      s->values[slot] = static_cast<int64_t>(get64(entry + 16));
+      if(slot == UINT32_MAX) {
+        const uint64_t next = get64(entry + 16);
+        if (next == 0 || next > UINT32_MAX || next <= s->epoch.load())
+          return fail(-EBADMSG);
+        s->epoch.store(static_cast<uint32_t>(next));
+      } else s->values[slot] = static_cast<int64_t>(get64(entry + 16));
       ++s->wal_sequence;
     }
     if (remaining % wal_record_bytes) {
@@ -333,8 +341,10 @@ static void serve_client(nq_pgas_server *s, int fd) {
     uint32_t index = get32(req + 8);
     int64_t arg1 = static_cast<int64_t>(get64(req + 16));
     int64_t arg2 = static_cast<int64_t>(get64(req + 24));
-    if (get32(req) != magic || get32(req + 12) != 0) status = -EPROTO;
+    if (get32(req) != magic) status = -EPROTO;
     else if (operation == op_ping) {}
+    else if (get32(req + 12) != s->epoch.load(std::memory_order_acquire))
+      status = -ESTALE;
     else if (operation == op_program_chunk) {
       if (index >= max_program_bytes || index % 16 != 0 ||
           index > sandbox_loaded) status = -ERANGE;
@@ -434,6 +444,7 @@ static int request_locked(nq_pgas_client *c, uint32_t operation, uint32_t index,
   if (c->fd < 0) return -ENOTCONN;
   unsigned char req[req_bytes]{};
   put32(req, magic); put32(req + 4, operation); put32(req + 8, index);
+  put32(req + 12, c->epoch);
   if (payload) std::memcpy(req + 16, payload, 16);
   else {
     put64(req + 16, static_cast<uint64_t>(a));
@@ -503,6 +514,21 @@ int nq_pgas_server_start_durable(uint16_t port, const char *token, uint32_t slot
   return 0;
 }
 uint16_t nq_pgas_server_port(nq_pgas_server *s) { return s ? s->port : 0; }
+int nq_pgas_server_get_epoch(nq_pgas_server *s, uint32_t *out) {
+  if (!s || !out) return -EINVAL;
+  *out = s->epoch.load(std::memory_order_acquire);
+  return 0;
+}
+int nq_pgas_server_promote_epoch(nq_pgas_server *s, uint32_t proposed) {
+  if (!s || s->stopping || proposed == 0) return -EINVAL;
+  std::lock_guard<std::mutex> lock(s->data_mu);
+  if (s->wal_fd < 0) return -ENOTSUP;
+  if (proposed <= s->epoch.load()) return -ESTALE;
+  const int rc = append_wal(s, UINT32_MAX, proposed);
+  if (rc) return rc;
+  s->epoch.store(proposed, std::memory_order_release);
+  return 0;
+}
 int nq_pgas_server_stop(nq_pgas_server *s) {
   if (!s) return -EINVAL;
   s->stopping = true;
@@ -547,6 +573,13 @@ int nq_pgas_client_connect(const char *host, uint16_t port, const char *token,
   std::unique_ptr<nq_pgas_client> c(new (std::nothrow) nq_pgas_client);
   if (!c) { close(fd); return -ENOMEM; }
   c->fd = fd; c->timeout_ms = timeout; *out = c.release();
+  return 0;
+}
+int nq_pgas_client_set_epoch(nq_pgas_client *c, uint32_t epoch) {
+  if (!c) return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  if (c->fd < 0) return -ENOTCONN;
+  c->epoch = epoch;
   return 0;
 }
 int nq_pgas_client_close(nq_pgas_client *c) {
