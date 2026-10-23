@@ -36,3 +36,58 @@ export function pgas_cas_i64(client: usize, slot: u32, expected: i64, desired: i
 export function pgas_add_i64(client: usize, slot: u32, delta: i64, previous: *i64): int { return nq_pgas_fetch_add(client, slot, delta, previous) }
 export function pgas_sync(client: usize): int { return nq_pgas_barrier(client) }
 export function pgas_health(client: usize): int { return nq_pgas_ping(client) }
+
+ 
+// Node lifecycle and global-address operations. The ABI is opt-in: consumers
+// must link the native noqeri_pgas_runtime host library.
+extern function nq_pgas_server_start(port: u16, token: string, slots: u32, participants: u32, out: *usize): int
+extern function nq_pgas_server_port(server: usize): u16
+extern function nq_pgas_server_stop(server: usize): int
+
+export function pgas_serve(port: u16, token: string, slots: u32, participants: u32, out: *usize): int {
+    if slots == 0 as u32 || out == null { return -22 }
+    return nq_pgas_server_start(port, token, slots, participants, out)
+}
+export function pgas_bound_port(server: usize): u16 { return nq_pgas_server_port(server) }
+export function pgas_stop(server: usize): int { return nq_pgas_server_stop(server) }
+export function pgas_connect(port: u16, token: string, timeout_ms: u32, out: *usize): int {
+    if out == null || port == 0 as u16 { return -22 }
+    return nq_pgas_client_connect("127.0.0.1", port, token, timeout_ms, out)
+}
+export function pgas_close(client: usize): int { return nq_pgas_client_close(client) }
+
+// All clients must be in node-id order. Individual node capacities must be
+// sized to the selected distribution. A failure returns a negative status and
+// never falls back to a different node, which would risk corrupting ownership.
+export function pgas_read_global_i64(clients: []usize, index: u64, elements: u64, strategy: u32, out: *i64): int {
+    if out == null || len(clients) == 0 as usize { return -22 }
+    let node: u32 = 0 as u32
+    let slot: u32 = 0 as u32
+    let status: int = nq_pgas_location(index, elements, len(clients) as u32, strategy, &node, &slot)
+    if status != 0 { return status }
+    return nq_pgas_read(clients[node as usize], slot, out)
+}
+export function pgas_write_global_i64(clients: []usize, index: u64, elements: u64, strategy: u32, value: i64): int {
+    if len(clients) == 0 as usize { return -22 }
+    let node: u32 = 0 as u32
+    let slot: u32 = 0 as u32
+    let status: int = nq_pgas_location(index, elements, len(clients) as u32, strategy, &node, &slot)
+    if status != 0 { return status }
+    return nq_pgas_write(clients[node as usize], slot, value)
+}
+export function pgas_cas_global_i64(clients: []usize, index: u64, elements: u64, strategy: u32, expected: i64, desired: i64, observed: *i64): int {
+    if observed == null || len(clients) == 0 as usize { return -22 }
+    let node: u32 = 0 as u32
+    let slot: u32 = 0 as u32
+    let status: int = nq_pgas_location(index, elements, len(clients) as u32, strategy, &node, &slot)
+    if status != 0 { return status }
+    return nq_pgas_compare_exchange(clients[node as usize], slot, expected, desired, observed)
+}
+export function pgas_add_global_i64(clients: []usize, index: u64, elements: u64, strategy: u32, delta: i64, previous: *i64): int {
+    if previous == null || len(clients) == 0 as usize { return -22 }
+    let node: u32 = 0 as u32
+    let slot: u32 = 0 as u32
+    let status: int = nq_pgas_location(index, elements, len(clients) as u32, strategy, &node, &slot)
+    if status != 0 { return status }
+    return nq_pgas_fetch_add(clients[node as usize], slot, delta, previous)
+}
