@@ -242,6 +242,13 @@ jobs:
           grep -qx 'stage1_independently_trusted=false' build-selfhost/nqri-selfhost-proof.txt
           grep -qx 'byte_equal=true' build-selfhost/nqri-selfhost-proof.txt
           grep -qx 'equivalent=true' build-selfhost/nqri-selfhost-proof.txt
+      - name: Compile shader generator with Stage-2 and prove Noqeri WGSL parity (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 600s bash tests/scripts/shader-stage2-selfhost.sh \
+            ./build-native/noqeri-nqri ./build-native/noqeri ./build-selfhost/noqeri-stage2.nqri
       - name: Build Stage-1 NQRI seed candidate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
