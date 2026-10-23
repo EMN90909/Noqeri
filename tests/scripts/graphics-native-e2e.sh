@@ -5,6 +5,11 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 "$compiler" check Lib/std/render2d.noqeri
+"$compiler" check Lib/std/os_framebuffer.noqeri
+"$compiler" build examples/os_framebuffer_demo.noqeri "$work/os_framebuffer.s" -O0
+g++ -std=c++17 -Wall -Wextra -Werror -pthread \
+  "$work/os_framebuffer.s" tests/cpp/os_framebuffer_headless_test.cpp -o "$work/noqeri-osfb"
+timeout 20s "$work/noqeri-osfb"
 "$compiler" build examples/graphics_demo.noqeri "$work/graphics.s" -O0
 g++ -std=c++17 -Wall -Wextra -Werror -pthread \
   "$work/graphics.s" tests/cpp/graphics_headless_test.cpp -o "$work/noqeri-headless"
