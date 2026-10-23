@@ -1,0 +1,11 @@
+module examples.shaders.vector_gradient_fragment
+import "../../Lib/std/gpu_shaders.noqeri"
+
+// Demonstrates typed vec2 / vec3 / vec4 math and vector component access.
+export function shade(x: float, y: float): NqVec4 {
+    const offset: NqVec2 = nqVec2(x / 640.0, y / 360.0)
+    const scaled: NqVec2 = nqVec2Scale(offset, 0.9)
+    const tint: NqVec3 = nqVec3(scaled.x, scaled.y, 0.6)
+    const light: NqVec3 = nqVec3Scale(tint, 0.75)
+    return nqVec4Clamp(nqVec4(light.x, light.y, light.z, 1.0), 0.0, 1.0)
+}

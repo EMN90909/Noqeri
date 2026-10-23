@@ -23,6 +23,9 @@ button { cursor:pointer; }
     <option value="gradient.wgsl">RGB gradient</option>
     <option value="posterize.wgsl">Conditional posterization</option>
     <option value="grayscale.wgsl">Float grayscale</option>
+    <option value="vector.wgsl">Noqeri vector gradient</option>
+    <option value="texture.wgsl">Noqeri filtered texture sampling</option>
+    <option value="texture-load.wgsl">Noqeri texture texel loading</option>
   </select>
   <button id="render" type="button">Render</button>
 </div>
@@ -30,6 +33,7 @@ button { cursor:pointer; }
 <div class="controls">
   <button id="compute" type="button">Run integer compute</button>
   <button id="float-compute" type="button">Run float compute</button>
+  <button id="vector-compute" type="button">Run vec4 compute</button>
 </div>
 <p id="result" role="status" aria-live="polite">Preparing WebGPU…</p>
 <script type="module">
@@ -39,22 +43,42 @@ const shader=document.getElementById('fragment')
 const renderButton=document.getElementById('render')
 const integerButton=document.getElementById('compute')
 const floatButton=document.getElementById('float-compute')
+const vectorButton=document.getElementById('vector-compute')
 const canvas=document.getElementById('frame')
 const gpu=globalThis.navigator?.gpu
 let release=()=>{}
 async function source(file) {
-  const known=new Set(['gradient.wgsl','posterize.wgsl','grayscale.wgsl','invert.wgsl','float-compute.wgsl'])
+  const known=new Set(['gradient.wgsl','posterize.wgsl','grayscale.wgsl',
+   'invert.wgsl','float-compute.wgsl','vector.wgsl','vector-compute.wgsl',
+   'texture.wgsl','texture-load.wgsl'])
   if(!known.has(file))throw new Error('Unknown Noqeri shader output.')
   const response=await fetch('../../build/'+file,{cache:'no-cache'})
   if(!response.ok)throw new Error('Missing build/'+file+'. Compile the Noqeri shader source first.')
   return response.text()
+}
+// The texture is input data. All sampling, vector math and tinting are
+// implemented in Noqeri shader code, not in the browser host.
+function sampleTexture() {
+  const width=256,height=256
+  const data=new Uint8Array(width*height*4)
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const index=(y*width+x)*4
+    const light=((Math.floor(x/32)+Math.floor(y/32))%2===0)
+    data[index]=light?230:40
+    data[index+1]=light?140:35
+    data[index+2]=light?50:205
+    data[index+3]=255
+  }
+  return {width,height,data}
 }
 async function display() {
   renderButton.disabled=true
   try {
     release()
     release=()=>{}
-    release=await renderNoqeriFragment(canvas,await source(shader.value),gpu)
+    const file=shader.value
+    release=await renderNoqeriFragment(canvas,await source(file),gpu,
+      file.startsWith('texture')?sampleTexture():null)
     status.textContent='Noqeri '+shader.options[shader.selectedIndex].text+' shader rendered with WebGPU.'
   }catch(error){
     status.textContent=String(error.message??error)
@@ -75,6 +99,10 @@ integerButton.addEventListener('click',()=>{
 })
 floatButton.addEventListener('click',()=>{
   compute(floatButton,'float-compute.wgsl',new Float32Array([-4,0,1,2,8]))
+})
+vectorButton.addEventListener('click',()=>{
+  compute(vectorButton,'vector-compute.wgsl',
+    new Float32Array([1,0,0,1,0,1,0,1,0,0,1,1,1,1,1,1]))
 })
 window.addEventListener('pagehide',()=>{release();release=()=>{}})
 display()

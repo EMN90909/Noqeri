@@ -3,6 +3,18 @@
 This is the first **executable** Noqeri-authored graphics integration, not a
 claim that Noqeri ships a custom GPU driver or complete game engine.
 
+## Shader vectors, textures and self-hosting
+
+The new shader extension library
+[`Lib/std/gpu_shaders.noqeri`](../Lib/std/gpu_shaders.noqeri) provides
+typed Noqeri `NqVec2`/`NqVec3`/`NqVec4` functions and 2D texture
+intrinsics compiled directly to WGSL, plus a browser host that binds
+RGBA8 textures and vec4 compute buffers. Read
+[Shader v3](GPU_SHADER_V3.md) for the exact profiles and GPU
+hardware evidence requirements. The standalone Noqeri-written Stage-2
+shader addon is NQRI-VM-executed and narrower than Stage-0; it does
+not certify native Stage-2 independent compilation.
+
 ## GPU shader source in Noqeri
 
 WebGPU shaders are authored as ordinary `.noqeri` source with exactly one

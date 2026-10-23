@@ -1,0 +1,68 @@
+name: Noqeri physical GPU hardware qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physically-backed-webgpu:
+    # MUST be installed on a dedicated Linux GPU host. Standard GitHub
+    # ubuntu-latest VMs do not constitute real graphics-card qualification.
+    runs-on: [self-hosted, Linux, gpu, noqeri-webgpu]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm actual GPU PCI/device inventory exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v lspci
+          lspci -nn | tee build-gpu-hardware-inventory.txt
+          if ! lspci -nn | grep -Ei 'VGA compatible controller|3D controller|Display controller'; then
+            echo 'NQR-GPU-HW0: no real GPU controller found' >&2
+            exit 1
+          fi
+          test -e /dev/dri/renderD128 || test -e /dev/nvidia0 || {
+            echo 'NQR-GPU-HW0: no GPU render-device node found' >&2
+            exit 1
+          }
+      - name: Build Noqeri and generate WGSL from canonical Noqeri source
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-gpu -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build-gpu --target noqeri -j 2
+          mkdir -p build
+          build-gpu/noqeri shader examples/shaders/invert_compute.noqeri build/invert.wgsl --stage=compute
+          build-gpu/noqeri shader examples/shaders/float_compute.noqeri build/float-compute.wgsl --stage=compute --workgroup-size=128
+          build-gpu/noqeri shader examples/shaders/vector_compute.noqeri build/vector-compute.wgsl --stage=compute --workgroup-size=128
+          build-gpu/noqeri shader examples/shaders/texture_fragment.noqeri build/texture.wgsl --stage=fragment
+          build-gpu/noqeri shader examples/shaders/texture_load_fragment.noqeri build/texture-load.wgsl --stage=fragment
+      - name: Install real-browser WebGPU hardware test dependencies
+        run: |
+          set -euo pipefail
+          npm install --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          npx playwright install chromium
+      - name: Run GPU shader dispatch, texture pixel readback and hardware attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/noqeri-gpu-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for n in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/build/invert.wgsl >/dev/null; then break; fi
+            sleep 1
+          done
+          timeout 180s node tests/hardware/webgpu-gpu-smoke.mjs
+      - name: Upload strict physical GPU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-gpu-hardware-proof-${{ github.sha }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            build/gpu-qualification/webgpu-hardware-proof.json
+            build-gpu-hardware-inventory.txt

@@ -1,0 +1,6 @@
+module examples.shaders.texture_load_fragment
+import "../../Lib/std/gpu_shaders.noqeri"
+
+export function shade(x: float, y: float): NqVec4 {
+    return nqTextureLoad(x as u32, y as u32)
+}
