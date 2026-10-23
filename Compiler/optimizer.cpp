@@ -1,5 +1,7 @@
 #include "noe.hpp"
 #include "optimizer_cost.hpp"
+#include "pgo.hpp"
+#include <stdexcept>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -412,10 +414,97 @@ bool scheduleLocalConstants(NirFunction& fn) {
     }
     return changed;
 }
-// LICM for a single-entry *structured* natural loop. Only hoists Const,
-// which cannot trap, allocate, alias or change numerical behavior. Any branch
-// inside the body, exceptional operation or external entry blocks movement.
-bool hoistLoopLiteral(NirFunction& fn) {
+// Effect-free, dependency-aware local instruction scheduling. This is a
+// bounded integer NIR DAG scheduler, not a target-machine scheduler. It does
+// not move operations across loads, stores, calls, branches, traps or atomics.
+// Longer arithmetic dependency chains are scheduled before shorter ones.
+bool scheduleIntegerDag(NirFunction& fn) {
+    const auto g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    for(const auto& in:fn.code)
+        if(in.op==NirOp::Try||in.op==NirOp::InlineAsm)return false;
+    const auto eligible=[](const NirInstruction& in) {
+        if(!in.dest||in.isVolatile)return false;
+        if(in.op==NirOp::Const)
+            return std::holds_alternative<std::int64_t>(in.literal)||
+                   std::holds_alternative<bool>(in.literal);
+        if(in.op==NirOp::Binary&&safeIntResult(in))
+            return in.text=="+"||in.text=="-"||in.text=="*";
+        if(in.op==NirOp::Unary&&safeIntResult(in))
+            return in.text=="-"||in.text=="!";
+        return false;
+    };
+    bool changed=false;
+    for(const auto& block:g.spans){
+        std::size_t first=block.first;
+        while(first<block.second){
+            if(!eligible(fn.code[first])){++first;continue;}
+            std::size_t end=first;
+            while(end<block.second&&eligible(fn.code[end])&&end-first<32)++end;
+            const auto count=end-first;
+            if(count<3){first=end;continue;}
+            std::unordered_map<Reg,std::size_t> producer;
+            for(std::size_t i=0;i<count;++i)
+                producer[*fn.code[first+i].dest]=i;
+            std::vector<std::vector<std::size_t>> consumers(count);
+            std::vector<std::size_t> indegree(count,0);
+            bool valid=true;
+            for(std::size_t i=0;i<count;++i){
+                for(const Reg arg:fn.code[first+i].args){
+                    const auto it=producer.find(arg);
+                    if(it==producer.end())continue;
+                    if(it->second>=i){valid=false;break;}
+                    consumers[it->second].push_back(i);++indegree[i];
+                }
+                if(!valid)break;
+            }
+            if(!valid){first=end;continue;}
+            std::vector<unsigned> path(count,0);
+            for(std::size_t i=count;i-->0;){
+                const auto& in=fn.code[first+i];
+                unsigned cost=in.op==NirOp::Binary&&in.text=="*"?3u:1u;
+                unsigned longest=0;
+                for(auto consumer:consumers[i])
+                    longest=std::max(longest,path[consumer]);
+                path[i]=cost+longest;
+            }
+            std::vector<std::size_t> order;order.reserve(count);
+            std::vector<bool> scheduled(count,false);
+            for(std::size_t step=0;step<count;++step){
+                std::size_t candidate=count;
+                for(std::size_t i=0;i<count;++i){
+                    if(scheduled[i]||indegree[i])continue;
+                    if(candidate==count||path[i]>path[candidate]||
+                       (path[i]==path[candidate]&&i<candidate))
+                        candidate=i;
+                }
+                if(candidate==count){valid=false;break;}
+                scheduled[candidate]=true;order.push_back(candidate);
+                for(auto user:consumers[candidate])--indegree[user];
+            }
+            if(valid){
+                bool differs=false;
+                for(std::size_t i=0;i<count;++i)
+                    if(order[i]!=i){differs=true;break;}
+                if(differs){
+                    std::vector<NirInstruction> reordered;
+                    reordered.reserve(count);
+                    for(auto i:order)reordered.push_back(fn.code[first+i]);
+                    for(std::size_t i=0;i<count;++i)
+                        fn.code[first+i]=std::move(reordered[i]);
+                    changed=true;
+                }
+            }
+            first=end;
+        }
+    }
+    return changed;
+}
+// LICM for single-entry structured loops: hoist literals and proven
+// loop-invariant, wrapping integer +, -, and * expressions. Every operand
+// must have been defined before the preheader. Never hoist memory, floating
+// arithmetic, divisions, traps or side effects across a zero-trip loop.
+bool hoistLoopInvariant(NirFunction& fn) {
     const Graph analysis=graphOf(fn);
     if(!analysis.uniqueDefs||!analysis.validDominance)return false;
     const std::size_t n=fn.code.size();
@@ -448,7 +537,21 @@ bool hoistLoopLiteral(NirFunction& fn) {
         if(!structured||branch==n)continue;
         for(std::size_t candidate=branch+1;candidate<back;++candidate){
             const auto& instruction=fn.code[candidate];
-            if(instruction.op!=NirOp::Const||!instruction.dest)continue;
+            if(!instruction.dest || instruction.isVolatile)continue;
+            const bool literal=instruction.op==NirOp::Const;
+            bool invariantInteger=false;
+            if(instruction.op==NirOp::Binary&&
+               instruction.args.size()==2&&safeIntResult(instruction)&&
+               (instruction.text=="+"||instruction.text=="-"||
+                instruction.text=="*")) {
+                invariantInteger=true;
+                for(Reg arg:instruction.args) {
+                    const auto def=analysis.definitions.find(arg);
+                    if(def!=analysis.definitions.end()&&def->second>=header)
+                        invariantInteger=false;
+                }
+            }
+            if(!literal&&!invariantInteger)continue;
             const auto reg=*instruction.dest;
             bool outside=false;
             for(std::size_t k=0;k<n&&!outside;++k)
@@ -476,7 +579,84 @@ bool hoistLoopLiteral(NirFunction& fn) {
     }
     return false;
 }
-void pipeline(NirFunction& fn, OptimizationLevel level) {
+// A semantics-preserving 2x loop unroller for structured while loops.
+// It duplicates the original condition and body, testing the exit condition
+// between the two iterations. No trip count is guessed. Unknown control-flow
+// entries, exceptional edges and nested loops are rejected conservatively.
+// Run only after SSA-dependent passes: repeating a virtual register's
+// definitions across two unrolled iterations invalidates single-def SSA.
+bool unrollStructuredLoop2x(NirFunction& fn) {
+    const std::size_t n=fn.code.size();
+    if(n<4 || n>4096) return false;
+    for(const auto& in:fn.code)
+        if(in.op==NirOp::Try || in.op==NirOp::InlineAsm ||
+           in.op==NirOp::Throw) return false;
+    for(std::size_t back=0;back<n;++back){
+        const auto& backedge=fn.code[back];
+        if(backedge.op!=NirOp::Jump||backedge.target>=back)continue;
+        const std::size_t header=backedge.target,span=back-header;
+        if(span<2 || span>20 || n+span>4096)continue;
+        std::size_t condition=n;
+        bool structured=true;
+        for(std::size_t i=header;i<back;++i){
+            const auto& in=fn.code[i];
+            if(in.op==NirOp::JumpIfFalse){
+                if(condition!=n||in.target!=back+1||in.args.size()!=1){
+                    structured=false;break;
+                }
+                condition=i;
+            } else if(in.op==NirOp::Jump||in.op==NirOp::Return||
+                      in.op==NirOp::Throw||in.op==NirOp::Try||
+                      in.op==NirOp::InlineAsm){
+                structured=false;break;
+            }
+        }
+        if(!structured||condition==n || condition==back-1)continue;
+        // Only the loop's own backedge may jump into the repeated region.
+        // Incoming edges to its header remain legal.
+        for(std::size_t i=0;i<n&&structured;++i){
+            if(i>=header && i<=back)continue;
+            const auto& in=fn.code[i];
+            if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+                in.target>header && in.target<=back) structured=false;
+        }
+        if(!structured)continue;
+        // Other backedges would make the cloned loop's entry/restart
+        // behavior ambiguous. Defer nested and multi-exit loops.
+        for(std::size_t i=0;i<n&&structured;++i)
+            if(i!=back&&fn.code[i].op==NirOp::Jump&&
+               fn.code[i].target<i)structured=false;
+        if(!structured)continue;
+        const auto copyBegin=fn.code.begin()+static_cast<std::ptrdiff_t>(header);
+        const auto copyEnd=fn.code.begin()+static_cast<std::ptrdiff_t>(back);
+        std::vector<NirInstruction> iteration(copyBegin,copyEnd);
+        // Validate the complete output before mutating the original.
+        std::vector<NirInstruction> out;
+        out.reserve(n+span);
+        out.insert(out.end(),fn.code.begin(),
+                   fn.code.begin()+static_cast<std::ptrdiff_t>(back));
+        out.insert(out.end(),iteration.begin(),iteration.end());
+        out.insert(out.end(),fn.code.begin()+static_cast<std::ptrdiff_t>(back),
+                   fn.code.end());
+        // Translate old jump targets once, including branches outside loop.
+        // The replicated exit checks both lead to exactly old back+1.
+        for(std::size_t i=0;i<out.size();++i){
+            auto& in=out[i];
+            if(in.op!=NirOp::Jump&&in.op!=NirOp::JumpIfFalse)continue;
+            if(i>=back && i<back+span) {
+                // Every cloned control edge is the unique loop exit.
+                in.target=back+1+span;
+            }else if(in.target>=back){
+                if(in.target>n)return false;
+                in.target+=span;
+            }
+        }
+        fn.code=std::move(out);
+        return true;
+    }
+    return false;
+}
+void pipeline(NirFunction& fn, OptimizationLevel level, bool allowLoopUnroll=true) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
     // first (temporarily unused) producer. Pass order is observable here.
@@ -504,13 +684,59 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         }
     }
     if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
-    if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
+    if(level==OptimizationLevel::O3 && hoistLoopInvariant(fn)) {
         // Hoisting changes jump indices: the existing branch compaction pass
         // rechecks all targets and dead definitions after transformation.
         dce(fn);
     }
+    if(level==OptimizationLevel::O3) scheduleIntegerDag(fn);
+    // Late unrolling preserves each condition evaluation and all observable
+    // effects; no earlier SSA-only pass is rerun on the replicated registers.
+    if(level==OptimizationLevel::O3&&allowLoopUnroll) unrollStructuredLoop2x(fn);
     if (level == OptimizationLevel::Oz) dce(fn);
 }
+}
+// Plan independent two-lane 64-bit integer SLP candidates for targets with
+// documented 128-bit SIMD support. This reports legality opportunities only:
+// the current NIR and native backends do not lower vector operations.
+std::vector<SlpPackCandidate> inspectSlpPacks(
+    const NirFunction& fn, const TargetCostModel& target) {
+    std::vector<SlpPackCandidate> packs;
+    if(target.vectorBits<128 || target.availableIntegerRegisters<4)return packs;
+    const auto g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return packs;
+    for(const auto& i:fn.code)
+        if(i.op==NirOp::Try||i.op==NirOp::InlineAsm)return packs;
+    for(const auto& block:g.spans) {
+        for(std::size_t pc=block.first;pc+1<block.second;++pc) {
+            const auto& a=fn.code[pc],&b=fn.code[pc+1];
+            if(a.op!=NirOp::Binary||b.op!=NirOp::Binary||
+               !a.dest||!b.dest||a.args.size()!=2||b.args.size()!=2||
+               a.isVolatile||b.isVolatile||a.text!=b.text||
+               a.width!=8||b.width!=8 ||
+               (a.type.kind!=TypeKind::I64&&a.type.kind!=TypeKind::U64)||
+               b.type.kind!=a.type.kind)continue;
+            if(a.text!="+"&&a.text!="-"&&a.text!="*")continue;
+            // A legal SLP pack may not depend on its neighbor, reference
+            // the same input lane, or read its own output as an operand.
+            const auto contains=[](const std::vector<Reg>& args,Reg value) {
+                return std::find(args.begin(),args.end(),value)!=args.end();
+            };
+            if(contains(a.args,*b.dest)||contains(b.args,*a.dest)||
+               *a.dest==*b.dest)continue;
+            bool disjoint=true;
+            for(auto left:a.args)for(auto right:b.args)
+                if(left==right)disjoint=false;
+            if(!disjoint)continue;
+            const unsigned opCost=a.text=="*"?target.intMultiply:target.intAdd;
+            // A conservative heuristic: two independent scalar ops must
+            // outweigh one vector op plus two lane-setup operations.
+            if(opCost*2<=opCost+2)continue;
+            packs.push_back({pc,pc+1,a.text,64});
+            ++pc; // a register cannot be packed in overlapping pairs
+        }
+    }
+    return packs;
 }
 NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
     const auto cfg=graphOf(fn);
@@ -598,37 +824,101 @@ OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
 // zero-argument function consisting of one constant and its return.
 // It must never convert a potentially throwing or effectful call.
 void PassManager::optimize(NirProgram& p) const {
+    // Checked profile feedback changes ONLY the unroll size heuristic.
+    // Optimizer legality remains entirely independent of execution counts.
+    if(profile_&&!profile_->compatible(p))
+        throw std::invalid_argument("NQPGO1 profile does not match NIR revision");
+    // Until measured target tables exist, only targets with a higher
+    // heuristic branch penalty permit code-size-expanding loop unrolling.
+    const auto targetCost=TargetCostModel::forTarget(target_);
+    const bool targetAllowsUnroll=targetCost.branch>=3;
+    const bool unrollEntry=targetAllowsUnroll&&
+        (!profile_||profile_->executions(p.entry)>=64);
+    std::vector<bool> unrollFunctions;
+    for(const auto& fn:p.functions)
+        unrollFunctions.push_back(targetAllowsUnroll&&
+            (!profile_||profile_->executions(fn)>=64));
     if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
         level_ == OptimizationLevel::Oz) {
-        std::unordered_map<std::string, NirValue> candidates;
-        std::unordered_set<std::string> ambiguous;
-        for (const auto& fn : p.functions) {
-            if (fn.name.empty() || fn.isExtern || !fn.params.empty() ||
-                !fn.paramTypes.empty() || fn.code.size() != 2) continue;
-            const auto& a = fn.code[0];
-            const auto& b = fn.code[1];
-            if (a.op != NirOp::Const || !a.dest ||
-                std::holds_alternative<std::monostate>(a.literal) ||
-                b.op != NirOp::Return || b.args.size() != 1 ||
-                b.args.front() != *a.dest) continue;
-            if (!candidates.emplace(fn.name, a.literal).second)
-                ambiguous.insert(fn.name);
+        // Interprocedural constant evaluation for bounded, zero-argument,
+        // non-extern, side-effect-free function bodies. This is not general
+        // call inlining: no memory operations, exceptions, parameters, or
+        // recursive calls are evaluated at compile time.
+        std::unordered_map<std::string, unsigned> definitions;
+        for(const auto& fn:p.functions)
+            if(!fn.name.empty())++definitions[fn.name];
+        std::unordered_map<std::string,NirValue> candidates;
+        for(std::size_t round=0;round<p.functions.size();++round) {
+            bool progressed=false;
+            for(const auto& fn:p.functions) {
+                if(fn.name.empty()||definitions[fn.name]!=1||fn.isExtern||
+                   !fn.params.empty()||!fn.paramTypes.empty()||
+                   fn.code.empty()||fn.code.size()>12||
+                   candidates.count(fn.name))continue;
+                std::unordered_map<Reg,NirValue> values;
+                bool valid=true,returned=false;
+                NirValue result;
+                std::unordered_set<Reg> defs;
+                for(std::size_t pc=0;pc<fn.code.size();++pc) {
+                    const auto& in=fn.code[pc];
+                    if(in.dest&&!defs.insert(*in.dest).second){valid=false;break;}
+                    if(in.op==NirOp::Const&&in.dest&&
+                       !std::holds_alternative<std::monostate>(in.literal)) {
+                        values[*in.dest]=in.literal;
+                    }else if(in.op==NirOp::Binary&&in.dest&&in.args.size()==2) {
+                        const auto a=values.find(in.args[0]),b=values.find(in.args[1]);
+                        if(a==values.end()||b==values.end()||
+                           !std::holds_alternative<std::int64_t>(a->second)||
+                           !std::holds_alternative<std::int64_t>(b->second)||
+                           (in.text!="+"&&in.text!="-"&&in.text!="*"&&
+                            in.text!="=="&&in.text!="!="&&in.text!="<"&&
+                            in.text!="<="&&in.text!=">"&&in.text!=">=")) {
+                            valid=false;break;
+                        }
+                        auto folded=fold(in.text,a->second,b->second);
+                        if(!folded){valid=false;break;}
+                        values[*in.dest]=*folded;
+                    }else if(in.op==NirOp::Call&&in.dest&&in.args.empty()) {
+                        const auto callee=candidates.find(in.text);
+                        if(callee==candidates.end()){valid=false;break;}
+                        values[*in.dest]=callee->second;
+                    }else if(in.op==NirOp::Return&&in.args.size()==1&&
+                             pc+1==fn.code.size()) {
+                        const auto value=values.find(in.args[0]);
+                        if(value==values.end()){valid=false;break;}
+                        result=value->second;returned=true;
+                    }else {valid=false;break;}
+                }
+                if(valid&&returned){
+                    candidates.emplace(fn.name,result);
+                    progressed=true;
+                }
+            }
+            if(!progressed)break;
         }
-        for (const auto& name : ambiguous) candidates.erase(name);
-        auto inlineConstants = [&](NirFunction& fn) {
-            for (auto& in : fn.code) {
-                if (in.op != NirOp::Call || !in.dest || !in.args.empty()) continue;
-                auto found = candidates.find(in.text);
-                if (found == candidates.end()) continue;
-                in.op = NirOp::Const;
-                in.literal = found->second;
+        auto inlineConstants=[&](NirFunction& fn) {
+            for(auto& in:fn.code) {
+                if(in.op!=NirOp::Call||!in.dest||!in.args.empty())continue;
+                const auto it=candidates.find(in.text);
+                if(it==candidates.end())continue;
+                in.op=NirOp::Const;
+                in.literal=it->second;
                 in.text.clear();
             }
         };
         inlineConstants(p.entry);
-        for (auto& fn : p.functions) inlineConstants(fn);
+        for(auto& fn:p.functions)inlineConstants(fn);
     }
-    pipeline(p.entry, level_);
-    for (auto& fn : p.functions) pipeline(fn, level_);
+    pipeline(p.entry, level_, unrollEntry);
+    for (std::size_t i=0;i<p.functions.size();++i)
+        pipeline(p.functions[i], level_, unrollFunctions[i]);
 }
-void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
+void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}
+void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{
+    PassManager(level).optimize(p);
+}
+void Optimizer::optimize(NirProgram&p,OptimizationLevel level,const std::string& target)const{
+    PassManager(level,target).optimize(p);
+}
+void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);}
+} // namespace noe

@@ -12,7 +12,7 @@ endif()
 # the Noqeri compiler can compile the corresponding compiler/toolchain pieces.
 set(NOQERI_FRONTEND_SOURCES
  Compiler/core.cpp Compiler/modules.cpp Compiler/workspace.cpp Compiler/type_checker.cpp
- Compiler/lifetime.cpp Compiler/safety.cpp Compiler/generics.cpp Compiler/nir.cpp Compiler/nir_analysis.cpp Compiler/register_alloc.cpp Compiler/optimizer.cpp
+ Compiler/lifetime.cpp Compiler/safety.cpp Compiler/generics.cpp Compiler/nir.cpp Compiler/nir_analysis.cpp Compiler/register_alloc.cpp Compiler/optimizer.cpp Compiler/lto.cpp
  Compiler/bootstrap/lexer_host.cpp Compiler/bootstrap/parser_host.cpp Compiler/bootstrap/abi_runtime_host.cpp Compiler/bootstrap/interpreter_host.cpp
  Compiler/bootstrap/noqeridb_host.cpp)
 set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
@@ -65,6 +65,11 @@ if(BUILD_TESTING)
  target_compile_features(noqeri-optimizer-test PRIVATE cxx_std_17)
  noqeri_apply_warnings(noqeri-optimizer-test)
  add_test(NAME noqeri-optimizer-liveness COMMAND noqeri-optimizer-test)
+ add_executable(noqeri-lto-ir-test tests/cpp/lto_ir_test.cpp Compiler/lto.cpp Compiler/optimizer.cpp)
+ target_include_directories(noqeri-lto-ir-test PRIVATE Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri-lto-ir-test PRIVATE cxx_std_17)
+ noqeri_apply_warnings(noqeri-lto-ir-test)
+ add_test(NAME noqeri-lto-ir COMMAND noqeri-lto-ir-test)
  add_test(NAME noqeri-reject-incomplete-hex COMMAND noqeri check ${CMAKE_SOURCE_DIR}/tests/invalid_hex_literal.noqeri)
  set_tests_properties(noqeri-reject-incomplete-hex PROPERTIES WILL_FAIL TRUE)
  add_test(NAME noqeri-nqri-selftest COMMAND noqeri-nqri --selftest)

@@ -1,4 +1,5 @@
 #include "compiler.hpp"
+#include "pgo.hpp"
 #include "optimizer_cost.hpp"
 #include <cstdint>
 #include <iostream>
@@ -215,7 +216,7 @@ int main() {
         for(std::size_t i=0;i<p.entry.code.size();++i){
             const auto& in=p.entry.code[i];
             if(in.op==noe::NirOp::Const &&in.dest&&*in.dest==2)literal=i;
-            if(in.op==noe::NirOp::JumpIfFalse)conditional=i;
+            if(in.op==noe::NirOp::JumpIfFalse&&conditional==999)conditional=i;
             if(in.op==noe::NirOp::Jump)backedge=i;
         }
         if(!check(literal<conditional&&p.entry.code[backedge].target==conditional,
@@ -306,6 +307,287 @@ int main() {
         for(const auto& in:p.entry.code)
             if(in.op==noe::NirOp::Binary&&in.text=="+")++additions;
         if(!check(additions==2,"floating GVN stays disabled"))return 1;
+    }
+    {
+        // Unrolling duplicates a full iteration including its exit check,
+        // so a side-effectful body is still executed exactly once per trip.
+        noe::NirProgram p;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="keep";
+        auto checkExit=withArgs(noe::NirOp::JumpIfFalse,{1});checkExit.target=5;
+        auto output=withArgs(noe::NirOp::Load,{});output.dest=2;output.text="item";
+        auto write=withArgs(noe::NirOp::Store,{2});write.text="observed";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=0;
+        p.entry.code={cond,checkExit,output,write,repeat,withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::vector<std::size_t> testsAt,storesAt;
+        std::size_t loopAt=99,exitAt=99;
+        for(std::size_t pc=0;pc<p.entry.code.size();++pc){
+            const auto& op=p.entry.code[pc];
+            if(op.op==noe::NirOp::JumpIfFalse)testsAt.push_back(pc);
+            if(op.op==noe::NirOp::Store)storesAt.push_back(pc);
+            if(op.op==noe::NirOp::Jump)loopAt=pc;
+            if(op.op==noe::NirOp::Return)exitAt=pc;
+        }
+        if(!check(testsAt.size()==2&&storesAt.size()==2&&loopAt!=99&&
+                  testsAt[0]<storesAt[0]&&storesAt[0]<testsAt[1]&&
+                  testsAt[1]<storesAt[1]&&storesAt[1]<loopAt,
+                  "2x loop unrolling duplicates condition and effect order"))return 1;
+        if(!check(p.entry.code[testsAt[0]].target==exitAt&&
+                  p.entry.code[testsAt[1]].target==exitAt&&
+                  p.entry.code[loopAt].target==0,
+                  "unrolled loop preserves both exit edges and backedge"))return 1;
+    }
+    {
+        // Exceptional control flow is outside the unroller's proof model.
+        noe::NirProgram p;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="flag";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{1});exit.target=5;
+        auto next=withArgs(noe::NirOp::Load,{});next.dest=2;next.text="next";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=0;
+        p.entry.code={cond,exit,withArgs(noe::NirOp::Try,{1}),next,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        int branches=0;
+        for(const auto& item:p.entry.code)
+            if(item.op==noe::NirOp::JumpIfFalse)++branches;
+        if(!check(branches==1,"no loop unroll across exception edge"))return 1;
+    }
+    {
+        // An outside jump into the middle of a loop forbids duplication.
+        noe::NirProgram p;
+        auto enter=withArgs(noe::NirOp::Jump,{});enter.target=4;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="flag";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{1});exit.target=6;
+        auto item=withArgs(noe::NirOp::Load,{});item.dest=2;item.text="item";
+        auto write=withArgs(noe::NirOp::Store,{2});write.text="out";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=1;
+        p.entry.code={enter,cond,exit,item,write,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        int stores=0;
+        for(const auto& op:p.entry.code)
+            if(op.op==noe::NirOp::Store)++stores;
+        if(!check(stores==1,"no loop unroll with external body entry"))return 1;
+    }
+    {
+        // IPO evaluates a bounded pure integer expression in a zero-arg
+        // function, replaces the call and preserves the original result.
+        noe::NirFunction sum;
+        sum.name="compile_time_sum";
+        auto plus=withArgs(noe::NirOp::Binary,{1,2});
+        plus.dest=3;plus.text="+";plus.type.kind=noe::TypeKind::Int;
+        sum.code={constant(1,19),constant(2,23),plus,
+                  withArgs(noe::NirOp::Return,{3})};
+        noe::NirProgram p;
+        p.functions.push_back(sum);
+        auto call=withArgs(noe::NirOp::Call,{});call.dest=9;
+        call.text="compile_time_sum";
+        p.entry.code={call,withArgs(noe::NirOp::Return,{9})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        if(!check(p.entry.code.front().op==noe::NirOp::Const &&
+                  std::get<std::int64_t>(p.entry.code.front().literal)==42,
+                  "pure IPO integer expression evaluated"))return 1;
+    }
+    {
+        // An ambiguous function name must not be inferred pure just because
+        // one of its definitions returns a constant.
+        noe::NirFunction pure;
+        pure.name="overloaded";
+        pure.code={constant(1,42),withArgs(noe::NirOp::Return,{1})};
+        noe::NirFunction impure=pure;
+        impure.code={withArgs(noe::NirOp::Call,{}),
+                     withArgs(noe::NirOp::Return,{})};
+        noe::NirProgram p;
+        p.functions={pure,impure};
+        auto call=withArgs(noe::NirOp::Call,{});call.dest=2;
+        call.text="overloaded";
+        p.entry.code={call,withArgs(noe::NirOp::Return,{2})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        if(!check(p.entry.code.front().op==noe::NirOp::Call,
+                  "ambiguous IPO symbol is not folded"))return 1;
+    }
+    {
+        // Inlining does not bypass an effectful provider, even if a matching
+        // pure zero-argument function exists elsewhere in the call graph.
+        noe::NirFunction side;
+        side.name="side_effect";
+        auto store=withArgs(noe::NirOp::Store,{1});store.text="audit";
+        side.code={constant(1,5),store,withArgs(noe::NirOp::Return,{1})};
+        noe::NirProgram p;p.functions={side};
+        auto call=withArgs(noe::NirOp::Call,{});call.dest=3;
+        call.text="side_effect";
+        p.entry.code={call,withArgs(noe::NirOp::Return,{3})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        if(!check(p.entry.code.front().op==noe::NirOp::Call,
+                  "effectful IPO remains dynamic"))return 1;
+    }
+    {
+        // O3 local DAG scheduling prioritizes the longer multiplication path
+        // but preserves data dependencies and final returned register.
+        noe::NirProgram p;
+        auto loadX=withArgs(noe::NirOp::Load,{});loadX.dest=1;loadX.text="x";
+        auto loadY=withArgs(noe::NirOp::Load,{});loadY.dest=2;loadY.text="y";
+        auto add=withArgs(noe::NirOp::Binary,{1,2});
+        add.dest=3;add.text="+";add.type.kind=noe::TypeKind::Int;
+        auto multiply=withArgs(noe::NirOp::Binary,{1,2});
+        multiply.dest=4;multiply.text="*";multiply.type.kind=noe::TypeKind::Int;
+        auto total=withArgs(noe::NirOp::Binary,{3,4});
+        total.dest=5;total.text="+";total.type.kind=noe::TypeKind::Int;
+        p.entry.code={loadX,loadY,add,multiply,total,
+                      withArgs(noe::NirOp::Return,{5})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t firstMultiply=99,firstAdd=99,totalAt=99;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.dest&&*in.dest==3)firstAdd=i;
+            if(in.dest&&*in.dest==4)firstMultiply=i;
+            if(in.dest&&*in.dest==5)totalAt=i;
+        }
+        if(!check(firstMultiply<firstAdd&&firstAdd<totalAt &&
+                  p.entry.code.back().args.front()==5,
+                  "DAG scheduling respects integer dependencies"))return 1;
+    }
+    {
+        // A Store is an observable barrier and may not be crossed by
+        // the arithmetic DAG scheduler.
+        noe::NirProgram p;
+        auto x=withArgs(noe::NirOp::Load,{});x.dest=1;x.text="x";
+        auto y=withArgs(noe::NirOp::Load,{});y.dest=2;y.text="y";
+        auto plus=withArgs(noe::NirOp::Binary,{1,2});
+        plus.dest=3;plus.text="+";plus.type.kind=noe::TypeKind::Int;
+        auto effect=withArgs(noe::NirOp::Store,{3});effect.text="audit";
+        auto product=withArgs(noe::NirOp::Binary,{1,2});
+        product.dest=4;product.text="*";product.type.kind=noe::TypeKind::Int;
+        p.entry.code={x,y,plus,effect,product,withArgs(noe::NirOp::Return,{4})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t sum=99,store=99,mul=99;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.dest&&*in.dest==3)sum=i;
+            if(in.op==noe::NirOp::Store)store=i;
+            if(in.dest&&*in.dest==4)mul=i;
+        }
+        if(!check(sum<store&&store<mul,
+                  "DAG scheduling does not cross effectful Store"))return 1;
+    }
+    {
+        // SLP pack planning recognizes independent integer operations only
+        // on targets whose cost model permits a profitable 2-lane shape.
+        noe::NirFunction fn;
+        for(noe::Reg r=1;r<=4;++r) {
+            auto load=withArgs(noe::NirOp::Load,{});
+            load.dest=r;load.text="v"+std::to_string(r);
+            fn.code.push_back(load);
+        }
+        auto mulA=withArgs(noe::NirOp::Binary,{1,2});
+        mulA.dest=5;mulA.text="*";mulA.type.kind=noe::TypeKind::I64;
+        auto mulB=withArgs(noe::NirOp::Binary,{3,4});
+        mulB.dest=6;mulB.text="*";mulB.type.kind=noe::TypeKind::I64;
+        fn.code.push_back(mulA);fn.code.push_back(mulB);
+        fn.code.push_back(withArgs(noe::NirOp::Store,{5,6}));
+        const auto x86=noe::TargetCostModel::forTarget("x86_64-unknown-linux-gnu");
+        const auto unsupported=noe::TargetCostModel::forTarget("unknown");
+        const auto packs=noe::inspectSlpPacks(fn,x86);
+        if(!check(packs.size()==1&&packs[0].first==4&&
+                  packs[0].second==5&&packs[0].laneBits==64,
+                  "independent 2x i64 SIMD pack candidate"))return 1;
+        if(!check(noe::inspectSlpPacks(fn,unsupported).empty(),
+                  "SLP refuses unsupported target"))return 1;
+        fn.code[5].args={5,4};
+        if(!check(noe::inspectSlpPacks(fn,x86).empty(),
+                  "SLP rejects cross-lane dependence"))return 1;
+        fn.code[5].args={3,4};
+        fn.code[4].type.kind=noe::TypeKind::Float;
+        if(!check(noe::inspectSlpPacks(fn,x86).empty(),
+                  "SLP rejects floating-point and type mismatch"))return 1;
+    }
+    {
+        // A wrapping integer sum of two registers defined before the loop
+        // is truly invariant. O3 may compute it before the zero-trip check.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::Load,{});a.dest=1;a.text="left";
+        auto b=withArgs(noe::NirOp::Load,{});b.dest=2;b.text="right";
+        auto flag=withArgs(noe::NirOp::Load,{});flag.dest=3;flag.text="again";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=7;
+        auto sum=withArgs(noe::NirOp::Binary,{1,2});
+        sum.dest=4;sum.text="+";sum.type.kind=noe::TypeKind::I64;
+        auto store=withArgs(noe::NirOp::Store,{4});store.text="audit";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=2;
+        p.entry.code={a,b,flag,branch,sum,store,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t arithmetic=99,condition=99;
+        for(std::size_t i=0;i<p.entry.code.size();++i){
+            const auto& in=p.entry.code[i];
+            if(in.op==noe::NirOp::Binary&&in.dest&&*in.dest==4)arithmetic=i;
+            if(in.op==noe::NirOp::JumpIfFalse&&condition==99)condition=i;
+        }
+        if(!check(arithmetic!=99&&arithmetic<condition,
+                  "LICM hoists proven wrapping integer sum"))return 1;
+    }
+    {
+        // NQPGO profiles are bound to the exact source-NIR revision. Only
+        // hotness/cost decisions depend on counters, never legality rules.
+        noe::NirProgram program;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="loop";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{1});exit.target=5;
+        auto value=withArgs(noe::NirOp::Load,{});value.dest=2;value.text="value";
+        auto store=withArgs(noe::NirOp::Store,{2});store.text="audit";
+        auto back=withArgs(noe::NirOp::Jump,{});back.target=0;
+        program.entry.code={cond,exit,value,store,back,withArgs(noe::NirOp::Return,{})};
+        noe::NirExecutionProfile cold;
+        cold.begin(program);
+        const auto text=cold.serialize();
+        const auto loaded=noe::NirExecutionProfile::parse(text,program);
+        if(!check(loaded.has_value()&&loaded->compatible(program),
+                  "PGO versioned profile round-trip"))return 1;
+        auto coldProgram=program;
+        noe::PassManager(noe::OptimizationLevel::O3,&*loaded).optimize(coldProgram);
+        int coldChecks=0;
+        for(const auto& op:coldProgram.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++coldChecks;
+        if(!check(coldChecks==1,"cold PGO keeps compact loop"))return 1;
+        noe::NirExecutionProfile hot;
+        hot.begin(program);
+        for(int n=0;n<80;++n)hot.record("@entry",0);
+        auto optimized=program;
+        noe::PassManager(noe::OptimizationLevel::O3,&hot).optimize(optimized);
+        int hotChecks=0;
+        for(const auto& op:optimized.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++hotChecks;
+        if(!check(hotChecks==2,"hot PGO selects semantics-preserving 2x unroll"))return 1;
+        program.entry.code[2].text="changed_value";
+        if(!check(!noe::NirExecutionProfile::parse(hot.serialize(),program).has_value(),
+                  "reject stale PGO profile fingerprint"))return 1;
+        bool rejected=false;
+        try{noe::PassManager(noe::OptimizationLevel::O3,&hot).optimize(program);}
+        catch(const std::invalid_argument&){rejected=true;}
+        if(!check(rejected,"optimizer refuses mismatched PGO feedback"))return 1;
+    }
+    {
+        // Target cost model is not decorative: conservative ARM64's lower
+        // branch penalty avoids duplicating a small loop at O3, while the
+        // x86-64 heuristic permits the same semantics-preserving transform.
+        noe::NirProgram program;
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=1;cond.text="flag";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{1});branch.target=5;
+        auto val=withArgs(noe::NirOp::Load,{});val.dest=2;val.text="next";
+        auto store=withArgs(noe::NirOp::Store,{2});store.text="out";
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=0;
+        program.entry.code={cond,branch,val,store,jump,
+                            withArgs(noe::NirOp::Return,{})};
+        auto generic=program,fast=program;
+        noe::Optimizer{}.optimize(generic,noe::OptimizationLevel::O3,
+                                 "aarch64-unknown-linux-gnu");
+        noe::Optimizer{}.optimize(fast,noe::OptimizationLevel::O3,
+                                 "x86_64-unknown-linux-gnu");
+        int genericChecks=0,fastChecks=0;
+        for(const auto& op:generic.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++genericChecks;
+        for(const auto& op:fast.entry.code)
+            if(op.op==noe::NirOp::JumpIfFalse)++fastChecks;
+        if(!check(genericChecks==1&&fastChecks==2,
+                  "target-aware cost model controls O3 unroll"))return 1;
     }
     return 0;
 }

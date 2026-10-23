@@ -1,0 +1,37 @@
+import "../Compiler/selfhost/optimizer.noqeri"
+import "../Compiler/selfhost/types.noqeri"
+
+let code: [NqNirInstruction; 5]
+nqNirInstructionInit(&code[0], nqNirLoad(), 1 as isize)
+code[0].symbol = 1 as u64
+nqNirInstructionInit(&code[1], nqNirLoad(), 2 as isize)
+code[1].symbol = 2 as u64
+nqNirMakeBinary(&code[2], nqNirAdd(), 3 as isize, 1 as isize, 2 as isize, nqAstTypeInt())
+nqNirMakeBinary(&code[3], nqNirAdd(), 4 as isize, 2 as isize, 1 as isize, nqAstTypeInt())
+nqNirInstructionInit(&code[4], nqNirReturn(), nqNirNoValue())
+code[4].left = 4 as isize
+
+let changes: usize = nqOptimizerLocalGvn(slice(code))
+let equivalent: bool = changes == 1 as usize &&
+    code[3].opcode == nqNirMove() && code[3].left == 3 as isize
+
+let rejected: [NqNirInstruction; 4]
+nqNirMakeBinary(&rejected[0], nqNirAdd(), 1 as isize, 3 as isize, 4 as isize, nqAstTypeInt())
+nqNirInstructionInit(&rejected[1], nqNirJump(), nqNirNoValue())
+nqNirMakeBinary(&rejected[2], nqNirAdd(), 2 as isize, 3 as isize, 4 as isize, nqAstTypeInt())
+nqNirInstructionInit(&rejected[3], nqNirReturn(), nqNirNoValue())
+let unsafeRejected: bool = nqOptimizerLocalGvn(slice(rejected)) == 0 as usize
+
+let checked: [NqNirInstruction; 3]
+nqNirMakeBinary(&checked[0], nqNirAdd(), 1 as isize, 3 as isize, 4 as isize, nqAstTypeInt())
+checked[0].flags = nqNirFlagChecked()
+nqNirMakeBinary(&checked[1], nqNirAdd(), 2 as isize, 3 as isize, 4 as isize, nqAstTypeInt())
+checked[1].flags = nqNirFlagChecked()
+nqNirInstructionInit(&checked[2], nqNirReturn(), nqNirNoValue())
+let checkedPreserved: bool = nqOptimizerLocalGvn(slice(checked)) == 0 as usize
+
+if equivalent && unsafeRejected && checkedPreserved {
+    print("PASS: selfhost GVN")
+} else {
+    print("FAIL: selfhost GVN")
+}

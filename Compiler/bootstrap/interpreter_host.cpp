@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include "pgo.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -77,28 +78,54 @@ std::int64_t negateInt(std::int64_t value){
     return-value;
 }
 
-NirValue binary(const std::string&op,const NirValue&a,const NirValue&b){if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){if(op=="+")return addInt(*x,*y);if(op=="-")return subInt(*x,*y);if(op=="*")return mulInt(*x,*y);if(op=="/")return divInt(*x,*y);if(op=="%")return modInt(*x,*y);if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;if(op=="<")return*x<*y;if(op=="<=")return*x<=*y;if(op==">")return*x>*y;if(op==">=")return*x>=*y;}if((std::holds_alternative<double>(a)||std::holds_alternative<std::int64_t>(a))&&(std::holds_alternative<double>(b)||std::holds_alternative<std::int64_t>(b))){double x=asDouble(a),y=asDouble(b);if(op=="+")return x+y;if(op=="-")return x-y;if(op=="*")return x*y;if(op=="/")return x/y;if(op=="==")return x==y;if(op=="!=")return x!=y;if(op=="<")return x<y;if(op=="<=")return x<=y;if(op==">")return x>y;if(op==">=")return x>=y;}if(auto x=std::get_if<std::string>(&a))if(auto y=std::get_if<std::string>(&b)){if(op=="+")return*x+*y;if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;}if(op=="&&")return truthyValue(a)&&truthyValue(b);if(op=="||")return truthyValue(a)||truthyValue(b);throw std::runtime_error("unsupported binary operation "+op);}
+NirValue binary(const std::string&op,const NirValue&a,const NirValue&b){if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){if(op=="+")return addInt(*x,*y);if(op=="-")return subInt(*x,*y);if(op=="*")return mulInt(*x,*y);if(op=="/")return divInt(*x,*y);if(op=="%")return modInt(*x,*y);if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;if(op=="<")return*x<*y;if(op=="<=")return*x<=*y;if(op==">")return*x>*y;if(op==">=")return*x>=*y;}if((std::holds_alternative<double>(a)||std::holds_alternative<std::int64_t>(a))&&(std::holds_alternative<double>(b)||std::holds_alternative<std::int64_t>(b))){double x=asDouble(a),y=asDouble(b);if(op=="+")return x+y;if(op=="-")return x-y;if(op=="*")return x*y;if(op=="/")return x/y;if(op=="==")return x==y;if(op=="!=")return x!=y;if(op=="<")return x<y;if(op=="<=")return x<=y;if(op==">")return x>y;if(op==">=")return x>=y;}if(auto x=std::get_if<std::string>(&a))if(auto y=std::get_if<std::string>(&b)){if(op=="+")return*x+*y;if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;}if(op=="&&")return truthyValue(a)&&truthyValue(b);if(op=="||")return truthyValue(a)||truthyValue(b);if(op=="=="||op=="!="){
+        // A null pointer and a raw zero address compare equal; the null
+        // sentinel is not an arithmetic value. Preserve type errors for
+        // unrelated mixed operands.
+        const bool nullA=std::holds_alternative<std::monostate>(a);
+        const bool nullB=std::holds_alternative<std::monostate>(b);
+        if(nullA||nullB){
+            const bool equal=(nullA&&nullB)||
+                (nullA&&std::get_if<std::int64_t>(&b)&&std::get<std::int64_t>(b)==0)||
+                (nullB&&std::get_if<std::int64_t>(&a)&&std::get<std::int64_t>(a)==0);
+            return op=="=="?equal:!equal;
+        }
+        if(const auto x=std::get_if<bool>(&a)){
+            if(const auto y=std::get_if<bool>(&b))
+                return op=="=="?(*x==*y):(*x!=*y);
+        }
+    }
+    throw std::runtime_error("unsupported binary operation "+op);}
 std::uint64_t rawLoad(std::uintptr_t address,std::size_t width,bool vol){if(address==0)throw std::runtime_error("null pointer dereference");switch(width){case 1:return vol?*reinterpret_cast<volatile std::uint8_t*>(address):*reinterpret_cast<std::uint8_t*>(address);case 2:return vol?*reinterpret_cast<volatile std::uint16_t*>(address):*reinterpret_cast<std::uint16_t*>(address);case 4:return vol?*reinterpret_cast<volatile std::uint32_t*>(address):*reinterpret_cast<std::uint32_t*>(address);case 8:return vol?*reinterpret_cast<volatile std::uint64_t*>(address):*reinterpret_cast<std::uint64_t*>(address);default:throw std::runtime_error("unsupported memory load width");}}
 void rawStore(std::uintptr_t address,std::size_t width,std::uint64_t value,bool vol){if(address==0)throw std::runtime_error("null pointer store");switch(width){case 1:if(vol)*reinterpret_cast<volatile std::uint8_t*>(address)=static_cast<std::uint8_t>(value);else*reinterpret_cast<std::uint8_t*>(address)=static_cast<std::uint8_t>(value);break;case 2:if(vol)*reinterpret_cast<volatile std::uint16_t*>(address)=static_cast<std::uint16_t>(value);else*reinterpret_cast<std::uint16_t*>(address)=static_cast<std::uint16_t>(value);break;case 4:if(vol)*reinterpret_cast<volatile std::uint32_t*>(address)=static_cast<std::uint32_t>(value);else*reinterpret_cast<std::uint32_t*>(address)=static_cast<std::uint32_t>(value);break;case 8:if(vol)*reinterpret_cast<volatile std::uint64_t*>(address)=static_cast<std::uint64_t>(value);else*reinterpret_cast<std::uint64_t*>(address)=static_cast<std::uint64_t>(value);break;default:throw std::runtime_error("unsupported memory store width");}}
 std::uintptr_t allocateBytes(std::size_t bytes){auto p=std::make_unique<std::uint8_t[]>(std::max<std::size_t>(bytes,1));std::memset(p.get(),0,std::max<std::size_t>(bytes,1));auto address=reinterpret_cast<std::uintptr_t>(p.get());allocations.push_back(std::move(p));return address;}
 }
 
 std::string Interpreter::valueToString(const NirValue&v)const{if(std::holds_alternative<std::monostate>(v))return"null";if(auto p=std::get_if<std::int64_t>(&v))return std::to_string(*p);if(auto p=std::get_if<double>(&v))return std::to_string(*p);if(auto p=std::get_if<bool>(&v))return*p?"true":"false";return std::get<std::string>(v);}
-int Interpreter::run(const NirProgram&p){try{allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
+int Interpreter::run(const NirProgram&p){try{if(profile_&&!profile_->compatible(p))profile_->begin(p);allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
 NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const std::vector<NirValue>&argv){
     if(fn.isExtern)throw std::runtime_error("cannot directly interpret extern function "+fn.name);
     std::unordered_map<std::string,NirValue>vars;std::unordered_map<std::string,std::uint64_t>cells;std::unordered_set<std::string>addressTaken;std::vector<NirValue>regs(fn.nextReg);
     for(std::size_t i=0;i<fn.params.size()&&i<argv.size();++i){vars[fn.params[i]]=argv[i];if(std::holds_alternative<std::int64_t>(argv[i]))cells[fn.params[i]]=static_cast<std::uint64_t>(std::get<std::int64_t>(argv[i]));}
     std::size_t pc=0;
     while(pc<fn.code.size()){
+        if(profile_)profile_->record(NirExecutionProfile::key(fn),pc);
         const auto&i=fn.code[pc];auto get=[&](Reg r)->const NirValue&{if(r>=regs.size())throw std::runtime_error("invalid NIR register");return regs[r];};
         switch(i.op){
             case NirOp::Const:regs[*i.dest]=i.literal;break;
             case NirOp::Load:{if(addressTaken.count(i.text)){regs[*i.dest]=static_cast<std::int64_t>(cells[i.text]);break;}auto it=vars.find(i.text);if(it==vars.end())throw std::runtime_error("undefined variable "+i.text);regs[*i.dest]=it->second;break;}
             case NirOp::Store:{vars[i.text]=get(i.args[0]);if(auto n=std::get_if<std::int64_t>(&vars[i.text]))cells[i.text]=static_cast<std::uint64_t>(*n);else if(auto b=std::get_if<bool>(&vars[i.text]))cells[i.text]=*b?1:0;break;}
             case NirOp::AddressOf:addressTaken.insert(i.text);cells.try_emplace(i.text,0);regs[*i.dest]=static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(&cells[i.text]));break;
-            case NirOp::LoadMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));regs[*i.dest]=static_cast<std::int64_t>(rawLoad(address,i.width,i.isVolatile));break;}
-            case NirOp::StoreMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));rawStore(address,i.width,static_cast<std::uint64_t>(asInt(get(i.args[1]))),i.isVolatile);break;}
+            case NirOp::LoadMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));const auto bits=rawLoad(address,i.width,i.isVolatile);if(i.type.kind==TypeKind::Float){
+                if(i.width!=8)throw std::runtime_error("floating memory load requires 64-bit width");
+                double value=0;std::memcpy(&value,&bits,sizeof(value));regs[*i.dest]=value;
+            }else regs[*i.dest]=static_cast<std::int64_t>(bits);break;}
+            case NirOp::StoreMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));const auto value=get(i.args[1]);std::uint64_t bits=0;
+            if(const auto floating=std::get_if<double>(&value)){
+                if(i.width!=8)throw std::runtime_error("floating memory store requires 64-bit width");
+                std::memcpy(&bits,floating,sizeof(bits));
+            }else bits=static_cast<std::uint64_t>(asInt(value));
+            rawStore(address,i.width,bits,i.isVolatile);break;}
             case NirOp::PtrOffset:{std::int64_t base=asInt(get(i.args[0]));std::int64_t delta=static_cast<std::int64_t>(i.target);if(i.args.size()>1)delta=mulInt(asInt(get(i.args[1])),static_cast<std::int64_t>(i.width));regs[*i.dest]=addInt(base,delta);break;}
             case NirOp::StackAlloc:regs[*i.dest]=static_cast<std::int64_t>(allocateBytes(i.width));break;
             case NirOp::MakeSlice:{auto descriptor=allocateBytes(16);rawStore(descriptor,8,static_cast<std::uint64_t>(asInt(get(i.args[0]))),false);rawStore(descriptor+8,8,static_cast<std::uint64_t>(asInt(get(i.args[1]))),false);regs[*i.dest]=static_cast<std::int64_t>(descriptor);break;}

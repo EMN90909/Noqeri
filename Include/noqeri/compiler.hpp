@@ -42,8 +42,9 @@ class SafetyAnnotator { public: bool check(const Program& program,Diagnostics& d
 class Lowerer { public: NirProgram lower(const Program& program); private: void lowerStmt(NirFunction& fn,const StmtPtr& stmt); Reg lowerExpr(NirFunction& fn,const ExprPtr& expr); Reg lowerAddress(NirFunction& fn,const ExprPtr& expr); Reg emit(NirFunction& fn,NirInstruction instruction); std::vector<std::vector<std::size_t>> breakJumps_; std::vector<std::vector<std::size_t>> continueJumps_; };
 enum class OptimizationLevel { O0, O1, O2, O3, Os, Oz };
 class OptimizationPass { public: virtual ~OptimizationPass()=default; virtual const char* name() const=0; virtual bool run(NirFunction& function) const=0; };
-class PassManager { public: explicit PassManager(OptimizationLevel level=OptimizationLevel::O1):level_(level){} void optimize(NirProgram& program) const; OptimizationLevel level() const { return level_; } private: OptimizationLevel level_; };
-class Optimizer { public: void optimize(NirProgram& program) const; void optimize(NirProgram& program,OptimizationLevel level) const; private: void optimizeFunction(NirFunction& fn) const; };
+class NirExecutionProfile;
+class PassManager { public: explicit PassManager(OptimizationLevel level=OptimizationLevel::O1):level_(level){} PassManager(OptimizationLevel level,const NirExecutionProfile* profile,const std::string& target=NOQERI_DEFAULT_TARGET):level_(level),profile_(profile),target_(target){} PassManager(OptimizationLevel level,const std::string& target):level_(level),target_(target){} void optimize(NirProgram& program) const; OptimizationLevel level() const { return level_; } private: OptimizationLevel level_; const NirExecutionProfile* profile_=nullptr; std::string target_=NOQERI_DEFAULT_TARGET; };
+class Optimizer { public: void optimize(NirProgram& program) const; void optimize(NirProgram& program,OptimizationLevel level) const; void optimize(NirProgram& program,OptimizationLevel level,const std::string& target) const; private: void optimizeFunction(NirFunction& fn) const; };
 struct CompileOptions { OptimizationLevel optimization=OptimizationLevel::O1; std::string target=NOQERI_DEFAULT_TARGET; bool allowUnsafe=false; };
 struct CompileResult { Program ast; NirProgram nir; Diagnostics diagnostics; std::shared_ptr<ModuleGraph> modules; };
 CompileResult compileSource(const std::string& source);

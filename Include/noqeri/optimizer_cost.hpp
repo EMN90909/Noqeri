@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace noe {
 // Explicit heuristic table; not a measurement-backed instruction scheduler.
@@ -39,6 +40,17 @@ struct OptimizationCapabilities {
     std::size_t nonEscapingStackAllocations=0;
 };
 OptimizationCapabilities inspectOptimizations(const NirFunction& fn);
+// Candidate-only SLP vector packs. This analyzer does NOT produce SIMD NIR or
+// machine instructions. Only a target-lowered vector operation may claim an
+// executed auto-vectorization.
+struct SlpPackCandidate {
+    std::size_t first=0;
+    std::size_t second=0;
+    std::string operation;
+    std::size_t laneBits=64;
+};
+std::vector<SlpPackCandidate> inspectSlpPacks(
+    const NirFunction& fn, const TargetCostModel& target);
 // MustAlias means the *same virtual pointer value*, not that two different
 // pointer expressions happen to have the same address. Distinct, nonescaping
 // StackAlloc roots permit NoAlias only in acyclic NIR. Everything else is May.
