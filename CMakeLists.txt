@@ -224,5 +224,10 @@ if(UNIX AND NOT APPLE)
   noqeri_apply_warnings(noqeri-pgas-replication-test)
   add_test(NAME noqeri-pgas-replication
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/scripts/pgas-tls-cert-test.sh $<TARGET_FILE:noqeri-pgas-replication-test>)
+  # Operator-run two-physical-host mTLS acceptance tool: compiled in CI but
+  # not misreported as physically tested by a single GitHub runner.
+  add_executable(noqeri-pgas-cross-host-smoke tests/cpp/pgas_cross_host_smoke.cpp)
+  target_link_libraries(noqeri-pgas-cross-host-smoke PRIVATE noqeri_pgas_runtime noqeri_pgas_tls_gateway)
+  noqeri_apply_warnings(noqeri-pgas-cross-host-smoke)
  endif()
 endif()
