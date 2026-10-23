@@ -108,6 +108,10 @@ StmtPtr Parser::declaration(){
         const auto index=current_+offset;
         return index<tokens_.size()?tokens_[index].kind:TokenKind::Eof;
     };
+    if(partitioned && !check(TokenKind::Let)){
+        diagnostics_.error("NQR-PGAS0006",peek().span,"@partition is only valid on let array declarations");
+        throw ParseError("partition target");
+    }
     const bool functionDecl=check(TokenKind::Function)&&isNameKind(nextKind(1))&&(nextKind(2)==TokenKind::LParen||nextKind(2)==TokenKind::Less);
     if((isExport||isExtern)||functionDecl){
         if(!match({TokenKind::Function})){diagnostics_.error("NOE-P2010",peek().span,"export/extern currently apply to function declarations");throw ParseError("parse");}
