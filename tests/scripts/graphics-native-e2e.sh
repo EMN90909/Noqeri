@@ -17,7 +17,8 @@ timeout 20s "$work/noqeri-headless"
 
 if pkg-config --exists sdl2; then
   g++ -std=c++17 -Wall -Wextra -Werror -pthread \
-    $(pkg-config --cflags sdl2) "$work/graphics.s" Runtime/native/os_renderer_sdl.cpp \
+    -DNOQERI_OS_RENDERER_TEST_APP -IInclude $(pkg-config --cflags sdl2) \
+    "$work/graphics.s" Runtime/native/os_renderer_sdl.cpp \
     $(pkg-config --libs sdl2) -o "$work/noqeri-sdl"
   SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20s "$work/noqeri-sdl"
 else
