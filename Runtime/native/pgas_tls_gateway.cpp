@@ -253,7 +253,10 @@ int nq_pgas_tls_client_connect(const char *server_ipv4,uint16_t port,
      SSL_set_tlsext_host_name(c->ssl,expected_server_dns)!=1||
      SSL_set1_host(c->ssl,expected_server_dns)!=1||
      SSL_connect(c->ssl)!=1||SSL_get_verify_result(c->ssl)!=X509_V_OK){
-    if(c->ssl)SSL_free(c->ssl);close(c->fd);SSL_CTX_free(c->ctx);return -EACCES;
+    if(c->ssl) SSL_free(c->ssl);
+    close(c->fd);
+    SSL_CTX_free(c->ctx);
+    return -EACCES;
   }
   *out=c.release();return 0;
 }
