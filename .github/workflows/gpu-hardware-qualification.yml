@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 jobs:
   physical-gpu:
     # No test will run without an administrator-provisioned, real physical GPU
@@ -49,6 +51,10 @@ jobs:
         shell: bash
         run: |
           if test -f build/gpu-server.pid; then kill "$(cat build/gpu-server.pid)" || true; fi
+      - name: Attest verified physical-GPU result (GitHub OIDC)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/gpu-qualification/noqeri-gpu-evidence.json
       - name: Retain hardware evidence
         if: always()
         uses: actions/upload-artifact@v4
