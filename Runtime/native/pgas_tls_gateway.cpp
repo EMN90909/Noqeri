@@ -201,13 +201,15 @@ static void accept_loop(nq_pgas_tls_gateway *g) {
     }
   }
 }
-static int tls_request(nq_pgas_tls_client *c,uint32_t op,uint32_t index,int64_t a,int64_t b,int64_t *out){
+static int tls_request_locked(nq_pgas_tls_client *c,uint32_t op,uint32_t index,
+                              int64_t a,int64_t b,int64_t *out,
+                              const unsigned char *payload=nullptr){
   if(!c)return -EINVAL;
-  std::lock_guard<std::mutex> lock(c->mu);
   if(!c->ssl)return -ENOTCONN;
   unsigned char req[32]{},response[16];
   put32(req,magic);put32(req+4,op);put32(req+8,index);
-  put64(req+16,static_cast<uint64_t>(a));put64(req+24,static_cast<uint64_t>(b));
+  if(payload)std::memcpy(req+16,payload,16);
+  else {put64(req+16,static_cast<uint64_t>(a));put64(req+24,static_cast<uint64_t>(b));}
   int rc=ssl_write_full(c->ssl,req,sizeof(req));
   if(!rc)rc=ssl_read_full(c->ssl,response,sizeof(response));
   if(rc){SSL_free(c->ssl);c->ssl=nullptr;shutdown(c->fd,SHUT_RDWR);close(c->fd);c->fd=-1;return rc;}
@@ -215,6 +217,12 @@ static int tls_request(nq_pgas_tls_client *c,uint32_t op,uint32_t index,int64_t 
   int status=static_cast<int32_t>(get32(response+4));
   if(status==0 && out)*out=static_cast<int64_t>(get64(response+8));
   return status;
+}
+static int tls_request(nq_pgas_tls_client *c,uint32_t op,uint32_t index,
+                       int64_t a,int64_t b,int64_t *out){
+  if(!c)return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  return tls_request_locked(c,op,index,a,b,out);
 }
 }
 extern "C" {
@@ -290,6 +298,18 @@ int nq_pgas_tls_compare_exchange(nq_pgas_tls_client *c,uint32_t index,int64_t ex
 }
 int nq_pgas_tls_fetch_add(nq_pgas_tls_client *c,uint32_t index,int64_t delta,int64_t *previous){
   return previous?tls_request(c,5,index,delta,0,previous):-EINVAL;
+}
+int nq_pgas_tls_execute_program(nq_pgas_tls_client *c,const uint8_t *code,
+    size_t length,int64_t input,uint32_t fuel,int64_t *out){
+  if(!c||!code||!out||!length||length>256||!fuel||fuel>4096)return -EINVAL;
+  std::lock_guard<std::mutex> lock(c->mu);
+  for(size_t at=0;at<length;at+=16){
+    unsigned char chunk[16]{};
+    std::memcpy(chunk,code+at,std::min<size_t>(16,length-at));
+    int rc=tls_request_locked(c,8,static_cast<uint32_t>(at),0,0,nullptr,chunk);
+    if(rc)return rc;
+  }
+  return tls_request_locked(c,9,static_cast<uint32_t>(length),input,fuel,out);
 }
 int nq_pgas_tls_barrier(nq_pgas_tls_client *c){return tls_request(c,6,0,0,0,nullptr);}
 int nq_pgas_tls_run_task(nq_pgas_tls_client *c,uint32_t id,int64_t input,int64_t *out){
