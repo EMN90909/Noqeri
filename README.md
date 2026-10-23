@@ -6,6 +6,18 @@
 
 Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and portable compiler bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main uses version **0.1.3**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
 
+## Distributed PGAS (experimental)
+
+PGAS has authenticated TLS node clients, durable i64 WAL storage, a limited
+sandboxed remote bytecode VM, an optional real Linux libibverbs provider and a
+fail-closed two-node mirror with WAL epochs. The Stage-0 compiler also accepts
+and typechecks `@partition` declarations and retains placement metadata in
+NIR, but deliberately rejects native/NQRI/interpreter execution until complete
+distributed-address lowering is verified. Physical two-host and RDMA fabric
+qualification, consensus auto-failover, secure RDMA descriptor exchange and
+full self-host parity remain outstanding. See
+[PGAS acceptance and remaining gates](Doc/PGAS_DISTRIBUTED_ACCEPTANCE.md).
+
 ## Reactive web development (experimental, implemented on `main`)
 
 Build a simple application in **one Noqeri source** with markup, reactive state, components, optional CSS, JavaScript interop and local Noqeri UI packages:
