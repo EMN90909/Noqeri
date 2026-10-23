@@ -1,6 +1,7 @@
 // Thin SDL2 OS/window bridge. Rasterization and frame orchestration are
 // authored in Lib/std/render2d.noqeri and examples/graphics_demo.noqeri.
 // SDL2 is an external host dependency, not a rewritten Noqeri GPU driver.
+#include "noqeri/os_renderer_sdl.h"
 #include <SDL.h>
 #include <cerrno>
 #include <cstddef>
@@ -71,6 +72,7 @@ int nq_os_renderer_pump(uint32_t duration_ms){
 }
 int nq_os_renderer_close(){cleanup();return 0;}
 }
+#ifdef NOQERI_OS_RENDERER_TEST_APP
 extern "C" int noqeri_entry(const void* abi);
 int main(){
     const int rc=noqeri_entry(nullptr);
@@ -83,3 +85,5 @@ int main(){
     cleanup();
     return 0;
 }
+
+#endif // NOQERI_OS_RENDERER_TEST_APP
