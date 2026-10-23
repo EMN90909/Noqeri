@@ -231,3 +231,18 @@ if(UNIX AND NOT APPLE)
   noqeri_apply_warnings(noqeri-pgas-cross-host-smoke)
  endif()
 endif()
+
+# Optional cross-platform OS presentation bridge: only the SDL2 surface/window
+# adapter is native. All raster algorithms live in Lib/std/render2d.noqeri.
+# No SDL2 dependency is imposed on freestanding compiler/runtime targets.
+option(NOQERI_ENABLE_SDL2 "Build optional Noqeri OS framebuffer SDL2 adapter" ON)
+if(NOQERI_ENABLE_SDL2)
+ find_package(SDL2 CONFIG QUIET)
+ if(TARGET SDL2::SDL2)
+  add_library(noqeri_os_renderer_sdl STATIC Runtime/native/os_renderer_sdl.cpp)
+  target_include_directories(noqeri_os_renderer_sdl PUBLIC Include)
+  target_link_libraries(noqeri_os_renderer_sdl PUBLIC SDL2::SDL2)
+  target_compile_features(noqeri_os_renderer_sdl PUBLIC cxx_std_17)
+  noqeri_apply_warnings(noqeri_os_renderer_sdl)
+ endif()
+endif()
