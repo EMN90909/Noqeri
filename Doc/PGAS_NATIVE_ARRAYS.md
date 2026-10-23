@@ -55,7 +55,7 @@ The interpreter and NQRI serializer keep rejecting partitioned programs.
 
 The PGAS native workflow builds the Noqeri compiler, checks AST/NIR semantics,
 compiles the example to x86-64 assembly, links a real C++/Noqeri executable,
-starts two independent PGAS node processes, and verifies block/cyclic owner
+starts two independently addressed PGAS node servers, and verifies block/cyclic owner
 placement through the native ABI. It additionally runs the compiled code over
 two independent mutually authenticated TLS 1.3 gateways and verifies
 failure on missing binding. See
