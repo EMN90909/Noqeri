@@ -1,0 +1,8 @@
+module examples.shaders.vector_compute
+import "../../Lib/std/gpu_shaders.noqeri"
+
+// Input and output are packed Float32Array groups of four f32 values.
+export function shade(value: NqVec4): NqVec4 {
+    const tint: NqVec4 = nqVec4(0.4, 0.2, 0.1, 1.0)
+    return nqVec4Mix(value, tint, 0.25)
+}
