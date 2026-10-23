@@ -1,0 +1,2 @@
+@partition(strategy: "random", nodes: 4)
+let dataset: [i64; 8]
