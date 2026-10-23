@@ -1,0 +1,55 @@
+name: Noqeri GPU shaders and OS framebuffer
+on:
+  pull_request:
+    paths:
+      - 'Compiler/shader_backend.cpp'
+      - 'Include/noqeri/shader_backend.hpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'CMakeLists.txt'
+      - 'Lib/std/render2d.noqeri'
+      - 'examples/graphics_demo.noqeri'
+      - 'examples/shaders/**'
+      - 'Runtime/native/os_renderer_sdl.cpp'
+      - 'tests/cpp/graphics_headless_test.cpp'
+      - 'tests/scripts/graphics-native-e2e.sh'
+      - 'tests/shader-compiler.test.mjs'
+      - 'tests/wgsl-validator/**'
+      - '.github/workflows/gpu-os-graphics.yml'
+  push:
+    paths:
+      - 'Compiler/shader_backend.cpp'
+      - 'Include/noqeri/shader_backend.hpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'CMakeLists.txt'
+      - 'Lib/std/render2d.noqeri'
+      - 'examples/graphics_demo.noqeri'
+      - 'examples/shaders/**'
+      - 'Runtime/native/os_renderer_sdl.cpp'
+      - 'tests/**/graphics*'
+      - 'tests/shader-compiler.test.mjs'
+      - 'tests/wgsl-validator/**'
+      - '.github/workflows/gpu-os-graphics.yml'
+jobs:
+  graphics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 headers and native rendering backend
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsdl2-dev pkg-config
+      - name: Build Noqeri shader/compiler frontend
+        run: |
+          cmake -S . -B /tmp/noqeri-graphics-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build /tmp/noqeri-graphics-build --target noqeri -j 2
+      - name: Check typed shader source and reject unsafe GPU programs
+        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs
+      - name: Naga syntax and semantic validation of both generated GPU stages
+        run: |
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/color_gradient.noqeri /tmp/noqeri-fragment.wgsl --stage=fragment
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/invert_compute.noqeri /tmp/noqeri-compute.wgsl --stage=compute
+          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl
+      - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
+        run: |
+          NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
