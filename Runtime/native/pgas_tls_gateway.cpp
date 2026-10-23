@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <atomic>
 #include <cerrno>
+#include <fcntl.h>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -90,7 +91,8 @@ static SSL_CTX *make_context(bool server,const char *ca,const char *cert,const c
   SSL_CTX_set_options(ctx,SSL_OP_NO_COMPRESSION);
   return ctx;
 }
-static int make_socket(const char *ipv4,uint16_t port,bool listen_socket,int &fd,uint16_t &bound) {
+static int make_socket(const char *ipv4,uint16_t port,bool listen_socket,
+                       int &fd,uint16_t &bound,uint32_t connect_ms=5000) {
   sockaddr_in addr{};addr.sin_family=AF_INET;addr.sin_port=htons(port);
   if(inet_pton(AF_INET,ipv4,&addr.sin_addr)!=1)return -EINVAL;
   fd=socket(AF_INET,SOCK_STREAM,0);if(fd<0)return -errno;
@@ -101,7 +103,20 @@ static int make_socket(const char *ipv4,uint16_t port,bool listen_socket,int &fd
     if(getsockname(fd,reinterpret_cast<sockaddr*>(&addr),&length)!=0){int e=errno;close(fd);fd=-1;return -e;}
     bound=ntohs(addr.sin_port);return 0;
   }
-  if(connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))!=0){int e=errno;close(fd);fd=-1;return -e;}
+  const int flags=fcntl(fd,F_GETFL,0);
+  if(flags<0){int e=errno;close(fd);fd=-1;return -e;}
+  if(fcntl(fd,F_SETFL,flags|O_NONBLOCK)!=0){int e=errno;close(fd);fd=-1;return -e;}
+  int result=connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr));
+  if(result<0 && errno==EINPROGRESS){
+    pollfd p{fd,POLLOUT,0};
+    do{result=poll(&p,1,static_cast<int>(connect_ms));}while(result<0&&errno==EINTR);
+    if(result==0){close(fd);fd=-1;return -ETIMEDOUT;}
+    if(result<0){int e=errno;close(fd);fd=-1;return -e;}
+    int error=0;socklen_t length=sizeof(error);
+    if(getsockopt(fd,SOL_SOCKET,SO_ERROR,&error,&length)!=0){int e=errno;close(fd);fd=-1;return -e;}
+    if(error){close(fd);fd=-1;return -error;}
+  }else if(result<0){int e=errno;close(fd);fd=-1;return -e;}
+  if(fcntl(fd,F_SETFL,flags)!=0){int e=errno;close(fd);fd=-1;return -e;}
   return 0;
 }
 static int backend_connect(uint16_t port,const std::string &token) {
@@ -245,7 +260,7 @@ int nq_pgas_tls_client_connect(const char *server_ipv4,uint16_t port,
   c->ctx=make_context(false,ca_pem,client_cert_pem,client_key_pem);
   if(!c->ctx)return -EACCES;
   uint16_t ignored=0;
-  int rc=make_socket(server_ipv4,port,false,c->fd,ignored);
+  int rc=make_socket(server_ipv4,port,false,c->fd,ignored,timeout_ms);
   if(rc){SSL_CTX_free(c->ctx);return rc;}
   set_timeout(c->fd,timeout_ms);
   c->ssl=SSL_new(c->ctx);
