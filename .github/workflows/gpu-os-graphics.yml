@@ -13,6 +13,7 @@ on:
       - 'examples/graphics_demo.noqeri'
       - 'examples/shaders/**'
       - 'Runtime/native/os_renderer_sdl.cpp'
+      - 'Include/noqeri/os_renderer_sdl.h'
       - 'tests/cpp/graphics_headless_test.cpp'
       - 'tests/scripts/graphics-native-e2e.sh'
       - 'tests/shader-compiler.test.mjs'
@@ -45,7 +46,7 @@ jobs:
       - name: Build Noqeri shader/compiler frontend
         run: |
           cmake -S . -B /tmp/noqeri-graphics-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
-          cmake --build /tmp/noqeri-graphics-build --target noqeri -j 2
+          cmake --build /tmp/noqeri-graphics-build --target noqeri noqeri_os_renderer_sdl -j 2
       - name: Check typed shader source and reject unsafe GPU programs
         run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
