@@ -112,6 +112,24 @@ Do not conflate CPU drawing via an accelerated OS SDL compositor with
 GPU-executed Noqeri WGSL. They are distinct backends and require a future
 shader dispatch pipeline or browser WebGPU app to connect them.
 
+## Kernel and bare-metal framebuffers in Noqeri
+
+`Lib/std/os_framebuffer.noqeri` also implements direct ARGB8888
+**volatile MMIO/framebuffer pointer** access, stride-aware clear and
+checker drawing, fully in Noqeri without SDL2 or any OS runtime.
+The kernel or bootloader must provide a valid mapped writable
+`*volatile u32` buffer, dimensions and row pitch (in pixels).
+
+`examples/os_framebuffer_demo.noqeri` calls the Noqeri functions with an
+external framebuffer memory provider. The native integration test compiles
+both the Noqeri code and a minimal memory provider and proves that
+stride/pitch padding remains untouched. This tests mapping semantics
+against simulated memory, **not** a physical GPU or actual OS boot
+surface. It is explicitly **not** a GPU device driver, PCI discovery,
+display controller, DRM/KMS stack, or an OS compositor. For that work,
+a real OS must provide display device discovery, memory mapping, page
+flipping, permissions, input and lifecycle management.
+
 ## Not yet complete
 
 - Native Stage-2 compiler/self-hosted shader code generation
