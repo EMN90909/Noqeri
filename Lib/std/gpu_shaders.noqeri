@@ -1,0 +1,55 @@
+module noqeri.std.gpu_shaders
+
+// Shader-only vector and texture intrinsic ABI. Noqeri's Stage-0 shader
+// compiler lowers these exact, type-checked signatures directly to WGSL.
+// These functions have NO CPU implementation and must not be called from
+// regular executable targets. The compiler forbids non-shader host calls.
+
+record NqVec2 {
+    x: float
+    y: float
+}
+record NqVec3 {
+    x: float
+    y: float
+    z: float
+}
+record NqVec4 {
+    x: float
+    y: float
+    z: float
+    w: float
+}
+
+extern function nqVec2(x: float, y: float): NqVec2
+extern function nqVec3(x: float, y: float, z: float): NqVec3
+extern function nqVec4(x: float, y: float, z: float, w: float): NqVec4
+
+extern function nqVec2Add(a: NqVec2, b: NqVec2): NqVec2
+extern function nqVec3Add(a: NqVec3, b: NqVec3): NqVec3
+extern function nqVec4Add(a: NqVec4, b: NqVec4): NqVec4
+extern function nqVec2Sub(a: NqVec2, b: NqVec2): NqVec2
+extern function nqVec3Sub(a: NqVec3, b: NqVec3): NqVec3
+extern function nqVec4Sub(a: NqVec4, b: NqVec4): NqVec4
+extern function nqVec2Scale(a: NqVec2, factor: float): NqVec2
+extern function nqVec3Scale(a: NqVec3, factor: float): NqVec3
+extern function nqVec4Scale(a: NqVec4, factor: float): NqVec4
+extern function nqDot2(a: NqVec2, b: NqVec2): float
+extern function nqDot3(a: NqVec3, b: NqVec3): float
+extern function nqDot4(a: NqVec4, b: NqVec4): float
+extern function nqLength2(a: NqVec2): float
+extern function nqLength3(a: NqVec3): float
+extern function nqNormalize2(a: NqVec2): NqVec2
+extern function nqNormalize3(a: NqVec3): NqVec3
+extern function nqVec4Mix(a: NqVec4, b: NqVec4, ratio: float): NqVec4
+extern function nqVec4Clamp(color: NqVec4, low: float, high: float): NqVec4
+extern function nqVec4R(color: NqVec4): float
+extern function nqVec4G(color: NqVec4): float
+extern function nqVec4B(color: NqVec4): float
+extern function nqVec4A(color: NqVec4): float
+
+// Fragment-only, group(0): sampled 2D rgba8unorm texture at binding 0.
+// nqTextureSample also requires a filtering sampler at binding 1.
+extern function nqTextureSample(uv: NqVec2): NqVec4
+extern function nqTextureLoad(x: u32, y: u32): NqVec4
+extern function nqTextureSize(): NqVec2
