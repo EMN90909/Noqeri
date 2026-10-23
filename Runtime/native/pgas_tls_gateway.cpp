@@ -277,4 +277,8 @@ int nq_pgas_tls_fetch_add(nq_pgas_tls_client *c,uint32_t index,int64_t delta,int
   return previous?tls_request(c,5,index,delta,0,previous):-EINVAL;
 }
 int nq_pgas_tls_barrier(nq_pgas_tls_client *c){return tls_request(c,6,0,0,0,nullptr);}
+int nq_pgas_tls_run_task(nq_pgas_tls_client *c,uint32_t id,int64_t input,int64_t *out){
+  if(!out||id==0||id>65535)return -EINVAL;
+  return tls_request(c,7,id,input,0,out);
+}
 }
