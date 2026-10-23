@@ -169,7 +169,9 @@ compile direct indexed reads and writes on fixed `@partition` i64 arrays
 into actual remote node calls with explicit authenticated topology binding.
 This is qualified with a Noqeri-generated native executable and a two-node
 mTLS gateway test, **not** with separate physical hosts or RDMA NICs.
-See [PGAS native arrays](Doc/PGAS_NATIVE_ARRAYS.md) and
+See [PGAS native arrays](Doc/PGAS_NATIVE_ARRAYS.md),
+[restricted pure remote Noqeri programs](Doc/PGAS_REMOTE_PROGRAMS.md),
+[authenticated RDMA peer exchange](Doc/PGAS_RDMA_CONTROL.md) and
 [distributed acceptance gates](Doc/PGAS_DISTRIBUTED_ACCEPTANCE.md).
 
 ## Release readiness
