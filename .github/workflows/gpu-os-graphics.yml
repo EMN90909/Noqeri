@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'Compiler/shader_backend.cpp'
+      - '.github/workflows/gpu-hardware-qualification.yml'
+      - 'tests/hardware/webgpu-gpu-smoke.mjs'
+      - 'tests/scripts/shader-stage2-selfhost.sh'
+      - 'Compiler/shaders/stage2-shader-sources.txt'
+      - 'Compiler/shaders/stage2_wgsl.noqeri'
       - 'Lib/std/gpu_shaders.noqeri'
       - 'tests/shader-vectors-textures.test.mjs'
       - 'Include/noqeri/shader_backend.hpp'
@@ -53,6 +58,8 @@ jobs:
         run: |
           cmake -S . -B /tmp/noqeri-graphics-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
           cmake --build /tmp/noqeri-graphics-build --target noqeri noqeri_os_renderer_sdl -j 2
+      - name: Check Noqeri-owned self-hosted WGSL generator syntax and semantics
+        run: timeout 120s /tmp/noqeri-graphics-build/noqeri check Compiler/shaders/stage2_wgsl.noqeri
       - name: Check typed shader source and reject unsafe GPU programs
         run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/webgpu-host.test.mjs tests/shader-vectors-textures.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
