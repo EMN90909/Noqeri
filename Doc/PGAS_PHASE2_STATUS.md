@@ -8,11 +8,11 @@ support, not a production-ready distributed-memory platform.
 
 ## Version and bootstrap provenance
 
-The active Noqeri project and C++ toolchain report 0.1.3. The immutable,
+The active Noqeri project and C++ toolchain report 0.1.43. The immutable,
 checksum-verified Stage-1 seed and its self-hosted source still report 0.7.0.
 Rebuilding Stage-1 from modified self-hosted source requires reseeding and
 independent multi-stage reproducibility evidence, not a cosmetic string edit.
-This does not qualify 0.1.3 as a stable compiler release.
+This does not qualify 0.1.43 as a stable compiler release.
 
 ## Native features and trust boundaries
 
@@ -32,12 +32,19 @@ This does not qualify 0.1.3 as a stable compiler release.
   numeric ID (`nq_pgas_register_task`) with one signed-64-bit argument and
   result. The additional bounded sandbox bytecode runtime permits unprivileged
   client-supplied arithmetic programs with strict fuel, stack and size caps.
-  Neither path supports arbitrary Noqeri closure compilation/distribution.
+  Stage-0 also compiles a small pure Noqeri `remote(i64): i64` function
+  with baked immutable captures into this sandbox VM. That profile has
+  end-to-end execution tests but cannot serialize general closures or
+  perform effects. See [remote programs](PGAS_REMOTE_PROGRAMS.md).
   Callback execution is concurrent and not automatically replay-safe.
-- Stage-0 now recognizes, typechecks and retains `@partition` placement
-  metadata in NIR. Backends fail closed instead of silently interpreting it as
-  local storage. Stage-2/self-host parity and **actual distributed memory
-  lowering** are still missing.
+- Stage-0 recognizes, typechecks and retains `@partition` metadata.
+  In 0.1.43, native x86-64 AOT emits real remote indexed `i64` reads/writes
+  through `nq_pgas_partition_bind` or the mTLS-backed bind API. The native
+  compiler no longer silently falls back to local memory; remote errors
+  abort. Independent AOT and TLS tests demonstrate storage placement.
+  Interpreter and NQRI continue to fail closed. Stage-2 parity, general
+  distributed types and native RDMA selection remain missing.
+  See [native arrays](PGAS_NATIVE_ARRAYS.md).
 - Node epochs are now WAL-durable and stale client operations are refused
   after controlled external fencing/promotion. A two-node synchronous TLS
   mirror exists, but split-brain-safe leader election, global barriers,
@@ -45,10 +52,15 @@ This does not qualify 0.1.3 as a stable compiler release.
   are absent.
 - Optional Linux `libibverbs` RC RDMA endpoint registration, QP setup and
   one-sided read/write implementation is present. CI compiles the real provider
-  and probes hardware absence, but **two-NIC peer qualification, authenticated
-  descriptor exchange, persistence and packet-level security are not yet
-  integrated**; TLS remains the qualified test path.
-- Full Noqeri-native machine-code linking, 2+ physical-machine integration,
+  and probes hardware absence. The new TLS 1.3/mTLS RDMA control-plane
+  API exchanges versioned QP descriptors with verified peer certificates,
+  and its synthetic capability and unauthorized-SAN tests pass. **Two-NIC
+  hardware qualification, RDMA data-path encryption, persistence and
+  automatic failover remain unimplemented or unverified**. TLS RPC remains
+  the qualified remote data path. See [RDMA control](PGAS_RDMA_CONTROL.md).
+- Native Stage-0 Noqeri-generated machine-code linking for fixed i64
+  partition arrays has passed local and TLS-gateway tests. Stage-2 compiler
+  parity, 2+ physical-machine integration,
   failure-injection matrices, certificate rotation, node revocation,
   high-throughput load tests, and hardened production deployment are
   outstanding.

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.43-development — 2026-10-23 (candidate, not a stable release)
+
+- Updated active public compiler, language version functions, project manifest,
+  release-qualification report, and CI version expectations to 0.1.43.
+- PGAS remains experimental until the hardware, self-hosted compiler, and
+  consensus qualification gates are met.
+- The checksum-pinned trusted Stage-1 seed continues to expose its historical
+  0.7.0 self-hosted source version. No Git history or archived registry release
+  has been rewritten.
+
+
 ## 0.1.3-development — 2026-10-23 (version alignment, not a stable release)
 
 - Reset the active C++ compiler, language API, project metadata, and release-report version declarations to 0.1.3 at the user's request. The trusted Stage-1 compiler source and bytecode remain pinned to the historical 0.7.0 bootstrap artifact pending an independently reproducible trust rotation.

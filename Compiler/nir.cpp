@@ -57,6 +57,43 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
         return;
     }
 }
+
+// Emit an explicitly remote, topology-bound indexed access. The compiler never
+// produces a local stack pointer for a partitioned array. The linked native
+// PGAS adapter aborts on unbound topology, stale epochs or failed remote IO.
+Reg Lowerer::lowerPartitionRead(NirFunction& fn,const NirPartitionDescriptor& part,
+                                const ExprPtr& index) {
+    auto constant=[&](NirValue value)->Reg{
+        NirInstruction c;c.op=NirOp::Const;c.dest=fn.nextReg++;c.literal=std::move(value);
+        emit(fn,c);return*c.dest;
+    };
+    Reg symbol=constant(part.name);
+    Reg offset=lowerExpr(fn,index);
+    Reg elements=constant(static_cast<std::int64_t>(part.elements));
+    Reg nodes=constant(static_cast<std::int64_t>(part.nodes));
+    Reg strategy=constant(static_cast<std::int64_t>(part.strategy=="block"?0:1));
+    NirInstruction call;call.op=NirOp::Call;call.dest=fn.nextReg++;
+    call.text="nq_pgas_compiler_partition_read";
+    call.args={symbol,offset,elements,nodes,strategy};
+    emit(fn,call);return*call.dest;
+}
+Reg Lowerer::lowerPartitionWrite(NirFunction& fn,const NirPartitionDescriptor& part,
+                                 const ExprPtr& index,Reg value) {
+    auto constant=[&](NirValue data)->Reg{
+        NirInstruction c;c.op=NirOp::Const;c.dest=fn.nextReg++;c.literal=std::move(data);
+        emit(fn,c);return*c.dest;
+    };
+    Reg symbol=constant(part.name);
+    Reg offset=lowerExpr(fn,index);
+    Reg elements=constant(static_cast<std::int64_t>(part.elements));
+    Reg nodes=constant(static_cast<std::int64_t>(part.nodes));
+    Reg strategy=constant(static_cast<std::int64_t>(part.strategy=="block"?0:1));
+    NirInstruction call;call.op=NirOp::Call;call.dest=fn.nextReg++;
+    call.text="nq_pgas_compiler_partition_write";
+    call.args={symbol,offset,elements,nodes,strategy,value};
+    emit(fn,call);return*call.dest;
+}
+
 Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
     if(auto n=std::dynamic_pointer_cast<NameExpr>(expr)){NirInstruction i;i.op=NirOp::AddressOf;i.dest=fn.nextReg++;i.text=n->name;emit(fn,i);return*i.dest;}
     if(auto u=std::dynamic_pointer_cast<UnaryExpr>(expr);u&&u->op==TokenKind::Star){Reg base=lowerExpr(fn,u->operand);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={base};emit(fn,check);return base;}
@@ -92,10 +129,20 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
         Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Unary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={a};emit(fn,i);return*i.dest;
     }
     if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->fieldSize?e->fieldSize:8;i.isVolatile=e->volatileAccess;emit(fn,i);return*i.dest;}
-    if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;emit(fn,i);return*i.dest;}
+    if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
+        if(auto n=std::dynamic_pointer_cast<NameExpr>(e->object))
+            for(const auto& part:fn.partitions)
+                if(part.name==n->name)return lowerPartitionRead(fn,part,e->index);
+        Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;emit(fn,i);return*i.dest;
+    }
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Reg a=lowerExpr(fn,e->value);NirInstruction i;i.op=NirOp::Cast;i.dest=fn.nextReg++;i.text=e->typeName;i.args={a};emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
-        if(e->op==TokenKind::Equal){Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
+        if(e->op==TokenKind::Equal){Reg r=lowerExpr(fn,e->right);if(auto indexed=std::dynamic_pointer_cast<IndexExpr>(e->left)){
+            if(auto n=std::dynamic_pointer_cast<NameExpr>(indexed->object))
+                for(const auto& part:fn.partitions)
+                    if(part.name==n->name)return lowerPartitionWrite(fn,part,indexed->index,r);
+        }
+        if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
         if(e->op==TokenKind::AndAnd||e->op==TokenKind::OrOr){
             Reg left=lowerExpr(fn,e->left);
             const std::string temp="$noqeri.logic."+std::to_string(fn.code.size())+"."+std::to_string(fn.nextReg);
