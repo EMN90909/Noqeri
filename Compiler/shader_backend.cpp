@@ -398,6 +398,9 @@ private:
                      arguments[1].code+")), 0)";
             }else if(name->name=="nqTextureSize"){
                 code="vec2<f32>(textureDimensions(nq_texture, 0))";
+            }else if(name->name=="nqVec4Clamp"){
+                code="clamp("+arguments[0].code+", vec4<f32>("+arguments[1].code+
+                     "), vec4<f32>("+arguments[2].code+"))";
             }else if(intrinsic->wgsl[0]=='+'||intrinsic->wgsl[0]=='-'||
                      intrinsic->wgsl[0]=='*'){
                 code="("+arguments[0].code+" "+intrinsic->wgsl+" "+arguments[1].code+")";
