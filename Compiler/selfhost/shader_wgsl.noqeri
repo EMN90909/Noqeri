@@ -159,7 +159,10 @@ export function nqStage2ShaderComputeWgsl(source: []u8, out: []u8): isize {
     let count: usize = 0 as usize
     let first: isize = nqAstNoNode()
     let parseStatus: isize = nqParserParseProgram(source, slice(nodes), &count, &first)
-    if parseStatus < 0 as isize { return parseStatus - 2000 as isize }
+    if parseStatus < 0 as isize {
+        if count > 0 as usize { return -4000 as isize - nodes[count - 1 as usize].end as isize }
+        return parseStatus - 2000 as isize
+    }
     let functionIndex: isize = nqAstNoNode()
     let cursor: isize = first
     while cursor >= 0 as isize {
