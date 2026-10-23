@@ -5,6 +5,13 @@
 #include <cstring>
 
 extern "C" int noqeri_entry(const void* abi);
+extern "C" int nq_shader_inspect(const std::uint8_t *data,std::size_t size) {
+  if(!data || size>1024) return -1;
+  std::fputs("Stage-2 fixture source: ",stderr);
+  std::fwrite(data,1,size,stderr);
+  std::fputs("\\n",stderr);
+  return 0;
+}
 extern "C" int nq_shader_error(std::int64_t code) {
   std::fprintf(stderr,"Noqeri Stage-2 shader emitter failed with status %lld\n",
                static_cast<long long>(code));
