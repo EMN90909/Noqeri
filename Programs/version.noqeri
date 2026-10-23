@@ -2,7 +2,7 @@ module noqeri.programs.version
 
 export function nqLanguageVersionMajor(): int { return 0 }
 export function nqLanguageVersionMinor(): int { return 1 }
-export function nqLanguageVersionPatch(): int { return 3 }
+export function nqLanguageVersionPatch(): int { return 43 }
 export function nqAbiVersion(): int { return 2 }
 
 export function nqVersionCompatible(requiredMajor: int, actualMajor: int): bool {
