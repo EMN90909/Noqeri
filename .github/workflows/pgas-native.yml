@@ -5,6 +5,13 @@ on:
       - "Runtime/native/pgas_runtime.cpp"
       - "Runtime/native/pgas_rdma.cpp"
       - "Include/noqeri/pgas_rdma.h"
+      - "Compiler/bootstrap/parser_host.cpp"
+      - "Compiler/bootstrap/lexer_host.cpp"
+      - "Compiler/type_checker.cpp"
+      - "Compiler/nir.cpp"
+      - "Include/noqeri/ast.hpp"
+      - "Include/noqeri/nir.hpp"
+      - "tests/pgas-attribute.test.mjs"
       - "CMakeLists.txt"
       - "Lib/std/pgas.noqeri"
       - "Lib/std/pgas_tls.noqeri"
@@ -63,3 +70,4 @@ jobs:
           cmake --build /tmp/noqeri-pgas-build --target noqeri noqeri_pgas_runtime noqeri_pgas_tls_gateway noqeri_pgas_rdma -j 2
           /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas.noqeri
           /tmp/noqeri-pgas-build/noqeri check Lib/std/pgas_tls.noqeri
+          NOQERI_PGAS_COMPILER=/tmp/noqeri-pgas-build/noqeri node --test tests/pgas-attribute.test.mjs
