@@ -258,10 +258,10 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
 }
 
 bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&output,Diagnostics&diagnostics)const{
-    if(!p.entry.partitions.empty()){
-        diagnostics.error("NQR-PGAS301",{},"native backend does not yet lower @partition arrays to remote addresses; refusing local execution");
-        return false;
-    }
+    // Stage-0 NIR now emits explicit nq_pgas_compiler_partition_read/write
+    // calls for module-scoped i64 arrays. A consuming native executable MUST
+    // link the PGAS host adapter and bind an authenticated topology before
+    // entering noqeri_entry(). No local arrays are materialized for partitions.
     for(const auto&fn:p.functions)if(!fn.partitions.empty()){
         diagnostics.error("NQR-PGAS301",{},"native backend does not yet lower @partition arrays to remote addresses; refusing local execution");
         return false;
