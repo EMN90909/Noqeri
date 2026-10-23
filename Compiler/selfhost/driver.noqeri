@@ -4,8 +4,8 @@ import "syntax.noqeri"
 import "../../Lib/std/checksum.noqeri"
 
 export function nqCompilerVersionMajor(): int { return 0 }
-export function nqCompilerVersionMinor(): int { return 1 }
-export function nqCompilerVersionPatch(): int { return 3 }
+export function nqCompilerVersionMinor(): int { return 7 }
+export function nqCompilerVersionPatch(): int { return 0 }
 
 export function nqCompilerCheckSource(source: []u8): isize {
     let syntaxStatus: isize = nqCompilerSyntaxCheck(source)
