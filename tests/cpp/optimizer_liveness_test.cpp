@@ -270,6 +270,58 @@ int main() {
         if (!check(p.entry.code[0].op == noe::NirOp::Call, "external call kept")) return 1;
     }
     {
+        // SSA-typed local load is already represented by a Store operand.
+        noe::NirProgram p;
+        auto assign=withArgs(noe::NirOp::Store,{1});assign.text="count";
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=2;load.text="count";
+        p.entry.code={constant(1,41),assign,load,
+                      withArgs(noe::NirOp::Return,{2})};
+        p.entry.registerTypes.resize(3);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[2].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool foundLoad=false;
+        noe::Reg returned=0;
+        for(const auto& in:p.entry.code){
+            if(in.op==noe::NirOp::Load)foundLoad=true;
+            if(in.op==noe::NirOp::Return&&!in.args.empty())returned=in.args[0];
+        }
+        if(!check(!foundLoad&&returned==1,"typed straight-line mem2reg"))return 1;
+    }
+    {
+        // Address-taken locals may change through aliases; preserve Load.
+        noe::NirProgram p;
+        auto assign=withArgs(noe::NirOp::Store,{1});assign.text="counter";
+        auto addr=withArgs(noe::NirOp::AddressOf,{});addr.dest=2;addr.text="counter";
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=3;load.text="counter";
+        p.entry.code={constant(1,41),assign,addr,load,
+                      withArgs(noe::NirOp::Return,{3})};
+        p.entry.registerTypes.resize(4);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[3].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool preserved=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Load)preserved=true;
+        if(!check(preserved,"address-taken local not promoted"))return 1;
+    }
+    {
+        // Different signedness must not silently change machine op flags.
+        noe::NirProgram p;
+        auto assign=withArgs(noe::NirOp::Store,{1});assign.text="value";
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=2;load.text="value";
+        p.entry.code={constant(1,1),assign,load,
+                      withArgs(noe::NirOp::Return,{2})};
+        p.entry.registerTypes.resize(3);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[2].kind=noe::TypeKind::U64;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool preserved=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Load)preserved=true;
+        if(!check(preserved,"mismatched integer types not promoted"))return 1;
+    }
+    {
         // Integer local GVN: second identical addition can reuse the first
         // without rewriting uses outside its straight-line basic block.
         noe::NirProgram p;
