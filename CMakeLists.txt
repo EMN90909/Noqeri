@@ -53,7 +53,62 @@ endfunction()
 noqeri_apply_warnings(noqeri)
 noqeri_apply_warnings(noqeri-nqri)
 noqeri_apply_warnings(noqeri_abi)
+# Standalone graphics compiler/renderer qualification avoids platform-specific
+# mailbox/PGAS dependencies. Noqeri shader compilation still uses the REAL
+# compiler executable and the same C++ shader backend on every host.
+option(NOQERI_GRAPHICS_PORTABLE_BUILD
+ "Configure shader compiler and graphics library without network/database services" OFF)
+option(NOQERI_GRAPHICS_FORCE_SCALAR
+ "Force portable scalar framebuffer clears (for architecture qualification)" OFF)
+add_library(noqeri_graphics_fastpath STATIC Runtime/native/graphics_fastpath.cpp)
+target_include_directories(noqeri_graphics_fastpath PUBLIC
+ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
+ $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_compile_features(noqeri_graphics_fastpath PUBLIC cxx_std_17)
+if(NOQERI_GRAPHICS_FORCE_SCALAR)
+ target_compile_definitions(noqeri_graphics_fastpath PRIVATE NOQERI_GRAPHICS_FORCE_SCALAR=1)
+endif()
+noqeri_apply_warnings(noqeri_graphics_fastpath)
+install(TARGETS noqeri_graphics_fastpath ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 include(CTest)
+if(BUILD_TESTING)
+ add_executable(noqeri-graphics-portability-test tests/cpp/graphics_portability_test.cpp)
+ target_link_libraries(noqeri-graphics-portability-test PRIVATE noqeri_graphics_fastpath)
+ target_compile_features(noqeri-graphics-portability-test PRIVATE cxx_std_17)
+ if(NOQERI_GRAPHICS_FORCE_SCALAR)
+  target_compile_definitions(noqeri-graphics-portability-test PRIVATE NOQERI_GRAPHICS_FORCE_SCALAR=1)
+ endif()
+ noqeri_apply_warnings(noqeri-graphics-portability-test)
+ add_test(NAME noqeri-graphics-portability COMMAND noqeri-graphics-portability-test)
+ add_test(NAME noqeri-graphics-shader-portability
+  COMMAND ${CMAKE_COMMAND}
+   "-DNOQERI_COMPILER=$<TARGET_FILE:noqeri>"
+   "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+   "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+   -P ${CMAKE_SOURCE_DIR}/tests/cmake/graphics_shader_portability.cmake)
+endif()
+# Optional cross-platform OS presentation bridge: only the SDL2 surface/window
+# adapter is native. All raster algorithms live in Lib/std/render2d.noqeri.
+# No SDL2 dependency is imposed on freestanding compiler/runtime targets.
+option(NOQERI_ENABLE_SDL2 "Build optional Noqeri OS framebuffer SDL2 adapter" ON)
+if(NOQERI_ENABLE_SDL2)
+ find_package(SDL2 CONFIG QUIET)
+ if(TARGET SDL2::SDL2)
+  add_library(noqeri_os_renderer_sdl STATIC Runtime/native/os_renderer_sdl.cpp)
+  target_include_directories(noqeri_os_renderer_sdl PUBLIC Include)
+  target_link_libraries(noqeri_os_renderer_sdl PUBLIC SDL2::SDL2)
+  target_compile_features(noqeri_os_renderer_sdl PUBLIC cxx_std_17)
+  noqeri_apply_warnings(noqeri_os_renderer_sdl)
+ endif()
+endif()
+
+# This opt-in mode isolates portable shader generation and native framebuffer
+# runtime even on BSD/Android, where networking services differ. A full native
+# Noqeri executable/linker for each target is a separate qualification gate.
+if(NOQERI_GRAPHICS_PORTABLE_BUILD)
+ install(TARGETS noqeri RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ return()
+endif()
 if(BUILD_TESTING)
  add_executable(noqeri-phi-edge-emitter
    tests/cpp/phi_edge_codegen_test.cpp Compiler/native_backend.cpp)
@@ -162,15 +217,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
-# Opt-in nonvolatile CPU framebuffer acceleration. This native Noqeri/C++
-# adapter does not depend on JavaScript, SDL or a GPU driver.
-add_library(noqeri_graphics_fastpath STATIC Runtime/native/graphics_fastpath.cpp)
-target_include_directories(noqeri_graphics_fastpath PUBLIC Include)
-target_compile_features(noqeri_graphics_fastpath PUBLIC cxx_std_17)
-noqeri_apply_warnings(noqeri_graphics_fastpath)
-install(TARGETS noqeri_graphics_fastpath
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-
 install(TARGETS noqeri noqeri-nqri noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")
@@ -255,17 +301,3 @@ if(UNIX AND NOT APPLE)
  endif()
 endif()
 
-# Optional cross-platform OS presentation bridge: only the SDL2 surface/window
-# adapter is native. All raster algorithms live in Lib/std/render2d.noqeri.
-# No SDL2 dependency is imposed on freestanding compiler/runtime targets.
-option(NOQERI_ENABLE_SDL2 "Build optional Noqeri OS framebuffer SDL2 adapter" ON)
-if(NOQERI_ENABLE_SDL2)
- find_package(SDL2 CONFIG QUIET)
- if(TARGET SDL2::SDL2)
-  add_library(noqeri_os_renderer_sdl STATIC Runtime/native/os_renderer_sdl.cpp)
-  target_include_directories(noqeri_os_renderer_sdl PUBLIC Include)
-  target_link_libraries(noqeri_os_renderer_sdl PUBLIC SDL2::SDL2)
-  target_compile_features(noqeri_os_renderer_sdl PUBLIC cxx_std_17)
-  noqeri_apply_warnings(noqeri_os_renderer_sdl)
- endif()
-endif()
