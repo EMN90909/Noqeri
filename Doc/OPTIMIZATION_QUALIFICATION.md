@@ -57,7 +57,7 @@ not be presented as self-hosted Stage-2 performance.
 ## Native x86-64 improvements on 2026-10-24
 
 - **Typed NIR optimization:** the TypeChecker still runs first, but NIR type
-  analysis now runs before optimization and again after transformation.
+  analysis now runs before optimization, with CFG metadata rebuilt after transformation.
   Integer constant comparisons, division and remainders use the signedness
   of their typed operands rather than always interpreting the bits as i64.
 - **Safe array indexing:** the type checker now attaches an actual fixed
