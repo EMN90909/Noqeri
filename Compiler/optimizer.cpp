@@ -462,19 +462,41 @@ bool sparseConstants(NirFunction& fn) {
     const Graph g=graphOf(fn);
     if(!g.uniqueDefs||!g.validDominance)return false;
     std::unordered_map<Reg,NirValue> facts;
-    bool progress=true;
-    for(std::size_t step=0;step<fn.code.size()&&progress;++step){
-        progress=false;
-        for(const auto& i:fn.code){
-            if(!i.dest||facts.count(*i.dest))continue;
-            std::optional<NirValue> value;
-            if(i.op==NirOp::Const&&!std::holds_alternative<std::monostate>(i.literal))value=i.literal;
-            if(i.op==NirOp::Binary&&i.args.size()==2){
-                const auto a=facts.find(i.args[0]),b=facts.find(i.args[1]);
-                if(a!=facts.end()&&b!=facts.end())value=fold(i.text,a->second,b->second,operandType(fn,i.args[0]));
-            }
-            if(value){facts.emplace(*i.dest,*value);progress=true;}
-        }
+    // Propagate each newly known register only to dependent expressions.
+    // Repeatedly rescanning the entire function until a fixed point was
+    // unnecessarily expensive for long dependency chains and large NIR.
+    std::unordered_map<Reg,std::vector<std::size_t>> users;
+    for(std::size_t pc=0;pc<fn.code.size();++pc)
+        for(const auto reg:fn.code[pc].args)
+            users[reg].push_back(pc);
+    std::vector<std::size_t> pending;
+    std::vector<bool> queued(fn.code.size(),false);
+    const auto enqueue=[&](std::size_t pc){
+        if(!queued[pc]){queued[pc]=true;pending.push_back(pc);}
+    };
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Const&&in.dest&&
+           !std::holds_alternative<std::monostate>(in.literal)){
+            facts.emplace(*in.dest,in.literal);
+        }else if(in.op==NirOp::Binary&&in.dest)
+            enqueue(pc);
+    }
+    for(std::size_t cursor=0;cursor<pending.size();++cursor){
+        const auto pc=pending[cursor];
+        queued[pc]=false;
+        const auto& in=fn.code[pc];
+        if(in.op!=NirOp::Binary||!in.dest||in.args.size()!=2||
+           facts.count(*in.dest))continue;
+        const auto lhs=facts.find(in.args[0]),rhs=facts.find(in.args[1]);
+        if(lhs==facts.end()||rhs==facts.end())continue;
+        const auto result=fold(in.text,lhs->second,rhs->second,
+                               operandType(fn,in.args[0]));
+        if(!result)continue;
+        facts.emplace(*in.dest,*result);
+        const auto dependent=users.find(*in.dest);
+        if(dependent!=users.end())
+            for(const auto user:dependent->second)enqueue(user);
     }
     bool changed=false;
     for(auto& in:fn.code){

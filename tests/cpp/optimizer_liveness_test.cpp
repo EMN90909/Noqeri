@@ -27,6 +27,125 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // A long single-definition dependency chain must propagate without
+        // changing wraparound integer semantics or leaving live binary ops.
+        noe::NirProgram p;
+        p.entry.code.push_back(constant(1,1));
+        p.entry.code.push_back(constant(2,2));
+        for(noe::Reg r=3;r<=1026;++r){
+            auto next=withArgs(noe::NirOp::Binary,{r-1,2});
+            next.dest=r;
+            next.text="+";
+            next.type.kind=noe::TypeKind::Int;
+            p.entry.code.push_back(next);
+        }
+        p.entry.code.push_back(withArgs(noe::NirOp::Return,{1026}));
+        p.entry.registerTypes.resize(1027);
+        for(noe::Reg r=1;r<=1026;++r)
+            p.entry.registerTypes[r].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool finalConstant=false;
+        for(const auto& in:p.entry.code)
+            if(in.dest&&*in.dest==1026&&in.op==noe::NirOp::Const)
+                finalConstant=std::get<std::int64_t>(in.literal)==2050;
+        if(!check(finalConstant,"worklist folds 1024 dependent SSA additions"))
+            return 1;
+    }
+    {
+        // The same scalar value reaches both arms of a diamond: a Load
+        // after the join is redundant, and all successor uses may be
+        // redirected to the source virtual register.
+        noe::NirProgram p;
+        auto store=withArgs(noe::NirOp::Store,{1});store.text="x";
+        auto flag=withArgs(noe::NirOp::Load,{});flag.dest=2;flag.text="flag";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{2});branch.target=6;
+        auto unused=withArgs(noe::NirOp::Load,{});unused.dest=3;unused.text="x";
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=7;
+        auto joined=withArgs(noe::NirOp::Load,{});joined.dest=4;joined.text="x";
+        p.entry.code={constant(1,42),store,flag,branch,unused,jump,
+                      withArgs(noe::NirOp::Nop,{}),joined,
+                      withArgs(noe::NirOp::Return,{4})};
+        p.entry.registerTypes.resize(5);
+        for(auto reg:{noe::Reg{1},noe::Reg{3},noe::Reg{4}})
+            p.entry.registerTypes[reg].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[2].kind=noe::TypeKind::Bool;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Load&&in.text=="x"){
+                if(!check(false,"diamond same-source load removed"))return 1;
+            }
+        bool returnedOriginal=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Return&&!in.args.empty()&&
+               in.args[0]==1)returnedOriginal=true;
+        if(!check(returnedOriginal,"diamond join uses dominating register"))
+            return 1;
+    }
+    {
+        // Incoming values differ. A real Phi would be necessary to
+        // replace the final Load, so keep it until Phi lowering exists.
+        noe::NirProgram p;
+        auto flag=withArgs(noe::NirOp::Load,{});flag.dest=3;flag.text="flag";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=5;
+        auto left=withArgs(noe::NirOp::Store,{1});left.text="x";
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=7;
+        auto right=withArgs(noe::NirOp::Store,{2});right.text="x";
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=4;load.text="x";
+        p.entry.code={constant(1,11),flag,branch,left,jump,
+                      constant(2,22),right,load,
+                      withArgs(noe::NirOp::Return,{4})};
+        p.entry.registerTypes.resize(5);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[2].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[3].kind=noe::TypeKind::Bool;
+        p.entry.registerTypes[4].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Load&&in.text=="x")kept=true;
+        if(!check(kept,"diverging diamond values retain load"))return 1;
+    }
+    {
+        // An assigned loop-carried value may differ on each iteration.
+        // The exit Load must not be replaced by the preheader value.
+        noe::NirProgram p;
+        auto init=withArgs(noe::NirOp::Store,{1});init.text="x";
+        auto flag=withArgs(noe::NirOp::Load,{});flag.dest=2;flag.text="flag";
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{2});branch.target=7;
+        auto body=withArgs(noe::NirOp::Store,{3});body.text="x";
+        auto back=withArgs(noe::NirOp::Jump,{});back.target=2;
+        auto after=withArgs(noe::NirOp::Load,{});after.dest=4;after.text="x";
+        p.entry.code={constant(1,10),init,flag,branch,constant(3,99),
+                      body,back,after,withArgs(noe::NirOp::Return,{4})};
+        p.entry.registerTypes.resize(5);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[2].kind=noe::TypeKind::Bool;
+        p.entry.registerTypes[3].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[4].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Load&&in.text=="x")kept=true;
+        if(!check(kept,"loop-carried scalar keeps exit load"))return 1;
+    }
+    {
+        // Address-taken and volatile locals are never promoted.
+        noe::NirProgram p;
+        auto init=withArgs(noe::NirOp::Store,{1});init.text="x";
+        auto address=withArgs(noe::NirOp::AddressOf,{});address.dest=2;address.text="x";
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=3;load.text="x";
+        p.entry.code={constant(1,42),init,address,load,
+                      withArgs(noe::NirOp::Return,{3})};
+        p.entry.registerTypes.resize(4);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[3].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Load&&in.text=="x")kept=true;
+        if(!check(kept,"address-taken named local stays in memory"))return 1;
+    }
+    {
         // CFG dominance must remain valid beyond one 64-bit bitset word.
         // A first-block definition dominates the final use across 96 jumps.
         noe::NirFunction fn;
