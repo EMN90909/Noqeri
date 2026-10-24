@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Noqeri physical GPU qualification</title></head>
+<body>
+<h1>Noqeri WebGPU device qualification</h1>
+<p>Requires a physical WebGPU adapter and an explicit expected GPU vendor. Do not enable software fallbacks.</p>
+<canvas id="frame" width="256" height="256" aria-label="WebGPU texture shader proof"></canvas>
+<pre id="result" role="status">Not started</pre>
+<script type="module">
+import {qualifyNoqeriGpu} from './hardware_qualification.mjs'
+const result=document.getElementById('result')
+const vendor=new URLSearchParams(location.search).get('vendor')
+window.__NOQERI_HARDWARE_REPORT__={status:'running'}
+try{
+  const report=await qualifyNoqeriGpu(document.getElementById('frame'),{expectedVendor:vendor})
+  window.__NOQERI_HARDWARE_REPORT__=report
+  result.textContent=JSON.stringify(report,null,2)
+}catch(error){
+  const failure={schema:1,status:'fail',message:String(error.message||error)}
+  window.__NOQERI_HARDWARE_REPORT__=failure
+  result.textContent=JSON.stringify(failure,null,2)
+}
+</script>
+</body>
+</html>
