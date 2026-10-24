@@ -21,6 +21,11 @@ if pkg-config --exists sdl2; then
     "$work/graphics.s" Runtime/native/os_renderer_sdl.cpp \
     $(pkg-config --libs sdl2) -o "$work/noqeri-sdl"
   SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20s "$work/noqeri-sdl"
+  g++ -std=c++17 -Wall -Wextra -Werror -pthread \
+    -IInclude $(pkg-config --cflags sdl2) \
+    Runtime/native/os_renderer_sdl.cpp tests/cpp/os_renderer_viewport_test.cpp \
+    $(pkg-config --libs sdl2) -o "$work/noqeri-viewport"
+  SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 20s "$work/noqeri-viewport"
 else
   echo "SDL2 unavailable: verified headless host only" >&2
   if [ "${NOQERI_REQUIRE_SDL2:-0}" = 1 ]; then exit 1; fi

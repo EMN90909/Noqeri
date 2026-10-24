@@ -8,6 +8,7 @@ pre{white-space:pre-wrap;word-break:break-word}</style></head>
 <body>
 <h1>Noqeri WebGPU 3D depth demo</h1>
 <p>Noqeri-written vertex and fragment shaders, clip-space triangles, and a GPU depth24plus attachment. Hardware GPU support varies by browser and driver.</p>
+<label><input id="msaa" type="checkbox"> Smooth triangle edges (4× MSAA, uses extra GPU memory)</label>
 <button id="run" type="button">Render 3D triangles</button>
 <button id="release" type="button">Release GPU resources</button>
 <canvas id="scene" width="512" height="512" aria-label="3D triangle depth render"></canvas>
@@ -16,9 +17,11 @@ pre{white-space:pre-wrap;word-break:break-word}</style></head>
 import {createNoqeriMeshRenderer3D} from './webgpu_host.mjs'
 const canvas=document.querySelector('#scene')
 const status=document.querySelector('#result')
+const msaa=document.querySelector('#msaa')
 let renderer=null
 function cleanup(){renderer?.dispose();renderer=null}
 document.querySelector('#release').addEventListener('click',cleanup)
+msaa.addEventListener('change',cleanup)
 window.addEventListener('pagehide',cleanup)
 document.querySelector('#run').addEventListener('click',async()=>{
   const button=document.querySelector('#run')
@@ -31,7 +34,8 @@ document.querySelector('#run').addEventListener('click',async()=>{
         if(!res.ok)throw new Error('Compile '+name+' first (HTTP '+res.status+')')
         return res.text()
       }))
-      renderer=await createNoqeriMeshRenderer3D(canvas,shaders[0],shaders[1],undefined,6)
+      renderer=await createNoqeriMeshRenderer3D(canvas,shaders[0],shaders[1],undefined,6,
+        {sampleCount:msaa.checked?4:1})
     }
     // Six independent vec4 vertices: a farther triangle followed by
     // a nearer triangle; both share color, but hardware depth tests both.
@@ -39,8 +43,8 @@ document.querySelector('#run').addEventListener('click',async()=>{
       -0.85,-0.85,0.8,1, 0.85,-0.85,0.8,1, 0,0.85,0.8,1,
       -0.45,-0.45,0.2,1, 0.45,-0.45,0.2,1, 0,0.45,0.2,1
     ])
-    await renderer.render(verts)
-    status.textContent='Depth-tested frame submitted. Shader modules, device, pipeline and buffers are reused on the next render.'
+    await renderer.renderFast(verts)
+    status.textContent='Depth-tested frame submitted with '+(msaa.checked?'4× MSAA':'lightweight 1×')+'. Pipeline, device and buffers remain reusable.'
   }catch(err){cleanup();status.textContent=String(err.stack||err)}
   finally{button.disabled=false}
 })
