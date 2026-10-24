@@ -24,28 +24,48 @@ TypeKind operandType(const NirFunction& fn, Reg r){
 }
 bool truthy(const NirValue&v){if(auto p=std::get_if<bool>(&v))return*p;if(auto p=std::get_if<std::int64_t>(&v))return*p!=0;if(auto p=std::get_if<double>(&v))return*p!=0.0;if(auto p=std::get_if<std::string>(&v))return!p->empty();return false;}
 std::int64_t wrapped(std::uint64_t value){std::int64_t out=0;std::memcpy(&out,&value,sizeof(out));return out;}
+// Arithmetic on fixed-width integers wraps to its expression type. Keep
+// optimizer folding identical to native lowering; avoid undefined signed
+// overflow and implementation-defined narrowing conversions.
+std::int64_t typedArithmetic(std::uint64_t bits,TypeKind kind){
+    unsigned width=64;bool sign=false;
+    switch(kind){
+        case TypeKind::U8:width=8;break;
+        case TypeKind::U16:width=16;break;
+        case TypeKind::U32:width=32;break;
+        case TypeKind::I8:width=8;sign=true;break;
+        case TypeKind::I16:width=16;sign=true;break;
+        case TypeKind::I32:width=32;sign=true;break;
+        default:return wrapped(bits);
+    }
+    const auto mask=(std::uint64_t{1}<<width)-1;
+    bits&=mask;
+    if(sign&&(bits&(std::uint64_t{1}<<(width-1))))bits|=~mask;
+    return wrapped(bits);
+}
+
 std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue&b,TypeKind operand=TypeKind::Int){
     if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){
         if(unsignedType(operand)){
             const auto lhs=static_cast<std::uint64_t>(*x),rhs=static_cast<std::uint64_t>(*y);
-            if(op=="/"&&rhs)return NirValue(wrapped(lhs/rhs));
-            if(op=="%"&&rhs)return NirValue(wrapped(lhs%rhs));
+            if(op=="/"&&rhs)return NirValue(typedArithmetic(lhs/rhs,operand));
+            if(op=="%"&&rhs)return NirValue(typedArithmetic(lhs%rhs,operand));
             if(op=="<")return NirValue(lhs<rhs);
             if(op=="<=")return NirValue(lhs<=rhs);
             if(op==">")return NirValue(lhs>rhs);
             if(op==">=")return NirValue(lhs>=rhs);
         }
-        if(op=="+")return NirValue(wrapped(static_cast<std::uint64_t>(*x)+static_cast<std::uint64_t>(*y)));
-        if(op=="-")return NirValue(wrapped(static_cast<std::uint64_t>(*x)-static_cast<std::uint64_t>(*y)));
-        if(op=="*")return NirValue(wrapped(static_cast<std::uint64_t>(*x)*static_cast<std::uint64_t>(*y)));
+        if(op=="+")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x)+static_cast<std::uint64_t>(*y),operand));
+        if(op=="-")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x)-static_cast<std::uint64_t>(*y),operand));
+        if(op=="*")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x)*static_cast<std::uint64_t>(*y),operand));
         // x86-64 signed IDIV traps for INT64_MIN / -1 AND INT64_MIN % -1.
         // Folding either instruction into a nontrapping Const changes observable
         // semantics between O0 and O3. Preserve the operation instead.
         if((op=="/"||op=="%")&&*y!=0){
             if(*x==std::numeric_limits<std::int64_t>::min()&&*y==-1)
                 return std::nullopt;
-            if(op=="/")return NirValue(*x / *y);
-            return NirValue(*x % *y);
+            if(op=="/")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x / *y),operand));
+            return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x % *y),operand));
         }
         if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);if(op=="<")return NirValue(*x<*y);if(op=="<=")return NirValue(*x<=*y);if(op==">")return NirValue(*x>*y);if(op==">=")return NirValue(*x>=*y);
     }

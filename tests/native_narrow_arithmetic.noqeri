@@ -1,0 +1,27 @@
+let u8a: u8 = 250 as u8
+let u8b: u8 = 10 as u8
+print(u8a + u8b)
+let zero: u8 = 0 as u8
+let one: u8 = 1 as u8
+print(zero - one)
+let twenty: u8 = 20 as u8
+let fifteen: u8 = 15 as u8
+print(twenty * fifteen)
+let i8a: i8 = -120 as i8
+let i8b: i8 = -20 as i8
+print(i8a + i8b)
+let minimum8: i8 = -128 as i8
+let negativeOne8: i8 = -1 as i8
+print(minimum8 + negativeOne8)
+let u16a: u16 = 65530 as u16
+let u16b: u16 = 10 as u16
+print(u16a + u16b)
+let i16a: i16 = 32760 as i16
+let i16b: i16 = 10 as i16
+print(i16a + i16b)
+let u32a: u32 = 4294967295 as u32
+let u32b: u32 = 2 as u32
+print(u32a + u32b)
+let i32a: i32 = 2147483647 as i32
+let i32b: i32 = 1 as i32
+print(i32a + i32b)
