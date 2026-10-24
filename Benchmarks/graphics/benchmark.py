@@ -31,6 +31,8 @@ SCENES = [
     ("gradient", 256, 256, 20),
     ("gradient", 512, 512, 8),
     ("checker", 256, 256, 20),
+    ("clear", 256, 256, 20),
+    ("clear", 512, 512, 8),
 ]
 SHADERS = [
     ("color_gradient", "fragment", []),
@@ -57,14 +59,15 @@ def digest(path):
 
 def render_source(mode, width, height, frames):
     count = width * height
-    raster = (
-        f"nqRenderGradient(surface, {width} as usize, {height} as usize)"
-        if mode == "gradient"
-        else (
+    if mode == "gradient":
+        raster = f"nqRenderGradient(surface, {width} as usize, {height} as usize)"
+    elif mode == "clear":
+        raster = "nqRenderClear(surface, 4282664004 as u32)"
+    else:
+        raster = (
             f"nqRenderChecker(surface, {width} as usize, {height} as usize,"
             f" 16 as usize, 4278255360 as u32, 4294901760 as u32)"
         )
-    )
     return f'''import "../../../Lib/std/render2d.noqeri"
 
 extern function nqGraphicsObserve(pixels: *u32, count: usize): int
@@ -88,10 +91,12 @@ def c_reference(mode, width, height, frames):
             uint32_t r = {width}>1 ? (uint32_t)((x * 255) / ({width}-1)) : 0;
             uint32_t g = {height}>1 ? (uint32_t)((y * 255) / ({height}-1)) : 0;
             pixels[i] = 0xff000040u + (r << 16) + (g << 8);'''
-    else:
+    elif mode == "checker":
         pixel = f'''size_t x = i % {width}, y = i / {width};
             pixels[i] = (((x / 16) + (y / 16)) % 2 == 0)
                 ? 0xff00ff00u : 0xffff0000u;'''
+    else:
+        pixel = "pixels[i] = 4282664004u;"
     return f'''#include <stdint.h>
 #include <stddef.h>
 extern int nqGraphicsObserve(uint32_t* pixels, size_t count);
