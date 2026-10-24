@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {runNoqeriCompute, renderNoqeriFragment} from '../examples/shaders/webgpu_host.mjs'
+import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D} from '../examples/shaders/webgpu_host.mjs'
 
-globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8}
+globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8, VERTEX: 16}
 globalThis.GPUMapMode = {READ: 1}
-globalThis.GPUTextureUsage = {TEXTURE_BINDING: 1, COPY_DST: 2}
+globalThis.GPUTextureUsage = {TEXTURE_BINDING: 1, COPY_DST: 2, RENDER_ATTACHMENT: 4}
 
 function gpuMock({compileError = false, limits = {}} = {}) {
-  const events={dispatches:[],buffers:[],textures:[],uploads:[],destroyed:0,configured:0,unconfigured:0,submitted:0}
+  const events={dispatches:[],buffers:[],textures:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0}
   const context={
     configure(){events.configured++},
     unconfigure(){events.unconfigured++},
@@ -27,7 +27,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
         ?[{type:'error',message:'mock WGSL parse failure'}]:[]})}
     },
     createComputePipeline(){return {getBindGroupLayout(){return {}}}},
-    createRenderPipeline(){return {getBindGroupLayout(){return {}}}},
+    createRenderPipeline(descriptor){events.pipelines.push(descriptor);return {getBindGroupLayout(){return {}}}},
     createBuffer({size}){
       const buffer={
         data: new ArrayBuffer(size),mapped:false,destroyed:false,
@@ -52,7 +52,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
           return {setPipeline(){},setBindGroup(){},dispatchWorkgroups(n){events.dispatches.push(n)},end(){}}
         },
         beginRenderPass(){
-          return {setPipeline(){},setBindGroup(){},draw(){events.dispatches.push('fragment')},end(){}}
+          return {setPipeline(){},setBindGroup(){},setVertexBuffer(){},draw(count){events.draws.push(count);events.dispatches.push('fragment')},end(){}}
         },
         copyBufferToBuffer(source,so,target,to,bytes){
           new Uint8Array(target.data,to,bytes).set(new Uint8Array(source.data,so,bytes))
@@ -174,4 +174,60 @@ test('textured shader refuses missing, malformed and over-limit texture without 
   await assert.rejects(renderNoqeriFragment(canvas,shader,mock.gpu,
     {width:4,height:1,data:new Uint8Array(16)}),/dimensions exceed/)
   assert.equal(mock.events.destroyed,1)
+})
+
+function vertexWgsl(){
+  return 'fn noqeri_shade(nq_arg0: vec4<f32>) -> vec4<f32> { return nq_arg0; }\n'
+    +'@vertex\nfn main(@location(0) position: vec4<f32>) -> @builtin(position) vec4<f32> { return noqeri_shade(position); }'
+}
+function meshPixels(){
+  return new Float32Array([
+    -0.8,-0.8,0.7,1.0, 0.8,-0.8,0.7,1.0, 0.0,0.8,0.7,1.0,
+    -0.4,-0.4,0.2,1.0, 0.4,-0.4,0.2,1.0, 0.0,0.4,0.2,1.0
+  ])
+}
+test('3D WebGPU mesh configures depth24plus and cleans up all resources',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const canvas={width:256,height:192,getContext(){return context}}
+  const release=await renderNoqeriMesh3D(canvas,vertexWgsl(),fragmentWgsl(),meshPixels(),gpu)
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.pipelines[0].depthStencil.format,'depth24plus')
+  assert.equal(events.pipelines[0].depthStencil.depthCompare,'less')
+  assert.deepEqual(events.pipelines[0].vertex.buffers[0].attributes,
+    [{shaderLocation:0,offset:0,format:'float32x4'}])
+  assert.deepEqual(events.draws,[6])
+  assert.equal(events.buffers.length,1)
+  assert.equal(events.textures.length,1)
+  assert.equal(events.submitted,1)
+  release();release()
+  assert.equal(events.unconfigured,1)
+  assert.ok(events.buffers[0].destroyed)
+  assert.ok(events.textures[0].destroyed)
+  assert.equal(events.destroyed,1)
+})
+test('3D mesh rejects malformed, non-finite and unsafe clip coordinates before acquiring device',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const canvas={width:64,height:64,getContext(){return context}}
+  for(const v of [
+    new Float32Array(8),
+    new Float32Array(0),
+    new Float32Array([0,0,0,0, 0,1,0,1, 1,0,0,1]),
+    new Float32Array([0,0,-0.1,1, 0,1,0,1, 1,0,0,1]),
+    new Float32Array([0,0,1,1, 0,1,0,1, Number.NaN,0,0,1])
+  ])
+    await assert.rejects(renderNoqeriMesh3D(canvas,vertexWgsl(),fragmentWgsl(),v,gpu))
+  assert.equal(events.destroyed,0)
+})
+test('3D mesh rejects exceeded device limits and compilation errors, then frees resources',async()=>{
+  const limited=gpuMock({limits:{maxTextureDimension2D:32}})
+  await assert.rejects(renderNoqeriMesh3D(
+    {width:64,height:64,getContext(){return limited.context}},
+    vertexWgsl(),fragmentWgsl(),meshPixels(),limited.gpu),/hardware limits/)
+  assert.equal(limited.events.destroyed,1)
+  const bad=gpuMock({compileError:true})
+  await assert.rejects(renderNoqeriMesh3D(
+    {width:64,height:64,getContext(){return bad.context}},
+    vertexWgsl(),fragmentWgsl(),meshPixels(),bad.gpu),/WGSL was rejected/)
+  assert.equal(bad.events.destroyed,1)
+  assert.equal(bad.events.unconfigured,1)
 })
