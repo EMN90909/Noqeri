@@ -257,3 +257,34 @@ Invalid resize calls and normal resize cleanup have mock-GPU tests.
 This avoids repeated pipeline setup when changing window resolution,
 but does not itself qualify physical driver behavior or guarantee a
 specific measured GPU speedup.
+
+
+## Indexed WebGPU triangles and flat-depth specialization (October 2026)
+
+The persistent `createNoqeriMeshRenderer3D(...)` API now supports
+`renderIndexed(vertices, indices)` (waits for completion) and
+`renderIndexedFast(vertices, indices)` (bounded queued submissions).
+
+For shared-vertex meshes, supply one validated `Float32Array` of
+homogeneous `vec4` clip positions, which does not need to contain a
+multiple of three vertices. Supply `Uint16Array` or `Uint32Array`
+indices in complete groups of three, all less than the vertex count.
+The optional `{maxIndices: 12285}` capacity (default:
+`maxVertices * 3`) must be a bounded multiple of three. The GPU
+index buffer is allocated lazily and reused for all indexed draws;
+the vertex buffer, render pipeline, depth and optional MSAA targets
+are also reused. Both arrays are snapshotted and validated before
+submitting commands. The classic `render`/`renderFast` triangle-list
+API is unchanged. Disposal and device-loss cleanup release the index
+buffer too.
+
+For the native CPU path, flat-depth triangles now take a separate
+pixel loop without depth numerator increments or integer depth
+division. Interpolated depth keeps its original exact division and
+strict depth comparison. The independent CPU full-frame differential
+and native pinned-source benchmark must pass before performance
+improvements may be claimed.
+
+No actual indexed-mesh physical GPU FPS or real-driver performance
+result is implied by JavaScript mock tests, and Stage-0 WGSL codegen
+does not constitute a self-hosted shader compiler.
