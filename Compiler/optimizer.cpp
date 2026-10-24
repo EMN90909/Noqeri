@@ -813,30 +813,47 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         auto& check=fn.code[pc];
         if(check.op!=NirOp::CheckBounds||check.args.size()!=2)continue;
-        // Handle checked i + small_literal, with a proof that the guarded
-        // base index and the actual checked expression cannot wrap outside
-        // the fixed-array bound. No general symbolic arithmetic is assumed.
+        // Recognize the checked affine expression i*scale+offset.
+        // Only positive literal scale/nonnegative bias and identical
+        // integer widths qualify. Prove the complete expression cannot
+        // wrap, rather than trusting machine arithmetic modulo 2^width.
         Reg baseIndex=check.args[0];
-        std::int64_t offset=0;
+        std::int64_t offset=0,scale=1;
+        const auto integerConst=[&](Reg r)->std::optional<std::int64_t>{
+            const auto it=constants.find(r);
+            if(it==constants.end())return std::nullopt;
+            return it->second;
+        };
+        const auto checkedKind=operandType(fn,check.args[0]);
+        if(!loads.count(baseIndex)){
+            auto def=g.definitions.find(baseIndex);
+            if(def==g.definitions.end())continue;
+            const auto& outer=fn.code[def->second];
+            if(outer.op==NirOp::Binary&&outer.text=="+"&&
+               outer.args.size()==2){
+                const auto bias=integerConst(outer.args[1]);
+                if(!bias||*bias<0)continue;
+                offset=*bias;
+                baseIndex=outer.args[0];
+                if(operandType(fn,baseIndex)!=checkedKind)continue;
+            }
+        }
         if(!loads.count(baseIndex)){
             const auto def=g.definitions.find(baseIndex);
             if(def==g.definitions.end())continue;
-            const auto& add=fn.code[def->second];
-            if(add.op!=NirOp::Binary||add.text!="+"||
-               add.args.size()!=2)continue;
-            const auto constant=constants.find(add.args[1]);
-            if(!loads.count(add.args[0])||constant==constants.end()||
-               constant->second<=0)continue;
-            if(operandType(fn,add.args[0])!=
-               operandType(fn,baseIndex))continue;
-            offset=constant->second;
-            baseIndex=add.args[0];
+            const auto& mul=fn.code[def->second];
+            if(mul.op!=NirOp::Binary||mul.text!="*"||
+               mul.args.size()!=2)continue;
+            const auto factor=integerConst(mul.args[1]);
+            if(!factor||*factor<=0)continue;
+            scale=*factor;
+            baseIndex=mul.args[0];
+            if(operandType(fn,baseIndex)!=checkedKind)continue;
         }
         auto indexName=loads.find(baseIndex);
         auto limit=constants.find(check.args[1]);
         if(indexName==loads.end()||limit==constants.end()||
-           limit->second<=offset)continue;
-        const auto checkedKind=operandType(fn,check.args[0]);
+           limit->second<=offset||scale<=0)continue;
         const auto baseDefinition=g.definitions.find(baseIndex);
         if(baseDefinition==g.definitions.end()||
            baseDefinition->second>=pc||
@@ -860,18 +877,24 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             if(name==loads.end()||name->second!=indexName->second||
                upper==constants.end()||upper->second<0)continue;
             if(operandType(fn,comparison.args[0])!=checkedKind)continue;
-            const auto remaining=limit->second-offset;
-            const bool proven=comparison.text=="<"?upper->second<=remaining:
-                upper->second<remaining;
-            if(!proven)continue;
-            // For signed narrow values, the expression can overflow to a
-            // negative number despite an upper-bound-only comparison.
+            // Guard <U permits base <=U-1, while <=U permits base<=U.
+            // Compute multiplication bounds by division to avoid any
+            // optimizer-side int64 overflow, including INT64_MAX literals.
+            if(comparison.text=="<"&&upper->second==0)continue;
+            const auto maxBase=comparison.text=="<"?
+                upper->second-1:upper->second;
             std::int64_t maxValue=std::numeric_limits<std::int64_t>::max();
             if(checkedKind==TypeKind::I8)maxValue=127;
             else if(checkedKind==TypeKind::I16)maxValue=32767;
             else if(checkedKind==TypeKind::I32)maxValue=2147483647;
-            if(!checkedUnsigned&&offset>0&&
-               upper->second>maxValue-offset)continue;
+            else if(checkedKind==TypeKind::U8)maxValue=255;
+            else if(checkedKind==TypeKind::U16)maxValue=65535;
+            else if(checkedKind==TypeKind::U32)maxValue=4294967295LL;
+            // The result must be < fixedBound and fit its original type.
+            const auto maximum=std::min(limit->second-1,maxValue);
+            const bool proven=maximum>=offset&&
+                maxBase<=(maximum-offset)/scale;
+            if(!proven)continue;
             if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]]||
                bypassesGuard(guardPc,pc))continue;
             // BOTH the index source and guard source must observe the same
