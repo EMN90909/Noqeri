@@ -428,11 +428,15 @@ bool ShaderBackend::emitWgsl(const Program& program,
             "expected export function shade(value: u32|float): u32|float "
             "or shade(x: u32|float, y: u32|float): u32|float");
     auto resultType=scalarType(*shader->returnType);
-    if(!resultType||*resultType==Scalar::Bool||*resultType==Scalar::Vec2||*resultType==Scalar::Vec3 && stage=="fragment")
-        return shaderError(diagnostics,shader->span,"shader must return u32 or float");
+    if(!resultType||*resultType==Scalar::Bool||
+       (stage=="fragment"&&(*resultType==Scalar::Vec2||*resultType==Scalar::Vec3)))
+        return shaderError(diagnostics,shader->span,
+            "compute shader return must be u32, float or a vector; fragment return must be u32, float or Vec4");
+    const Scalar parameterType=(stage=="fragment"&&*resultType==Scalar::Vec4)?
+                               Scalar::F32:*resultType;
     ShaderEmitter emitter(diagnostics,*resultType,stage);
     for(std::size_t i=0;i<shader->params.size();++i)
-        if(!emitter.parameter(shader->params[i],i,*resultType))return false;
+        if(!emitter.parameter(shader->params[i],i,parameterType))return false;
     bool returns=false;
     if(!emitter.statements(shader->body->statements,1,returns)||!returns)
         return shaderError(diagnostics,shader->span,
@@ -443,6 +447,10 @@ bool ShaderBackend::emitWgsl(const Program& program,
     wgsl<<"// Generated from typechecked Noqeri source; pure bounded shader profile.\n";
     wgsl<<"fn noqeri_shade("<<emitter.parameters(*shader)<<") -> "<<wgslType(*resultType)<<" {\n"
         <<emitter.result()<<"}\n";
+    if(emitter.needsTexture()) {
+        wgsl<<"@group(0) @binding(0) var nq_texture: texture_2d<f32>;\n"
+            <<"@group(0) @binding(1) var nq_sampler: sampler;\n";
+    }
     if(stage=="compute"){
         const auto type=wgslType(*resultType);
         wgsl<<"@group(0) @binding(0) var<storage, read> input_pixels: array<"<<type<<">;\n"
@@ -461,6 +469,12 @@ bool ShaderBackend::emitWgsl(const Program& program,
             <<"  let g = f32((p >> 8u) & 255u) / 255.0;\n"
             <<"  let b = f32(p & 255u) / 255.0;\n"
             <<"  return vec4<f32>(r, g, b, 1.0);\n"
+            <<"}\n";
+    }else if(*resultType==Scalar::Vec4){
+        wgsl<<"@fragment\n"
+            <<"fn main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {\n"
+            <<"  return clamp(noqeri_shade(position.x, position.y), "
+              "vec4<f32>(0.0), vec4<f32>(1.0));\n"
             <<"}\n";
     }else{
         wgsl<<"@fragment\n"
