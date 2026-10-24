@@ -7,7 +7,7 @@ globalThis.GPUMapMode = {READ: 1}
 globalThis.GPUTextureUsage = {TEXTURE_BINDING: 1, COPY_DST: 2, RENDER_ATTACHMENT: 4}
 
 function gpuMock({compileError = false, limits = {}} = {}) {
-  const events={dispatches:[],buffers:[],textures:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0}
+  const events={dispatches:[],buffers:[],textures:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0}
   const context={
     configure(){events.configured++},
     unconfigure(){events.unconfigured++},
@@ -67,7 +67,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
         new Uint8Array(target.data,offset,bytes.length).set(bytes)
       },
       submit(){events.submitted++},
-      async onSubmittedWorkDone(){}
+      async onSubmittedWorkDone(){events.waits++}
     },
     destroy(){events.destroyed++}
   }
@@ -353,4 +353,57 @@ test('persistent WebGPU 3D resize reuses pipeline and allocates exactly one dept
   r.dispose()
   assert.equal(events.textures[1].destroyed,true)
   assert.equal(events.destroyed,1)
+})
+
+test('low-latency 3D submits two frames without a per-frame GPU stall, then fences at three',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const canvas={width:64,height:64,getContext(){return context}}
+  const renderer=await createNoqeriMeshRenderer3D(canvas,vertexWgsl(),fragmentWgsl(),gpu,6)
+  await renderer.renderFast(meshPixels())
+  await renderer.renderFast(meshPixels())
+  assert.equal(events.submitted,2)
+  assert.equal(events.waits,0)
+  assert.throws(()=>renderer.resize(64,64),/pending GPU frames/)
+  await renderer.renderFast(meshPixels())
+  assert.equal(events.submitted,3)
+  assert.equal(events.waits,1)
+  await renderer.renderFast(meshPixels())
+  assert.equal(events.waits,1)
+  await renderer.flush()
+  assert.equal(events.waits,2)
+  await renderer.flush()
+  assert.equal(events.waits,2)
+  canvas.width=128
+  renderer.resize(128,64)
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.textures.length,2)
+  await renderer.render(meshPixels())
+  assert.equal(events.waits,3)
+  renderer.dispose()
+  assert.ok(events.textures.every(t=>t.destroyed))
+  assert.equal(events.destroyed,1)
+})
+test('queued renderer fence gates overlapping submissions and disposes after GPU errors',async()=>{
+  const {gpu,device,context,events}=gpuMock()
+  let finish,waiting=false
+  device.queue.onSubmittedWorkDone=()=>{events.waits++; waiting=true;return new Promise(resolve=>{finish=resolve})}
+  const canvas={width:64,height:64,getContext(){return context}}
+  const renderer=await createNoqeriMeshRenderer3D(canvas,vertexWgsl(),fragmentWgsl(),gpu,6)
+  await renderer.renderFast(meshPixels())
+  await renderer.renderFast(meshPixels())
+  const third=renderer.renderFast(meshPixels())
+  assert.equal(waiting,true)
+  await assert.rejects(renderer.renderFast(meshPixels()),/in flight/)
+  await assert.rejects(renderer.flush(),/in flight/)
+  assert.throws(()=>renderer.resize(64,64),/pending GPU frames/)
+  finish()
+  await third
+  renderer.dispose()
+  assert.equal(events.destroyed,1)
+  const broken=gpuMock()
+  broken.device.queue.onSubmittedWorkDone=async()=>{throw new Error('GPU queue completion failed')}
+  const bad=await createNoqeriMeshRenderer3D({width:64,height:64,getContext(){return broken.context}},vertexWgsl(),fragmentWgsl(),broken.gpu,6)
+  await bad.renderFast(meshPixels())
+  await assert.rejects(bad.flush(),/GPU queue completion failed/)
+  assert.equal(broken.events.destroyed,1)
 })
