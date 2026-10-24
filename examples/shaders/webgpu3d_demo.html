@@ -13,31 +13,36 @@ pre{white-space:pre-wrap;word-break:break-word}</style></head>
 <canvas id="scene" width="512" height="512" aria-label="3D triangle depth render"></canvas>
 <pre id="result" role="status" aria-live="polite"></pre>
 <script type="module">
-import {renderNoqeriMesh3D} from './webgpu_host.mjs'
+import {createNoqeriMeshRenderer3D} from './webgpu_host.mjs'
 const canvas=document.querySelector('#scene')
 const status=document.querySelector('#result')
-let release=null
-function cleanup(){release?.();release=null}
+let renderer=null
+function cleanup(){renderer?.dispose();renderer=null}
 document.querySelector('#release').addEventListener('click',cleanup)
 window.addEventListener('pagehide',cleanup)
 document.querySelector('#run').addEventListener('click',async()=>{
-  cleanup()
-  status.textContent='Compiling and running Noqeri 3D shaders...'
+  const button=document.querySelector('#run')
+  button.disabled=true
+  status.textContent='Running Noqeri depth-tested 3D frame...'
   try{
-    const shaders=await Promise.all(['vertex3d.wgsl','fragment3d.wgsl'].map(async name=>{
-      const res=await fetch('/build/'+name,{cache:'no-store'})
-      if(!res.ok)throw new Error('Compile '+name+' first (HTTP '+res.status+')')
-      return res.text()
-    }))
+    if(!renderer){
+      const shaders=await Promise.all(['vertex3d.wgsl','fragment3d.wgsl'].map(async name=>{
+        const res=await fetch('/build/'+name,{cache:'no-store'})
+        if(!res.ok)throw new Error('Compile '+name+' first (HTTP '+res.status+')')
+        return res.text()
+      }))
+      renderer=await createNoqeriMeshRenderer3D(canvas,shaders[0],shaders[1],undefined,6)
+    }
     // Six independent vec4 vertices: a farther triangle followed by
     // a nearer triangle; both share color, but hardware depth tests both.
     const verts=new Float32Array([
       -0.85,-0.85,0.8,1, 0.85,-0.85,0.8,1, 0,0.85,0.8,1,
       -0.45,-0.45,0.2,1, 0.45,-0.45,0.2,1, 0,0.45,0.2,1
     ])
-    release=await renderNoqeriMesh3D(canvas,shaders[0],shaders[1],verts)
-    status.textContent='Submitted two triangles to a depth-tested WebGPU render pipeline.'
-  }catch(err){status.textContent=String(err.stack||err)}
+    await renderer.render(verts)
+    status.textContent='Depth-tested frame submitted. Shader modules, device, pipeline and buffers are reused on the next render.'
+  }catch(err){cleanup();status.textContent=String(err.stack||err)}
+  finally{button.disabled=false}
 })
 </script>
 </body></html>
