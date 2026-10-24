@@ -1,0 +1,26 @@
+// A different deterministic pseudo-random permutation on every round;
+// unlike sorting.noqeri this exercises real insertion-sort movement.
+let values: [int; 256]
+let round: usize = 0 as usize
+let checksum: usize = 0 as usize
+while round < 200 as usize {
+    let i: usize = 0 as usize
+    while i < 256 as usize {
+        values[i] = ((i * 7919 as usize + (round + 1 as usize) * 104729 as usize) % 65521 as usize) as int
+        i = i + 1 as usize
+    }
+    let a: usize = 1 as usize
+    while a < 256 as usize {
+        let key: int = values[a]
+        let b: usize = a
+        while b > 0 as usize && values[b - 1 as usize] > key {
+            values[b] = values[b - 1 as usize]
+            b = b - 1 as usize
+        }
+        values[b] = key
+        a = a + 1 as usize
+    }
+    checksum = checksum + values[0] as usize + values[255] as usize
+    round = round + 1 as usize
+}
+print(checksum)
