@@ -7,6 +7,7 @@
 #include <map>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace noe {
 namespace {
@@ -308,7 +309,16 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         const std::string target=it==physical.end()?regSlot(r):it->second;
         if(target!=cpu)out<<"    mov "<<target<<", "<<cpu<<"\n";
     };
-    for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];out<<pcLabel(fn,pc)<<":\n";switch(i.op){
+    // Emitting one unused assembler label per NIR opcode forces the assembler
+    // and linker to process needless symbols. Only branch destinations need
+    // PC labels; diagnostic/trap labels remain emitted at their own sites.
+    std::unordered_set<std::size_t> jumpTargets;
+    for(const auto& i:fn.code)
+        if(i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)
+            jumpTargets.insert(i.target);
+    for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
+        switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<varSlot(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<varSlot(fn,l,i.text)<<", rax\n";}break;
