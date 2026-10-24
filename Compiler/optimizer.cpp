@@ -1095,49 +1095,37 @@ bool lowerStraightDiamondPhi(NirFunction& fn){
         }
         if(!admissible||incoming.size()!=2||
            incoming[0].value==incoming[1].value)continue;
-        // Both predecessor blocks write this local immediately before their
-        // outgoing edge. The join's first Load can be replaced by Phi value,
-        // with one edge copy per incoming branch.
-        Reg next=std::max(fn.nextReg,
-            static_cast<Reg>(fn.registerTypes.size()));
-        for(const auto& in:fn.code)if(in.dest)
+        // Convert the existing proved scalar-join pattern to explicit
+        // Phi form, then use the shared edge-splitting/destruction pass.
+        // Keep fn unchanged if validation rejects the transformation.
+        NirFunction candidate=fn;
+        Reg next=std::max(candidate.nextReg,
+            static_cast<Reg>(candidate.registerTypes.size()));
+        for(const auto& in:candidate.code)if(in.dest){
+            if(*in.dest==std::numeric_limits<Reg>::max())return false;
             next=std::max(next,static_cast<Reg>(*in.dest+1));
-        const Reg phi=next;
-        const Reg original=*load.dest;
-        const Type t=fn.registerTypes[original];
-        for(auto& in:fn.code)
-            for(auto& arg:in.args)if(arg==original)arg=phi;
-        fn.code[at].op=NirOp::Nop;
-        fn.code[at].dest.reset();
-        fn.code[at].args.clear();
-        fn.registerTypes.resize(static_cast<std::size_t>(phi)+1);
-        fn.registerTypes[phi]=t;
-        fn.nextReg=phi+1;
-        std::sort(incoming.begin(),incoming.end(),
-            [](const Incoming&a,const Incoming&b){return a.position<b.position;});
-        const std::size_t oldSize=fn.code.size();
-        std::vector<NirInstruction> output;
-        output.reserve(oldSize+incoming.size());
-        std::vector<std::size_t> remap(oldSize+1,0);
-        std::size_t nextCopy=0;
-        for(std::size_t pc=0;pc<=oldSize;++pc){
-            while(nextCopy<incoming.size()&&incoming[nextCopy].position==pc){
-                NirInstruction copy;
-                copy.op=NirOp::Cast;
-                copy.dest=phi;
-                copy.args={incoming[nextCopy].value};
-                copy.type=t;
-                copy.text=cast;
-                output.push_back(std::move(copy));
-                ++nextCopy;
-            }
-            remap[pc]=output.size();
-            if(pc<oldSize)output.push_back(std::move(fn.code[pc]));
         }
-        for(auto& in:output)
-            if(in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)
-                in.target=remap[std::min(in.target,oldSize)];
-        fn.code=std::move(output);
+        if(next==std::numeric_limits<Reg>::max()||
+           *load.dest>=candidate.registerTypes.size())return false;
+        const Reg original=*load.dest;
+        const Type type=candidate.registerTypes[original];
+        for(auto& in:candidate.code)
+            for(auto& arg:in.args)if(arg==original)arg=next;
+        candidate.code[at].op=NirOp::Nop;
+        candidate.code[at].dest.reset();
+        candidate.code[at].args.clear();
+        candidate.registerTypes.resize(static_cast<std::size_t>(next)+1);
+        candidate.registerTypes[next]=type;
+        candidate.nextReg=next+1;
+        NirPhiNode phi;
+        phi.block=static_cast<BlockId>(block);
+        phi.dest=next;
+        phi.type=type;
+        for(std::size_t k=0;k<incoming.size();++k)
+            phi.incoming.emplace_back(
+                static_cast<BlockId>(g.preds[block][k]),incoming[k].value);
+        if(!lowerPhiNodes(candidate,{phi}))continue;
+        fn=std::move(candidate);
         return true;
     }
     return false;
