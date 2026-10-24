@@ -34,8 +34,15 @@ std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue
         if(op=="+")return NirValue(wrapped(static_cast<std::uint64_t>(*x)+static_cast<std::uint64_t>(*y)));
         if(op=="-")return NirValue(wrapped(static_cast<std::uint64_t>(*x)-static_cast<std::uint64_t>(*y)));
         if(op=="*")return NirValue(wrapped(static_cast<std::uint64_t>(*x)*static_cast<std::uint64_t>(*y)));
-        if(op=="/"&&*y!=0){if(*x==std::numeric_limits<std::int64_t>::min()&&*y==-1)return NirValue(*x);return NirValue(*x / *y);}
-        if(op=="%"&&*y!=0){if(*x==std::numeric_limits<std::int64_t>::min()&&*y==-1)return NirValue(std::int64_t(0));return NirValue(*x % *y);}
+        // x86-64 signed IDIV traps for INT64_MIN / -1 AND INT64_MIN % -1.
+        // Folding either instruction into a nontrapping Const changes observable
+        // semantics between O0 and O3. Preserve the operation instead.
+        if((op=="/"||op=="%")&&*y!=0){
+            if(*x==std::numeric_limits<std::int64_t>::min()&&*y==-1)
+                return std::nullopt;
+            if(op=="/")return NirValue(*x / *y);
+            return NirValue(*x % *y);
+        }
         if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);if(op=="<")return NirValue(*x<*y);if(op=="<=")return NirValue(*x<=*y);if(op==">")return NirValue(*x>*y);if(op==">=")return NirValue(*x>=*y);
     }
     if(auto x=std::get_if<double>(&a))if(auto y=std::get_if<double>(&b)){if(op=="+")return NirValue(*x+*y);if(op=="-")return NirValue(*x-*y);if(op=="*")return NirValue(*x**y);if(op=="/"&&*y!=0)return NirValue(*x / *y);if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);if(op=="<")return NirValue(*x<*y);if(op=="<=")return NirValue(*x<=*y);if(op==">")return NirValue(*x>*y);if(op==">=")return NirValue(*x>=*y);}
@@ -563,8 +570,17 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             const bool proven=comparison.text=="<"?upper->second<=limit->second:
                 upper->second<limit->second;
             if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]])continue;
+            // The comparison can use a value loaded BEFORE the guard.
+            // If x changes between that original load and the indexed load,
+            // the guard no longer constrains the checked value. Starting at
+            // guardPc+1 was unsound for e.g. load x; store x=99; if old_x<10
+            // { array[x] }. Require the defining Load of the guard operand
+            // and scan every intervening instruction, including before guard.
+            const auto source=g.definitions.find(comparison.args[0]);
+            if(source==g.definitions.end()||source->second>=guardPc||
+               fn.code[source->second].op!=NirOp::Load)continue;
             bool mutated=false;
-            for(std::size_t mid=guardPc+1;mid<pc;++mid){
+            for(std::size_t mid=source->second+1;mid<pc;++mid){
                 const auto& in=fn.code[mid];
                 if(in.op==NirOp::Store&&in.text==indexName->second){
                     mutated=true;break;
