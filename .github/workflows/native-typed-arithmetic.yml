@@ -4,6 +4,9 @@ on:
     paths:
       - 'Compiler/**'
       - 'Include/noqeri/**'
+      - 'tests/cpp/loop_simd_codegen_test.cpp'
+      - 'tests/cpp/loop_simd_host.c'
+      - 'scripts/bench-loop-simd.mjs'
       - 'tests/native_unsigned_arithmetic.noqeri'
       - 'tests/native_narrow_arithmetic.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
