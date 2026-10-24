@@ -8,6 +8,12 @@ on:
       - 'CMakeLists.txt'
       - 'Lib/std/render2d.noqeri'
       - 'Lib/std/render3d.noqeri'
+      - 'Lib/std/gpu_firmware.noqeri'
+      - 'tests/scripts/gpu-firmware-sim-e2e.sh'
+      - 'tests/cpp/gpu_firmware_sim_test.cpp'
+      - 'scripts/gpu-firmware-package.mjs'
+      - 'tests/gpu-firmware-package.test.mjs'
+      - 'Doc/GPU_FIRMWARE_DEVELOPMENT.md'
       - 'examples/render3d_demo.noqeri'
       - 'tests/shader-vertex3d.test.mjs'
       - 'examples/shaders/webgpu3d_demo.html'
@@ -46,6 +52,12 @@ on:
       - 'CMakeLists.txt'
       - 'Lib/std/render2d.noqeri'
       - 'Lib/std/render3d.noqeri'
+      - 'Lib/std/gpu_firmware.noqeri'
+      - 'tests/scripts/gpu-firmware-sim-e2e.sh'
+      - 'tests/cpp/gpu_firmware_sim_test.cpp'
+      - 'scripts/gpu-firmware-package.mjs'
+      - 'tests/gpu-firmware-package.test.mjs'
+      - 'Doc/GPU_FIRMWARE_DEVELOPMENT.md'
       - 'examples/render3d_demo.noqeri'
       - 'tests/shader-vertex3d.test.mjs'
       - 'examples/shaders/webgpu3d_demo.html'
@@ -82,7 +94,7 @@ jobs:
           cmake -S . -B /tmp/noqeri-graphics-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
           cmake --build /tmp/noqeri-graphics-build --target noqeri noqeri_os_renderer_sdl -j 2
       - name: Check typed shader source and reject unsafe GPU programs
-        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/shader-v3.test.mjs tests/shader-vertex3d.test.mjs tests/shader-stage2-gate.test.mjs tests/webgpu-host.test.mjs
+        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/shader-v3.test.mjs tests/shader-vertex3d.test.mjs tests/shader-stage2-gate.test.mjs tests/webgpu-host.test.mjs tests/gpu-firmware-package.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
         run: |
           node --check examples/shaders/webgpu_host.mjs
@@ -104,6 +116,10 @@ jobs:
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
+      - name: Verify GPU firmware development MMIO simulator and package tool
+        run: |
+          timeout 90s bash tests/scripts/gpu-firmware-sim-e2e.sh /tmp/noqeri-graphics-build/noqeri
+          node --check scripts/gpu-firmware-package.mjs
       - name: Verify and benchmark 3D triangle depth and bounded projection
         env:
           GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
