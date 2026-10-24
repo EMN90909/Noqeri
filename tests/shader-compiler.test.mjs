@@ -14,7 +14,7 @@ test('Noqeri shader command generates actual compute and fragment WGSL',async()=
     const cases=[
       ['examples/shaders/color_gradient.noqeri','fragment',[
         '@fragment','@builtin(position)','@location(0)','fn noqeri_shade(nq_arg0: u32, nq_arg1: u32)',
-        'return vec4<f32>(r, g, b, 1.0);'
+        'let rgb = vec3<f32>(f32((p >> 16u) & 255u)','return vec4<f32>(rgb * (1.0 / 255.0), 1.0);'
       ]],
       ['examples/shaders/invert_compute.noqeri','compute',[
         '@compute @workgroup_size(64)','@group(0) @binding(0)','@group(0) @binding(1)',
