@@ -403,6 +403,32 @@ int main() {
                   "non-SSA aliases are not proven identical"))return 1;
     }
     {
+        // A long chain of derived pointers must inherit its stack root
+        // through the worklist. Distinct nonescaping roots stay NoAlias.
+        noe::NirFunction fn;
+        auto root=withArgs(noe::NirOp::StackAlloc,{});
+        root.dest=1;
+        fn.code.push_back(root);
+        for(noe::Reg r=2;r<=512;++r){
+            auto next=withArgs(noe::NirOp::PtrOffset,{r-1});
+            next.dest=r;
+            fn.code.push_back(next);
+        }
+        auto other=withArgs(noe::NirOp::StackAlloc,{});
+        other.dest=600;
+        fn.code.push_back(other);
+        auto read=withArgs(noe::NirOp::LoadMemory,{512});
+        read.dest=601;
+        fn.code.push_back(read);
+        fn.code.push_back(withArgs(noe::NirOp::Return,{601}));
+        const noe::NirAliasAnalysis analysis(fn);
+        if(!check(!analysis.escapes(512)&&
+                  analysis.query(1,512)==noe::AliasRelation::MayAlias&&
+                  analysis.query(512,600)==noe::AliasRelation::NoAlias,
+                  "worklist propagates long nonescaping pointer chains"))
+            return 1;
+    }
+    {
         // Floating-point common subexpressions cannot be folded as integers.
         // Signed zero and NaN behavior is not part of the current GVN proof.
         noe::NirProgram p;

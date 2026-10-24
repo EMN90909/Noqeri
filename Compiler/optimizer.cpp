@@ -682,14 +682,27 @@ NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
         for(auto to:cfg.edges[b])if(to<=b)hasBackedge_=true;
     for(const auto& i:fn.code)
         if(i.op==NirOp::StackAlloc&&i.dest)roots_[*i.dest]=*i.dest;
-    bool changed=true;
-    while(changed){
-        changed=false;
-        for(const auto& i:fn.code){
-            if(!i.dest||i.args.empty()||roots_.count(*i.dest))continue;
-            if(i.op!=NirOp::PtrOffset&&i.op!=NirOp::MakeSlice&&i.op!=NirOp::SliceData)continue;
-            const auto it=roots_.find(i.args[0]);
-            if(it!=roots_.end()){roots_[*i.dest]=it->second;changed=true;}
+    // Propagate roots through pointer-producing NIR once per edge instead
+    // of rescanning the entire function to a fixed point. The old repeated
+    // full scan could approach O(N^2) when definitions are visited in an
+    // inconvenient order. This worklist is monotone and stops on cycles.
+    std::unordered_map<Reg,std::vector<Reg>> derived;
+    for(const auto& in:fn.code){
+        if(!in.dest||in.args.empty())continue;
+        if(in.op==NirOp::PtrOffset||in.op==NirOp::MakeSlice||
+           in.op==NirOp::SliceData)
+            derived[in.args[0]].push_back(*in.dest);
+    }
+    std::vector<Reg> pending;
+    pending.reserve(roots_.size());
+    for(const auto& root:roots_)pending.push_back(root.first);
+    for(std::size_t offset=0;offset<pending.size();++offset){
+        const auto source=pending[offset];
+        const auto edge=derived.find(source);
+        if(edge==derived.end())continue;
+        for(const auto dest:edge->second){
+            if(roots_.emplace(dest,roots_.at(source)).second)
+                pending.push_back(dest);
         }
     }
     for(const auto& i:fn.code) {
