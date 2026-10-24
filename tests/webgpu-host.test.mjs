@@ -74,7 +74,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
   return {
     events,context,device,
     gpu:{getPreferredCanvasFormat(){return 'bgra8unorm'},
-      async requestAdapter(){return {async requestDevice(){return device}}}}
+      async requestAdapter(){return {limits:device.limits,features:new Set(),async requestDevice(){return device}}}}
   }
 }
 function computeWgsl(size=64,kind='u32'){
