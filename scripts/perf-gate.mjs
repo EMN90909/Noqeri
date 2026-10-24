@@ -29,6 +29,17 @@ function validateSamples(before, after, id) {
     }
     if (!positive(row.median_ms) || !positive(row.p95_ms))
       policyErrors.push(id + ': ' + name + ' missing valid median/p95')
+    if (Array.isArray(row.raw_samples_ms) && row.raw_samples_ms.length >= 10 &&
+        row.raw_samples_ms.every(positive)) {
+      const sorted = [...row.raw_samples_ms].sort((a, b) => a - b)
+      const midpoint = Math.floor(sorted.length / 2)
+      const median = sorted.length % 2 ? sorted[midpoint] :
+        (sorted[midpoint - 1] + sorted[midpoint]) / 2
+      const p95 = sorted[Math.ceil(0.95 * sorted.length) - 1]
+      const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, a, b)
+      if (!near(median, row.median_ms) || !near(p95, row.p95_ms))
+        policyErrors.push(id + ': ' + name + ' summary does not match raw samples')
+    }
   }
   if (before?.evidence === 'measured-local' && after?.evidence === 'measured-local') {
     if (before.execution_model !== after.execution_model ||
