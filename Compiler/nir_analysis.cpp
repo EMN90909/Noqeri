@@ -38,7 +38,16 @@ void NirAnalyzer::analyze(const Program&program,NirProgram&nir)const{
             case NirOp::Cast:t=typeFromName(in.text);break;
             case NirOp::Call:{auto it=returns.find(in.text);if(it!=returns.end())t=it->second;else if(in.text=="clockMillis")t=simple(TypeKind::I64);else if(in.text=="platform")t=simple(TypeKind::String);else if(in.text=="textLength"||in.text=="len")t=simple(TypeKind::Usize);else if(in.text=="print")t=simple(TypeKind::Void);break;}
             case NirOp::AddressOf:{t.kind=TypeKind::Pointer;auto it=variables.find(in.text);if(it!=variables.end())t.pointee=std::make_shared<Type>(it->second);break;}
-            case NirOp::LoadMemory:if(!in.args.empty()){auto p=regType(fn,in.args[0]);if(p.kind==TypeKind::Pointer&&p.pointee)t=*p.pointee;}break;
+            case NirOp::LoadMemory:
+                // The type checker knows the dereferenced field/array
+                // element type. The generic byte-oriented StackAlloc pointer
+                // must NOT override that signedness/width metadata.
+                if(in.type.kind!=TypeKind::Unknown)t=in.type;
+                else if(!in.args.empty()){
+                    auto p=regType(fn,in.args[0]);
+                    if(p.kind==TypeKind::Pointer&&p.pointee)t=*p.pointee;
+                }
+                break;
             case NirOp::PtrOffset:if(!in.args.empty())t=regType(fn,in.args[0]);break;
             case NirOp::StackAlloc:t.kind=TypeKind::Pointer;t.pointee=std::make_shared<Type>(simple(TypeKind::U8));break;
             case NirOp::MakeSlice:{t.kind=TypeKind::Slice;if(!in.args.empty()){auto p=regType(fn,in.args[0]);if(p.kind==TypeKind::Pointer&&p.pointee)t.element=p.pointee;}break;}

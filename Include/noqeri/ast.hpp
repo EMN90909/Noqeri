@@ -1,5 +1,6 @@
 #pragma once
 #include "diagnostics.hpp"
+#include "types.hpp"
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -32,12 +33,12 @@ struct Expr { virtual ~Expr()=default; Span span; };
 using ExprPtr = std::shared_ptr<Expr>;
 struct LiteralExpr final : Expr { Literal value; };
 struct NameExpr final : Expr { std::string name; };
-struct UnaryExpr final : Expr { TokenKind op; ExprPtr operand; std::size_t memoryWidth=8; bool volatileAccess=false; };
+struct UnaryExpr final : Expr { TokenKind op; ExprPtr operand; std::size_t memoryWidth=8; bool volatileAccess=false; Type memoryType{}; };
 struct BinaryExpr final : Expr { ExprPtr left; TokenKind op; ExprPtr right; };
 struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; bool builtinSliceSource=false; std::string builtinText; };
 struct CastExpr final : Expr { ExprPtr value; std::string typeName; };
-struct IndexExpr final : Expr { ExprPtr object,index; std::size_t elementSize=1; bool volatileAccess=false; bool baseIsSlice=false; bool hasFixedBound=false; std::size_t fixedBound=0; };
-struct MemberExpr final : Expr { ExprPtr object; std::string member; std::size_t offset=0; std::size_t fieldSize=0; bool volatileAccess=false; bool baseIsPointer=false; };
+struct IndexExpr final : Expr { ExprPtr object,index; std::size_t elementSize=1; bool volatileAccess=false; bool baseIsSlice=false; bool hasFixedBound=false; std::size_t fixedBound=0; Type elementType{}; };
+struct MemberExpr final : Expr { ExprPtr object; std::string member; std::size_t offset=0; std::size_t fieldSize=0; bool volatileAccess=false; bool baseIsPointer=false; Type fieldType{}; };
 struct ArrayExpr final : Expr { std::vector<ExprPtr> elements; std::size_t elementSize=0; };
 
 struct Stmt { virtual ~Stmt()=default; Span span; };

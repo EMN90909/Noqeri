@@ -87,12 +87,12 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){NirInstruction i;i.op=NirOp::Load;i.dest=fn.nextReg++;i.text=e->name;emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
         if(e->op==TokenKind::Ampersand)return lowerAddress(fn,e->operand);
-        if(e->op==TokenKind::Star){Reg a=lowerExpr(fn,e->operand);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={a};emit(fn,check);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->memoryWidth;i.isVolatile=e->volatileAccess;emit(fn,i);return*i.dest;}
+        if(e->op==TokenKind::Star){Reg a=lowerExpr(fn,e->operand);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={a};emit(fn,check);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->memoryWidth;i.isVolatile=e->volatileAccess;i.type=e->memoryType;emit(fn,i);return*i.dest;}
         if(e->op==TokenKind::Try){Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Try;i.dest=fn.nextReg++;i.args={a};emit(fn,i);return*i.dest;}
         Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Unary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={a};emit(fn,i);return*i.dest;
     }
-    if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->fieldSize?e->fieldSize:8;i.isVolatile=e->volatileAccess;emit(fn,i);return*i.dest;}
-    if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;emit(fn,i);return*i.dest;}
+    if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->fieldSize?e->fieldSize:8;i.isVolatile=e->volatileAccess;i.type=e->fieldType;emit(fn,i);return*i.dest;}
+    if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;i.type=e->elementType;emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Reg a=lowerExpr(fn,e->value);NirInstruction i;i.op=NirOp::Cast;i.dest=fn.nextReg++;i.text=e->typeName;i.args={a};emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
         if(e->op==TokenKind::Equal){Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}

@@ -25,3 +25,8 @@ print(u32a + u32b)
 let i32a: i32 = 2147483647 as i32
 let i32b: i32 = 1 as i32
 print(i32a + i32b)
+
+let narrowArray: [u8; 2] = [250 as u8, 10 as u8]
+print(narrowArray[0 as usize] + narrowArray[1 as usize])
+let wideArray: [int; 2] = [200, 300]
+print(wideArray[0 as usize] + wideArray[1 as usize])

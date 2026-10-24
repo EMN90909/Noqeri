@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="$(printf '%s\n' 4 255 44 116 127 4 -32766 1 -2147483648)"
+          expected="$(printf '%s\n' 4 255 44 116 127 4 -32766 1 -2147483648 4 500)"
           for level in O0 O3; do
             node scripts/native-build.mjs tests/native_narrow_arithmetic.noqeri "build-typed/narrow-${level}" --compiler=build-typed/noqeri "--opt=-${level}" --keep-asm
             actual="$("build-typed/narrow-${level}")"
@@ -51,6 +51,15 @@ jobs:
           done
           grep -Fq 'movsx rax, al' build-typed/narrow-O0.s
           grep -Fq 'movsxd rax, eax' build-typed/narrow-O0.s
+      - name: Verify wide indexed matrix arithmetic remains untruncated
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(printf '%s\n' 29971 28448)"
+          for level in O0 O3; do
+            node scripts/native-build.mjs Benchmarks/workloads/matrix.noqeri "build-typed/matrix-${level}" --compiler=build-typed/noqeri "--opt=-${level}"
+            test "$("build-typed/matrix-${level}")" = "$expected"
+          done
       - name: Verify signed and unsigned narrow memory loads
         shell: bash
         run: |
