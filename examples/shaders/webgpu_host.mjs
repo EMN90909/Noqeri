@@ -8,7 +8,11 @@ function requireGpu(provided) {
 async function selectNoqeriAdapter(gpu) {
   // Prefer a high-performance adapter when available, but do not exclude
   // low-power/integrated GPUs or portable software-backed implementations.
-  const preferred = await gpu.requestAdapter({powerPreference:'high-performance'})
+  // A few WebGPU implementations reject the high-performance preference
+  // instead of returning null. Retry the default adapter before failing.
+  let preferred=null
+  try { preferred=await gpu.requestAdapter({powerPreference:'high-performance'}) }
+  catch { /* Device enumeration fallback remains a supported pathway. */ }
   return preferred ?? await gpu.requestAdapter()
 }
 export async function inspectNoqeriGpuCompatibility(suppliedGpu = null) {
