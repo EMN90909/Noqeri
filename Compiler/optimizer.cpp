@@ -969,6 +969,119 @@ bool eliminateRepeatedStackLoads(NirFunction& fn){
     }
     return true;
 }
+// Lower an executable scalar Phi for the simplest well-formed branch
+// diamond. Construct the conceptual Phi at a join with two distinct scalar
+// Store values, then emit predecessor-edge copies into the SAME new virtual
+// register. This is not full Cytron SSA: loops and critical edges are denied.
+//
+// Copies use the already supported NIR Cast (identity for a value with the
+// exact same type) so both x86-64 and VM lowering can consume the result.
+// Deliberately run AFTER all passes requiring unique virtual definitions;
+// physical register allocation already conservatively unions multiple defs.
+bool lowerStraightDiamondPhi(NirFunction& fn){
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    if(std::any_of(fn.code.begin(),fn.code.end(),
+        [](const NirInstruction& in){
+            return in.op==NirOp::Try||in.op==NirOp::InlineAsm;
+        }))return false;
+    std::unordered_set<std::string> excluded;
+    for(const auto& in:fn.code)
+        if(in.op==NirOp::AddressOf||
+           ((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile))
+            excluded.insert(in.text);
+    const auto castName=[](TypeKind kind)->const char*{
+        switch(kind){
+            case TypeKind::Int:return "int";
+            case TypeKind::I64:return "i64";
+            case TypeKind::U64:return "u64";
+            case TypeKind::Usize:return "usize";
+            case TypeKind::Isize:return "isize";
+            case TypeKind::Bool:return "bool";
+            default:return nullptr;
+        }
+    };
+    for(std::size_t block=0;block<g.spans.size();++block){
+        if(!g.reachable[block]||g.preds[block].size()!=2)continue;
+        const auto at=g.spans[block].first;
+        const auto& load=fn.code[at];
+        if(load.op!=NirOp::Load||!load.dest||load.isVolatile||
+           excluded.count(load.text))continue;
+        const auto kind=operandType(fn,*load.dest);
+        const char* cast=castName(kind);
+        if(!cast)continue;
+        struct Incoming {std::size_t position;Reg value;};
+        std::vector<Incoming> incoming;
+        bool admissible=true;
+        for(const auto pred:g.preds[block]){
+            if(!g.reachable[pred]||pred>=block){admissible=false;break;}
+            const auto span=g.spans[pred];
+            const auto& tail=fn.code[span.second-1];
+            std::size_t storePc=span.second-1,copyPc=at;
+            if(tail.op==NirOp::Jump&&tail.target==at){
+                if(span.second-span.first<2){admissible=false;break;}
+                storePc=span.second-2;
+                copyPc=span.second-1;
+            }else if(span.second!=at){
+                admissible=false;break;
+            }
+            const auto& store=fn.code[storePc];
+            if(store.op!=NirOp::Store||store.text!=load.text||
+               store.args.size()!=1||store.isVolatile||
+               operandType(fn,store.args[0])!=kind){
+                admissible=false;break;
+            }
+            incoming.push_back({copyPc,store.args[0]});
+        }
+        if(!admissible||incoming.size()!=2||
+           incoming[0].value==incoming[1].value)continue;
+        // Both predecessor blocks write this local immediately before their
+        // outgoing edge. The join's first Load can be replaced by Phi value,
+        // with one edge copy per incoming branch.
+        Reg next=std::max(fn.nextReg,
+            static_cast<Reg>(fn.registerTypes.size()));
+        for(const auto& in:fn.code)if(in.dest)
+            next=std::max(next,static_cast<Reg>(*in.dest+1));
+        const Reg phi=next;
+        const Reg original=*load.dest;
+        const Type t=fn.registerTypes[original];
+        for(auto& in:fn.code)
+            for(auto& arg:in.args)if(arg==original)arg=phi;
+        fn.code[at].op=NirOp::Nop;
+        fn.code[at].dest.reset();
+        fn.code[at].args.clear();
+        fn.registerTypes.resize(static_cast<std::size_t>(phi)+1);
+        fn.registerTypes[phi]=t;
+        fn.nextReg=phi+1;
+        std::sort(incoming.begin(),incoming.end(),
+            [](const Incoming&a,const Incoming&b){return a.position<b.position;});
+        const std::size_t oldSize=fn.code.size();
+        std::vector<NirInstruction> output;
+        output.reserve(oldSize+incoming.size());
+        std::vector<std::size_t> remap(oldSize+1,0);
+        std::size_t nextCopy=0;
+        for(std::size_t pc=0;pc<=oldSize;++pc){
+            while(nextCopy<incoming.size()&&incoming[nextCopy].position==pc){
+                NirInstruction copy;
+                copy.op=NirOp::Cast;
+                copy.dest=phi;
+                copy.args={incoming[nextCopy].value};
+                copy.type=t;
+                copy.text=cast;
+                output.push_back(std::move(copy));
+                ++nextCopy;
+            }
+            remap[pc]=output.size();
+            if(pc<oldSize)output.push_back(std::move(fn.code[pc]));
+        }
+        for(auto& in:output)
+            if(in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)
+                in.target=remap[std::min(in.target,oldSize)];
+        fn.code=std::move(output);
+        return true;
+    }
+    return false;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -1029,6 +1142,11 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
             dce(fn);
     }
     if (level == OptimizationLevel::Oz) dce(fn);
+    // Emit branch-edge scalar Phi copies only after dominance-sensitive SSA
+    // optimizer passes have finished. Any later unique-def analysis must
+    // first rebuild actual SSA from these lowered edge definitions.
+    if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
+       level==OptimizationLevel::Oz)lowerStraightDiamondPhi(fn);
 }
 }
 NirMemorySsa analyzeMemorySsa(const NirFunction& fn){
