@@ -87,6 +87,21 @@ if(BUILD_TESTING)
    "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
    -P ${CMAKE_SOURCE_DIR}/tests/cmake/graphics_shader_portability.cmake)
 endif()
+# Optional cross-platform OS presentation bridge: only the SDL2 surface/window
+# adapter is native. All raster algorithms live in Lib/std/render2d.noqeri.
+# No SDL2 dependency is imposed on freestanding compiler/runtime targets.
+option(NOQERI_ENABLE_SDL2 "Build optional Noqeri OS framebuffer SDL2 adapter" ON)
+if(NOQERI_ENABLE_SDL2)
+ find_package(SDL2 CONFIG QUIET)
+ if(TARGET SDL2::SDL2)
+  add_library(noqeri_os_renderer_sdl STATIC Runtime/native/os_renderer_sdl.cpp)
+  target_include_directories(noqeri_os_renderer_sdl PUBLIC Include)
+  target_link_libraries(noqeri_os_renderer_sdl PUBLIC SDL2::SDL2)
+  target_compile_features(noqeri_os_renderer_sdl PUBLIC cxx_std_17)
+  noqeri_apply_warnings(noqeri_os_renderer_sdl)
+ endif()
+endif()
+
 # This opt-in mode isolates portable shader generation and native framebuffer
 # runtime even on BSD/Android, where networking services differ. A full native
 # Noqeri executable/linker for each target is a separate qualification gate.
@@ -286,17 +301,3 @@ if(UNIX AND NOT APPLE)
  endif()
 endif()
 
-# Optional cross-platform OS presentation bridge: only the SDL2 surface/window
-# adapter is native. All raster algorithms live in Lib/std/render2d.noqeri.
-# No SDL2 dependency is imposed on freestanding compiler/runtime targets.
-option(NOQERI_ENABLE_SDL2 "Build optional Noqeri OS framebuffer SDL2 adapter" ON)
-if(NOQERI_ENABLE_SDL2)
- find_package(SDL2 CONFIG QUIET)
- if(TARGET SDL2::SDL2)
-  add_library(noqeri_os_renderer_sdl STATIC Runtime/native/os_renderer_sdl.cpp)
-  target_include_directories(noqeri_os_renderer_sdl PUBLIC Include)
-  target_link_libraries(noqeri_os_renderer_sdl PUBLIC SDL2::SDL2)
-  target_compile_features(noqeri_os_renderer_sdl PUBLIC cxx_std_17)
-  noqeri_apply_warnings(noqeri_os_renderer_sdl)
- endif()
-endif()
