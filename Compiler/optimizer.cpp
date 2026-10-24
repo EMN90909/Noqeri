@@ -254,11 +254,15 @@ Graph graphOf(const NirFunction& fn) {
         g.reachable[b]=true;
         for(const auto succ:g.edges[b])work.push_back(succ);
     }
-    g.dominates.assign(nb,std::vector<bool>(nb,true));
+    // Packed fixed-point dominators: intersect 64 candidate blocks per
+    // machine word and preserve the existing safety-analysis matrix API.
+    const std::size_t words=(nb+63)/64;
+    std::vector<std::vector<std::uint64_t>> bits(
+        nb,std::vector<std::uint64_t>(words,~std::uint64_t{0}));
     for(std::size_t b=0;b<nb;++b){
         if(b==0||!g.reachable[b]){
-            std::fill(g.dominates[b].begin(),g.dominates[b].end(),false);
-            g.dominates[b][b]=true;
+            std::fill(bits[b].begin(),bits[b].end(),0);
+            bits[b][b/64]|=std::uint64_t{1}<<(b%64);
         }
     }
     bool updated=true;
@@ -266,18 +270,24 @@ Graph graphOf(const NirFunction& fn) {
         updated=false;
         for(std::size_t b=1;b<nb;++b){
             if(!g.reachable[b])continue;
-            std::vector<bool> next(nb,true);bool found=false;
+            std::vector<std::uint64_t> next(words,~std::uint64_t{0});
+            bool found=false;
             for(auto predecessor:g.preds[b]){
                 if(!g.reachable[predecessor])continue;
                 found=true;
-                for(std::size_t other=0;other<nb;++other)
-                    next[other]=next[other]&&g.dominates[predecessor][other];
+                for(std::size_t word=0;word<words;++word)
+                    next[word]&=bits[predecessor][word];
             }
-            if(!found)std::fill(next.begin(),next.end(),false);
-            next[b]=true;
-            if(next!=g.dominates[b]){g.dominates[b]=std::move(next);updated=true;}
+            if(!found)std::fill(next.begin(),next.end(),0);
+            next[b/64]|=std::uint64_t{1}<<(b%64);
+            if(next!=bits[b]){bits[b]=std::move(next);updated=true;}
         }
     }
+    g.dominates.assign(nb,std::vector<bool>(nb,false));
+    for(std::size_t b=0;b<nb;++b)
+        for(std::size_t ancestor=0;ancestor<nb;++ancestor)
+            g.dominates[b][ancestor]=
+                (bits[b][ancestor/64]>>(ancestor%64))&1u;
     for(std::size_t pc=0;pc<n;++pc){
         const auto& in=fn.code[pc];
         if(in.dest&&!g.definitions.emplace(*in.dest,pc).second)g.uniqueDefs=false;
