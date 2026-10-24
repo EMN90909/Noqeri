@@ -21,44 +21,97 @@ export function nqRenderClear(pixels: []u32, color: u32): bool {
     return true
 }
 
+// Render a bounded gradient with incremental exact integer interpolation.
+// The old flattened loop divided by width twice per pixel and called the
+// generic ARGB packer on every store. Here all division is outside loops;
+// the remainder accumulator gives floor(x*255/(width-1)) exactly.
 export function nqRenderGradient(pixels: []u32, width: usize, height: usize): bool {
-    // Bound dimensions before multiplication and integer color arithmetic.
     if width == 0 as usize || height == 0 as usize { return false }
     if width > 4096 as usize || height > 4096 as usize { return false }
     if height > len(pixels) / width { return false }
-    let count: usize = width * height
-    let i: usize = 0 as usize
-    while i < count {
-        let x: usize = i % width
-        let y: usize = i / width
-        let red: u32 = 0 as u32
-        let green: u32 = 0 as u32
-        if width > 1 as usize {
-            red = ((x * 255 as usize) / (width - 1 as usize)) as u32
+
+    let redDenominator: usize = 1 as usize
+    let greenDenominator: usize = 1 as usize
+    let redStep: usize = 0 as usize
+    let redRemainder: usize = 0 as usize
+    let greenStep: usize = 0 as usize
+    let greenRemainder: usize = 0 as usize
+    if width > 1 as usize {
+        redDenominator = width - 1 as usize
+        redStep = 255 as usize / redDenominator
+        redRemainder = 255 as usize % redDenominator
+    }
+    if height > 1 as usize {
+        greenDenominator = height - 1 as usize
+        greenStep = 255 as usize / greenDenominator
+        greenRemainder = 255 as usize % greenDenominator
+    }
+
+    let index: usize = 0 as usize
+    let y: usize = 0 as usize
+    let green: usize = 0 as usize
+    let greenCarry: usize = 0 as usize
+    while y < height {
+        // Entire row shares green. The blue constant is 64.
+        let rowBaseColor: u32 = 4278190144 as u32 + (green as u32) * 256 as u32
+        let x: usize = 0 as usize
+        let red: usize = 0 as usize
+        let redCarry: usize = 0 as usize
+        while x < width {
+            pixels[index] = rowBaseColor + (red as u32) * 65536 as u32
+            index = index + 1 as usize
+            x = x + 1 as usize
+            red = red + redStep
+            redCarry = redCarry + redRemainder
+            if redCarry >= redDenominator {
+                redCarry = redCarry - redDenominator
+                red = red + 1 as usize
+            }
         }
-        if height > 1 as usize {
-            green = ((y * 255 as usize) / (height - 1 as usize)) as u32
+        y = y + 1 as usize
+        green = green + greenStep
+        greenCarry = greenCarry + greenRemainder
+        if greenCarry >= greenDenominator {
+            greenCarry = greenCarry - greenDenominator
+            green = green + 1 as usize
         }
-        pixels[i] = nqArgb8888(red, green, 64 as u32)
-        i = i + 1 as usize
     }
     return true
 }
 
+// Rasterize solid horizontal tile runs. No x/width or x/cell
+// divisions run per pixel. Row parity advances at cell boundaries.
 export function nqRenderChecker(pixels: []u32, width: usize, height: usize, cell: usize, first: u32, second: u32): bool {
     if width == 0 as usize || height == 0 as usize || cell == 0 as usize { return false }
     if height > len(pixels) / width { return false }
-    let i: usize = 0 as usize
-    while i < width * height {
-        let x: usize = i % width
-        let y: usize = i / width
-        let pattern: usize = ((x / cell) + (y / cell)) % 2 as usize
-        if pattern == 0 as usize {
-            pixels[i] = first
-        } else {
-            pixels[i] = second
+
+    let index: usize = 0 as usize
+    let y: usize = 0 as usize
+    let rowParity: bool = false
+    let rowRemaining: usize = cell
+    while y < height {
+        let x: usize = 0 as usize
+        let columnParity: bool = false
+        while x < width {
+            let run: usize = cell
+            if run > width - x { run = width - x }
+            let endX: usize = x + run
+            let color: u32 = first
+            if rowParity != columnParity { color = second }
+            while x < endX {
+                pixels[index] = color
+                index = index + 1 as usize
+                x = x + 1 as usize
+            }
+            columnParity = !columnParity
         }
-        i = i + 1 as usize
+        y = y + 1 as usize
+        if rowRemaining == 1 as usize {
+            rowRemaining = cell
+            rowParity = !rowParity
+        } else {
+            rowRemaining = rowRemaining - 1 as usize
+        }
     }
     return true
 }
