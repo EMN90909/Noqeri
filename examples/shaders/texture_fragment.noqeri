@@ -1,0 +1,9 @@
+module examples.shaders.texture_fragment
+
+// The host binds an RGBA8 2D texture and filtering sampler at group 0.
+export function shade(x: float, y: float): vec4 {
+    const size: vec2 = textureSize()
+    const uv: vec2 = vec2(x / size.x, y / size.y)
+    const texel: vec4 = sampleTexture(uv)
+    return clamp(texel, vec4(0.0), vec4(1.0))
+}

@@ -1,0 +1,8 @@
+module examples.shaders.vector_compute
+
+// Storage buffers contain tightly packed groups of four f32 values.
+export function shade(value: vec4): vec4 {
+    const rgb: vec3 = value.xyz
+    const inverted: vec3 = vec3(1.0, 1.0, 1.0) - rgb
+    return vec4(inverted.x, inverted.y, inverted.z, value.w)
+}
