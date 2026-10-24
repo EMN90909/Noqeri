@@ -249,11 +249,13 @@ jobs:
           set -euo pipefail
           runtime=build-native/noqeri-nqri
           stage2=build-selfhost/noqeri-stage2.nqri
-          "$runtime" has-export "$stage2" stage2ShaderCompileWgsl
-          "$runtime" shader "$stage2" examples/shaders/invert_compute.noqeri /tmp/nqri-shader-compute.wgsl compute 128
-          "$runtime" shader "$stage2" examples/shaders/color_gradient.noqeri /tmp/nqri-shader-fragment.wgsl fragment
+          shader=build-selfhost/noqeri-shader-stage2.nqri
+          "$runtime" compile-manifest "$stage2" "$PWD" tests/stage2-shader-sources.txt "$shader" 3
+          "$runtime" has-export "$shader" stage2ShaderCompileWgsl
+          "$runtime" shader "$shader" examples/shaders/invert_compute.noqeri /tmp/nqri-shader-compute.wgsl compute 128
+          "$runtime" shader "$shader" examples/shaders/color_gradient.noqeri /tmp/nqri-shader-fragment.wgsl fragment
           cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/nqri-shader-compute.wgsl /tmp/nqri-shader-fragment.wgsl
-          if "$runtime" shader "$stage2" examples/shaders/texture_fragment.noqeri /tmp/unsafe-unsupported.wgsl fragment; then
+          if "$runtime" shader "$shader" examples/shaders/texture_fragment.noqeri /tmp/unsafe-unsupported.wgsl fragment; then
             echo "Stage-2 shader subset must reject unsupported texture intrinsics" >&2
             exit 1
           fi
@@ -293,9 +295,12 @@ jobs:
         run: |
           $runtime = '.\\build-native\\Release\\noqeri-nqri.exe'
           $stage2 = 'build-selfhost/noqeri-stage2.nqri'
-          & $runtime has-export $stage2 stage2ShaderCompileWgsl
+          $shader = 'build-selfhost/noqeri-shader-stage2.nqri'
+          & $runtime compile-manifest $stage2 $PWD tests/stage2-shader-sources.txt $shader 1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $runtime shader $stage2 examples/shaders/invert_compute.noqeri build-selfhost/s2-compute.wgsl compute 64
+          & $runtime has-export $shader stage2ShaderCompileWgsl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $runtime shader $shader examples/shaders/invert_compute.noqeri build-selfhost/s2-compute.wgsl compute 64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Select-String -Path build-selfhost/s2-compute.wgsl -Pattern '@compute @workgroup_size\\(64\\)' -Quiet)) {
             throw 'Stage-2 self-hosted WGSL compute shader did not render correctly'
