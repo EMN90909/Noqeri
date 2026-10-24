@@ -11,7 +11,7 @@ function load(path){
   const result=new Map()
   for(const line of lines){
     const [scene,resolution,engine,index,ns,...extra]=line.split(',')
-    if(extra.length||!['flat-z','interpolated-z'].includes(scene)||
+    if(extra.length||!['flat-z','interpolated-z','depth-clear'].includes(scene)||
        resolution!=='256x256'||!['noqeri','c'].includes(engine)||
        !/^(?:\d|[12]\d)$/.test(index)||!Number.isFinite(Number(ns))||Number(ns)<=0)
       throw Error('Malformed timing sample: '+line)
@@ -20,14 +20,14 @@ function load(path){
     if(result.get(key).has(Number(index)))throw Error('Duplicate sample')
     result.get(key).set(Number(index),Number(ns))
   }
-  if(result.size!==4||[...result.values()].some(x=>x.size!==30))
+  if(result.size!==6||[...result.values()].some(x=>x.size!==30))
     throw Error('Expected 30 valid samples in each of four groups')
   return result
 }
 const before=load(beforeFile),after=load(afterFile)
 const median=values=>{const v=[...values.values()].sort((a,b)=>a-b);return (v[14]+v[15])/2}
 const results=[]
-for(const scene of ['flat-z','interpolated-z']){
+for(const scene of ['flat-z','interpolated-z','depth-clear']){
   const old=median(before.get(scene+':noqeri')),now=median(after.get(scene+':noqeri'))
   results.push({scene,baseline_median_ns:old,candidate_median_ns:now,speedup:old/now,
     baseline_cpp_median_ns:median(before.get(scene+':c')),
