@@ -241,9 +241,10 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, tex
   }
 }
 
-function checkedClipVertices(vertices) {
+function checkedClipVertices(vertices, triangleList = true) {
   if (!(vertices instanceof Float32Array) || vertices.length === 0 ||
-      vertices.length % 12 !== 0 || vertices.length > 393216)
+      vertices.length % 4 !== 0 || (triangleList && vertices.length % 12 !== 0) ||
+      vertices.length > 393216)
     throw new TypeError('3D vertices must be bounded Float32Array triangle lists of clip-space vec4.')
   for(let i=0;i<vertices.length;i+=4) {
     const x=vertices[i],y=vertices[i+1],z=vertices[i+2],w=vertices[i+3]
@@ -255,14 +256,30 @@ function checkedClipVertices(vertices) {
   return vertices
 }
 
-function snapshotClipVertices(input) {
+function snapshotClipVertices(input, triangleList = true) {
   // Check immutable typed-array shape before allocating a defensive copy.
   // Validate the copied values so concurrently mutable input cannot bypass
   // the finite-coordinate and homogeneous-depth restrictions.
   if(!(input instanceof Float32Array) || input.length===0 ||
-     input.length%12!==0 || input.length>393216)
-    throw new TypeError('3D vertices must be a bounded Float32Array triangle list.')
-  return checkedClipVertices(new Float32Array(input))
+     input.length%4!==0 || (triangleList && input.length%12!==0) ||
+     input.length>393216)
+    throw new TypeError('3D vertices must be a bounded Float32Array triangle list or indexed vertex array.')
+  return checkedClipVertices(new Float32Array(input), triangleList)
+}
+
+// Snapshot after checking shape. Caller memory may change during validation
+// unless a private typed-array copy is made before checking index bounds.
+function snapshotMeshIndices(input, vertexCount, maxIndices) {
+  if (!(input instanceof Uint16Array) && !(input instanceof Uint32Array))
+    throw new TypeError('Indexed 3D mesh requires Uint16Array or Uint32Array indices.')
+  if (!input.length || input.length % 3 !== 0 || input.length > maxIndices)
+    throw new RangeError('Indexed 3D triangle count exceeds configured index capacity.')
+  const indices = new input.constructor(input)
+  for (let i=0; i<indices.length; i++) {
+    if (indices[i] >= vertexCount)
+      throw new RangeError('Indexed 3D mesh references a vertex outside the supplied array.')
+  }
+  return indices
 }
 
 // One-frame mesh renderer with GPU hardware depth testing. This is a narrow
@@ -372,6 +389,10 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
   if(!options || typeof options!=='object' || Array.isArray(options))
     throw new TypeError('3D renderer options must be an object.')
   const sampleCount=options.sampleCount ?? 1
+  const maxIndices=options.maxIndices ?? maxVertices*3
+  if(!Number.isSafeInteger(maxIndices) || maxIndices<3 || maxIndices>393216 ||
+     maxIndices%3!==0)
+    throw new RangeError('3D index capacity must be a bounded multiple of three.')
   if(sampleCount!==1 && sampleCount!==4)
     throw new RangeError('3D multisample count must be 1 or 4.')
   let width=canvas.width,height=canvas.height
@@ -381,7 +402,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
     throw new RangeError('4x MSAA is limited to 1920x1080 pixels.')
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
-  let context,configured=false,vertexBuffer,depthTexture,msaaColor,disposed=false,busy=false
+  let context,configured=false,vertexBuffer,indexBuffer,depthTexture,msaaColor,disposed=false,busy=false
   let submittedSinceFence=0
   let lossMessage=null
   if(device.lost && typeof device.lost.then==='function'){
@@ -401,6 +422,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
     depthTexture?.destroy()
     msaaColor?.destroy()
     vertexBuffer?.destroy()
+    indexBuffer?.destroy()
     device.destroy()
   }
   try{
@@ -440,18 +462,29 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
         size:[width,height,1],format,sampleCount,
         usage:GPUTextureUsage.RENDER_ATTACHMENT
       })
-    async function drawFrame(input,fast){
+    async function drawFrame(input,fast,indexInput=null){
         if(lossMessage)throw new Error(lossMessage)
         if(disposed)throw new Error('3D renderer is disposed.')
         if(busy)throw new Error('3D renderer already has a frame in flight.')
         if(canvas.width!==width||canvas.height!==height)
           throw new Error('3D canvas was resized; call renderer.resize with the new backing dimensions.')
-        const vertices=snapshotClipVertices(input)
+        const indexed=indexInput!==null
+        const vertices=snapshotClipVertices(input,!indexed)
         if(vertices.length/4>maxVertices)
           throw new RangeError('3D vertex count exceeds persistent capacity.')
+        const indices=indexed?snapshotMeshIndices(indexInput,vertices.length/4,maxIndices):null
+        if(indices && maxIndices*4>device.limits.maxBufferSize)
+          throw new RangeError('3D index capacity exceeds WebGPU buffer limits.')
         busy=true
         try{
+          // Allocate lazily. Fixed maximum capacity avoids invalidating an
+          // index buffer while earlier fast frames are still queued.
+          if(indices && !indexBuffer)
+            indexBuffer=device.createBuffer({
+              size:maxIndices*4, usage:GPUBufferUsage.INDEX|GPUBufferUsage.COPY_DST
+            })
           device.queue.writeBuffer(vertexBuffer,0,vertices)
+          if(indices)device.queue.writeBuffer(indexBuffer,0,indices)
           const encoder=device.createCommandEncoder()
           const swapView=context.getCurrentTexture().createView()
           const colorAttachment={
@@ -471,7 +504,10 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
           })
           pass.setPipeline(pipeline)
           pass.setVertexBuffer(0,vertexBuffer)
-          pass.draw(vertices.length/4)
+          if(indices) {
+            pass.setIndexBuffer(indexBuffer,indices instanceof Uint16Array?'uint16':'uint32')
+            pass.drawIndexed(indices.length)
+          } else pass.draw(vertices.length/4)
           pass.end()
           device.queue.submit([encoder.finish()])
           submittedSinceFence++
@@ -541,6 +577,8 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
         previousColor?.destroy()
       },
       render(input){return drawFrame(input,false)},
+      renderIndexed(vertices,indices){return drawFrame(vertices,false,indices)},
+      renderIndexedFast(vertices,indices){return drawFrame(vertices,true,indices)},
       // Low-latency mode: batch up to three submitted frames per GPU fence.
       // It is not a GPU completion signal; use flush() before resize.
       renderFast(input){return drawFrame(input,true)},
