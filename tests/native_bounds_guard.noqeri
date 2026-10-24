@@ -1,0 +1,8 @@
+let values: [int; 8]
+let index: usize = 0 as usize
+while index < 8 as usize {
+    values[index] = (index * 3 as usize) as int
+    index = index + 1 as usize
+}
+print(values[0])
+print(values[7])
