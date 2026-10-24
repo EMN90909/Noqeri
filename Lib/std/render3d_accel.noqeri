@@ -1,0 +1,14 @@
+module noqeri.std.render3d_accel
+
+// Optional nonvolatile CPU Z-buffer acceleration. Link with the same C++
+// noqeri_graphics_fastpath library as render2d_accel.noqeri. All buffer
+// geometry is checked before passing the borrowed pointer to the native ABI.
+// No GPU driver or JavaScript participates in this clear.
+extern function nq_graphics_clear_argb32(values: *u32, count: usize, fill: u32): int
+
+export function nqDepthClearAccelerated(depth: []u32, width: usize, height: usize): bool {
+    if width == 0 as usize || height == 0 as usize { return false }
+    if width > 4096 as usize || height > 4096 as usize { return false }
+    if height > len(depth) / width { return false }
+    return nq_graphics_clear_argb32(&depth[0], width * height, 4294967295 as u32) == 0
+}
