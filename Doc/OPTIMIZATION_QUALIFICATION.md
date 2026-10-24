@@ -140,3 +140,25 @@ branch diamond produced median runtime **5.389196 ms** (previous main) versus
 **5.117053 ms** (candidate), approximately **1.053x** for this one workload.
 The benchmark and Linux/Windows bootstrap qualification passed on PR #66.
 Those timings do not establish a cross-workload or cross-target speedup.
+
+## Additional Issue #48 compiler work (October 24, 2026)
+
+- **PR #68:** sparse integer constant propagation uses a def-use worklist
+  rather than rescanning whole NIR bodies until no constant changes. This is
+  *not* complete edge-sensitive SCCP or Phi-lattice propagation.
+- **PR #70:** guarded fixed-array bounds-check removal indexes unknown memory
+  writes by prefix counts and named-local Store positions, replacing repeated
+  instruction rescans. Stale-value, may-alias, signed nonnegativity and
+  loop-backedge safety qualifications remain intact.
+- **PR #72:** transitive NIR DCE register liveness uses a dependency worklist,
+  conservatively combining operands from repeated definitions. A 2,048-link
+  live chain and 512-link dead chain are regression-tested.
+- **PR #71 remains a separate correctness effort:** typed narrow integer
+  arithmetic must preserve its declared width; array and field values must
+  retain TypeChecker metadata in NIR. Do not claim this fixed on main until
+  full matrix parity and Linux/Windows qualification succeed.
+
+These changes reduce repeated compiler analyses but provide no universal
+end-to-end compiler speedup guarantee. Neither full SSA/Phi, general loop
+induction/range proof, auto-vectorization, nor native compiler self-hosting
+is complete.
