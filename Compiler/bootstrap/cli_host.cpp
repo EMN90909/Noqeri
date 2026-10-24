@@ -103,6 +103,10 @@ bool isIgnoredDirectory(const std::filesystem::path& path) {
 }
 
 bool isOrdinaryNoqeriSource(const std::filesystem::path& path) {
+    // Shader-only vector/texture programs belong to the GPU target; testing
+    // them with the native CPU frontend produces false negatives.
+    if(path.parent_path().filename()=="shaders" &&
+       path.parent_path().parent_path().filename()=="examples")return false;
     const auto file = path.filename().string();
     if (path.extension() != ".noqeri") return false;
     if (file == "project.noqeri") return false;
