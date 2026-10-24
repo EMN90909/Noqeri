@@ -39,8 +39,8 @@ function gpuMock({compileError = false, limits = {}} = {}) {
       events.buffers.push(buffer)
       return buffer
     },
-    createTexture({size,format,usage}){
-      const texture={size,format,usage,destroyed:false,createView(){return {}},destroy(){this.destroyed=true}}
+    createTexture({size,format,usage,sampleCount=1}){
+      const texture={size,format,usage,sampleCount,destroyed:false,createView(){return {}},destroy(){this.destroyed=true}}
       events.textures.push(texture)
       return texture
     },
