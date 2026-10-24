@@ -4,7 +4,7 @@
 
 | Requested pass | Current implementation | What is NOT implemented or qualified |
 | --- | --- | --- |
-| SSA optimization | Scalar version/Phi analysis constructs CFG join and loop-header incoming versions; executable edge-copy lowering for eligible diamonds and canonical one-backedge induction loops (PR #85) | Full CFG SSA renaming, arbitrary critical edges, multi-variable loop Phi destruction and parallel-copy cycles |
+| SSA optimization | Named-local scalar versions and executable typed Phi for eligible diamonds and canonical loop backedges; public explicit-typed Phi destruction now splits taken/fallthrough critical edges and stages parallel copies before assignment; native cycle/diamond tests passed (PRs #91/#93) | General SSA **construction** and renaming for arbitrary mutable variables, irreducible CFGs, interprocedural SSA, automatic critical-edge Phi inference across all CFGs |
 | GVN | Basic-block integer `+`, `-`, `*`, `%` value numbering; duplicate NIR operations coalesced when result has no users in other blocks | Global value numbering across branches, loads, volatile memory, pointer calculations, floating NaNs |
 | SCCP | Sparse constant discovery on dominance-proven SSA temporaries, Boolean conditional folding, CFG reachability, dead-code pruning | Phi-lattice propagation and fully edge-sensitive sparse dataflow |
 | LICM | O3 hoists literals and proven preheader-dominating Int/I64 `+`, `-`, `*` from single-entry structured loops; a capped repetition handles several invariants | General LICM with side effects, trapping division, invariant memory loads, alias-aware hoisting, loop unswitching and full SSA/Phi |
@@ -266,3 +266,10 @@ gate remains fail-closed.
 - **PR #89 closed unmerged:** reserving three hot named loop variables instead of one showed no median speedup in 21 interleaved samples with matching outputs. Matrix one/three: 2.3036/2.3179 ms; reshuffled sorting one/three: 18.2790/18.3007 ms. The default backend remains unchanged.
 
 Missing: general executable SSA and Phi resolution, heap/global/interprocedural MemorySSA, arbitrary loop induction analysis, cost-effective automatic SIMD loop vectorization, NQRI and all-native-target integer parity, a genuinely Noqeri-owned independent native Stage-2/Stage-3 compiler, and representative CPU/RSS/cross-language performance parity. scripts/bootstrap-native.sh remains intentionally fail-closed.
+
+## Explicit Phi destruction and critical-edge native qualification
+
+- PR #91 merged: typed `NirPhiNode` and `lowerPhiNodes` accept complete incoming scalar Phi assignments per CFG predecessor and split both taken and fallthrough edges (including critical edges). All source values are staged in fresh typed temporaries before any destination copy, so cycles preserve simultaneous assignment. Unsupported or ambiguous edges fail without changing NIR. The existing diamond optimization uses this shared edge splitter. Full general SSA construction is separate.
+- PR #93 merged: standalone x86-64 codegen fixture now runs taken/fallthrough branches and a loop carrying two mutually swapped Phi destinations. One iteration yields 210, two yield 120. Linux/Windows bootstrap and native arithmetic tests passed.
+
+These changes implement general scalar Phi destruction for explicit valid inputs; do not label full SSA construction complete. Further work includes emitting arbitrary SSA Phi inputs automatically from dominance-frontier renaming, more extensive alias and exception CFG coverage, and expanding native target parity.
