@@ -51,9 +51,10 @@ Fallback CPU architectures run exact same-pixel scalar clearing.
 | Linux ARM64 | C++ compiler on host | NEON + scalar test | Native CI |
 | Windows x86-64 | MSVC compiler on host | SSE2 + scalar test | Native CI |
 | macOS ARM64 | Apple Clang compiler on host | NEON + scalar test | Native CI |
+| macOS x86-64 | Apple Clang compiler on host | SSE2 + scalar test | Native CI |
 | FreeBSD x86-64 | Clang compiler in VM | SSE2 | VM CI |
 | OpenBSD x86-64 | Clang compiler in VM | SSE2 | VM CI |
-| Android ARM64, ARMv7, x86-64 | Not executed by the Android job | NEON where enabled / SSE2 / scalar | NDK cross-compile/link, not device execution |
+| Android ARM64, ARMv7, x86-64 | Cross-compiled C++ Noqeri shader compiler, not executed | NEON where enabled / SSE2 / scalar | NDK cross-compile/link, not device execution |
 | RISC-V, PowerPC, s390x and other targets | Requires separately qualified C++ toolchain/compiler | Scalar fallback available | No hardware CI proof |
 
 The matrix describes **test intent and coverage**, not a blanket success
@@ -61,6 +62,10 @@ claim. Always inspect `.github/workflows/graphics-portability.yml` run
 conclusions and job logs before treating a platform as verified.
 FreeBSD/OpenBSD jobs run virtual machines; Android uses an NDK cross-compiler
 and cannot run an Android binary on the Linux runner.
+
+The portable CMake mode also exposes the optional `noqeri_os_renderer_sdl`
+window/presentation target when a usable SDL2 CMake package is installed.
+A successful headless frame test does not prove a physical display or GPU.
 
 Graphics-only CI is separate from the Linux-specific native x86-64
 Noqeri AOT integration suites. SDL2 native presentation is a separate
