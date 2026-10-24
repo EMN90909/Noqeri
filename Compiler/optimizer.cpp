@@ -495,8 +495,7 @@ bool hoistLoopLiteral(NirFunction& fn) {
 // A prior identical bounds check dominates this point when virtual register
 // definitions are unique. Trap-on-failure means reaching the later check proves
 // that the earlier one succeeded with the same index and length.
-bool eliminateDominatedChecks(NirFunction& fn){
-    const Graph g=graphOf(fn);
+bool eliminateDominatedChecks(NirFunction& fn,const Graph& g){
     if(!g.uniqueDefs||!g.validDominance)return false;
     std::map<std::pair<Reg,Reg>,std::vector<std::size_t>> checked;
     bool changed=false;
@@ -522,8 +521,7 @@ bool eliminateDominatedChecks(NirFunction& fn){
 // A true-edge-dominating comparison plus zero intervening writes to the
 // indexed source variable makes the fixed-array CheckBounds redundant.
 // Any unknown alias, extra entry, mutation or non-unsigned index fails closed.
-bool eliminateGuardedBounds(NirFunction& fn){
-    const Graph g=graphOf(fn);
+bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
     if(!g.uniqueDefs||!g.validDominance)return false;
     std::unordered_map<Reg,std::int64_t> constants;
     std::unordered_map<Reg,std::string> loads;
@@ -616,9 +614,17 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     // without exposing any new facts, since these passes only remove checks.
     if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
        level==OptimizationLevel::Oz){
-        const bool a=eliminateDominatedChecks(fn);
-        const bool b=eliminateGuardedBounds(fn);
-        if(a||b)dce(fn);
+        if(std::any_of(fn.code.begin(),fn.code.end(),
+            [](const NirInstruction& in){return in.op==NirOp::CheckBounds;})){
+            // Neither proof alters CFG edges or register definitions. Reuse
+            // one dominance matrix instead of building it twice.
+            const Graph g=graphOf(fn);
+            if(g.uniqueDefs&&g.validDominance){
+                const bool a=eliminateDominatedChecks(fn,g);
+                const bool b=eliminateGuardedBounds(fn,g);
+                if(a||b)dce(fn);
+            }
+        }
     }
     if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
     if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
