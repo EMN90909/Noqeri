@@ -55,6 +55,16 @@ jobs:
           grep -Eq 'seta al|setb al' build-typed/unsigned-O3.s
           node scripts/native-build.mjs tests/native_unsigned_arithmetic.noqeri build-typed/unsigned-O0 --compiler=build-typed/noqeri --opt=-O0
           test "$(build-typed/unsigned-O0)" = "$expected"
+      - name: Qualify executable loop-carried Phi against O0
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(printf '%s\n' 0 1 2 7 8 25)"
+          for level in O0 O2 O3; do
+            node scripts/native-build.mjs tests/native_phi_loop.noqeri "build-typed/phi-loop-$level" --compiler=build-typed/noqeri "--opt=-$level"
+            actual="$("build-typed/phi-loop-$level")"
+            test "$actual" = "$expected"
+          done
       - name: Verify scalar diamond Phi lowering in native AOT
         shell: bash
         run: |

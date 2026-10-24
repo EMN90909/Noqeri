@@ -1,0 +1,13 @@
+function count(n: usize): usize {
+    let i: usize = 0 as usize
+    while i < n {
+        i = i + 1 as usize
+    }
+    return i
+}
+print(count(0 as usize))
+print(count(1 as usize))
+print(count(2 as usize))
+print(count(7 as usize))
+print(count(8 as usize))
+print(count(25 as usize))
