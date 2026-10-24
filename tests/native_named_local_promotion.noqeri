@@ -1,0 +1,13 @@
+let a: int = 0
+let one: int = 1
+let n: int = 0
+while n < 1000 {
+    a = a + one
+    n = n + 1
+}
+print(n)
+print(a)
+let referenced: int = 41
+let ptr: *int = &referenced
+atomic.store(ptr, 43)
+print(referenced)

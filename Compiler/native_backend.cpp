@@ -273,6 +273,45 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     std::vector<std::string> saved;
     const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
         [](const NirInstruction& i){return i.op==NirOp::InlineAsm;});
+    // Reserve RBX for the most frequently referenced named local in loops.
+    // Address-taken locals and inline-asm functions stay on the stack.
+    // RBX is callee-saved and never used by virtual-register allocation.
+    std::unordered_map<std::string,std::string> variablePhysical;
+    if(!hasInlineAsm&&!fn.code.empty()){
+        std::unordered_set<std::string> addressTaken,initialized;
+        for(const auto& name:fn.params)initialized.insert(name);
+        for(const auto& in:fn.code){
+            if(in.op==NirOp::AddressOf)addressTaken.insert(in.text);
+            if(in.op==NirOp::Store)initialized.insert(in.text);
+        }
+        std::vector<int> depthDiff(fn.code.size()+1,0);
+        for(std::size_t pc=0;pc<fn.code.size();++pc){
+            const auto& in=fn.code[pc];
+            if(in.op==NirOp::Jump&&in.target<pc){
+                ++depthDiff[in.target];
+                --depthDiff[pc+1];
+            }
+        }
+        std::map<std::string,std::size_t> hot;
+        int depth=0;
+        for(std::size_t pc=0;pc<fn.code.size();++pc){
+            depth+=depthDiff[pc];
+            const auto& in=fn.code[pc];
+            if(depth>0&&(in.op==NirOp::Load||in.op==NirOp::Store)&&
+               !addressTaken.count(in.text)&&initialized.count(in.text))
+                hot[in.text]+=static_cast<std::size_t>(std::min(depth,4))*
+                    (in.op==NirOp::Load?2u:1u);
+        }
+        std::string best;
+        std::size_t score=0;
+        for(const auto& entry:hot)if(entry.second>score){
+            best=entry.first;score=entry.second;
+        }
+        if(score>=2){
+            variablePhysical.emplace(best,"rbx");
+            saved.emplace_back("rbx");
+        }
+    }
     if(!hasInlineAsm){
         const auto plan=LinearScanRegisterAllocator{}.allocate(fn,{"r12","r13","r14","r15"});
         for(const auto& loc:plan.locations)
@@ -309,7 +348,12 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         for(std::size_t n=saved.size();n-->0;)
             out<<"    mov "<<saved[n]<<", "<<savedSlot(n)<<"\n";
     };
-    for(std::size_t i=0;i<fn.params.size();++i)out<<"    mov "<<varSlot(fn,l,fn.params[i])<<", "<<args[i]<<"\n";
+    const auto variableOperand=[&](const std::string& name){
+        const auto it=variablePhysical.find(name);
+        return it!=variablePhysical.end()?it->second:varSlot(fn,l,name);
+    };
+    for(std::size_t i=0;i<fn.params.size();++i)
+        out<<"    mov "<<variableOperand(fn.params[i])<<", "<<args[i]<<"\n";
     const auto load=[&](Reg r,const char*cpu){
         auto it=physical.find(r);
         const std::string source=it==physical.end()?regSlot(r):it->second;
@@ -336,8 +380,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
-        case NirOp::Load:if(i.dest){out<<"    mov rax, "<<varSlot(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<varSlot(fn,l,i.text)<<", rax\n";}break;
+        case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
+        case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width,*i.dest<fn.registerTypes.size()&&
             signedNarrow(fn.registerTypes[*i.dest].kind));store(*i.dest,"rax");}break;
