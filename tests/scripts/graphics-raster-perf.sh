@@ -14,11 +14,9 @@ timeout 90s "$work/optimized"
 
 if [[ -n "$out" ]]; then
     mkdir -p "$out"
-    if ! git cat-file -e '95ecefdd96add7fea5fb5f6a2303f240eb5f1a3f:Lib/std/render2d.noqeri' 2>/dev/null; then
-        echo 'Missing pinned pre-optimization baseline source' >&2
-        exit 1
-    fi
-    git show '95ecefdd96add7fea5fb5f6a2303f240eb5f1a3f:Lib/std/render2d.noqeri' > "$work/baseline.noqeri"
+    # Immutable source snapshot allows verification in GitHub's shallow
+    # checkout, while historical SHA remains recorded in provenance.
+    cp tests/fixtures/render2d_baseline.txt "$work/baseline.noqeri"
     "$compiler" build "$work/baseline.noqeri" "$work/baseline.s" -O3
     g++ -std=c++17 -O3 -Wall -Wextra -Werror -pthread \
         "$work/baseline.s" tests/cpp/graphics_full_frame_differential.cpp \
@@ -36,6 +34,8 @@ if [[ -n "$out" ]]; then
         printf 'source_commit='
         git rev-parse HEAD
         printf 'baseline_source_commit=95ecefdd96add7fea5fb5f6a2303f240eb5f1a3f\n'
+        printf 'pinned_baseline_source_sha256='
+        sha256sum tests/fixtures/render2d_baseline.txt
         uname -a
         grep -m1 '^model name' /proc/cpuinfo || true
         printf 'compiler_sha256='
