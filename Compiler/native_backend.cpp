@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <unordered_map>
@@ -10,6 +11,44 @@ namespace noe {
 namespace {
 
 enum class ValueKind{Unknown,Int,Bool,String,Float,Null};
+bool isUnsigned(TypeKind kind){
+    return kind==TypeKind::U8||kind==TypeKind::U16||kind==TypeKind::U32||
+           kind==TypeKind::U64||kind==TypeKind::Usize;
+}
+// Emit a precise u64 quotient/remainder for a known divisor, using one
+// 64x64 -> 128-bit multiply plus at most one correction. No LLVM required.
+// The reciprocal floor(2^64/d) underestimates floor(n/d) by at most one.
+void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
+                                 bool remainder,const std::string& done){
+    if(divisor==1){
+        if(remainder)out<<"    xor eax, eax\n";
+        return;
+    }
+    if((divisor&(divisor-1))==0){
+        unsigned shift=0;
+        for(auto value=divisor;value>1;value>>=1)++shift;
+        if(remainder){
+            out<<"    mov r10, "<<(divisor-1)<<"\n    and rax, r10\n";
+        }else out<<"    shr rax, "<<shift<<"\n";
+        return;
+    }
+    const auto max=std::numeric_limits<std::uint64_t>::max();
+    const auto reciprocal=max/divisor+((max%divisor)==divisor-1?1u:0u);
+    out<<"    mov r11, rax\n"
+       <<"    mov r10, "<<reciprocal<<"\n"
+       <<"    mul r10\n"
+       <<"    mov rax, rdx\n"
+       <<"    mov r10, "<<divisor<<"\n"
+       <<"    imul rdx, r10\n"
+       <<"    sub r11, rdx\n"
+       <<"    cmp r11, r10\n"
+       <<"    jb "<<done<<"\n"
+       <<"    inc rax\n"
+       <<"    sub r11, r10\n"
+       <<done<<":\n";
+    if(remainder)out<<"    mov rax, r11\n";
+}
+
 ValueKind literalKind(const NirValue&v){if(std::holds_alternative<std::int64_t>(v))return ValueKind::Int;if(std::holds_alternative<bool>(v))return ValueKind::Bool;if(std::holds_alternative<std::string>(v))return ValueKind::String;if(std::holds_alternative<double>(v))return ValueKind::Float;return ValueKind::Null;}
 bool isComparison(const std::string&op){return op=="=="||op=="!="||op=="<"||op=="<="||op==">"||op==">="||op=="&&"||op=="||";}
 std::string safe(const std::string&name){std::string out;for(char c:name)out+=(std::isalnum(static_cast<unsigned char>(c))||c=='_')?c:'_';return out;}
@@ -191,6 +230,23 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     // Physically allocate NIR registers while reserving volatile rax/r10/r11
     // for instruction lowering. Disable allocation around unmodelled inline-asm
     // clobbers, until inline-asm constraints are implemented.
+    // Constant divisors are discovered at emission time. Casted positive
+    // integer literals remain constants even when optimization has not
+    // folded the Cast instruction itself.
+    std::unordered_map<Reg,std::int64_t> constantValues;
+    std::unordered_map<Reg,unsigned> definitions;
+    for(const auto& in:fn.code)if(in.dest)++definitions[*in.dest];
+    for(const auto& in:fn.code){
+        if(!in.dest||definitions[*in.dest]!=1)continue;
+        if(in.op==NirOp::Const){
+            if(auto v=std::get_if<std::int64_t>(&in.literal))constantValues[*in.dest]=*v;
+        }else if(in.op==NirOp::Cast&&in.args.size()==1&&
+                 (in.text=="usize"||in.text=="u64"||in.text=="int"||
+                  in.text=="i64"||in.text=="isize")){
+            const auto it=constantValues.find(in.args[0]);
+            if(it!=constantValues.end())constantValues[*in.dest]=it->second;
+        }
+    }
     std::unordered_map<Reg,std::string> physical;
     std::vector<std::string> saved;
     const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
@@ -287,7 +343,44 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n";restoreSaved();out<<"    leave\n    ret\n";}break;
         case NirOp::Cast:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitCast(out,i.text);store(*i.dest,"rax");}break;
         case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-")out<<"    neg rax\n";else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;
-        case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}load(i.args[0],"rax");load(i.args[1],"r10");if(i.text=="+")out<<"    add rax, r10\n";else if(i.text=="-")out<<"    sub rax, r10\n";else if(i.text=="*")out<<"    imul rax, r10\n";else if(i.text=="/"||i.text=="%"){out<<"    cqo\n    idiv r10\n";if(i.text=="%")out<<"    mov rax, rdx\n";}else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<"    setl al\n";else if(i.text=="<=")out<<"    setle al\n";else if(i.text==">")out<<"    setg al\n";else if(i.text==">=")out<<"    setge al\n";else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}store(*i.dest,"rax");break;}
+        case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}const auto operandKind=i.args[0]<fn.registerTypes.size()?
+            fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
+        const bool unsign=isUnsigned(operandKind)||
+            (i.args[1]<fn.registerTypes.size()&&
+             isUnsigned(fn.registerTypes[i.args[1]].kind));
+        load(i.args[0],"rax");
+        if(i.text=="/"||i.text=="%"){
+            const auto it=constantValues.find(i.args[1]);
+            const bool remainder=i.text=="%";
+            const bool allowed=it!=constantValues.end()&&it->second!=0&&
+                (unsign||it->second!=-1);
+            if(allowed){
+                const auto divisor=it->second;
+                const auto magnitude=unsign?static_cast<std::uint64_t>(divisor):
+                    (divisor<0?std::uint64_t{0}-static_cast<std::uint64_t>(divisor):
+                     static_cast<std::uint64_t>(divisor));
+                if(!unsign){
+                    out<<"    mov r8, rax\n    sar r8, 63\n"
+                       <<"    xor rax, r8\n    sub rax, r8\n";
+                }
+                emitUnsignedConstantDivision(out,magnitude,remainder,
+                    localLabel(fn,pc,"div_done"));
+                if(!unsign){
+                    if(divisor<0&&!remainder)out<<"    not r8\n";
+                    out<<"    xor rax, r8\n    sub rax, r8\n";
+                }
+            }else{
+                load(i.args[1],"r10");
+                if(unsign)out<<"    xor edx, edx\n    div r10\n";
+                else out<<"    cqo\n    idiv r10\n";
+                if(remainder)out<<"    mov rax, rdx\n";
+            }
+        }else{
+            load(i.args[1],"r10");
+            if(i.text=="+")out<<"    add rax, r10\n";
+            else if(i.text=="-")out<<"    sub rax, r10\n";
+            else if(i.text=="*")out<<"    imul rax, r10\n";
+            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}store(*i.dest,"rax");break;}
         case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float printing is not implemented yet");return false;}else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
