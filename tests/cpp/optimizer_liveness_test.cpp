@@ -557,6 +557,76 @@ int main() {
         if(!check(kept,"unknown memory write preserves guard check"))return 1;
     }
     {
+        // A small affine offset is safe under a strict upper guard:
+        // i < 7 implies 0 <= i+1 < 8 for unsigned usize.
+        noe::NirProgram p;
+        auto idx=withArgs(noe::NirOp::Load,{});idx.dest=1;idx.text="i";
+        auto cmp=withArgs(noe::NirOp::Binary,{1,2});
+        cmp.dest=3;cmp.text="<";cmp.type.kind=noe::TypeKind::Bool;
+        auto guard=withArgs(noe::NirOp::JumpIfFalse,{3});guard.target=9;
+        auto add=withArgs(noe::NirOp::Binary,{4,1}); // conservative operand order is rejected
+        add.args={1,4};add.dest=5;add.text="+";
+        add.type.kind=noe::TypeKind::Usize;
+        auto access=withArgs(noe::NirOp::CheckBounds,{5,6});
+        p.entry.code={idx,constant(2,7),cmp,guard,constant(4,1),
+                      add,constant(6,8),access,
+                      withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(7);
+        for(noe::Reg reg:{1u,5u})p.entry.registerTypes[reg].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool retained=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)retained=true;
+        if(!check(!retained,"guarded affine unsigned +1 bounds elimination"))return 1;
+    }
+    {
+        // A weaker guard i < 8 is insufficient to eliminate the check for
+        // i+1 against an array of length 8 (i=7 must still trap).
+        noe::NirProgram p;
+        auto idx=withArgs(noe::NirOp::Load,{});idx.dest=1;idx.text="i";
+        auto cmp=withArgs(noe::NirOp::Binary,{1,2});
+        cmp.dest=3;cmp.text="<";cmp.type.kind=noe::TypeKind::Bool;
+        auto guard=withArgs(noe::NirOp::JumpIfFalse,{3});guard.target=9;
+        auto add=withArgs(noe::NirOp::Binary,{1,4});
+        add.dest=5;add.text="+";add.type.kind=noe::TypeKind::Usize;
+        p.entry.code={idx,constant(2,8),cmp,guard,constant(4,1),
+                      add,constant(6,8),
+                      withArgs(noe::NirOp::CheckBounds,{5,6}),
+                      withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(7);
+        for(noe::Reg reg:{1u,5u})p.entry.registerTypes[reg].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)kept=true;
+        if(!check(kept,"off-by-one affine access retains trap"))return 1;
+    }
+    {
+        // Checked index is older than the upper guard. A Store between
+        // those loads invalidates the guard proof even without later writes.
+        noe::NirProgram p;
+        auto old=withArgs(noe::NirOp::Load,{});old.dest=1;old.text="i";
+        auto other=withArgs(noe::NirOp::Load,{});other.dest=3;other.text="external";
+        auto store=withArgs(noe::NirOp::Store,{3});store.text="i";
+        auto fresh=withArgs(noe::NirOp::Load,{});fresh.dest=4;fresh.text="i";
+        auto cmp=withArgs(noe::NirOp::Binary,{4,2});
+        cmp.dest=5;cmp.text="<";cmp.type.kind=noe::TypeKind::Bool;
+        auto guard=withArgs(noe::NirOp::JumpIfFalse,{5});guard.target=9;
+        p.entry.code={old,constant(2,8),other,store,fresh,cmp,guard,
+                      withArgs(noe::NirOp::CheckBounds,{1,2}),
+                      withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(6);
+        for(noe::Reg reg:{1u,3u,4u})p.entry.registerTypes[reg].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)kept=true;
+        if(!check(kept,"old checked index versus newer guard remains checked"))return 1;
+    }
+    {
         // Candidate reporting counts each lexical loop containing a literal.
         // A nested backedge may cover the same constant twice; outside values
         // must not be counted. These are diagnostics, not LICM proofs.

@@ -813,10 +813,35 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         auto& check=fn.code[pc];
         if(check.op!=NirOp::CheckBounds||check.args.size()!=2)continue;
-        auto indexName=loads.find(check.args[0]);
+        // Handle checked i + small_literal, with a proof that the guarded
+        // base index and the actual checked expression cannot wrap outside
+        // the fixed-array bound. No general symbolic arithmetic is assumed.
+        Reg baseIndex=check.args[0];
+        std::int64_t offset=0;
+        if(!loads.count(baseIndex)){
+            const auto def=g.definitions.find(baseIndex);
+            if(def==g.definitions.end())continue;
+            const auto& add=fn.code[def->second];
+            if(add.op!=NirOp::Binary||add.text!="+"||
+               add.args.size()!=2)continue;
+            const auto constant=constants.find(add.args[1]);
+            if(!loads.count(add.args[0])||constant==constants.end()||
+               constant->second<=0)continue;
+            if(operandType(fn,add.args[0])!=
+               operandType(fn,baseIndex))continue;
+            offset=constant->second;
+            baseIndex=add.args[0];
+        }
+        auto indexName=loads.find(baseIndex);
         auto limit=constants.find(check.args[1]);
-        if(indexName==loads.end()||limit==constants.end()||limit->second<=0)continue;
+        if(indexName==loads.end()||limit==constants.end()||
+           limit->second<=offset)continue;
         const auto checkedKind=operandType(fn,check.args[0]);
+        const auto baseDefinition=g.definitions.find(baseIndex);
+        if(baseDefinition==g.definitions.end()||
+           baseDefinition->second>=pc||
+           fn.code[baseDefinition->second].op!=NirOp::Load||
+           fn.code[baseDefinition->second].isVolatile)continue;
         const bool checkedUnsigned=unsignedType(checkedKind);
         if(!checkedUnsigned&&!signedIndexType(checkedKind))continue;
         // Do not reason about the contents of memory, slices, arbitrary
@@ -834,25 +859,33 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             const auto upper=constants.find(comparison.args[1]);
             if(name==loads.end()||name->second!=indexName->second||
                upper==constants.end()||upper->second<0)continue;
-            if(checkedUnsigned!=unsignedType(operandType(fn,comparison.args[0]))||
-               (!checkedUnsigned&&!signedIndexType(operandType(fn,comparison.args[0]))))
-                continue;
-            const bool proven=comparison.text=="<"?upper->second<=limit->second:
-                upper->second<limit->second;
+            if(operandType(fn,comparison.args[0])!=checkedKind)continue;
+            const auto remaining=limit->second-offset;
+            const bool proven=comparison.text=="<"?upper->second<=remaining:
+                upper->second<remaining;
+            if(!proven)continue;
+            // For signed narrow values, the expression can overflow to a
+            // negative number despite an upper-bound-only comparison.
+            std::int64_t maxValue=std::numeric_limits<std::int64_t>::max();
+            if(checkedKind==TypeKind::I8)maxValue=127;
+            else if(checkedKind==TypeKind::I16)maxValue=32767;
+            else if(checkedKind==TypeKind::I32)maxValue=2147483647;
+            if(!checkedUnsigned&&offset>0&&
+               upper->second>maxValue-offset)continue;
             if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]]||
                bypassesGuard(guardPc,pc))continue;
-            // The comparison can use a value loaded BEFORE the guard.
-            // If x changes between that original load and the indexed load,
-            // the guard no longer constrains the checked value. Starting at
-            // guardPc+1 was unsound for e.g. load x; store x=99; if old_x<10
-            // { array[x] }. Require the defining Load of the guard operand
-            // and scan every intervening instruction, including before guard.
+            // BOTH the index source and guard source must observe the same
+            // named-local state. A previously unhandled case was an older
+            // checked index loaded BEFORE a Store and then a newer guard
+            // load AFTER the Store. Scanning only from the guard Load was
+            // unsound, even though its own value remained unchanged.
             const auto source=g.definitions.find(comparison.args[0]);
             if(source==g.definitions.end()||source->second>=guardPc||
-               fn.code[source->second].op!=NirOp::Load)continue;
-            // The proof is valid only if the named index and all memory
-            // which may alias it stay unchanged after the guard's Load.
-            if(invalidated(indexName->second,source->second,pc))continue;
+               fn.code[source->second].op!=NirOp::Load||
+               fn.code[source->second].isVolatile)continue;
+            const auto earliest=std::min(source->second,
+                                         baseDefinition->second);
+            if(invalidated(indexName->second,earliest,pc))continue;
             if(!checkedUnsigned){
                 // Signed x < bound proves only the upper half of 0 <= x < bound.
                 // Require a second dominating true-edge guard x >= 0. Both
