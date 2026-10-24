@@ -1,6 +1,7 @@
 #include "noe.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -245,6 +246,15 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                   in.text=="i64"||in.text=="isize")){
             const auto it=constantValues.find(in.args[0]);
             if(it!=constantValues.end())constantValues[*in.dest]=it->second;
+        }else if(in.op==NirOp::Unary&&in.text=="-"&&in.args.size()==1){
+            const auto it=constantValues.find(in.args[0]);
+            if(it!=constantValues.end()){
+                const std::uint64_t bits=std::uint64_t{0}-
+                    static_cast<std::uint64_t>(it->second);
+                std::int64_t value=0;
+                std::memcpy(&value,&bits,sizeof(value));
+                constantValues[*in.dest]=value;
+            }
         }
     }
     std::unordered_map<Reg,std::string> physical;
