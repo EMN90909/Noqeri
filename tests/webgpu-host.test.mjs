@@ -2,12 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D, createNoqeriMeshRenderer3D, inspectNoqeriGpuCompatibility} from '../examples/shaders/webgpu_host.mjs'
 
-globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8, VERTEX: 16}
+globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8, VERTEX: 16, INDEX: 32}
 globalThis.GPUMapMode = {READ: 1}
 globalThis.GPUTextureUsage = {TEXTURE_BINDING: 1, COPY_DST: 2, RENDER_ATTACHMENT: 4}
 
 function gpuMock({compileError = false, limits = {}} = {}) {
-  const events={dispatches:[],buffers:[],textures:[],samplers:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0,renderPasses:[]}
+  const events={dispatches:[],buffers:[],textures:[],samplers:[],uploads:[],pipelines:[],draws:[],indexedDraws:[],indexFormats:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0,renderPasses:[]}
   const context={
     configure(){events.configured++},
     unconfigure(){events.unconfigured++},
@@ -53,7 +53,10 @@ function gpuMock({compileError = false, limits = {}} = {}) {
         },
         beginRenderPass(descriptor){
           events.renderPasses.push(descriptor)
-          return {setPipeline(){},setBindGroup(){},setVertexBuffer(){},draw(count){events.draws.push(count);events.dispatches.push('fragment')},end(){}}
+          return {setPipeline(){},setBindGroup(){},setVertexBuffer(){},
+            setIndexBuffer(buffer,format){events.indexFormats.push({buffer,format})},
+            drawIndexed(count){events.indexedDraws.push(count)},
+            draw(count){events.draws.push(count);events.dispatches.push('fragment')},end(){}}
         },
         copyBufferToBuffer(source,so,target,to,bytes){
           new Uint8Array(target.data,to,bytes).set(new Uint8Array(source.data,so,bytes))
@@ -472,4 +475,83 @@ test('invalid MSAA settings and large sample surfaces fail before GPU allocation
     {width:4096,height:4096,getContext(){return context}},
     vertexWgsl(),fragmentWgsl(),gpu,3,{sampleCount:4}),/1920x1080/)
   assert.equal(events.destroyed,0)
+})
+
+test('indexed WebGPU 3D draws shared vertices and reuses GPU index storage',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const canvas={width:64,height:64,getContext(){return context}}
+  const renderer=await createNoqeriMeshRenderer3D(canvas,vertexWgsl(),fragmentWgsl(),
+    gpu,6,{maxIndices:9})
+  const vertices=new Float32Array([
+    -0.7,-0.7,0.5,1, 0.7,-0.7,0.5,1, 0.7,0.7,0.5,1, -0.7,0.7,0.5,1
+  ])
+  const indices16=new Uint16Array([0,1,2, 0,2,3])
+  await renderer.renderIndexedFast(vertices,indices16)
+  await renderer.renderIndexedFast(vertices,new Uint32Array([0,1,2, 0,2,3]))
+  assert.deepEqual(events.indexedDraws,[6,6])
+  assert.deepEqual(events.indexFormats.map(x=>x.format),['uint16','uint32'])
+  assert.equal(events.buffers.length,2,'one reusable vertex and one reusable index buffer')
+  assert.equal(events.buffers[1].data.byteLength,36)
+  assert.deepEqual(Array.from(new Uint32Array(events.buffers[1].data,0,6)),[0,1,2,0,2,3])
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.waits,0)
+  await renderer.flush()
+  assert.equal(events.waits,1)
+  renderer.dispose()
+  assert.ok(events.buffers.every(b=>b.destroyed))
+  assert.equal(events.destroyed,1)
+})
+test('indexed WebGPU 3D rejects malformed indices without submitting or allocating index memory',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const renderer=await createNoqeriMeshRenderer3D(
+    {width:64,height:64,getContext(){return context}},
+    vertexWgsl(),fragmentWgsl(),gpu,6,{maxIndices:6})
+  const positions=new Float32Array([
+    -1,-1,0.5,1, 1,-1,0.5,1, 1,1,0.5,1, -1,1,0.5,1
+  ])
+  for(const indices of [
+    new Int16Array([0,1,2]),
+    new Uint16Array([]),
+    new Uint16Array([0,1]),
+    new Uint16Array([0,1,4]),
+    new Uint32Array([0,1,2,0,1,3,1,2,3])
+  ]) await assert.rejects(renderer.renderIndexed(positions,indices),
+    /index|Indexed/)
+  assert.equal(events.submitted,0)
+  assert.equal(events.buffers.length,1)
+  await renderer.renderIndexed(positions,new Uint16Array([0,1,2,0,2,3]))
+  assert.equal(events.submitted,1)
+  renderer.dispose()
+  const missing=gpuMock({limits:{maxBufferSize:64}})
+  const limited=await createNoqeriMeshRenderer3D(
+    {width:64,height:64,getContext(){return missing.context}},
+    vertexWgsl(),fragmentWgsl(),missing.gpu,3,{maxIndices:24})
+  await assert.rejects(limited.renderIndexed(positions.slice(0,12),
+    new Uint16Array([0,1,2])),/index capacity/)
+  assert.equal(missing.events.buffers.length,1)
+  limited.dispose()
+})
+test('indexed WebGPU renderer shares depth/MSAA, resize and device-loss cleanup',async()=>{
+  const {gpu,context,events,device}=gpuMock()
+  let loseDevice
+  device.lost=new Promise(resolve=>{loseDevice=resolve})
+  const canvas={width:64,height:64,getContext(){return context}}
+  const r=await createNoqeriMeshRenderer3D(canvas,vertexWgsl(),fragmentWgsl(),gpu,6,
+    {sampleCount:4,maxIndices:6})
+  const vertices=new Float32Array([0,0,0.2,1,0.5,0,0.2,1,0,0.5,0.2,1])
+  await r.renderIndexedFast(vertices,new Uint16Array([0,1,2]))
+  assert.equal(events.renderPasses[0].depthStencilAttachment.depthStoreOp,'discard')
+  assert.equal(events.renderPasses[0].colorAttachments[0].storeOp,'discard')
+  await r.flush()
+  canvas.width=96
+  r.resize(96,64)
+  await r.renderIndexed(vertices,new Uint16Array([0,1,2]))
+  assert.equal(events.buffers.length,2)
+  assert.equal(events.indexedDraws.length,2)
+  loseDevice({reason:'destroyed',message:'indexed GPU lost'})
+  await device.lost
+  await Promise.resolve()
+  assert.ok(events.buffers.every(b=>b.destroyed))
+  assert.ok(events.textures.every(t=>t.destroyed))
+  await assert.rejects(r.renderIndexed(vertices,new Uint16Array([0,1,2])),/indexed GPU lost/)
 })

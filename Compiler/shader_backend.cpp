@@ -275,6 +275,25 @@ private:
             if((method=="normalize"||method=="length") && args.size()==1 &&
                 vectorWidth(args[0].kind))
                 return Value{method+"("+joined+")",method=="length"?Scalar::F32:args[0].kind};
+            // GPU-native floating vector intrinsics. Keep exact vector
+            // widths and result types; do not emit unchecked arbitrary calls.
+            if(method=="cross" && args.size()==2 &&
+                args[0].kind==Scalar::Vec3 && args[1].kind==Scalar::Vec3)
+                return Value{"cross("+joined+")",Scalar::Vec3};
+            if(method=="reflect" && args.size()==2 &&
+                args[0].kind==args[1].kind && vectorWidth(args[0].kind))
+                return Value{"reflect("+joined+")",args[0].kind};
+            if((method=="min"||method=="max") && args.size()==2 &&
+                args[0].kind==args[1].kind &&
+                (args[0].kind==Scalar::F32||vectorWidth(args[0].kind)))
+                return Value{method+"("+joined+")",args[0].kind};
+            if(method=="abs" && args.size()==1 &&
+                (args[0].kind==Scalar::F32||vectorWidth(args[0].kind)))
+                return Value{"abs("+joined+")",args[0].kind};
+            if(method=="mix" && args.size()==3 &&
+                args[0].kind==args[1].kind && args[0].kind==args[2].kind &&
+                (args[0].kind==Scalar::F32||vectorWidth(args[0].kind)))
+                return Value{"mix("+joined+")",args[0].kind};
             if(method=="clamp"&&args.size()==3&&args[0].kind==args[1].kind&&
                 args[1].kind==args[2].kind&&
                 (args[0].kind==Scalar::F32||vectorWidth(args[0].kind)))
@@ -309,7 +328,7 @@ private:
             if(unary->op==TokenKind::Plus&&operand->kind!=Scalar::Bool)return operand;
             if(unary->op==TokenKind::Minus&&
                (operand->kind==Scalar::F32||vectorWidth(operand->kind)))
-                return Value{"(-"+operand->code+")",Scalar::F32};
+                return Value{"(-"+operand->code+")",operand->kind};
             shaderError(d_,unary->span,"unary shader operator incompatible with scalar type");
             return std::nullopt;
         }
@@ -473,10 +492,10 @@ bool ShaderBackend::emitWgsl(const Program& program,
         wgsl<<"@fragment\n"
             <<"fn main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {\n"
             <<"  let p = noqeri_shade(u32(position.x), u32(position.y));\n"
-            <<"  let r = f32((p >> 16u) & 255u) / 255.0;\n"
-            <<"  let g = f32((p >> 8u) & 255u) / 255.0;\n"
-            <<"  let b = f32(p & 255u) / 255.0;\n"
-            <<"  return vec4<f32>(r, g, b, 1.0);\n"
+            // Pack conversion as a single vector operation so drivers can
+            // issue vector multiplication instead of three scalar divisions.
+            <<"  let rgb = vec3<f32>(f32((p >> 16u) & 255u), f32((p >> 8u) & 255u), f32(p & 255u));\n"
+            <<"  return vec4<f32>(rgb * (1.0 / 255.0), 1.0);\n"
             <<"}\n";
     }else{
         wgsl<<"@fragment\n"

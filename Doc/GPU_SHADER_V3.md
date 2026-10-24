@@ -128,3 +128,23 @@ source is still compiled by the Stage-0 shader emitter.
 Refer to [Render3D qualification](RENDER3D_QUALIFICATION.md) for the
 native Noqeri CPU triangle raster pipeline, depth semantics, WebGPU
 host resource contracts, testing and device-qualification limitations.
+
+
+## Shader math and code-generation improvements (October 2026)
+
+The C++ Stage-0 emitter supports typechecked GPU-native floating-point
+`cross(vec3,vec3)`, `reflect(vecN,vecN)`, `abs(float|vecN)`,
+`min`/`max` (matching floats or vectors), and `mix` (three matching
+float/vector types). Unsupported widths and mixed scalar/vector arguments
+remain compile errors. Unary vector negation now preserves the vector's
+type instead of incorrectly reporting `float`.
+
+Packed RGB u32 fragments now emit one `vec3<f32>` conversion and vector
+normalization rather than three independent scalar channel divisions.
+GPU instruction scheduling remains driver-dependent; this is leaner
+generated WGSL, **not a measured GPU performance claim**.
+
+`examples/shaders/vector_lighting_fragment.noqeri` exercises typed 3D
+vector lighting and is compiled and validated through the same Naga CI
+gate as the other shader fixtures. Shader Stage-2 self-hosting and
+physical GPU qualification are still not proven.

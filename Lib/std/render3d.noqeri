@@ -148,28 +148,49 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
         let w0: i64 = e0
         let w1: i64 = e1
         let w2: i64 = e2
-        let numerator: i64 = rowNumerator
         let x: i64 = minX
         let index: usize = row + (minX as usize)
-        while x <= maxX {
-            if w0 >= 0 as i64 && w1 >= 0 as i64 && w2 >= 0 as i64 {
-                let z: u32 = z0 as u32
-                if !flatDepth { z = (numerator / area) as u32 }
-                let oldDepth: u32 = 0 as u32
-                unsafe { oldDepth = depthMemory[index] }
-                if z < oldDepth {
-                    unsafe {
-                        depthMemory[index] = z
-                        pixelMemory[index] = color
+        // Hoist the flat-depth test out of the pixel loop. Flat triangles
+        // need no barycentric depth numerator or division per pixel.
+        if flatDepth {
+            while x <= maxX {
+                if w0 >= 0 as i64 && w1 >= 0 as i64 && w2 >= 0 as i64 {
+                    let previous: u32 = 0 as u32
+                    unsafe { previous = depthMemory[index] }
+                    if (z0 as u32) < previous {
+                        unsafe {
+                            depthMemory[index] = z0 as u32
+                            pixelMemory[index] = color
+                        }
                     }
                 }
+                w0 = w0 + dx0
+                w1 = w1 + dx1
+                w2 = w2 + dx2
+                x = x + 1 as i64
+                index = index + 1 as usize
             }
-            w0 = w0 + dx0
-            w1 = w1 + dx1
-            w2 = w2 + dx2
-            numerator = numerator + depthX
-            x = x + 1 as i64
-            index = index + 1 as usize
+        } else {
+            let numerator: i64 = rowNumerator
+            while x <= maxX {
+                if w0 >= 0 as i64 && w1 >= 0 as i64 && w2 >= 0 as i64 {
+                    let z: u32 = (numerator / area) as u32
+                    let previous: u32 = 0 as u32
+                    unsafe { previous = depthMemory[index] }
+                    if z < previous {
+                        unsafe {
+                            depthMemory[index] = z
+                            pixelMemory[index] = color
+                        }
+                    }
+                }
+                w0 = w0 + dx0
+                w1 = w1 + dx1
+                w2 = w2 + dx2
+                numerator = numerator + depthX
+                x = x + 1 as i64
+                index = index + 1 as usize
+            }
         }
         e0 = e0 + dy0
         e1 = e1 + dy1

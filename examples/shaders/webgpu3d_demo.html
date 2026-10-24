@@ -37,14 +37,15 @@ document.querySelector('#run').addEventListener('click',async()=>{
       renderer=await createNoqeriMeshRenderer3D(canvas,shaders[0],shaders[1],undefined,6,
         {sampleCount:msaa.checked?4:1})
     }
-    // Six independent vec4 vertices: a farther triangle followed by
-    // a nearer triangle; both share color, but hardware depth tests both.
+    // Four shared clip-space vertices form two indexed triangles.
+    // Indexed rendering avoids uploading the two repeated corner vertices.
     const verts=new Float32Array([
-      -0.85,-0.85,0.8,1, 0.85,-0.85,0.8,1, 0,0.85,0.8,1,
-      -0.45,-0.45,0.2,1, 0.45,-0.45,0.2,1, 0,0.45,0.2,1
+      -0.7,-0.7,0.3,1, 0.7,-0.7,0.3,1,
+       0.7, 0.7,0.3,1, -0.7,0.7,0.3,1
     ])
-    await renderer.renderFast(verts)
-    status.textContent='Depth-tested frame submitted with '+(msaa.checked?'4× MSAA':'lightweight 1×')+'. Pipeline, device and buffers remain reusable.'
+    const indices=new Uint16Array([0,1,2,0,2,3])
+    await renderer.renderIndexedFast(verts,indices)
+    status.textContent='Indexed depth-tested frame submitted with '+(msaa.checked?'4× MSAA':'lightweight 1×')+'. Four shared vertices, six indices; pipeline and GPU buffers are reused.'
   }catch(err){cleanup();status.textContent=String(err.stack||err)}
   finally{button.disabled=false}
 })
