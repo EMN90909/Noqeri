@@ -6,6 +6,9 @@ on:
       - 'Include/noqeri/**'
       - 'tests/cpp/phi_edge_codegen_test.cpp'
       - 'tests/cpp/phi_edge_host.c'
+      - 'tests/cpp/loop_simd_codegen_test.cpp'
+      - 'tests/cpp/loop_simd_host.c'
+      - 'scripts/bench-loop-simd.mjs'
       - 'tests/native_unsigned_arithmetic.noqeri'
       - 'tests/native_narrow_arithmetic.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
@@ -76,6 +79,18 @@ jobs:
           cc -c build-typed/phi-edges.s -o build-typed/phi-edges.o
           cc -std=c11 tests/cpp/phi_edge_host.c build-typed/phi-edges.o -o build-typed/phi-edges-exec
           build-typed/phi-edges-exec
+      - name: Qualify contiguous stack loop SIMD and speedup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-typed --target noqeri-loop-simd-emitter --parallel 2
+          build-typed/noqeri-loop-simd-emitter build-typed/loop-scalar.s
+          NOQERI_EXPERIMENTAL_LOOP_SIMD=1 build-typed/noqeri-loop-simd-emitter build-typed/loop-vector.s
+          cc -c build-typed/loop-scalar.s -o build-typed/loop-scalar.o
+          cc -c build-typed/loop-vector.s -o build-typed/loop-vector.o
+          cc -std=c11 tests/cpp/loop_simd_host.c build-typed/loop-scalar.o -o build-typed/loop-simd-scalar
+          cc -std=c11 tests/cpp/loop_simd_host.c build-typed/loop-vector.o -o build-typed/loop-simd-vector
+          node scripts/bench-loop-simd.mjs
       - name: Assemble and execute opt-in SSE2 packed arithmetic
         shell: bash
         run: |
