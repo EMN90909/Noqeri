@@ -11,6 +11,8 @@ on:
       - 'CMakeLists.txt'
       - 'Lib/std/render2d.noqeri'
       - 'Lib/std/render3d.noqeri'
+      - 'Lib/std/os_framebuffer.noqeri'
+      - 'tests/cpp/os_framebuffer_differential.cpp'
       - 'Lib/std/gpu_firmware.noqeri'
       - 'tests/scripts/gpu-firmware-sim-e2e.sh'
       - 'tests/cpp/gpu_firmware_sim_test.cpp'
@@ -60,6 +62,8 @@ on:
       - 'CMakeLists.txt'
       - 'Lib/std/render2d.noqeri'
       - 'Lib/std/render3d.noqeri'
+      - 'Lib/std/os_framebuffer.noqeri'
+      - 'tests/cpp/os_framebuffer_differential.cpp'
       - 'Lib/std/gpu_firmware.noqeri'
       - 'tests/scripts/gpu-firmware-sim-e2e.sh'
       - 'tests/cpp/gpu_firmware_sim_test.cpp'
@@ -127,8 +131,10 @@ jobs:
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/fragment3d.noqeri /tmp/noqeri-fragment3d.wgsl --stage=fragment
           cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-vertex3d.wgsl /tmp/noqeri-fragment3d.wgsl /tmp/noqeri-vector-fragment.wgsl /tmp/noqeri-texture-fragment.wgsl /tmp/noqeri-vector-compute.wgsl /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
+        env:
+          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
         run: |
-          NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
+          NOQERI_REQUIRE_SDL2=1 timeout 150s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
       - name: Verify GPU firmware development MMIO simulator and package tool
         run: |
           timeout 90s bash tests/scripts/gpu-firmware-sim-e2e.sh /tmp/noqeri-graphics-build/noqeri
