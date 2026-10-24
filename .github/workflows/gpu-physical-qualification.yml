@@ -1,0 +1,75 @@
+name: Physical GPU shader qualification (operator-gated)
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_vendor:
+        description: 'Expected physical GPU vendor reported by the browser (Intel, NVIDIA or AMD)'
+        required: true
+        type: choice
+        options: [Intel, NVIDIA, AMD]
+
+permissions:
+  contents: read
+
+jobs:
+  hardware:
+    # IMPORTANT: This job must never execute on GitHub-hosted runners or on
+    # SwiftShader/llvmpipe. Only a privately provisioned, verified physical
+    # GPU device with an actual desktop Chrome/Chromium installation.
+    runs-on: [self-hosted, physical-gpu]
+    timeout-minutes: 30
+    env:
+      NOQERI_GPU_VENDOR: ${{ inputs.expected_vendor }}
+      NOQERI_GPU_REPORT_DIR: build/gpu-hardware-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify physical GPU runner and browser prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/dri/renderD128 || { echo 'Missing Linux physical GPU render node' >&2; exit 1; }
+          command -v cmake
+          command -v node
+          command -v python3
+          command -v npm
+          test -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" || { echo 'A physical desktop/display is required' >&2; exit 1; }
+          if command -v lspci >/dev/null; then lspci -nn | grep -Ei 'VGA|3D|Display'; fi
+      - name: Build Noqeri GPU compiler
+        shell: bash
+        run: |
+          cmake -S . -B build/gpu-candidate -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build/gpu-candidate --target noqeri -j 2
+      - name: Produce Noqeri-authored WGSL to dispatch on real adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          build/gpu-candidate/noqeri shader examples/shaders/invert_compute.noqeri build/gpu-invert.wgsl --stage=compute
+          build/gpu-candidate/noqeri shader examples/shaders/float_compute.noqeri build/gpu-float.wgsl --stage=compute
+          build/gpu-candidate/noqeri shader examples/shaders/vector_mix_compute.noqeri build/gpu-vector.wgsl --stage=compute
+          build/gpu-candidate/noqeri shader examples/shaders/texture_fragment.noqeri build/gpu-texture.wgsl --stage=fragment
+      - name: Install Playwright runner harness without GPU-emulation flags
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.1
+          node --check tests/gpu/run-qualification.mjs
+          node --check tests/gpu/hardware_qualification.mjs
+      - name: Execute actual WebGPU shader tests and record driver evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --bind 127.0.0.1 > build/gpu-server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          node tests/gpu/run-qualification.mjs
+      - name: Retain hardware evidence and screenshot even when tests fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-physical-gpu-evidence-${{ github.run_id }}
+          retention-days: 60
+          if-no-files-found: warn
+          path: |
+            build/gpu-hardware-evidence/
+            build/gpu-server.log
