@@ -9,6 +9,9 @@ extern "C" std::uint64_t nqGpuFwWrite32(volatile std::uint32_t*,std::size_t,std:
 extern "C" std::uint64_t nqGpuFwPollEqual32(volatile std::uint32_t*,std::size_t,std::size_t,std::uint32_t,std::size_t);
 extern "C" std::uint64_t nqGpuFwSimStep(volatile std::uint32_t*,std::size_t);
 
+extern "C" std::uint64_t nqGpuFwSimSubmit(volatile std::uint32_t*,std::size_t,std::uint32_t,std::uint32_t);
+extern "C" std::uint64_t nqGpuFwSimReset(volatile std::uint32_t*,std::size_t);
+
 int main() {
   std::array<std::uint32_t,9> page{};
   page.fill(0xdeadbeefu);
@@ -41,6 +44,24 @@ int main() {
   page[1]=0u;
   page[2]=2u;
   assert(nqGpuFwSimStep(mapped,4)==1 && page[1]==1 && page[3]==0xfffffff2u);
+  page[1]=1u;
+  const auto busy=page;
+  assert(nqGpuFwSimSubmit(mapped,4,1u,40u)==0 && page==busy);
+  assert(nqGpuFwSimSubmit(mapped,4,3u,40u)==0 && page==busy);
+  assert(nqGpuFwSimSubmit(mapped,3,1u,40u)==0 && page==busy);
+  assert(nqGpuFwSimSubmit(nullptr,4,1u,40u)==0);
+  assert(nqGpuFwSimReset(mapped,3)==0 && page==busy);
+  assert(nqGpuFwSimReset(mapped,4)==1);
+  assert(page[0]==0x4e514657u && page[1]==0u && page[2]==0u);
+  assert(nqGpuFwSimSubmit(mapped,4,1u,40u)==1);
+  assert(page[3]==40u && page[2]==1u && page[1]==0u);
+  assert(nqGpuFwSimStep(mapped,4)==1 && page[3]==41u && page[1]==1u);
+  assert(nqGpuFwSimReset(mapped,4)==1);
+  page[0]=0x12345678u;
+  const auto wrongMagic=page;
+  assert(nqGpuFwSimSubmit(mapped,4,2u,10u)==0 && page==wrongMagic);
+  assert(nqGpuFwSimReset(mapped,4)==0 && page==wrongMagic);
+  page[0]=0x4e514657u;
   for(std::size_t i=4;i<page.size();++i)assert(page[i]==0xdeadbeefu);
   std::puts("Noqeri GPU firmware simulation: PASS bounded MMIO, poll, mailbox, sentinels");
 }
