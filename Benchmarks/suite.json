@@ -3,31 +3,225 @@
   "policy": {
     "warmups": 3,
     "samples": 15,
-    "report": ["median_ms", "p95_ms", "rss_kib", "binary_bytes"],
-    "evidence_states": ["unmeasured", "measured-local", "measured-release", "regression-gated"],
+    "report": [
+      "median_ms",
+      "p95_ms",
+      "rss_kib",
+      "binary_bytes"
+    ],
+    "evidence_states": [
+      "unmeasured",
+      "measured-local",
+      "measured-release",
+      "regression-gated"
+    ],
     "claim_rule": "No comparative performance claim without a checked-in result bundle containing source revisions, compiler versions, flags, hardware/OS metadata, safety/overflow mode and raw samples."
   },
-  "languages": ["noqeri", "c", "cpp", "rust", "zig", "go"],
+  "languages": [
+    "noqeri",
+    "c",
+    "cpp",
+    "rust",
+    "zig",
+    "go"
+  ],
   "workloads": [
-    {"id":"binary-trees","group":"cpu-allocation","threshold_percent":8},
-    {"id":"json","group":"parser","threshold_percent":8},
-    {"id":"regex","group":"text","threshold_percent":8},
-    {"id":"http-server","group":"network","threshold_percent":10},
-    {"id":"filesystem","group":"io","threshold_percent":10},
-    {"id":"database","group":"storage","threshold_percent":10},
-    {"id":"matrix","group":"numeric","threshold_percent":8},
-    {"id":"allocation","group":"runtime","threshold_percent":8},
-    {"id":"strings","group":"text","threshold_percent":8},
-    {"id":"sorting","group":"collections","threshold_percent":8},
-    {"id":"startup","group":"runtime","threshold_percent":5},
-    {"id":"compilation","group":"compiler","threshold_percent":5},
-    {"id":"bitset","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
-    {"id":"bloom","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
-    {"id":"deque","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
-    {"id":"heap","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
-    {"id":"priority-queue","group":"foundational-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/structures.noqeri"},
-    {"id":"ring","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.noqeri"},
-    {"id":"pool","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.noqeri"},
-    {"id":"cache-lru","group":"storage-structures","threshold_percent":8,"evidence":"unmeasured","fixture":"Benchmarks/storage_structures.noqeri"}
+    {
+      "id": "binary-trees",
+      "group": "cpu-allocation",
+      "threshold_percent": 8
+    },
+    {
+      "id": "json",
+      "group": "parser",
+      "threshold_percent": 8
+    },
+    {
+      "id": "regex",
+      "group": "text",
+      "threshold_percent": 8
+    },
+    {
+      "id": "http-server",
+      "group": "network",
+      "threshold_percent": 10
+    },
+    {
+      "id": "filesystem",
+      "group": "io",
+      "threshold_percent": 10
+    },
+    {
+      "id": "database",
+      "group": "storage",
+      "threshold_percent": 10
+    },
+    {
+      "id": "matrix",
+      "group": "numeric",
+      "threshold_percent": 8
+    },
+    {
+      "id": "allocation",
+      "group": "runtime",
+      "threshold_percent": 8
+    },
+    {
+      "id": "strings",
+      "group": "text",
+      "threshold_percent": 8
+    },
+    {
+      "id": "sorting",
+      "group": "collections",
+      "threshold_percent": 8
+    },
+    {
+      "id": "startup",
+      "group": "runtime",
+      "threshold_percent": 5
+    },
+    {
+      "id": "compilation",
+      "group": "compiler",
+      "threshold_percent": 5
+    },
+    {
+      "id": "bitset",
+      "group": "foundational-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/structures.noqeri"
+    },
+    {
+      "id": "bloom",
+      "group": "foundational-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/structures.noqeri"
+    },
+    {
+      "id": "deque",
+      "group": "foundational-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/structures.noqeri"
+    },
+    {
+      "id": "heap",
+      "group": "foundational-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/structures.noqeri"
+    },
+    {
+      "id": "priority-queue",
+      "group": "foundational-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/structures.noqeri"
+    },
+    {
+      "id": "ring",
+      "group": "storage-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/storage_structures.noqeri"
+    },
+    {
+      "id": "pool",
+      "group": "storage-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/storage_structures.noqeri"
+    },
+    {
+      "id": "cache-lru",
+      "group": "storage-structures",
+      "threshold_percent": 8,
+      "evidence": "unmeasured",
+      "fixture": "Benchmarks/storage_structures.noqeri"
+    },
+    {
+      "id": "graphics-gradient-64",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "64x64"
+    },
+    {
+      "id": "graphics-gradient-256",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "256x256"
+    },
+    {
+      "id": "graphics-gradient-512",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "512x512"
+    },
+    {
+      "id": "graphics-checker-64",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "64x64"
+    },
+    {
+      "id": "graphics-checker-256",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "256x256"
+    },
+    {
+      "id": "graphics-checker-512",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "512x512"
+    },
+    {
+      "id": "graphics-clear-64",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "64x64"
+    },
+    {
+      "id": "graphics-clear-256",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "256x256"
+    },
+    {
+      "id": "graphics-clear-512",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "unmeasured",
+      "fixture": "Lib/std/render2d.noqeri",
+      "qualification": "tests/scripts/graphics-raster-perf.sh",
+      "resolution": "512x512"
+    }
   ]
 }
