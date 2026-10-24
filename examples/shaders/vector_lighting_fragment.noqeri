@@ -1,0 +1,15 @@
+module examples.shaders.vector_lighting_fragment
+
+// Bounded screen-space lighting demo for the WGSL subset.
+// Exercises vec3 reflection/cross products, scalar interpolation and typed
+// vector negation; calculations remain GPU-authored in Noqeri source.
+export function shade(x: float, y: float): vec4 {
+    const facing: vec3 = normalize(vec3(0.0, 0.0, 1.0))
+    const ray: vec3 = -normalize(vec3(x / 640.0, y / 360.0, 1.0))
+    const tangent: vec3 = cross(facing, ray)
+    const reflected: vec3 = reflect(ray, facing)
+    const light: float = clamp(dot(reflected, vec3(0.0, 0.0, -1.0)), 0.0, 1.0)
+    const strength: float = mix(0.15, 1.0, light)
+    const rgb: vec3 = max(vec3(0.0), min(vec3(1.0), abs(tangent) + vec3(strength)))
+    return vec4(rgb.x, rgb.y, rgb.z, 1.0)
+}
