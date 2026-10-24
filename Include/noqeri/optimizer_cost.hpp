@@ -74,6 +74,19 @@ struct NirScalarSsa {
     std::vector<NirScalarPhi> phis;
 };
 NirScalarSsa analyzeScalarSsa(const NirFunction& fn);
+// An explicit block-Phi input from predecessor block to join block.
+// Each Phi destination is a typed virtual register not otherwise defined
+// by NIR. lowerPhiNodes places copies on the exact incoming CFG edges.
+// This pass is a general Phi DESTRUCTION primitive; SSA construction and
+// arbitrary memory Phi formation are separate responsibilities.
+struct NirPhiNode {
+    BlockId block=0;
+    Reg dest=0;
+    Type type{};
+    std::vector<std::pair<BlockId,Reg>> incoming;
+};
+// Returns false without mutating fn for invalid/conflicting Phi input.
+bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis);
 // Alias-partitioned version graph for a proven nonescaping StackAlloc root.
 // Retains every unknown barrier, but an independent NoAlias StoreMemory
 // cannot invalidate the root's data. Invalid/escaping roots fail closed.

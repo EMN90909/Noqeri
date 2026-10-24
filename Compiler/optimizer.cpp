@@ -1095,49 +1095,37 @@ bool lowerStraightDiamondPhi(NirFunction& fn){
         }
         if(!admissible||incoming.size()!=2||
            incoming[0].value==incoming[1].value)continue;
-        // Both predecessor blocks write this local immediately before their
-        // outgoing edge. The join's first Load can be replaced by Phi value,
-        // with one edge copy per incoming branch.
-        Reg next=std::max(fn.nextReg,
-            static_cast<Reg>(fn.registerTypes.size()));
-        for(const auto& in:fn.code)if(in.dest)
+        // Convert the existing proved scalar-join pattern to explicit
+        // Phi form, then use the shared edge-splitting/destruction pass.
+        // Keep fn unchanged if validation rejects the transformation.
+        NirFunction candidate=fn;
+        Reg next=std::max(candidate.nextReg,
+            static_cast<Reg>(candidate.registerTypes.size()));
+        for(const auto& in:candidate.code)if(in.dest){
+            if(*in.dest==std::numeric_limits<Reg>::max())return false;
             next=std::max(next,static_cast<Reg>(*in.dest+1));
-        const Reg phi=next;
-        const Reg original=*load.dest;
-        const Type t=fn.registerTypes[original];
-        for(auto& in:fn.code)
-            for(auto& arg:in.args)if(arg==original)arg=phi;
-        fn.code[at].op=NirOp::Nop;
-        fn.code[at].dest.reset();
-        fn.code[at].args.clear();
-        fn.registerTypes.resize(static_cast<std::size_t>(phi)+1);
-        fn.registerTypes[phi]=t;
-        fn.nextReg=phi+1;
-        std::sort(incoming.begin(),incoming.end(),
-            [](const Incoming&a,const Incoming&b){return a.position<b.position;});
-        const std::size_t oldSize=fn.code.size();
-        std::vector<NirInstruction> output;
-        output.reserve(oldSize+incoming.size());
-        std::vector<std::size_t> remap(oldSize+1,0);
-        std::size_t nextCopy=0;
-        for(std::size_t pc=0;pc<=oldSize;++pc){
-            while(nextCopy<incoming.size()&&incoming[nextCopy].position==pc){
-                NirInstruction copy;
-                copy.op=NirOp::Cast;
-                copy.dest=phi;
-                copy.args={incoming[nextCopy].value};
-                copy.type=t;
-                copy.text=cast;
-                output.push_back(std::move(copy));
-                ++nextCopy;
-            }
-            remap[pc]=output.size();
-            if(pc<oldSize)output.push_back(std::move(fn.code[pc]));
         }
-        for(auto& in:output)
-            if(in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)
-                in.target=remap[std::min(in.target,oldSize)];
-        fn.code=std::move(output);
+        if(next==std::numeric_limits<Reg>::max()||
+           *load.dest>=candidate.registerTypes.size())return false;
+        const Reg original=*load.dest;
+        const Type type=candidate.registerTypes[original];
+        for(auto& in:candidate.code)
+            for(auto& arg:in.args)if(arg==original)arg=next;
+        candidate.code[at].op=NirOp::Nop;
+        candidate.code[at].dest.reset();
+        candidate.code[at].args.clear();
+        candidate.registerTypes.resize(static_cast<std::size_t>(next)+1);
+        candidate.registerTypes[next]=type;
+        candidate.nextReg=next+1;
+        NirPhiNode phi;
+        phi.block=static_cast<BlockId>(block);
+        phi.dest=next;
+        phi.type=type;
+        for(std::size_t k=0;k<incoming.size();++k)
+            phi.incoming.emplace_back(
+                static_cast<BlockId>(g.preds[block][k]),incoming[k].value);
+        if(!lowerPhiNodes(candidate,{phi}))continue;
+        fn=std::move(candidate);
         return true;
     }
     return false;
@@ -1442,6 +1430,177 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
     }
 }
+}
+// General edge-based destruction of EXPLICIT typed scalar Phi nodes.
+//
+// Critical edges are split into their own blocks. Taken conditional edges
+// jump directly to a new block; fall-through edges are redirected through a
+// newly inserted Jump immediately after their predecessor's terminator.
+// Every edge first saves ALL incoming sources into fresh typed temporaries,
+// and only then writes Phi destinations, resolving parallel-copy cycles.
+// The same algorithm supports join diamonds and loop-carried values without
+// guessing their predecessors from instruction order.
+bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
+    if(phis.empty())return true;
+    if(fn.code.empty()||fn.code.size()>100000)return false;
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    const std::size_t n=fn.code.size();
+    const auto ending=fn.code.back().op;
+    if(ending!=NirOp::Return&&ending!=NirOp::Throw&&ending!=NirOp::Jump)
+        return false; // never fall through into appended edge stubs
+    for(const auto& in:fn.code)
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+           in.target>=n)return false;
+    const auto castName=[](TypeKind kind)->const char*{
+        switch(kind){
+            case TypeKind::Int:return "int";
+            case TypeKind::I8:return "i8";
+            case TypeKind::I16:return "i16";
+            case TypeKind::I32:return "i32";
+            case TypeKind::I64:return "i64";
+            case TypeKind::U8:return "u8";
+            case TypeKind::U16:return "u16";
+            case TypeKind::U32:return "u32";
+            case TypeKind::U64:return "u64";
+            case TypeKind::Usize:return "usize";
+            case TypeKind::Isize:return "isize";
+            case TypeKind::Bool:return "bool";
+            default:return nullptr;
+        }
+    };
+    struct Copy {Reg dest,source;Type type;std::string cast;};
+    struct Edge {
+        std::size_t pred=0,succ=0,tail=0;
+        bool fallthrough=false;
+        std::vector<Copy> copies;
+        std::size_t stub=0;
+    };
+    using Key=std::pair<std::size_t,std::size_t>;
+    std::map<Key,Edge> edges;
+    std::unordered_set<Reg> destinations;
+    const std::size_t blocks=g.spans.size();
+    for(const auto& phi:phis){
+        if(phi.block==0||phi.block>=blocks||
+           !g.reachable[phi.block]||!castName(phi.type.kind)||
+           phi.dest>=fn.registerTypes.size()||
+           fn.registerTypes[phi.dest].kind!=phi.type.kind||
+           g.definitions.count(phi.dest)||
+           !destinations.insert(phi.dest).second)return false;
+        const auto& preds=g.preds[phi.block];
+        if(preds.empty()||phi.incoming.size()!=preds.size())return false;
+        std::unordered_set<std::size_t> seen;
+        for(const auto& [predecessor,value]:phi.incoming){
+            if(predecessor>=blocks||!g.reachable[predecessor]||
+               std::find(preds.begin(),preds.end(),predecessor)==preds.end()||
+               !seen.insert(predecessor).second||
+               value>=fn.registerTypes.size()||
+               fn.registerTypes[value].kind!=phi.type.kind)return false;
+            const Key key{predecessor,phi.block};
+            auto& edge=edges[key];
+            if(edge.copies.empty()){
+                edge.pred=predecessor;
+                edge.succ=phi.block;
+                edge.tail=g.spans[predecessor].second-1;
+                const auto& terminator=fn.code[edge.tail];
+                const auto start=g.spans[phi.block].first;
+                const auto after=g.spans[predecessor].second;
+                const bool taken=(terminator.op==NirOp::Jump||
+                                  terminator.op==NirOp::JumpIfFalse)&&
+                                 terminator.target==start;
+                const bool fall=(terminator.op==NirOp::JumpIfFalse||
+                                 (terminator.op!=NirOp::Return&&
+                                  terminator.op!=NirOp::Throw&&
+                                  terminator.op!=NirOp::Jump))&&
+                                after==start;
+                if(taken==fall)return false; // missing or ambiguous edge
+                edge.fallthrough=fall;
+            }
+            edge.copies.push_back({phi.dest,value,phi.type,
+                                   castName(phi.type.kind)});
+        }
+    }
+    // Each join's incoming edge receives all Phis for that join. In
+    // particular partial copies from different Phi groups are forbidden.
+    std::unordered_map<std::size_t,std::size_t> perBlock;
+    for(const auto& phi:phis)++perBlock[phi.block];
+    for(const auto& [key,edge]:edges)
+        if(edge.copies.size()!=perBlock.at(edge.succ))return false;
+    NirFunction result=fn;
+    Reg next=std::max(fn.nextReg,
+        static_cast<Reg>(fn.registerTypes.size()));
+    for(const auto& in:fn.code)if(in.dest){
+        if(*in.dest==std::numeric_limits<Reg>::max())return false;
+        next=std::max(next,static_cast<Reg>(*in.dest+1));
+    }
+    std::unordered_map<std::size_t,Key> fallthroughEdges;
+    for(const auto& [key,edge]:edges)if(edge.fallthrough){
+        if(!fallthroughEdges.emplace(edge.tail,key).second)return false;
+    }
+    std::vector<NirInstruction> rebuilt;
+    rebuilt.reserve(n+edges.size()*8);
+    std::vector<std::size_t> remap(n+1,0);
+    std::unordered_map<std::size_t,std::size_t> insertedJump;
+    for(std::size_t pc=0;pc<n;++pc){
+        remap[pc]=rebuilt.size();
+        rebuilt.push_back(fn.code[pc]);
+        if(fallthroughEdges.count(pc)){
+            insertedJump.emplace(pc,rebuilt.size());
+            NirInstruction jump;jump.op=NirOp::Jump;
+            rebuilt.push_back(std::move(jump));
+        }
+    }
+    remap[n]=rebuilt.size();
+    for(auto& [key,edge]:edges){
+        edge.stub=rebuilt.size();
+        // Read every source before overwriting any destination. This
+        // resolves swaps, 3-cycles and other parallel assignments safely.
+        std::vector<Reg> staged;
+        for(const auto& copy:edge.copies){
+            if(next==std::numeric_limits<Reg>::max())return false;
+            const Reg temporary=next++;
+            result.registerTypes.resize(static_cast<std::size_t>(next));
+            result.registerTypes[temporary]=copy.type;
+            NirInstruction save;
+            save.op=NirOp::Cast;save.dest=temporary;
+            save.args={copy.source};save.type=copy.type;
+            save.text=copy.cast;
+            rebuilt.push_back(std::move(save));
+            staged.push_back(temporary);
+        }
+        for(std::size_t i=0;i<edge.copies.size();++i){
+            NirInstruction assign;
+            assign.op=NirOp::Cast;
+            assign.dest=edge.copies[i].dest;
+            assign.args={staged[i]};
+            assign.type=edge.copies[i].type;
+            assign.text=edge.copies[i].cast;
+            rebuilt.push_back(std::move(assign));
+        }
+        NirInstruction branch;
+        branch.op=NirOp::Jump;
+        branch.target=remap[g.spans[edge.succ].first];
+        rebuilt.push_back(std::move(branch));
+    }
+    // Convert old targets to new PCs, except when a taken edge must
+    // enter its dedicated copy block instead of the old successor.
+    for(std::size_t pc=0;pc<n;++pc){
+        auto& in=rebuilt[remap[pc]];
+        if(in.op!=NirOp::Jump&&in.op!=NirOp::JumpIfFalse)continue;
+        const auto original=in.target;
+        const auto key=Key{g.owner[pc],g.owner[original]};
+        const auto it=edges.find(key);
+        if(it!=edges.end()&&!it->second.fallthrough)
+            in.target=it->second.stub;
+        else in.target=remap[original];
+    }
+    for(const auto& [tail,key]:fallthroughEdges){
+        rebuilt[insertedJump.at(tail)].target=edges.at(key).stub;
+    }
+    result.nextReg=next;
+    result.code=std::move(rebuilt);
+    fn=std::move(result);
+    return true;
 }
 NirScalarSsa analyzeScalarSsa(const NirFunction& fn){
     NirScalarSsa result;
