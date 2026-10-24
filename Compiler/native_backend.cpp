@@ -592,7 +592,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                     clobber=true;break;
                 }
             }
-            if(clobber||!loopSimdStarts.empty())continue;
+            if(clobber||(!loopSimdBroadcastAt.empty()&&
+               !loopSimdBroadcastAt.count(rhs->second)))continue;
             loopSimdStarts.insert(pc);
             loopSimdStackRoot[pc]=root->second;
             loopSimdBroadcastAt.insert(rhs->second);
