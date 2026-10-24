@@ -7,7 +7,7 @@ globalThis.GPUMapMode = {READ: 1}
 globalThis.GPUTextureUsage = {TEXTURE_BINDING: 1, COPY_DST: 2, RENDER_ATTACHMENT: 4}
 
 function gpuMock({compileError = false, limits = {}} = {}) {
-  const events={dispatches:[],buffers:[],textures:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0}
+  const events={dispatches:[],buffers:[],textures:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0,renderPasses:[]}
   const context={
     configure(){events.configured++},
     unconfigure(){events.unconfigured++},
@@ -51,7 +51,8 @@ function gpuMock({compileError = false, limits = {}} = {}) {
         beginComputePass(){
           return {setPipeline(){},setBindGroup(){},dispatchWorkgroups(n){events.dispatches.push(n)},end(){}}
         },
-        beginRenderPass(){
+        beginRenderPass(descriptor){
+          events.renderPasses.push(descriptor)
           return {setPipeline(){},setBindGroup(){},setVertexBuffer(){},draw(count){events.draws.push(count);events.dispatches.push('fragment')},end(){}}
         },
         copyBufferToBuffer(source,so,target,to,bytes){
@@ -406,4 +407,46 @@ test('queued renderer fence gates overlapping submissions and disposes after GPU
   await bad.renderFast(meshPixels())
   await assert.rejects(bad.flush(),/GPU queue completion failed/)
   assert.equal(broken.events.destroyed,1)
+})
+
+test('optional 4x MSAA sharpens triangle edges with depth/color resolve and strict memory budget',async()=>{
+  const {gpu,events,context}=gpuMock()
+  const canvas={width:640,height:480,getContext(){return context}}
+  const renderer=await createNoqeriMeshRenderer3D(
+    canvas,vertexWgsl(),fragmentWgsl(),gpu,6,{sampleCount:4})
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.pipelines[0].multisample.count,4)
+  assert.equal(events.textures.length,2)
+  assert.equal(events.textures[0].format,'depth24plus')
+  assert.equal(events.textures[0].sampleCount,4)
+  assert.equal(events.textures[1].format,'bgra8unorm')
+  assert.equal(events.textures[1].sampleCount,4)
+  await renderer.renderFast(meshPixels())
+  assert.equal(events.renderPasses.length,1)
+  assert.ok(events.renderPasses[0].colorAttachments[0].resolveTarget)
+  assert.ok(events.renderPasses[0].colorAttachments[0].view)
+  assert.equal(events.renderPasses[0].depthStencilAttachment.depthClearValue,1)
+  await renderer.flush()
+  canvas.width=800
+  renderer.resize(800,480)
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.textures.length,4)
+  assert.ok(events.textures[0].destroyed && events.textures[1].destroyed)
+  await renderer.render(meshPixels())
+  assert.equal(events.submitted,2)
+  renderer.dispose()
+  assert.ok(events.textures.every(t=>t.destroyed))
+  assert.equal(events.destroyed,1)
+})
+test('invalid MSAA settings and large sample surfaces fail before GPU allocation',async()=>{
+  const {gpu,events,context}=gpuMock()
+  const canvas={width:256,height:256,getContext(){return context}}
+  for(const settings of [{sampleCount:2},{sampleCount:8},null]){
+    await assert.rejects(createNoqeriMeshRenderer3D(
+      canvas,vertexWgsl(),fragmentWgsl(),gpu,3,settings),/multisample|options/)
+  }
+  await assert.rejects(createNoqeriMeshRenderer3D(
+    {width:4096,height:4096,getContext(){return context}},
+    vertexWgsl(),fragmentWgsl(),gpu,3,{sampleCount:4}),/1920x1080/)
+  assert.equal(events.destroyed,0)
 })
