@@ -27,6 +27,51 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // Canonical loop: the entry edge defines the Phi once; each
+        // backedge updates it and MUST skip entry re-initialization.
+        noe::NirProgram p;
+        auto init=withArgs(noe::NirOp::Store,{1});init.text="i";
+        auto header=withArgs(noe::NirOp::Load,{});header.dest=2;header.text="i";
+        auto cmp=withArgs(noe::NirOp::Binary,{2,3});
+        cmp.dest=4;cmp.text="<";cmp.type.kind=noe::TypeKind::Bool;
+        auto guard=withArgs(noe::NirOp::JumpIfFalse,{4});guard.target=11;
+        auto current=withArgs(noe::NirOp::Load,{});current.dest=5;current.text="i";
+        auto add=withArgs(noe::NirOp::Binary,{5,6});
+        add.dest=7;add.text="+";add.type.kind=noe::TypeKind::Usize;
+        auto store=withArgs(noe::NirOp::Store,{7});store.text="i";
+        auto back=withArgs(noe::NirOp::Jump,{});back.target=2;
+        p.entry.code={constant(1,0),init,header,constant(3,7),
+                      cmp,guard,current,constant(6,1),add,store,back,
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(8);
+        for(noe::Reg r:{1u,2u,3u,5u,6u,7u})
+            p.entry.registerTypes[r].kind=noe::TypeKind::Usize;
+        p.entry.registerTypes[4].kind=noe::TypeKind::Bool;
+        p.entry.nextReg=8;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        std::size_t copies=0;
+        noe::Reg phi=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Cast&&in.dest&&*in.dest>=8){
+                phi=*in.dest;++copies;
+            }
+        std::size_t backedges=0;
+        bool skipsEntry=false;
+        for(std::size_t pc=0;pc<p.entry.code.size();++pc){
+            const auto& in=p.entry.code[pc];
+            if(in.op==noe::NirOp::Jump&&in.target<pc){
+                ++backedges;
+                skipsEntry=in.target>0&&
+                    p.entry.code[in.target-1].op==noe::NirOp::Cast&&
+                    p.entry.code[in.target-1].dest&&
+                    *p.entry.code[in.target-1].dest==phi;
+            }
+        }
+        if(!check(copies==2&&phi>=8&&backedges==1&&skipsEntry,
+                  "loop-carried Phi backedge skips entry initialization"))
+            return 1;
+    }
+    {
         // Distinct nonescaping stack roots cannot alias. A StoreMemory to
         // root B should NOT invalidate two loads from root A.
         noe::NirProgram p;
