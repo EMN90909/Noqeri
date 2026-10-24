@@ -27,6 +27,80 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // Two guarded true edges jointly prove a signed index in [0,8).
+        // Unlike an unsigned upper guard alone, signed indices need a
+        // separate lower-bound guarantee before CheckBounds may disappear.
+        noe::NirProgram p;
+        auto lowerIndex=withArgs(noe::NirOp::Load,{});lowerIndex.dest=1;lowerIndex.text="index";
+        auto lower=withArgs(noe::NirOp::Binary,{1,2});
+        lower.dest=3;lower.text=">=";lower.type.kind=noe::TypeKind::Bool;
+        auto lowerExit=withArgs(noe::NirOp::JumpIfFalse,{3});lowerExit.target=12;
+        auto upperIndex=withArgs(noe::NirOp::Load,{});upperIndex.dest=4;upperIndex.text="index";
+        auto upper=withArgs(noe::NirOp::Binary,{4,5});
+        upper.dest=6;upper.text="<";upper.type.kind=noe::TypeKind::Bool;
+        auto upperExit=withArgs(noe::NirOp::JumpIfFalse,{6});upperExit.target=12;
+        auto index=withArgs(noe::NirOp::Load,{});index.dest=7;index.text="index";
+        auto bounds=withArgs(noe::NirOp::CheckBounds,{7,5});
+        p.entry.code={lowerIndex,constant(2,0),lower,lowerExit,upperIndex,
+                      constant(5,8),upper,upperExit,index,bounds,
+                      constant(8,42),withArgs(noe::NirOp::Return,{8}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(9);
+        for(noe::Reg r:{1u,4u,7u})p.entry.registerTypes[r].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool remaining=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)remaining=true;
+        if(!check(!remaining,"signed index with two proven bounds"))return 1;
+    }
+    {
+        // An upper guard does NOT rule out negative indices. Keep the trap.
+        noe::NirProgram p;
+        auto index=withArgs(noe::NirOp::Load,{});index.dest=1;index.text="index";
+        auto comparison=withArgs(noe::NirOp::Binary,{1,2});
+        comparison.dest=3;comparison.text="<";comparison.type.kind=noe::TypeKind::Bool;
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=7;
+        auto checked=withArgs(noe::NirOp::Load,{});checked.dest=4;checked.text="index";
+        p.entry.code={index,constant(2,8),comparison,branch,checked,
+                      withArgs(noe::NirOp::CheckBounds,{4,2}),
+                      withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(5);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[4].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)kept=true;
+        if(!check(kept,"negative signed index must still trap"))return 1;
+    }
+    {
+        // Reassigning the index after signed guards invalidates both facts.
+        noe::NirProgram p;
+        auto lowerIndex=withArgs(noe::NirOp::Load,{});lowerIndex.dest=1;lowerIndex.text="index";
+        auto lower=withArgs(noe::NirOp::Binary,{1,2});
+        lower.dest=3;lower.text=">=";lower.type.kind=noe::TypeKind::Bool;
+        auto lowerExit=withArgs(noe::NirOp::JumpIfFalse,{3});lowerExit.target=13;
+        auto upperIndex=withArgs(noe::NirOp::Load,{});upperIndex.dest=4;upperIndex.text="index";
+        auto upper=withArgs(noe::NirOp::Binary,{4,5});
+        upper.dest=6;upper.text="<";upper.type.kind=noe::TypeKind::Bool;
+        auto upperExit=withArgs(noe::NirOp::JumpIfFalse,{6});upperExit.target=13;
+        auto assignment=withArgs(noe::NirOp::Store,{8});assignment.text="index";
+        auto current=withArgs(noe::NirOp::Load,{});current.dest=7;current.text="index";
+        p.entry.code={lowerIndex,constant(2,0),lower,lowerExit,upperIndex,
+                      constant(5,8),upper,upperExit,constant(8,-1),assignment,
+                      current,withArgs(noe::NirOp::CheckBounds,{7,5}),
+                      withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(9);
+        for(noe::Reg r:{1u,4u,7u})p.entry.registerTypes[r].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)kept=true;
+        if(!check(kept,"mutated signed guard must still trap"))return 1;
+    }
+    {
         // Signed INT64_MIN / -1 and % -1 must retain a native division trap.
         // Constant folding these into wraparound results breaks O0/O3 parity.
         for(const auto* op:{"/","%"}) {
