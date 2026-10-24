@@ -1,0 +1,9 @@
+module examples.shaders.vector_fragment
+
+export function shade(x: float, y: float): Vec4 {
+    const origin: Vec2 = vec2(x / 640.0, y / 360.0)
+    const color: Vec3 = vec3(origin.x, origin.y, 0.5)
+    const bias: Vec3 = vec3(0.1, 0.1, 0.1)
+    const mixed: Vec3 = normalize(color + bias)
+    return vec4(mixed.x, mixed.y, mixed.z, 1.0)
+}
