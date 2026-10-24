@@ -489,6 +489,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     // integer wrap, memory visibility, traps, and conditional semantics.
     std::unordered_set<std::size_t> loopSimdStarts;
     std::unordered_set<std::size_t> loopSimdSkipped;
+    std::unordered_map<std::size_t,std::size_t> loopSimdStackRoot;
+    std::unordered_set<std::size_t> loopSimdBroadcastAt;
     const char* loopEnv=std::getenv("NOQERI_EXPERIMENTAL_LOOP_SIMD");
     const bool loopSimd=loopEnv&&std::string(loopEnv)=="1"&&
         !experimentalSimd;
@@ -571,7 +573,30 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                    edge.target<end){inLoop=true;break;}
             }
             if(!inLoop)continue;
+            // Hoist the broadcast into a unique constant definition
+            // preceding the whole loop. No opaque calls or SIMD clobbers
+            // may occur between setup and the loop backedge.
+            const auto rhs=onlyDefinitions.find(addA.args[1]);
+            if(rhs==onlyDefinitions.end()||
+               rhs->second>=pc||
+               rhs->second>=pc)continue;
+            const auto& rhsValue=fn.code[rhs->second];
+            if(rhsValue.op!=NirOp::Const||
+               !std::holds_alternative<std::int64_t>(rhsValue.literal))
+                continue;
+            bool clobber=false;
+            for(std::size_t at=rhs->second+1;at<fn.code.size();++at){
+                const auto& operation=fn.code[at];
+                if(operation.op==NirOp::Call||
+                   operation.op==NirOp::Intrinsic||
+                   operation.op==NirOp::InlineAsm){
+                    clobber=true;break;
+                }
+            }
+            if(clobber||!loopSimdStarts.empty())continue;
             loopSimdStarts.insert(pc);
+            loopSimdStackRoot[pc]=root->second;
+            loopSimdBroadcastAt.insert(rhs->second);
             for(std::size_t skip=pc+1;skip<=pc+5;++skip)
                 loopSimdSkipped.insert(skip);
             pc+=5;
@@ -583,13 +608,10 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             // Two contiguous private-stack elements, with an identical
             // scalar increment. One packed load/update/store replaces
             // two loads, two adds and two stores per loop iteration.
-            load(i.args[0],"rax");
-            out<<"    movdqu xmm0, XMMWORD PTR [rax]\n";
-            load(fn.code[pc+2].args[1],"r10");
-            out<<"    movq xmm1, r10\n"
-               <<"    punpcklqdq xmm1, xmm1\n"
+            const auto storage=fixedStorage[loopSimdStackRoot.at(pc)];
+            out<<"    movdqu xmm0, XMMWORD PTR [rbp-"<<storage<<"]\n"
                <<"    paddq xmm0, xmm1\n"
-               <<"    movdqu XMMWORD PTR [rax], xmm0\n";
+               <<"    movdqu XMMWORD PTR [rbp-"<<storage<<"], xmm0\n";
             continue;
         }
         if(fusedBranches.count(pc)||packedStarts.count(pc))continue;
@@ -620,7 +642,11 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         }
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
-        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
+        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");
+            if(loopSimdBroadcastAt.count(pc))
+                out<<"    movq xmm1, rax\n"
+                   <<"    punpcklqdq xmm1, xmm1\n";
+            break;}
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
