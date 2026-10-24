@@ -22,6 +22,8 @@ on:
       - 'tests/cpp/graphics_headless_test.cpp'
       - 'tests/scripts/graphics-native-e2e.sh'
       - 'tests/scripts/render3d-native-e2e.sh'
+      - 'tests/scripts/render3d-performance-summary.mjs'
+      - 'Doc/RENDER3D_QUALIFICATION.md'
       - 'tests/cpp/render3d_differential.cpp'
       - 'tests/scripts/graphics-raster-perf.sh'
       - 'tests/scripts/graphics-performance-summary.mjs'
@@ -102,8 +104,10 @@ jobs:
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
-      - name: Verify 3D triangle depth and bounded projection using native compiler
-        run: timeout 120s bash tests/scripts/render3d-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
+      - name: Verify and benchmark 3D triangle depth and bounded projection
+        env:
+          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
+        run: timeout 150s bash tests/scripts/render3d-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
       - name: Validate every pixel and record native CPU raster A/B timings
         env:
           GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
