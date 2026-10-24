@@ -234,7 +234,7 @@ private:
                 return std::nullopt;
             }
             const auto component=member->member;
-            const auto offset=component=="x"?0:component=="y"?1:component=="z"?2:component=="w"?3:999;
+            const unsigned offset=component=="x"?0u:component=="y"?1u:component=="z"?2u:component=="w"?3u:999u;
             if(offset>=vectorArity(object->kind)){
                 shaderError(d_,member->span,"vector component is outside the vector width");
                 return std::nullopt;
