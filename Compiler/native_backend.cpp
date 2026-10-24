@@ -566,20 +566,19 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                 }
             }
             if(!privateStack)continue;
-            bool inLoop=false;
+            std::size_t loopHeader=fn.code.size();
             for(std::size_t end=pc+6;end<fn.code.size();++end){
                 const auto& edge=fn.code[end];
                 if(edge.op==NirOp::Jump&&edge.target<pc&&
-                   edge.target<end){inLoop=true;break;}
+                   edge.target<end){loopHeader=edge.target;break;}
             }
-            if(!inLoop)continue;
+            if(loopHeader==fn.code.size())continue;
             // Hoist the broadcast into a unique constant definition
             // preceding the whole loop. No opaque calls or SIMD clobbers
             // may occur between setup and the loop backedge.
             const auto rhs=onlyDefinitions.find(addA.args[1]);
             if(rhs==onlyDefinitions.end()||
-               rhs->second>=pc||
-               rhs->second>=pc)continue;
+               rhs->second>=loopHeader)continue;
             const auto& rhsValue=fn.code[rhs->second];
             if(rhsValue.op!=NirOp::Const||
                !std::holds_alternative<std::int64_t>(rhsValue.literal))
