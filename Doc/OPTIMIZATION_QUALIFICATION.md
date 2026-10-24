@@ -4,7 +4,7 @@
 
 | Requested pass | Current implementation | What is NOT implemented or qualified |
 | --- | --- | --- |
-| SSA optimization | Single-definition virtual-register inspection and CFG-dominance verification gate cross-block optimization | SSA construction with Phi nodes, mutable variables, memory SSA and Phi lowering |
+| SSA optimization | Unique-definition and dominance proofs plus CFG fixed-point scalar Load forwarding when all reachable predecessor blocks agree on the same typed register; divergent and loop-carried values stay in memory | General SSA construction and renaming, Phi nodes and destruction, mutable-variable global promotion, memory SSA |
 | GVN | Basic-block integer `+`, `-`, `*`, `%` value numbering; duplicate NIR operations coalesced when result has no users in other blocks | Global value numbering across branches, loads, volatile memory, pointer calculations, floating NaNs |
 | SCCP | Sparse constant discovery on dominance-proven SSA temporaries, Boolean conditional folding, CFG reachability, dead-code pruning | Phi-lattice propagation and fully edge-sensitive sparse dataflow |
 | LICM | O3 hoists literals and proven preheader-dominating Int/I64 `+`, `-`, `*` from single-entry structured loops; a capped repetition handles several invariants | General LICM with side effects, trapping division, invariant memory loads, alias-aware hoisting, loop unswitching and full SSA/Phi |
@@ -125,3 +125,18 @@ not be presented as self-hosted Stage-2 performance.
 induction/range proofs beyond guarded scalar cases, generalized
 unrolling/vectorization, full typed integer-width semantics and
 native Stage-2/Stage-3 self-hosted compiler parity. Issue #48 remains open.
+
+## CFG scalar promotion qualification (October 24, 2026)
+
+PR #66 adds conservative fixed-point scalar facts at control-flow joins.
+A local Load is forwarded only when all incoming reachable paths agree on
+one dominating register with an identical supported integer/Boolean type.
+An address-taken or volatile variable, side-effect barrier, loop-carried
+mutation or divergent predecessor retains the memory Load. This is not a
+replacement for explicit Phi instruction lowering or memory SSA.
+
+The same-runner native benchmark with three million iterations through a
+branch diamond produced median runtime **5.389196 ms** (previous main) versus
+**5.117053 ms** (candidate), approximately **1.053x** for this one workload.
+The benchmark and Linux/Windows bootstrap qualification passed on PR #66.
+Those timings do not establish a cross-workload or cross-target speedup.
