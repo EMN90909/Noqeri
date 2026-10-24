@@ -1,0 +1,25 @@
+module noqeri.std.render2d_accel
+
+// Optional fast native C++ CPU backend. Link with noqeri_graphics_fastpath.
+// Noqeri validates slice bounds before passing a borrowed pointer. Use only
+// ordinary nonvolatile writable memory. For mapped volatile framebuffers,
+// use os_framebuffer.noqeri instead.
+extern function nq_graphics_clear_argb32(pixels: *u32, count: usize, color: u32): int
+extern function nq_graphics_clear_rows_argb32(pixels: *u32, capacity: usize, width: usize, height: usize, pitch: usize, color: u32): int
+
+export function nqRenderClearAccelerated(pixels: []u32, color: u32): bool {
+    let count: usize = len(pixels)
+    if count == 0 as usize { return true }
+    if count > 16777216 as usize { return false }
+    return nq_graphics_clear_argb32(&pixels[0], count, color) == 0
+}
+
+// A pitched buffer's full physical capacity must fit the supplied slice.
+// Padding is preserved. The C++ backend repeats the bounds validation.
+export function nqRenderClearRowsAccelerated(pixels: []u32, width: usize, height: usize, pitch: usize, color: u32): bool {
+    if width == 0 as usize || height == 0 as usize { return false }
+    if width > 4096 as usize || height > 4096 as usize { return false }
+    if pitch < width || pitch > 65536 as usize { return false }
+    if height > len(pixels) / pitch { return false }
+    return nq_graphics_clear_rows_argb32(&pixels[0], len(pixels), width, height, pitch, color) == 0
+}
