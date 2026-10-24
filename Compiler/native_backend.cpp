@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -346,7 +347,14 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                        (a.second==b.second&&a.first<b.first);
             });
         const std::vector<std::string> pool{"rbx","r12","r13"};
-        for(std::size_t n=0;n<pool.size()&&n<ranked.size();++n){
+        // Single-RBX mode is an identical-compiler A/B control for
+        // measuring whether the additional two cached locals help.
+        std::size_t maxHot=pool.size();
+        if(const char* setting=std::getenv("NOQERI_HOT_LOCAL_SLOTS")){
+            if(std::string(setting)=="0")maxHot=0;
+            else if(std::string(setting)=="1")maxHot=1;
+        }
+        for(std::size_t n=0;n<maxHot&&n<ranked.size();++n){
             if(ranked[n].second<(n==0?2u:6u))break;
             variablePhysical.emplace(ranked[n].first,pool[n]);
             saved.push_back(pool[n]);
