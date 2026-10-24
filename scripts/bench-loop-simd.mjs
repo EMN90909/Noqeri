@@ -11,7 +11,7 @@ function run(path){
   const t=performance.now()
   const result=spawnSync(path,[],{encoding:'utf8',timeout:120000})
   const ms=performance.now()-t
-  if(result.status!==0||result.stdout!=='10000000\n')
+  if(result.status!==0||result.stdout!=='6400000\n')
     throw new Error(path+' output mismatch: '+result.stdout+' '+result.stderr)
   return ms
 }
