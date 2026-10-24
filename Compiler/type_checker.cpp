@@ -212,7 +212,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
         Type container=checkExpr(e->object);Type idx=checkExpr(e->index);if(!idx.isInteger()&&idx.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3025",e->index->span,"index must be an integer");
         if(container.kind==TypeKind::Pointer&&container.pointee){e->elementSize=std::max<std::size_t>(1,container.pointee->size());e->volatileAccess=container.isVolatile;return*container.pointee;}
-        if(container.kind==TypeKind::Array&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());return*container.element;}
+        if(container.kind==TypeKind::Array&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());e->hasFixedBound=true;e->fixedBound=container.count;return*container.element;}
         if(container.kind==TypeKind::Slice&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());e->baseIsSlice=true;return*container.element;}
         diagnostics_.error("NOE-T3026",e->span,"indexing requires a pointer, array or slice");return simple(TypeKind::Unknown);
     }

@@ -1,15 +1,56 @@
 #include "noe.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace noe {
 namespace {
 
 enum class ValueKind{Unknown,Int,Bool,String,Float,Null};
+bool isUnsigned(TypeKind kind){
+    return kind==TypeKind::U8||kind==TypeKind::U16||kind==TypeKind::U32||
+           kind==TypeKind::U64||kind==TypeKind::Usize;
+}
+// Emit a precise u64 quotient/remainder for a known divisor, using one
+// 64x64 -> 128-bit multiply plus at most one correction. No LLVM required.
+// The reciprocal floor(2^64/d) underestimates floor(n/d) by at most one.
+void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
+                                 bool remainder,const std::string& done){
+    if(divisor==1){
+        if(remainder)out<<"    xor eax, eax\n";
+        return;
+    }
+    if((divisor&(divisor-1))==0){
+        unsigned shift=0;
+        for(auto value=divisor;value>1;value>>=1)++shift;
+        if(remainder){
+            out<<"    mov r10, "<<(divisor-1)<<"\n    and rax, r10\n";
+        }else out<<"    shr rax, "<<shift<<"\n";
+        return;
+    }
+    const auto max=std::numeric_limits<std::uint64_t>::max();
+    const auto reciprocal=max/divisor+((max%divisor)==divisor-1?1u:0u);
+    out<<"    mov r11, rax\n"
+       <<"    mov r10, "<<reciprocal<<"\n"
+       <<"    mul r10\n"
+       <<"    mov rax, rdx\n"
+       <<"    mov r10, "<<divisor<<"\n"
+       <<"    imul rdx, r10\n"
+       <<"    sub r11, rdx\n"
+       <<"    cmp r11, r10\n"
+       <<"    jb "<<done<<"\n"
+       <<"    inc rax\n"
+       <<"    sub r11, r10\n"
+       <<done<<":\n";
+    if(remainder)out<<"    mov rax, r11\n";
+}
+
 ValueKind literalKind(const NirValue&v){if(std::holds_alternative<std::int64_t>(v))return ValueKind::Int;if(std::holds_alternative<bool>(v))return ValueKind::Bool;if(std::holds_alternative<std::string>(v))return ValueKind::String;if(std::holds_alternative<double>(v))return ValueKind::Float;return ValueKind::Null;}
 bool isComparison(const std::string&op){return op=="=="||op=="!="||op=="<"||op=="<="||op==">"||op==">="||op=="&&"||op=="||";}
 std::string safe(const std::string&name){std::string out;for(char c:name)out+=(std::isalnum(static_cast<unsigned char>(c))||c=='_')?c:'_';return out;}
@@ -177,7 +218,18 @@ noqeri_rt_platform:
     lea rax, [rip + .L_noqeri_standalone]
     ret
 )ASM";}
-void emitLoadWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    movzx eax, BYTE PTR [rax]\n";else if(width==2)out<<"    movzx eax, WORD PTR [rax]\n";else if(width==4)out<<"    mov eax, DWORD PTR [rax]\n";else out<<"    mov rax, QWORD PTR [rax]\n";}
+bool signedNarrow(TypeKind kind){
+    return kind==TypeKind::I8||kind==TypeKind::I16||kind==TypeKind::I32;
+}
+void emitLoadWidth(std::ostream&out,std::size_t width,bool signExtend=false){
+    if(width==1)out<<(signExtend?"    movsx rax, BYTE PTR [rax]\n":
+                                      "    movzx eax, BYTE PTR [rax]\n");
+    else if(width==2)out<<(signExtend?"    movsx rax, WORD PTR [rax]\n":
+                                           "    movzx eax, WORD PTR [rax]\n");
+    else if(width==4)out<<(signExtend?"    movsxd rax, DWORD PTR [rax]\n":
+                                           "    mov eax, DWORD PTR [rax]\n");
+    else out<<"    mov rax, QWORD PTR [rax]\n";
+}
 void emitStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    mov BYTE PTR [rax], r10b\n";else if(width==2)out<<"    mov WORD PTR [rax], r10w\n";else if(width==4)out<<"    mov DWORD PTR [rax], r10d\n";else out<<"    mov QWORD PTR [rax], r10\n";}
 void emitExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n    movzx eax, r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n    movzx eax, r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n    mov eax, r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n    mov rax, r10\n";}
 void emitAtomicStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n";}
@@ -191,6 +243,32 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     // Physically allocate NIR registers while reserving volatile rax/r10/r11
     // for instruction lowering. Disable allocation around unmodelled inline-asm
     // clobbers, until inline-asm constraints are implemented.
+    // Constant divisors are discovered at emission time. Casted positive
+    // integer literals remain constants even when optimization has not
+    // folded the Cast instruction itself.
+    std::unordered_map<Reg,std::int64_t> constantValues;
+    std::unordered_map<Reg,unsigned> definitions;
+    for(const auto& in:fn.code)if(in.dest)++definitions[*in.dest];
+    for(const auto& in:fn.code){
+        if(!in.dest||definitions[*in.dest]!=1)continue;
+        if(in.op==NirOp::Const){
+            if(auto v=std::get_if<std::int64_t>(&in.literal))constantValues[*in.dest]=*v;
+        }else if(in.op==NirOp::Cast&&in.args.size()==1&&
+                 (in.text=="usize"||in.text=="u64"||in.text=="int"||
+                  in.text=="i64"||in.text=="isize")){
+            const auto it=constantValues.find(in.args[0]);
+            if(it!=constantValues.end())constantValues[*in.dest]=it->second;
+        }else if(in.op==NirOp::Unary&&in.text=="-"&&in.args.size()==1){
+            const auto it=constantValues.find(in.args[0]);
+            if(it!=constantValues.end()){
+                const std::uint64_t bits=std::uint64_t{0}-
+                    static_cast<std::uint64_t>(it->second);
+                std::int64_t value=0;
+                std::memcpy(&value,&bits,sizeof(value));
+                constantValues[*in.dest]=value;
+            }
+        }
+    }
     std::unordered_map<Reg,std::string> physical;
     std::vector<std::string> saved;
     const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
@@ -242,12 +320,27 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         const std::string target=it==physical.end()?regSlot(r):it->second;
         if(target!=cpu)out<<"    mov "<<target<<", "<<cpu<<"\n";
     };
-    for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];out<<pcLabel(fn,pc)<<":\n";switch(i.op){
+    // Emitting one unused assembler label per NIR opcode forces the assembler
+    // and linker to process needless symbols. Only branch destinations need
+    // PC labels; diagnostic/trap labels remain emitted at their own sites.
+    std::unordered_set<std::size_t> jumpTargets;
+    std::unordered_map<Reg,std::size_t> useCounts;
+    for(const auto& i:fn.code){
+        if(i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)
+            jumpTargets.insert(i.target);
+        for(auto r:i.args)++useCounts[r];
+    }
+    std::unordered_set<std::size_t> fusedBranches;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(fusedBranches.count(pc))continue;
+        if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
+        switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<varSlot(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<varSlot(fn,l,i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width);store(*i.dest,"rax");}break;
+        case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width,*i.dest<fn.registerTypes.size()&&
+            signedNarrow(fn.registerTypes[*i.dest].kind));store(*i.dest,"rax");}break;
         case NirOp::StoreMemory:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitStoreWidth(out,i.width);}break;
         case NirOp::PtrOffset:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
                         out<<"    lea rax, [rax + r10*"<<i.width<<"]\n";
@@ -271,12 +364,28 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             load(i.args[0],"rax");
             const auto failed=localLabel(fn,pc,"bounds_fail");
             const auto valid=localLabel(fn,pc,"bounds_ok");
-            out<<"    test rax, rax\n    js "<<failed<<"\n";
-            load(i.args[1],"r10");
-            out<<"    cmp rax, r10\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
+            const auto fixed=constantValues.find(i.args[1]);
+            // A fixed non-negative length <= INT64_MAX needs only one
+            // unsigned comparison: every negative i64 index is encoded above
+            // every representable fixed length. Dynamic slice bounds retain
+            // the explicit negative-index test.
+            if(fixed!=constantValues.end()&&fixed->second>=0){
+                if(fixed->second<=std::numeric_limits<std::int32_t>::max())
+                    out<<"    cmp rax, "<<fixed->second<<"\n";
+                else{
+                    out<<"    mov r10, "<<fixed->second<<"\n";
+                    out<<"    cmp rax, r10\n";
+                }
+                out<<"    jb "<<valid<<"\n    ud2\n"<<valid<<":\n";
+            }else{
+                out<<"    test rax, rax\n    js "<<failed<<"\n";
+                load(i.args[1],"r10");
+                out<<"    cmp rax, r10\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
+            }
             break;
         }
-        case NirOp::AtomicLoad:if(i.dest&&!i.args.empty()){out<<"    mfence\n";load(i.args[0],"rax");emitLoadWidth(out,i.width);out<<"    mfence\n";store(*i.dest,"rax");}break;
+        case NirOp::AtomicLoad:if(i.dest&&!i.args.empty()){out<<"    mfence\n";load(i.args[0],"rax");emitLoadWidth(out,i.width,*i.dest<fn.registerTypes.size()&&
+            signedNarrow(fn.registerTypes[*i.dest].kind));out<<"    mfence\n";store(*i.dest,"rax");}break;
         case NirOp::AtomicStore:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitAtomicStoreWidth(out,i.width);}break;
         case NirOp::AtomicExchange:if(i.dest&&i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitExchangeWidth(out,i.width);store(*i.dest,"rax");}break;
         case NirOp::AtomicCompareExchange:if(i.dest&&i.args.size()==3){load(i.args[0],"r10");load(i.args[1],"rax");load(i.args[2],"rcx");emitCompareExchangeWidth(out,i.width);store(*i.dest,"rax");}break;
@@ -287,7 +396,67 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n";restoreSaved();out<<"    leave\n    ret\n";}break;
         case NirOp::Cast:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitCast(out,i.text);store(*i.dest,"rax");}break;
         case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-")out<<"    neg rax\n";else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;
-        case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}load(i.args[0],"rax");load(i.args[1],"r10");if(i.text=="+")out<<"    add rax, r10\n";else if(i.text=="-")out<<"    sub rax, r10\n";else if(i.text=="*")out<<"    imul rax, r10\n";else if(i.text=="/"||i.text=="%"){out<<"    cqo\n    idiv r10\n";if(i.text=="%")out<<"    mov rax, rdx\n";}else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<"    setl al\n";else if(i.text=="<=")out<<"    setle al\n";else if(i.text==">")out<<"    setg al\n";else if(i.text==">=")out<<"    setge al\n";else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}store(*i.dest,"rax");break;}
+        case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}const auto operandKind=i.args[0]<fn.registerTypes.size()?
+            fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
+        const bool unsign=isUnsigned(operandKind)||
+            (i.args[1]<fn.registerTypes.size()&&
+             isUnsigned(fn.registerTypes[i.args[1]].kind));
+        // If a comparison feeds only the immediately following conditional
+        // branch, emit one compare and a direct inverted jcc. Preserve NIR
+        // short-circuit structure: RHS evaluation is never speculated.
+        const bool singleUse=i.dest&&useCounts[*i.dest]==1;
+        const bool adjacent=pc+1<fn.code.size()&&
+            fn.code[pc+1].op==NirOp::JumpIfFalse&&
+            fn.code[pc+1].args.size()==1&&
+            fn.code[pc+1].args[0]==*i.dest&&
+            !jumpTargets.count(pc+1);
+        const char* inverted=nullptr;
+        if(i.text=="==")inverted="jne";
+        else if(i.text=="!=")inverted="je";
+        else if(i.text=="<")inverted=unsign?"jae":"jge";
+        else if(i.text=="<=")inverted=unsign?"ja":"jg";
+        else if(i.text==">")inverted=unsign?"jbe":"jle";
+        else if(i.text==">=")inverted=unsign?"jb":"jl";
+        if(singleUse&&adjacent&&inverted){
+            load(i.args[0],"rax");load(i.args[1],"r10");
+            out<<"    cmp rax, r10\n"
+               <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
+            fusedBranches.insert(pc+1);
+            break;
+        }
+        load(i.args[0],"rax");
+        if(i.text=="/"||i.text=="%"){
+            const auto it=constantValues.find(i.args[1]);
+            const bool remainder=i.text=="%";
+            const bool allowed=it!=constantValues.end()&&it->second!=0&&
+                (unsign||it->second!=-1);
+            if(allowed){
+                const auto divisor=it->second;
+                const auto magnitude=unsign?static_cast<std::uint64_t>(divisor):
+                    (divisor<0?std::uint64_t{0}-static_cast<std::uint64_t>(divisor):
+                     static_cast<std::uint64_t>(divisor));
+                if(!unsign){
+                    out<<"    mov r8, rax\n    sar r8, 63\n"
+                       <<"    xor rax, r8\n    sub rax, r8\n";
+                }
+                emitUnsignedConstantDivision(out,magnitude,remainder,
+                    localLabel(fn,pc,"div_done"));
+                if(!unsign){
+                    if(divisor<0&&!remainder)out<<"    not r8\n";
+                    out<<"    xor rax, r8\n    sub rax, r8\n";
+                }
+            }else{
+                load(i.args[1],"r10");
+                if(unsign)out<<"    xor edx, edx\n    div r10\n";
+                else out<<"    cqo\n    idiv r10\n";
+                if(remainder)out<<"    mov rax, rdx\n";
+            }
+        }else{
+            load(i.args[1],"r10");
+            if(i.text=="+")out<<"    add rax, r10\n";
+            else if(i.text=="-")out<<"    sub rax, r10\n";
+            else if(i.text=="*")out<<"    imul rax, r10\n";
+            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}store(*i.dest,"rax");break;}
         case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float printing is not implemented yet");return false;}else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;

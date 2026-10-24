@@ -1,0 +1,3 @@
+let values: [int; 8]
+let index: usize = 8 as usize
+print(values[index])

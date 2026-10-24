@@ -1,0 +1,15 @@
+let maximum: u64 = 18446744073709551615 as u64
+let halfway: u64 = 9223372036854775808 as u64
+print(maximum > halfway)
+print(maximum < 1 as u64)
+print(maximum / 97 as u64)
+print(maximum % 97 as u64)
+print(halfway % 4 as u64)
+let negative: i64 = -93 as i64
+print(negative / 7 as i64)
+print(negative % 7 as i64)
+print(negative / -7 as i64)
+print(negative % -7 as i64)
+let minimum: i64 = 9223372036854775808 as i64
+print(minimum / 97 as i64)
+print(minimum % 97 as i64)

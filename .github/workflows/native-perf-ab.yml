@@ -95,6 +95,77 @@ jobs:
           if result["speedup"] < 0.80:
               raise SystemExit("Performance regression exceeds 20% on this runner.")
           PY
+      - name: Compare compiler Stage-0 code-generation latency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, statistics, subprocess, time
+          from pathlib import Path
+          report_path=Path("candidate/build/native-perf-ab.json")
+          data=json.loads(report_path.read_text())
+          samples={"baseline":[],"candidate":[]}
+          def compile_once(revision):
+              exe=Path(revision).resolve()/"build/noqeri"
+              source=Path(revision).resolve()/"Benchmarks/workloads/sorting_ab.noqeri"
+              output=Path(revision).resolve()/"build/compiler-latency.s"
+              start=time.perf_counter_ns()
+              subprocess.run([str(exe),"build",str(source),str(output),"-O3"],
+                             check=True,capture_output=True)
+              return (time.perf_counter_ns()-start)/1e6
+          for _ in range(2):
+              for name in samples:compile_once(name)
+          for turn in range(15):
+              for name in (("baseline","candidate") if turn%2==0 else ("candidate","baseline")):
+                  samples[name].append(compile_once(name))
+          data["stage0_compile_median_ms"]={k:statistics.median(v) for k,v in samples.items()}
+          data["stage0_compile_samples_ms"]=samples
+          data["emitted_label_lines"]={
+              k:sum(line.startswith(".L_") and line.endswith(":")
+                    for line in (Path(k)/"build/compiler-latency.s").read_text().splitlines())
+              for k in samples
+          }
+          report_path.write_text(json.dumps(data,indent=2)+"\n")
+          print("Native compiler A/B:",json.dumps({
+              "median_ms":data["stage0_compile_median_ms"],
+              "assembly_label_lines":data["emitted_label_lines"]},indent=2))
+          PY
+      - name: Measure dependent constant-remainder optimization
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp candidate/Benchmarks/workloads/modulo_ab.noqeri baseline/Benchmarks/workloads/modulo_ab.noqeri
+          for revision in baseline candidate; do
+            (
+              cd "$revision"
+              node scripts/native-build.mjs Benchmarks/workloads/modulo_ab.noqeri build/modulo-ab --compiler=build/noqeri --opt=-O3
+            )
+          done
+          python3 - <<'PY'
+          import json, statistics, subprocess, time
+          from pathlib import Path
+          report=Path("candidate/build/native-perf-ab.json")
+          data=json.loads(report.read_text())
+          paths={x:(Path(x)/"build/modulo-ab").resolve() for x in ("baseline","candidate")}
+          samples={k:[] for k in paths}
+          expected=subprocess.run([str(paths["baseline"])],capture_output=True,check=True).stdout
+          def run(name):
+              start=time.perf_counter_ns()
+              actual=subprocess.run([str(paths[name])],capture_output=True,check=True).stdout
+              if actual!=expected:raise AssertionError(f"dependent modulo output mismatch for {name}: {actual!r} != {expected!r}")
+              return (time.perf_counter_ns()-start)/1e6
+          for _ in range(3):
+              for name in paths:run(name)
+          for i in range(17):
+              for name in (("baseline","candidate") if i%2==0 else ("candidate","baseline")):
+                  samples[name].append(run(name))
+          median={k:statistics.median(v) for k,v in samples.items()}
+          data["dependent_modulo"]={"warmups":3,"samples":samples,"median_ms":median,
+                                   "speedup":median["baseline"]/median["candidate"],
+                                   "verified_output":expected.decode().strip()}
+          report.write_text(json.dumps(data,indent=2)+"\n")
+          print("Dependent modulo A/B:",json.dumps(data["dependent_modulo"],indent=2))
+          PY
       - name: Upload raw measurements
         uses: actions/upload-artifact@v4
         with:

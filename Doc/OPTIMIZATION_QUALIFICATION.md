@@ -16,7 +16,7 @@
 | Interprocedural optimization | Exact pure zero-argument constant-return call substitution; externs and unknown bodies retained | Full call-graph specialization, partial inlining, recursion handling and whole-program IPO |
 | Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; repeated Reg defs unioned; deterministic linear scan with unique spill slots. The Linux x86-64 Stage-0 emitter consumes the plan for eligible virtual registers using preserved r12-r15, with stack fallback/spills and an inline-assembly guard. | Graph coloring, interval splitting, optimal spill costs, named-local register promotion, full machine scheduling, and native Stage-2 parity |
 | Instruction scheduling | O3 moves only integer/Boolean literals within a straight-line basic block toward first use; effects and branch indices unchanged | Dependency-latency DAG, hazard tracking, machine-instruction scheduling |
-| Strength reduction | O2+ `x*0` and `x%1` for wraparound `Int/I64`, preserving precomputed operand effects | Power-of-two division lowering, induction variable arithmetic |
+| Strength reduction | O2+ `x*0` and `x%1` for wraparound `Int/I64`; Stage-0 native x86-64 emits unsigned reciprocal/multiply/correction division for constant 64-bit divisors and shifts for power-of-two constants, with guarded signed reconstruction. | Induction-variable algebra and a generic target-independent magic-number division pass; Stage-2 native parity |
 | Autovectorization | Not implemented | No vector-producing pass exists yet |
 | LTO | Not implemented for compiled Noqeri modules | Linker IR summary/import, symbol resolution and cross-module IPO |
 | PGO | Not implemented | Instrumentation, counter collection, profile validation, hot/cold layout |
@@ -26,7 +26,7 @@
 
 - **O0:** No optimizations.
 - **O1:** Existing local constant folding, dead-code elimination and proven safe bounds-check simplification.
-- **O2:** O1, dominance-gated sparse constant propagation, branch pruning, conservative local integer GVN and identity strength reduction.
+- **O2:** O1, dominance-gated sparse constant propagation, branch pruning, conservative local integer GVN and identity strength reduction. Proven redundant bounds checks with identical operands and guarded unsigned fixed-array indices are removed only when the CFG and mutation proof succeeds.
 - **O3:** O2, structured literal-only LICM and pure local literal scheduling for lower register pressure.
 - **Oz:** Conservative algebraic/CFG optimization with code size goal; no speculative loop unroll.
 - **Os:** O1-like baseline. Not automatically equivalent to O3.
@@ -53,6 +53,40 @@ The GitHub Native AOT performance A/B workflow builds both baseline and
 candidate Stage-0 compilers under identical settings, compares matching
 standalone workloads on one runner, and uploads raw samples. Comparisons must
 not be presented as self-hosted Stage-2 performance.
+
+## Native x86-64 improvements on 2026-10-24
+
+- **Typed NIR optimization:** the TypeChecker still runs first, but NIR type
+  analysis now runs before optimization, with CFG metadata rebuilt after transformation.
+  Integer constant comparisons, division and remainders use the signedness
+  of their typed operands rather than always interpreting the bits as i64.
+- **Safe array indexing:** the type checker now attaches an actual fixed
+  array length to `IndexExpr`; that was previously missing for local fixed
+  arrays and was a genuine missing-bounds-check correctness issue.
+  O2/O3/Oz remove an explicit `CheckBounds` if either an identical test
+  dominates it or an unsigned index is proven smaller than a fixed bound
+  by a dominating conditional, with no intervening named-local assignment,
+  unknown call, inline assembly, or unchecked memory write.
+- **Constant division:** the Stage-0 emitter uses 64-bit reciprocal multiply
+  and a single remainder correction for non-power-of-two divisors. Power
+  of two divisors use shift/mask. Signed operands are converted through
+  their unsigned magnitude and restored according to truncation/remainder
+  sign semantics. Division by zero and i64 min / -1 retain hardware trap
+  behavior; unproven divisors keep hardware `div`/`idiv`.
+- **Machine lowering:** the native emitter fuses adjacent single-use integer
+  comparisons with conditional branches, chooses unsigned x86 flags for
+  typed unsigned comparisons, sign-extends signed narrow-memory loads,
+  avoids unused instruction labels, and shortens positive fixed array
+  bounds tests to one unsigned compare. These techniques are not yet in
+  the NQRI-VM/self-host Stage-2 backend.
+- **Regression and performance evidence:** run
+  `python3 tests/native_division_matrix.py` after building
+  `build-native/noqeri` to exercise signed/unsigned quotient and remainder
+  over multiple integer extremes at O0 and O3. The native-typed-arithmetic
+  CI test requires unsigned/narrow results and traps for invalid indexes.
+  The same-runner native A/B workflow measures already-sorted traversal,
+  dependent modulo, and compiler latency; its raw results are not global
+  speed claims.
 
 ## Required next engineering phases
 

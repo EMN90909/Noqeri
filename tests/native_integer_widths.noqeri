@@ -1,0 +1,20 @@
+let signed8: i8 = -1 as i8
+let unsigned8: u8 = 255 as u8
+let signed16: i16 = -32768 as i16
+let unsigned16: u16 = 65535 as u16
+let signed32: i32 = -2147483648 as i32
+let unsigned32: u32 = 4294967295 as u32
+let p8: *i8 = &signed8
+let q8: *u8 = &unsigned8
+let p16: *i16 = &signed16
+let q16: *u16 = &unsigned16
+let p32: *i32 = &signed32
+let q32: *u32 = &unsigned32
+unsafe {
+    print(*p8)
+    print(*q8)
+    print(*p16)
+    print(*q16)
+    print(*p32)
+    print(*q32)
+}

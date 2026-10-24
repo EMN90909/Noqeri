@@ -1,0 +1,6 @@
+let values: [int; 8]
+let index: usize = 0 as usize
+if index < 8 as usize {
+    index = 8 as usize
+    print(values[index])
+}
