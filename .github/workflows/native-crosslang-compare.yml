@@ -1,0 +1,36 @@
+name: C-Go-Noqeri same-runner native parity evidence
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Benchmarks/comparison/**'
+      - 'scripts/native-crosslang-compare.py'
+      - '.github/workflows/native-crosslang-compare.yml'
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Build optimized Stage-0 compiler
+        run: |
+          cmake -S . -B build-compare -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-compare --target noqeri --parallel 2
+      - name: Compile all implementations and measure native parity
+        run: python3 scripts/native-crosslang-compare.py
+      - name: Preserve raw samples and reproducibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosslang-native-evidence
+          path: build/comparison/crosslang-report.json
+          if-no-files-found: warn
