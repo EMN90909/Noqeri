@@ -51,8 +51,7 @@ export async function qualifyNoqeriGpu(canvas,{expectedVendor}={}){
     const input=new Float32Array(4*2)
     input.set([1,0,0,1,0.2,0.4,0.6,0.8])
     const result=await runNoqeriCompute(await load('gpu-vector.wgsl'),input,verifiedGpu)
-    if(result.length!==8||result.some(v=>!Number.isFinite(v)))
-      throw new Error('Vector GPU readback contains invalid float data')
+    assertArray([...result],[0.8,0.15,0.225,1.0,0.2,0.45,0.675,0.85],1e-5)
     tests.push('vec4-compute-readback')
   }
   const pixels=new Uint8Array(256*256*4)
