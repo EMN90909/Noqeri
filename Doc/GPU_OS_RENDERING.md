@@ -24,7 +24,7 @@ invocations per workgroup. The generated entry checks **both** buffer
 boundaries before reading/writing. An application must create WebGPU buffers,
 bind them, and issue `ceil(pixel_count/64)` workgroups. A GPU device and
 runtime are **not** embedded in this compiler. A small browser-only
-WebGPU host in `examples/shaders/webgpu_host.mjs` can compile the output
+WebGPU host in `examples/browser-webgpu/webgpu_host.mjs` can compile the output
 into actual browser compute and render pipelines on supported devices.
 This is necessary OS/browser interop, not replacement shader logic.
 
@@ -62,7 +62,7 @@ build/noqeri shader examples/shaders/float_compute.noqeri build/float-compute.wg
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/examples/shaders/webgpu_demo.html` in a
+Open `http://localhost:8000/examples/browser-webgpu/webgpu_demo.html` in a
 browser with WebGPU enabled and a compatible GPU/driver. The page offers gradient, posterized and grayscale fragment previews,
 plus separate integer and floating-point compute dispatch buttons with
 storage-buffer readback. It releases GPU devices when switching shaders. Run from a secure origin such as
@@ -265,3 +265,37 @@ raw 30-sample native volatile checker frame timings as
 `os-framebuffer-native.csv`. These timings exclude the SDL presenter and
 WebGPU GPU completion. Compare results on the same hardware before
 claiming a performance improvement.
+
+
+## JavaScript-free shader core and native fast framebuffer clear (October 2026)
+
+The shader source tree `examples/shaders/` now contains **only .noqeri files**.
+The typechecked shader emitter is C++ (`Compiler/shader_backend.cpp`),
+the shaders themselves are Noqeri, and the native CPU raster/presentation
+backends are Noqeri and C++. Optional browser-only HTML/JavaScript WebGPU
+demos live separately at `examples/browser-webgpu/`. Browser WebGPU
+still needs a browser adapter; this move is *not* equivalent to a C++
+WebGPU device implementation, nor does it claim native hardware execution.
+
+For nonvolatile framebuffer memory, `Lib/std/render2d_accel.noqeri`
+calls `noqeri_graphics_fastpath` via an explicit C ABI, using SSE2 on
+x86-64, NEON on AArch64, and portable scalar fallback elsewhere. It
+validates slice dimensions and preserves padding in pitched images.
+**Never** call this backend for volatile memory-mapped framebuffer IO.
+The original Noqeri-only clear and the volatile MMIO path remain available.
+
+To measure 256x256 frame clears against the requested **0.010 ms (10,000 ns)**
+CPU-only goal:
+
+```sh
+GRAPHICS_EVIDENCE_DIR=/tmp/noqeri-clear-evidence \
+  bash tests/scripts/graphics-fastpath-native-e2e.sh build/noqeri
+```
+
+The native Noqeri wrapper is compiled at `-O3` and linked to a
+standalone optimized C++ SIMD library. The test checks full-buffer and
+pitched-row data against sentinels and records 60 raw samples with warmups,
+median, p95 and hardware details. The timing explicitly excludes
+presentation, shader execution and transfer overhead. Performance
+depends on target CPU and frame dimensions; **0.010 ms is a target,
+not a guarantee**.

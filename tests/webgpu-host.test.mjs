@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D, createNoqeriMeshRenderer3D, inspectNoqeriGpuCompatibility} from '../examples/shaders/webgpu_host.mjs'
+import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D, createNoqeriMeshRenderer3D, inspectNoqeriGpuCompatibility} from '../examples/browser-webgpu/webgpu_host.mjs'
 
 globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8, VERTEX: 16, INDEX: 32}
 globalThis.GPUMapMode = {READ: 1}

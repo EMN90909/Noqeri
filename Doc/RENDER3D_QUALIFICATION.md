@@ -83,7 +83,7 @@ cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- build/verte
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/examples/shaders/webgpu3d_demo.html` in
+Open `http://localhost:8000/examples/browser-webgpu/webgpu3d_demo.html` in
 a secure-context WebGPU browser. `renderNoqeriMesh3D()` builds a
 hardware depth-tested render pipeline with `depth24plus` and
 `depthCompare: less`; it uploads bounded float32x4 vertex arrays and
@@ -196,7 +196,7 @@ build/noqeri shader examples/shaders/vertex3d.noqeri build/noqeri-vertex3d.wgsl 
 build/noqeri shader examples/shaders/fragment3d.noqeri build/noqeri-fragment3d.wgsl --stage=fragment
 ```
 
-Run `examples/shaders/physical_qualification.html` from localhost or
+Run `examples/browser-webgpu/physical_qualification.html` from localhost or
 HTTPS. The browser harness exercises vector compute, textured fragments
 and a two-triangle 3D depth path while preserving results for manual
 inspection. It deliberately reports `hardwareQualified: false`;
@@ -288,3 +288,23 @@ improvements may be claimed.
 No actual indexed-mesh physical GPU FPS or real-driver performance
 result is implied by JavaScript mock tests, and Stage-0 WGSL codegen
 does not constitute a self-hosted shader compiler.
+
+
+Optional browser-only examples have been moved to
+`examples/browser-webgpu/` to isolate JavaScript from the Noqeri/C++
+shader compiler and shader source tree. This does not imply that the
+C++ compiler now contains a native WebGPU hardware driver.
+
+
+## Optional native accelerated Z-buffer clear (October 2026)
+
+`Lib/std/render3d_accel.noqeri` provides
+`nqDepthClearAccelerated(depth, width, height)`, which validates the
+dimensions and slice length exactly as the portable `nqDepthClear3D`
+function does, then calls the same explicit SIMD C++ native fill
+backend used by 2D color clearing. The visible pixels become
+`0xffffffff`; tail sentinels remain unchanged. This backend is
+CPU-only and nonvolatile. Use the original Noqeri depth clear if
+you cannot link `noqeri_graphics_fastpath`.
+`tests/cpp/graphics_depth_fastpath_native_test.cpp` verifies the
+real compiled Noqeri ABI against independent full-buffer expectations.

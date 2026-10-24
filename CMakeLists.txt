@@ -162,6 +162,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
+# Opt-in nonvolatile CPU framebuffer acceleration. This native Noqeri/C++
+# adapter does not depend on JavaScript, SDL or a GPU driver.
+add_library(noqeri_graphics_fastpath STATIC Runtime/native/graphics_fastpath.cpp)
+target_include_directories(noqeri_graphics_fastpath PUBLIC Include)
+target_compile_features(noqeri_graphics_fastpath PUBLIC cxx_std_17)
+noqeri_apply_warnings(noqeri_graphics_fastpath)
+install(TARGETS noqeri_graphics_fastpath
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
 install(TARGETS noqeri noqeri-nqri noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")

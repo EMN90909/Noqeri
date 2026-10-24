@@ -1,3 +1,4 @@
+// Optional browser-only WebGPU adapter; not part of Noqeri's native shader pipeline.
 // Browser WebGPU adapter. GPU algorithms are authored in .noqeri and compiled
 // to WGSL; this module owns only OS device resources, bindings and lifecycle.
 function requireGpu(provided) {

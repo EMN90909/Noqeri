@@ -19,7 +19,12 @@ namespace {
 // Noqeri currently calls its IEEE floating point type "float". The shader
 // profile intentionally narrows it to WebGPU f32 and documents this ABI.
 enum class Scalar { U32, F32, Bool, Vec2, Vec3, Vec4 };
-struct Value { std::string code; Scalar kind; };
+struct Value {
+    std::string code;
+    Scalar kind;
+    // Compile-time-only u32 constant used for safe, bounded integer folding.
+    std::optional<std::uint32_t> integerConstant=std::nullopt;
+};
 struct Symbol { std::string target; Scalar kind; };
 using Scope = std::unordered_map<std::string, Symbol>;
 
@@ -204,7 +209,8 @@ private:
                     shaderError(d_,lit->span,"integer shader constants must fit u32");
                     return std::nullopt;
                 }
-                return Value{u32Literal(static_cast<std::uint32_t>(*integer)),Scalar::U32};
+                return Value{u32Literal(static_cast<std::uint32_t>(*integer)),Scalar::U32,
+                             static_cast<std::uint32_t>(*integer)};
             }
             if(auto number=std::get_if<double>(&lit->value)){
                 auto text=f32Literal(*number);
@@ -318,6 +324,9 @@ private:
                 shaderError(d_,cast->span,"shader casts only support u32 and float");
                 return std::nullopt;
             }
+            // Avoid redundant f32(f32) / u32(u32) constructors in emitted
+            // WGSL. Scalar conversions of different types remain explicit.
+            if(*target==inside->kind)return *inside;
             return Value{std::string(wgslType(*target))+"("+inside->code+")",*target};
         }
         if(auto unary=std::dynamic_pointer_cast<UnaryExpr>(value)){
@@ -387,9 +396,29 @@ private:
                 return std::nullopt;
             }
             if((binary->op==TokenKind::Slash||binary->op==TokenKind::Percent)&&
-               constantZero(binary->right)){
-                shaderError(d_,binary->span,"division by a literal zero is not allowed");
+               (constantZero(binary->right)||
+                (right->integerConstant&&*right->integerConstant==0u))){
+                shaderError(d_,binary->span,"division by a constant zero is not allowed");
                 return std::nullopt;
+            }
+            // Restrict folding to pure u32 arithmetic: well-defined modular
+            // results and no floating-point reassociation or GPU rounding.
+            // This reduces emitted expressions, not the runtime's precision.
+            if(left->kind==Scalar::U32&&left->integerConstant&&
+               right->integerConstant&&!resultBool){
+                const std::uint32_t l=*left->integerConstant;
+                const std::uint32_t r=*right->integerConstant;
+                std::uint32_t folded=0u;
+                bool canFold=true;
+                switch(binary->op){
+                    case TokenKind::Plus:folded=l+r;break;
+                    case TokenKind::Minus:folded=l-r;break;
+                    case TokenKind::Star:folded=l*r;break;
+                    case TokenKind::Slash:folded=l/r;break;
+                    case TokenKind::Percent:folded=l%r;break;
+                    default:canFold=false;break;
+                }
+                if(canFold)return Value{u32Literal(folded),Scalar::U32,folded};
             }
             return Value{"("+left->code+" "+sign+" "+right->code+")",
                         resultBool?Scalar::Bool:left->kind};
