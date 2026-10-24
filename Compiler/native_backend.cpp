@@ -526,6 +526,10 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
+    // GNU ELF assemblers assume an executable stack when this note is
+    // absent. Noqeri's generated native programs do not require code on
+    // the process stack; opt out explicitly for secure default ELF links.
+    out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
     return !diagnostics.hasErrors();
 }
 } // namespace noe
