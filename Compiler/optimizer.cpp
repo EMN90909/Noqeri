@@ -1478,15 +1478,20 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
     };
     using Key=std::pair<std::size_t,std::size_t>;
     std::map<Key,Edge> edges;
-    std::unordered_set<Reg> destinations;
     const std::size_t blocks=g.spans.size();
+    std::unordered_map<Reg,BlockId> phiOwners;
+    // Collect logical Phi definitions first: a loop backedge is allowed
+    // to read a Phi defined in a dominating loop header, but a preheader
+    // may never use a value that is only created inside that header.
     for(const auto& phi:phis){
         if(phi.block==0||phi.block>=blocks||
            !g.reachable[phi.block]||!castName(phi.type.kind)||
            phi.dest>=fn.registerTypes.size()||
            fn.registerTypes[phi.dest].kind!=phi.type.kind||
            g.definitions.count(phi.dest)||
-           !destinations.insert(phi.dest).second)return false;
+           !phiOwners.emplace(phi.dest,phi.block).second)return false;
+    }
+    for(const auto& phi:phis){
         const auto& preds=g.preds[phi.block];
         if(preds.empty()||phi.incoming.size()!=preds.size())return false;
         std::unordered_set<std::size_t> seen;
@@ -1496,6 +1501,22 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
                !seen.insert(predecessor).second||
                value>=fn.registerTypes.size()||
                fn.registerTypes[value].kind!=phi.type.kind)return false;
+            // Phi incoming operands are evaluated on the predecessor
+            // EDGE, not inside the successor. Reject values that were
+            // defined only on an unrelated branch or after the edge.
+            const auto defined=g.definitions.find(value);
+            if(defined!=g.definitions.end()){
+                const auto block=g.owner[defined->second];
+                if(!g.dominates[predecessor][block]||
+                   (block==predecessor&&
+                    defined->second>=g.spans[predecessor].second))
+                    return false;
+            }else{
+                const auto logical=phiOwners.find(value);
+                if(logical==phiOwners.end()||
+                   !g.dominates[predecessor][logical->second])
+                    return false;
+            }
             const Key key{predecessor,phi.block};
             auto& edge=edges[key];
             if(edge.copies.empty()){
