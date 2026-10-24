@@ -14,7 +14,7 @@
 | Alias analysis | `NirAliasAnalysis` proves distinct nonescaping acyclic `StackAlloc` roots do not alias; all other uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing, memory SSA |
 | Escape analysis | Tracks direct StackAlloc roots and derivatives, marks values passed to unknown sites / returned as escaping | Allocation replacement, promotion, allocation sinking and heap devirtualization |
 | Interprocedural optimization | Exact pure zero-argument constant-return call substitution; externs and unknown bodies retained | Full call-graph specialization, partial inlining, recursion handling and whole-program IPO |
-| Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; repeated Reg defs unioned; deterministic linear scan with unique spill slots | Graph coloring, split/reload insertion, per-register-class allocation and spill-cost optimization |
+| Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; repeated Reg defs unioned; deterministic linear scan with unique spill slots. The Linux x86-64 Stage-0 emitter consumes the plan for eligible virtual registers using preserved r12-r15, with stack fallback/spills and an inline-assembly guard. | Graph coloring, interval splitting, optimal spill costs, named-local register promotion, full machine scheduling, and native Stage-2 parity |
 | Instruction scheduling | O3 moves only integer/Boolean literals within a straight-line basic block toward first use; effects and branch indices unchanged | Dependency-latency DAG, hazard tracking, machine-instruction scheduling |
 | Strength reduction | O2+ `x*0` and `x%1` for wraparound `Int/I64`, preserving precomputed operand effects | Power-of-two division lowering, induction variable arithmetic |
 | Autovectorization | Not implemented | No vector-producing pass exists yet |
@@ -32,6 +32,27 @@
 - **Os:** O1-like baseline. Not automatically equivalent to O3.
 
 All passes must preserve Noqeri's source-visible side effects, overflow and trap semantics. Unknown pointer interactions are MayAlias. Volatile/atomic loads, inline assembly, exception edges and unqualified floating-point rearrangements are not removed or moved. A target cost profile in a header does not mean SIMD instructions are emitted.
+
+## Benchmarking native code generation
+
+The Linux x86-64 Stage-0 emitter uses conservative, callee-saved physical
+registers for allocated NIR values. It still reserves the original virtual
+stack slots, and named mutable locals still live in memory. This is a
+first-stage improvement, **not** proof of globally optimal register
+allocation or elimination of redundant array bounds checks.
+
+For assembly inspection run
+`node scripts/native-build.mjs Benchmarks/workloads/sorting.noqeri build/benchmarks/sorting --compiler=build/noqeri --opt=-O3 --keep-asm`.
+The generated `.s` file is preserved beside the executable, and its
+SHA-256 is recorded in the native provenance JSON. For fail-closed benchmark
+coverage, pass `--require-workloads=noqeri:sorting` to
+`scripts/benchmark-suite.mjs`, using a complete local commands file.
+That argument ensures the named result is *measured*, not simply configured.
+
+The GitHub Native AOT performance A/B workflow builds both baseline and
+candidate Stage-0 compilers under identical settings, compares matching
+standalone workloads on one runner, and uploads raw samples. Comparisons must
+not be presented as self-hosted Stage-2 performance.
 
 ## Required next engineering phases
 

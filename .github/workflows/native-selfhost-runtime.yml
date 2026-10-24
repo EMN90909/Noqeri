@@ -116,6 +116,16 @@ jobs:
           check_aot Benchmarks/workloads/sorting.noqeri sorting "$(printf '64\n65032')"
           check_aot Benchmarks/workloads/json.noqeri json "5600000"
           check_aot Benchmarks/workloads/regex.noqeri regex "200000"
+      - name: Inspect native register allocation and indexed addresses
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs Benchmarks/workloads/sorting.noqeri build-native/aot-sort-inspect --compiler=build-native/noqeri --opt=-O3 --keep-asm
+          grep -Eq 'mov QWORD PTR .* r1[2-5]' build-native/aot-sort-inspect.s
+          grep -Eq 'mov r1[2-5], QWORD PTR .*' build-native/aot-sort-inspect.s
+          grep -Fq 'lea rax, [rax + r10*8]' build-native/aot-sort-inspect.s
+          test "$(build-native/aot-sort-inspect)" = "$(printf '%s\n' 64 65032)"
       - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
