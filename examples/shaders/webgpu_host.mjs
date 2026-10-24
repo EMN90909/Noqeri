@@ -362,7 +362,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
      !vertexWgsl.includes('@builtin(position)')||
      typeof fragmentWgsl!=='string'||!fragmentWgsl.includes('@fragment'))
     throw new TypeError('3D renderer requires Noqeri vertex and fragment WGSL.')
-  const width=canvas.width,height=canvas.height
+  let width=canvas.width,height=canvas.height
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
   let context,configured=false,vertexBuffer,depthTexture,disposed=false,busy=false
@@ -417,6 +417,34 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
       usage:GPUTextureUsage.RENDER_ATTACHMENT
     })
     return {
+      // Avoid recompiling the pipeline on canvas resize. Allocate the new
+      // attachment first and retain the previous one if allocation fails.
+      // A frame must not be in flight when resizing depth resources.
+      resize(newWidth, newHeight){
+        if(lossMessage)throw new Error(lossMessage)
+        if(disposed)throw new Error('3D renderer is disposed.')
+        if(busy)throw new Error('Cannot resize a 3D renderer with a frame in flight.')
+        if(!Number.isSafeInteger(newWidth)||!Number.isSafeInteger(newHeight)||
+           newWidth<1||newHeight<1||newWidth>4096||newHeight>4096||
+           newWidth>device.limits.maxTextureDimension2D||
+           newHeight>device.limits.maxTextureDimension2D)
+          throw new RangeError('3D resize dimensions exceed supported device limits.')
+        if(canvas.width!==newWidth||canvas.height!==newHeight)
+          throw new Error('Resize the canvas backing dimensions before the renderer.')
+        if(newWidth===width&&newHeight===height)return
+        let next
+        try{
+          next=device.createTexture({
+            size:[newWidth,newHeight,1],format:'depth24plus',
+            usage:GPUTextureUsage.RENDER_ATTACHMENT
+          })
+        }catch(error){ throw new Error('Could not allocate resized 3D depth attachment: '+String(error)) }
+        const previous=depthTexture
+        depthTexture=next
+        width=newWidth
+        height=newHeight
+        previous.destroy()
+      },
       async render(input){
         if(lossMessage)throw new Error(lossMessage)
         if(disposed)throw new Error('3D renderer is disposed.')
