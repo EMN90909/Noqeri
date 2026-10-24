@@ -96,7 +96,7 @@ def main():
       "correctness":check_cases,
       "workloads":[]
     }
-    for mode in ("gradient","checker"):
+    for mode in ("gradient","checker","fractal"):
         for width,height,frames in (((320,180,2),(640,360,1),(1280,720,1)) if mode=="fractal" else ((320,180,25),(640,360,12),(1280,720,3))):
             # Every frame's output is sampled by a host callback, preventing
             # aggressive compilers from eliminating repeated writes.
