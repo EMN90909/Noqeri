@@ -121,3 +121,39 @@ controlled demos and differential testing. Do not treat it as a
 general-purpose production 3D game engine. Stage-2 self-hosted WGSL
 generation also remains unqualified; these WGSL stages are generated
 by the Stage-0 C++ emitter.
+
+## First 3D CPU performance evidence (2026-10-24)
+
+GitHub Actions [run 40121020892](https://github.com/EMN90909/Noqeri/actions/runs/40121020892)
+passed native 3D differential qualification and archived 30 raw samples
+per engine and depth scene. The independent C++ reference recomputes
+barycentric pixel coverage across the full surface; it is **not** an
+identical implementation of the Noqeri optimized incremental algorithm.
+
+| 256×256 | Noqeri median | Independent C++ median | Noqeri/C++ time ratio |
+|---|---:|---:|---:|
+| Flat depth | 0.334 ms | 0.093 ms | 3.60× |
+| Interpolated depth | 0.349 ms | 0.092 ms | 3.79× |
+
+No earlier Noqeri 3D CPU implementation was measured in the uploaded
+performance CSV, so these numbers establish a performance baseline
+rather than a historical improvement. No real GPU shader timestamps
+or physical-device performance were measured.
+
+## Multi-frame WebGPU resource reuse
+
+For interactive 3D loops, use
+`createNoqeriMeshRenderer3D(canvas, vertexWGSL, fragmentWGSL, gpu?, maxVertices?)`
+to compile once and reuse the WebGPU device, pipeline, vertex buffer
+and depth attachment. The returned object has `await renderer.render(vertices)`
+and `renderer.dispose()`. The default capacity is 4095 vertices and
+triangle counts must be a multiple of three.
+
+The host rejects canvas resize and concurrent in-flight submissions,
+snapshots and validates caller arrays, and destroys resources after
+device errors. The single-frame helper remains for one-off renders but
+incurs shader and pipeline setup costs on every invocation.
+
+This architecture removes repeated GPU initialization from subsequent
+frames. **No numerical GPU speedup is claimed** until real device
+timestamps and browser/driver results are collected.
