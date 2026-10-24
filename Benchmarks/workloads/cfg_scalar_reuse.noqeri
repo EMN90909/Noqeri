@@ -1,0 +1,15 @@
+// Reused scalar x stays constant through a branch diamond inside a loop.
+// When paths agree, the optimizer may forward its SSA register, but must
+// preserve the loop-carried sum and i variables.
+let x: int = 17
+let i: int = 0
+let sum: int = 0
+while i < 3000000 {
+    if i % 2 == 0 {
+        sum = sum + x
+    } else {
+        sum = sum - x
+    }
+    i = i + 1
+}
+print(sum)
