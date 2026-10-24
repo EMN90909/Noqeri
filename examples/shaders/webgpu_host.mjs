@@ -366,6 +366,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
   let context,configured=false,vertexBuffer,depthTexture,disposed=false,busy=false
+  let submittedSinceFence=0
   let lossMessage=null
   if(device.lost && typeof device.lost.then==='function'){
     device.lost.then(info=>{
@@ -416,41 +417,12 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
       size:[width,height,1],format:'depth24plus',
       usage:GPUTextureUsage.RENDER_ATTACHMENT
     })
-    return {
-      // Avoid recompiling the pipeline on canvas resize. Allocate the new
-      // attachment first and retain the previous one if allocation fails.
-      // A frame must not be in flight when resizing depth resources.
-      resize(newWidth, newHeight){
-        if(lossMessage)throw new Error(lossMessage)
-        if(disposed)throw new Error('3D renderer is disposed.')
-        if(busy)throw new Error('Cannot resize a 3D renderer with a frame in flight.')
-        if(!Number.isSafeInteger(newWidth)||!Number.isSafeInteger(newHeight)||
-           newWidth<1||newHeight<1||newWidth>4096||newHeight>4096||
-           newWidth>device.limits.maxTextureDimension2D||
-           newHeight>device.limits.maxTextureDimension2D)
-          throw new RangeError('3D resize dimensions exceed supported device limits.')
-        if(canvas.width!==newWidth||canvas.height!==newHeight)
-          throw new Error('Resize the canvas backing dimensions before the renderer.')
-        if(newWidth===width&&newHeight===height)return
-        let next
-        try{
-          next=device.createTexture({
-            size:[newWidth,newHeight,1],format:'depth24plus',
-            usage:GPUTextureUsage.RENDER_ATTACHMENT
-          })
-        }catch(error){ throw new Error('Could not allocate resized 3D depth attachment: '+String(error)) }
-        const previous=depthTexture
-        depthTexture=next
-        width=newWidth
-        height=newHeight
-        previous.destroy()
-      },
-      async render(input){
+    async function drawFrame(input,fast){
         if(lossMessage)throw new Error(lossMessage)
         if(disposed)throw new Error('3D renderer is disposed.')
         if(busy)throw new Error('3D renderer already has a frame in flight.')
         if(canvas.width!==width||canvas.height!==height)
-          throw new Error('3D canvas was resized; recreate renderer and depth attachment.')
+          throw new Error('3D canvas was resized; call renderer.resize with the new backing dimensions.')
         const vertices=snapshotClipVertices(input)
         if(vertices.length/4>maxVertices)
           throw new RangeError('3D vertex count exceeds persistent capacity.')
@@ -474,12 +446,65 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
           pass.draw(vertices.length/4)
           pass.end()
           device.queue.submit([encoder.finish()])
-          await device.queue.onSubmittedWorkDone()
+          submittedSinceFence++
+          // Two queued frames may overlap CPU encoding and GPU execution;
+          // the third waits so input staging cannot grow without bound.
+          if(!fast || submittedSinceFence>=3){
+            await device.queue.onSubmittedWorkDone()
+            submittedSinceFence=0
+          }
         }catch(error){
           dispose()
           throw error
         }finally{busy=false}
+      }
+  async function flushGpu(){
+    if(lossMessage)throw new Error(lossMessage)
+    if(disposed)throw new Error('3D renderer is disposed.')
+    if(busy)throw new Error('3D renderer already has a frame in flight.')
+    if(submittedSinceFence===0)return
+    busy=true
+    try{
+      await device.queue.onSubmittedWorkDone()
+      submittedSinceFence=0
+    }catch(error){dispose();throw error}
+    finally{busy=false}
+  }
+    return {
+      // Avoid recompiling the pipeline on canvas resize. Allocate the new
+      // attachment first and retain the previous one if allocation fails.
+      // A frame must not be in flight when resizing depth resources.
+      resize(newWidth, newHeight){
+        if(lossMessage)throw new Error(lossMessage)
+        if(disposed)throw new Error('3D renderer is disposed.')
+        if(busy||submittedSinceFence>0)throw new Error('Cannot resize a 3D renderer with pending GPU frames; call flush() first.')
+        if(!Number.isSafeInteger(newWidth)||!Number.isSafeInteger(newHeight)||
+           newWidth<1||newHeight<1||newWidth>4096||newHeight>4096||
+           newWidth>device.limits.maxTextureDimension2D||
+           newHeight>device.limits.maxTextureDimension2D)
+          throw new RangeError('3D resize dimensions exceed supported device limits.')
+        if(canvas.width!==newWidth||canvas.height!==newHeight)
+          throw new Error('Resize the canvas backing dimensions before the renderer.')
+        if(newWidth===width&&newHeight===height)return
+        let next
+        try{
+          next=device.createTexture({
+            size:[newWidth,newHeight,1],format:'depth24plus',
+            usage:GPUTextureUsage.RENDER_ATTACHMENT
+          })
+        }catch(error){ throw new Error('Could not allocate resized 3D depth attachment: '+String(error)) }
+        const previous=depthTexture
+        depthTexture=next
+        width=newWidth
+        height=newHeight
+        previous.destroy()
       },
+      render(input){return drawFrame(input,false)},
+      // Low-latency mode: batch up to three submitted frames per GPU fence.
+      // It is not a GPU completion signal; use flush() before resize.
+      renderFast(input){return drawFrame(input,true)},
+      flush(){return flushGpu()},
+,
       dispose
     }
   }catch(error){
