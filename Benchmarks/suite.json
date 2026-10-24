@@ -222,6 +222,28 @@
       "fixture": "Lib/std/render2d.noqeri",
       "qualification": "tests/scripts/graphics-raster-perf.sh",
       "resolution": "512x512"
+    },
+    {
+      "id": "graphics-3d-flat-z-256",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "measured-local",
+      "fixture": "Lib/std/render3d.noqeri",
+      "qualification": "tests/scripts/render3d-native-e2e.sh",
+      "resolution": "256x256",
+      "backend": "native-cpu-3d",
+      "baseline": "no earlier Noqeri 3D baseline; record before establishing a regression threshold"
+    },
+    {
+      "id": "graphics-3d-interpolated-z-256",
+      "group": "native-cpu-graphics",
+      "threshold_percent": 12,
+      "evidence": "measured-local",
+      "fixture": "Lib/std/render3d.noqeri",
+      "qualification": "tests/scripts/render3d-native-e2e.sh",
+      "resolution": "256x256",
+      "backend": "native-cpu-3d",
+      "baseline": "no earlier Noqeri 3D baseline; record before establishing a regression threshold"
     }
   ]
 }
