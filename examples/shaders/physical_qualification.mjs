@@ -2,7 +2,13 @@ import {runNoqeriCompute, renderNoqeriFragment} from './webgpu_host.mjs'
 
 // Run only on an actual secure-context WebGPU browser and record GPU driver info.
 // This is deliberately not invoked in headless/mocked CI as hardware evidence.
+let activeGpuRelease = null
+export function releasePhysicalGpu() {
+  activeGpuRelease?.()
+  activeGpuRelease = null
+}
 export async function qualifyPhysicalGpu(canvas, base='/build') {
+  releasePhysicalGpu()
   if (!globalThis.isSecureContext || !navigator.gpu)
     throw new Error('A secure-context browser with an actual WebGPU adapter is required.')
   const adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'})
@@ -40,6 +46,6 @@ export async function qualifyPhysicalGpu(canvas, base='/build') {
     {width:2,height:2,data:rgba})
   evidence.texturedFragment=true
   // The framebuffer is presented for manual review, not used as a pixel-accurate assertion.
-  release()
+  activeGpuRelease = release
   return evidence
 }
