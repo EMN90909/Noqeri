@@ -302,7 +302,7 @@ export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, posit
  * renderer so the depth surface cannot silently mismatch the canvas.
  */
 export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgsl,
-                                                  suppliedGpu = null, maxVertices = 4096) {
+                                                  suppliedGpu = null, maxVertices = 4095) {
   if(!canvas?.getContext || !Number.isSafeInteger(canvas.width) ||
      !Number.isSafeInteger(canvas.height) ||
      canvas.width<1 || canvas.height<1 || canvas.width>4096 || canvas.height>4096)
