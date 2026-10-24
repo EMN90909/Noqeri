@@ -191,3 +191,102 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, tex
     throw error
   }
 }
+
+function checkedClipVertices(vertices) {
+  if (!(vertices instanceof Float32Array) || vertices.length === 0 ||
+      vertices.length % 12 !== 0 || vertices.length > 393216)
+    throw new TypeError('3D vertices must be bounded Float32Array triangle lists of clip-space vec4.')
+  for(let i=0;i<vertices.length;i+=4) {
+    const x=vertices[i],y=vertices[i+1],z=vertices[i+2],w=vertices[i+3]
+    if(!Number.isFinite(x)||!Number.isFinite(y)||!Number.isFinite(z)||
+       !Number.isFinite(w)||w<=0||w>1e6||
+       Math.abs(x)>1e6||Math.abs(y)>1e6||z<0||z>w)
+      throw new RangeError('Non-finite or unsafe homogeneous vertex coordinate at '+(i/4))
+  }
+  return vertices
+}
+
+// One-frame mesh renderer with GPU hardware depth testing. This is a narrow
+// WebGPU bridge; the vertex and fragment algorithms are compiled from Noqeri.
+// Input positions are already transformed to homogeneous clip space. No
+// native GPU drivers, arbitrary vertex formats, or OS presentation is implied.
+export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, positions, suppliedGpu = null) {
+  if(!canvas?.getContext || !Number.isSafeInteger(canvas.width) ||
+     !Number.isSafeInteger(canvas.height) ||
+     canvas.width<1 || canvas.height<1 || canvas.width>4096 || canvas.height>4096)
+    throw new TypeError('3D canvas dimensions must be between 1 and 4096.')
+  if(typeof vertexWgsl!=='string' || !vertexWgsl.includes('@vertex') ||
+     !vertexWgsl.includes('@builtin(position)') ||
+     typeof fragmentWgsl!=='string' || !fragmentWgsl.includes('@fragment'))
+    throw new TypeError('Expected Noqeri-generated vertex and fragment WGSL.')
+  const vertices=checkedClipVertices(positions)
+  const gpu=requireGpu(suppliedGpu)
+  const device=await getDevice(gpu)
+  let context,configured=false,vertexBuffer,depthTexture
+  try {
+    if(!device.limits || !Number.isSafeInteger(device.limits.maxTextureDimension2D) ||
+       !Number.isSafeInteger(device.limits.maxBufferSize) ||
+       canvas.width>device.limits.maxTextureDimension2D ||
+       canvas.height>device.limits.maxTextureDimension2D ||
+       vertices.byteLength>device.limits.maxBufferSize)
+      throw new RangeError('3D resource exceeds WebGPU hardware limits.')
+    context=canvas.getContext('webgpu')
+    if(!context)throw new Error('Browser did not provide a WebGPU 3D canvas context.')
+    const format=gpu.getPreferredCanvasFormat()
+    context.configure({device,format,alphaMode:'opaque'})
+    configured=true
+    const vertex=await checkedModule(device,vertexWgsl)
+    const fragment=await checkedModule(device,fragmentWgsl)
+    const pipeline=device.createRenderPipeline({
+      layout:'auto',
+      vertex:{module:vertex,entryPoint:'main',buffers:[{
+        arrayStride:16,stepMode:'vertex',
+        attributes:[{shaderLocation:0,offset:0,format:'float32x4'}]
+      }]},
+      fragment:{module:fragment,entryPoint:'main',targets:[{format}]},
+      primitive:{topology:'triangle-list',cullMode:'none'},
+      depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'}
+    })
+    vertexBuffer=device.createBuffer({
+      size:vertices.byteLength,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST
+    })
+    device.queue.writeBuffer(vertexBuffer,0,vertices)
+    depthTexture=device.createTexture({
+      size:[canvas.width,canvas.height,1],
+      format:'depth24plus',usage:GPUTextureUsage.RENDER_ATTACHMENT
+    })
+    const encoder=device.createCommandEncoder()
+    const pass=encoder.beginRenderPass({
+      colorAttachments:[{
+        view:context.getCurrentTexture().createView(),
+        clearValue:{r:0.05,g:0.05,b:0.07,a:1},
+        loadOp:'clear',storeOp:'store'
+      }],
+      depthStencilAttachment:{
+        view:depthTexture.createView(),
+        depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'
+      }
+    })
+    pass.setPipeline(pipeline)
+    pass.setVertexBuffer(0,vertexBuffer)
+    pass.draw(vertices.length/4)
+    pass.end()
+    device.queue.submit([encoder.finish()])
+    await device.queue.onSubmittedWorkDone()
+    let disposed=false
+    return ()=>{
+      if(disposed)return
+      disposed=true
+      context.unconfigure()
+      depthTexture.destroy()
+      vertexBuffer.destroy()
+      device.destroy()
+    }
+  }catch(error) {
+    if(configured)context.unconfigure()
+    depthTexture?.destroy()
+    vertexBuffer?.destroy()
+    device.destroy()
+    throw error
+  }
+}
