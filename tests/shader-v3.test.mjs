@@ -14,7 +14,8 @@ test('GPU profile v3 emits typed vectors, swizzles and texture declarations',asy
     for(const [name,stage,wanted] of [
       ['vector_fragment','fragment',['vec2<f32>','vec3<f32>','vec4<f32>','(nq_local0).x','@fragment']],
       ['texture_fragment','fragment',['texture_2d<f32>','nq_sampler: sampler','textureDimensions(nq_texture)','textureSampleLevel(nq_texture, nq_sampler','@fragment']],
-      ['vector_compute','compute',['array<vec4<f32>>','(nq_arg0).xyz','@compute @workgroup_size(64)']]
+      ['vector_compute','compute',['array<vec4<f32>>','(nq_arg0).xyz','@compute @workgroup_size(64)']],
+      ['vector_lighting_fragment','fragment',['cross(','reflect(','mix(','min(','max(','abs(','(-normalize(','@fragment']]
     ]) {
       const output=join(dir,name+'.wgsl')
       const result=invoke('shader','examples/shaders/'+name+'.noqeri',output,'--stage='+stage)
@@ -34,13 +35,15 @@ test('GPU profile v3 rejects invalid swizzles, unauthorized calls and texture sa
       'export function shade(x: float, y: float): vec4 { return sampleTexture(vec2(x, y)) + vec3(1.0) }',
       'export function shade(value: vec4): vec4 { return sampleTexture(value.xy) }',
       'export function shade(value: vec4): vec4 { return vec4(value.x, value.y, value.z, value.x / 0.0) }',
-      'export function shade(value: vec3): vec3 { return value }'
+      'export function shade(value: vec3): vec3 { return value }',
+      'export function shade(x: float, y: float): vec4 { return vec4(cross(vec2(x, y), vec2(x, y)).x, 0.0, 0.0, 1.0) }',
+      'export function shade(x: float, y: float): vec4 { return vec4(mix(vec2(x, y), vec2(x, y), x).x, 0.0, 0.0, 1.0) }'
     ]
     for(let i=0;i<sources.length;i++){
       const file=join(dir,i+'.noqeri'),output=join(dir,i+'.wgsl')
       await writeFile(file,sources[i]+'\n')
       await writeFile(output,'retain-last-good')
-      const stage=i>=4?'compute':'fragment'
+      const stage=i>=4&&i<7?'compute':'fragment'
       const result=invoke('shader',file,output,'--stage='+stage)
       assert.notEqual(result.status,0,'accepted invalid shader '+i)
       assert.equal(await readFile(output,'utf8'),'retain-last-good')
