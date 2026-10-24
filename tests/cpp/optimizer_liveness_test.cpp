@@ -27,6 +27,66 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // Distinct nonescaping stack roots cannot alias. A StoreMemory to
+        // root B should NOT invalidate two loads from root A.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::StackAlloc,{});a.dest=1;a.width=8;
+        auto b=withArgs(noe::NirOp::StackAlloc,{});b.dest=2;b.width=8;
+        auto writeA=withArgs(noe::NirOp::StoreMemory,{1,3});
+        auto readA=withArgs(noe::NirOp::LoadMemory,{1});readA.dest=4;
+        auto writeB=withArgs(noe::NirOp::StoreMemory,{2,3});
+        auto readAgain=withArgs(noe::NirOp::LoadMemory,{1});readAgain.dest=5;
+        auto total=withArgs(noe::NirOp::Binary,{4,5});
+        total.dest=6;total.text="+";
+        readA.type.kind=readAgain.type.kind=total.type.kind=noe::TypeKind::Int;
+        p.entry.code={a,b,constant(3,7),writeA,readA,writeB,readAgain,total,
+                      withArgs(noe::NirOp::Return,{6})};
+        p.entry.registerTypes.resize(7);
+        for(noe::Reg v:{4u,5u,6u})
+            p.entry.registerTypes[v].kind=noe::TypeKind::Int;
+        const auto versions=noe::analyzeMemorySsaForPointer(p.entry,1);
+        if(!check(versions.valid&&
+                  versions.beforeInstruction[4]==versions.beforeInstruction[6],
+                  "partitioned MemorySSA ignores provably disjoint store"))
+            return 1;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        std::size_t reads=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::LoadMemory)++reads;
+        if(!check(reads==1,
+                  "partitioned MemorySSA forwards load across NoAlias store"))
+            return 1;
+    }
+    {
+        // A write through the same root must always change the version,
+        // so both load results remain if each is used.
+        noe::NirProgram p;
+        auto a=withArgs(noe::NirOp::StackAlloc,{});a.dest=1;a.width=8;
+        auto wa=withArgs(noe::NirOp::StoreMemory,{1,2});
+        auto ra=withArgs(noe::NirOp::LoadMemory,{1});ra.dest=3;
+        auto rb=withArgs(noe::NirOp::LoadMemory,{1});rb.dest=4;
+        auto total=withArgs(noe::NirOp::Binary,{3,4});
+        total.dest=5;total.text="+";
+        ra.type.kind=rb.type.kind=total.type.kind=noe::TypeKind::Int;
+        p.entry.code={a,constant(2,7),wa,ra,wa,rb,total,
+                      withArgs(noe::NirOp::Return,{5})};
+        p.entry.registerTypes.resize(6);
+        for(noe::Reg v:{3u,4u,5u})
+            p.entry.registerTypes[v].kind=noe::TypeKind::Int;
+        const auto versions=noe::analyzeMemorySsaForPointer(p.entry,1);
+        if(!check(versions.valid&&
+                  versions.beforeInstruction[3]!=versions.beforeInstruction[5],
+                  "same-root StoreMemory invalidates object MemorySSA"))
+            return 1;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        std::size_t reads=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::LoadMemory)++reads;
+        if(!check(reads==2,
+                  "same-root writes forbid redundant load forwarding"))
+            return 1;
+    }
+    {
         // A join with competing scalar Store definitions constructs a
         // Phi with one distinct incoming version from each predecessor.
         noe::NirFunction fn;

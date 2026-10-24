@@ -74,6 +74,10 @@ struct NirScalarSsa {
     std::vector<NirScalarPhi> phis;
 };
 NirScalarSsa analyzeScalarSsa(const NirFunction& fn);
+// Alias-partitioned version graph for a proven nonescaping StackAlloc root.
+// Retains every unknown barrier, but an independent NoAlias StoreMemory
+// cannot invalidate the root's data. Invalid/escaping roots fail closed.
+NirMemorySsa analyzeMemorySsaForPointer(const NirFunction& fn,Reg pointer);
 // MustAlias means the *same virtual pointer value*, not that two different
 // pointer expressions happen to have the same address. Distinct, nonescaping
 // StackAlloc roots permit NoAlias only in acyclic NIR. Everything else is May.
