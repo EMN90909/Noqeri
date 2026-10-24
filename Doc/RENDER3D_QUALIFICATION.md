@@ -157,3 +157,13 @@ incurs shader and pipeline setup costs on every invocation.
 This architecture removes repeated GPU initialization from subsequent
 frames. **No numerical GPU speedup is claimed** until real device
 timestamps and browser/driver results are collected.
+
+## Native executable-stack hardening
+
+The Linux ELF x86-64 Stage-0 native emitter now writes
+`.note.GNU-stack` with non-executable permissions, so linked
+graphics executables no longer silently inherit an executable stack
+from missing assembler metadata. The 2D and 3D native test harnesses
+fail if `readelf -W -l` reports an executable `GNU_STACK` segment
+or no such segment. This is an important defense-in-depth property,
+not a proof that all native memory operations are memory-safe.
