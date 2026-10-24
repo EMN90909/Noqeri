@@ -31,6 +31,7 @@ if [[ -n "$(printenv GRAPHICS_EVIDENCE_DIR || true)" ]]; then
   timeout 90s "$work/render3d-baseline" --bench > "$evidence/render3d-baseline-raw.csv"
   node tests/scripts/render3d-ab-summary.mjs "$evidence/render3d-baseline-raw.csv" \
     "$evidence/render3d-raw.csv" > "$evidence/render3d-ab-summary.json"
+  cat "$evidence/render3d-ab-summary.json"
   cp "$work/render3d.s" "$evidence/render3d.s"
   cp "$work/render3d-test" "$evidence/render3d.bin"
   cp "$work/render3d-baseline.s" "$evidence/render3d-baseline.s"
