@@ -1006,7 +1006,8 @@ int main() {
         for(std::size_t i=0;i<p.entry.code.size();++i){
             const auto& in=p.entry.code[i];
             if(in.op==noe::NirOp::Const &&in.dest&&*in.dest==2)literal=i;
-            if(in.op==noe::NirOp::JumpIfFalse)conditional=i;
+            if(in.op==noe::NirOp::JumpIfFalse&&conditional==999)
+                conditional=i;
             if(in.op==noe::NirOp::Jump)backedge=i;
         }
         if(!check(literal<conditional&&p.entry.code[backedge].target==conditional,
