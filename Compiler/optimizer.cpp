@@ -299,61 +299,140 @@ Graph graphOf(const NirFunction& fn) {
     }
     return g;
 }
-// Local mem2reg for values of the same, known NIR type. A Store already
-// produced a virtual register value. A subsequent Load in the SAME straight-
-// line block is redundant unless the variable is address-taken/volatile.
-// Do not rewrite successors, call sites or Phi-like joins without real SSA.
+// CFG-aware, SSA-compatible scalar load promotion. A Load can reuse a
+// virtual register from a previous Store/Load only when EVERY reachable
+// predecessor agrees on the exact register. Different incoming values
+// represent an unresolved Phi: until Phi lowering exists, keep the Load.
+//
+// This analysis never speculates trapping/effectful instructions. In
+// particular, address-taken and volatile variables are never promoted,
+// and unknown memory effects kill cached facts. A fixed point handles
+// loop backedges without depending on lexical block ordering.
 bool promoteLocalLoads(NirFunction& fn){
     const Graph g=graphOf(fn);
-    if(!g.uniqueDefs||!g.validDominance)return false;
-    std::unordered_set<std::string> addressTaken;
+    if(!g.uniqueDefs||!g.validDominance||g.spans.empty())return false;
+    std::unordered_set<std::string> excluded;
     for(const auto& in:fn.code){
-        if(in.op==NirOp::InlineAsm)return false;
-        if(in.op==NirOp::AddressOf)addressTaken.insert(in.text);
+        if(in.op==NirOp::InlineAsm||in.op==NirOp::Try)return false;
+        if(in.op==NirOp::AddressOf||
+           ((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile))
+            excluded.insert(in.text);
     }
-    std::unordered_map<Reg,std::size_t> finalUseBlock;
-    for(std::size_t pc=0;pc<fn.code.size();++pc)
-        for(Reg arg:fn.code[pc].args)
-            finalUseBlock[arg]=std::max(finalUseBlock[arg],g.owner[pc]);
-    bool changed=false;
-    for(std::size_t block=0;block<g.spans.size();++block){
-        std::unordered_map<std::string,Reg> values;
-        const auto span=g.spans[block];
-        for(std::size_t pc=span.first;pc<span.second;++pc){
-            auto& in=fn.code[pc];
-            if(in.op==NirOp::Store&&!in.args.empty()){
-                if(!addressTaken.count(in.text))values[in.text]=in.args[0];
-                else values.erase(in.text);
-                continue;
+    const auto scalar=[&](Reg reg)->bool{
+        if(reg>=fn.registerTypes.size())return false;
+        const auto kind=fn.registerTypes[reg].kind;
+        return signedIndexType(kind)||unsignedType(kind)||kind==TypeKind::Bool;
+    };
+    const auto compatible=[&](Reg a,Reg b)->bool{
+        return scalar(a)&&scalar(b)&&
+               fn.registerTypes[a].kind==fn.registerTypes[b].kind;
+    };
+    using Facts=std::unordered_map<std::string,Reg>;
+    const auto barrier=[](NirOp op)->bool{
+        switch(op){
+            case NirOp::Call:case NirOp::InlineAsm:case NirOp::StoreMemory:
+            case NirOp::AtomicStore:case NirOp::AtomicExchange:
+            case NirOp::AtomicCompareExchange:case NirOp::AtomicFence:
+            case NirOp::Try:case NirOp::Throw:return true;
+            default:return false;
+        }
+    };
+    const auto transfer=[&](const NirInstruction& in,Facts& state){
+        if(barrier(in.op)){state.clear();return;}
+        if(in.op==NirOp::Store){
+            if(in.args.size()!=1||excluded.count(in.text)||
+               !scalar(in.args[0]))state.erase(in.text);
+            else state[in.text]=in.args[0];
+        }else if(in.op==NirOp::Load&&in.dest){
+            if(excluded.count(in.text)||!scalar(*in.dest)){
+                state.erase(in.text);
+            }else{
+                auto previous=state.find(in.text);
+                if(previous==state.end()||
+                   !compatible(previous->second,*in.dest))
+                    state[in.text]=*in.dest;
             }
-            if(in.op!=NirOp::Load||!in.dest||in.isVolatile||
-               addressTaken.count(in.text))continue;
-            const auto previous=values.find(in.text);
-            if(previous==values.end())continue;
-            const Reg source=previous->second,loaded=*in.dest;
-            if(source==loaded||source>=fn.registerTypes.size()||
-               loaded>=fn.registerTypes.size())
-                continue;
-            const auto kind=fn.registerTypes[source].kind;
-            // Use only primitive scalar types: full Type equality requires
-            // the type engine, which is not linked into optimizer-only tests.
-            // Pointers, aggregates and floats remain in memory.
-            if(kind!=fn.registerTypes[loaded].kind||
-               !(signedIndexType(kind)||unsignedType(kind)||
-                 kind==TypeKind::Bool))
-                continue;
-            const auto last=finalUseBlock.find(loaded);
-            if(last!=finalUseBlock.end()&&last->second>block)continue;
-            for(std::size_t later=pc+1;later<span.second;++later)
-                for(auto& arg:fn.code[later].args)
-                    if(arg==loaded)arg=source;
-            in.op=NirOp::Nop;
-            in.dest.reset();
-            in.args.clear();
-            changed=true;
+        }
+    };
+    const auto blocks=g.spans.size();
+    std::vector<Facts> entries(blocks),exits(blocks);
+    std::vector<std::size_t> pending;
+    std::vector<bool> queued(blocks,false);
+    for(std::size_t b=0;b<blocks;++b)
+        if(g.reachable[b]){pending.push_back(b);queued[b]=true;}
+    for(std::size_t cursor=0;cursor<pending.size();++cursor){
+        const auto b=pending[cursor];queued[b]=false;
+        Facts incoming;
+        if(b!=0){
+            bool first=true;
+            for(auto predecessor:g.preds[b]){
+                if(!g.reachable[predecessor])continue;
+                if(first){incoming=exits[predecessor];first=false;}
+                else{
+                    for(auto it=incoming.begin();it!=incoming.end();){
+                        const auto found=exits[predecessor].find(it->first);
+                        if(found==exits[predecessor].end()||
+                           found->second!=it->second)
+                            it=incoming.erase(it);
+                        else ++it;
+                    }
+                }
+            }
+            if(first)incoming.clear();
+        }
+        entries[b]=incoming;
+        for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc)
+            transfer(fn.code[pc],incoming);
+        if(incoming==exits[b])continue;
+        exits[b]=std::move(incoming);
+        for(auto succ:g.edges[b])
+            if(g.reachable[succ]&&!queued[succ]){
+                queued[succ]=true;pending.push_back(succ);
+            }
+    }
+    std::unordered_map<Reg,Reg> substitutions;
+    for(std::size_t b=0;b<blocks;++b){
+        if(!g.reachable[b])continue;
+        auto state=entries[b];
+        for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc){
+            const auto& in=fn.code[pc];
+            if(in.op==NirOp::Load&&in.dest&&!in.isVolatile&&
+               !excluded.count(in.text)){
+                const auto known=state.find(in.text);
+                if(known!=state.end()&&known->second!=*in.dest&&
+                   compatible(known->second,*in.dest)){
+                    // The source must itself dominate this Load. Because
+                    // the Load dominates all its uses, global substitution
+                    // is legal even if the uses cross a basic-block edge.
+                    const auto def=g.definitions.find(known->second);
+                    if(def!=g.definitions.end()&&
+                       ((g.owner[def->second]==b&&def->second<pc)||
+                        (g.owner[def->second]!=b&&
+                         g.dominates[b][g.owner[def->second]])))
+                        substitutions.emplace(*in.dest,known->second);
+                }
+            }
+            transfer(in,state);
         }
     }
-    return changed;
+    if(substitutions.empty())return false;
+    // Resolve a chain of two substituted Loads before erasing definitions.
+    const auto resolve=[&](Reg reg){
+        for(std::size_t steps=0;steps<substitutions.size();++steps){
+            const auto it=substitutions.find(reg);
+            if(it==substitutions.end()||it->second==reg)break;
+            reg=it->second;
+        }
+        return reg;
+    };
+    for(auto& in:fn.code){
+        for(auto& arg:in.args)arg=resolve(arg);
+        if(in.op==NirOp::Load&&in.dest&&substitutions.count(*in.dest)){
+            in.op=NirOp::Nop;
+            in.dest.reset();in.args.clear();
+        }
+    }
+    return true;
 }
 bool safeIntResult(const NirInstruction& i) {
     // No CSE for floats (NaNs, signed zero), pointers, volatile loads or

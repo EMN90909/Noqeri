@@ -213,6 +213,45 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s candidate/tests -p native_perf_evidence_test.py
           python3 candidate/scripts/native-perf-evidence.py candidate/build/native-perf-ab.json
+      - name: Measure branch-join scalar reuse (native A/B)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp candidate/Benchmarks/workloads/cfg_scalar_reuse.noqeri baseline/Benchmarks/workloads/cfg_scalar_reuse.noqeri
+          for revision in baseline candidate; do
+            (
+              cd "$revision"
+              node scripts/native-build.mjs Benchmarks/workloads/cfg_scalar_reuse.noqeri build/cfg-scalar-ab --compiler=build/noqeri --opt=-O3
+            )
+          done
+          python3 - <<'PY'
+          import json, statistics, subprocess, time
+          from pathlib import Path
+          path=Path("candidate/build/native-perf-ab.json")
+          result=json.loads(path.read_text())
+          programs={name:(Path(name)/"build/cfg-scalar-ab").resolve()
+                    for name in ("baseline","candidate")}
+          samples={name:[] for name in programs}
+          def run(name):
+              started=time.perf_counter_ns()
+              finished=subprocess.run([str(programs[name])],capture_output=True,check=True)
+              if finished.stdout!=b"0\n":
+                  raise AssertionError(f"{name} incorrect branch-loop result: {finished.stdout!r}")
+              return (time.perf_counter_ns()-started)/1e6
+          for _ in range(3):
+              for name in programs:run(name)
+          for i in range(15):
+              for name in (("baseline","candidate") if i%2==0 else ("candidate","baseline")):
+                  samples[name].append(run(name))
+          med={name:statistics.median(values) for name,values in samples.items()}
+          result["cfg_scalar_reuse"]={"samples_ms":samples,"median_ms":med,
+                                      "speedup":med["baseline"]/med["candidate"],
+                                      "warmups":3,"expected_stdout":"0"}
+          path.write_text(json.dumps(result,indent=2)+"\n")
+          print("CFG scalar reuse:",json.dumps(result["cfg_scalar_reuse"],indent=2))
+          if med["candidate"]>med["baseline"]*1.2:
+              raise SystemExit("CFG scalar promotion regressed benchmark by more than 20%")
+          PY
       - name: Upload raw measurements
         uses: actions/upload-artifact@v4
         with:
