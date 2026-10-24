@@ -27,6 +27,27 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // CFG dominance must remain valid beyond one 64-bit bitset word.
+        // A first-block definition dominates the final use across 96 jumps.
+        noe::NirFunction fn;
+        constexpr std::size_t blocks=96;
+        for(std::size_t k=0;k<blocks;++k){
+            fn.code.push_back(constant(static_cast<noe::Reg>(k+1),
+                                       static_cast<std::int64_t>(k+1)));
+            if(k+1<blocks){
+                auto jump=withArgs(noe::NirOp::Jump,{});
+                jump.target=2*(k+1);
+                fn.code.push_back(jump);
+            }else fn.code.push_back(withArgs(noe::NirOp::Return,{1}));
+        }
+        const auto facts=noe::inspectOptimizations(fn);
+        if(!check(facts.basicBlocks==blocks&&
+                  facts.uniqueVirtualRegisterDefinitions&&
+                  facts.allDefinitionsDominateUses,
+                  "packed dominators preserve 96-block SSA dominance"))
+            return 1;
+    }
+    {
         // The same scalar value reaches both arms of a diamond: a Load
         // after the join is redundant, and all successor uses may be
         // redirected to the source virtual register.
