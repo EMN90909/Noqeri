@@ -55,6 +55,13 @@ noqeri_apply_warnings(noqeri-nqri)
 noqeri_apply_warnings(noqeri_abi)
 include(CTest)
 if(BUILD_TESTING)
+ add_executable(noqeri-phi-edge-emitter
+   tests/cpp/phi_edge_codegen_test.cpp Compiler/native_backend.cpp)
+ target_include_directories(noqeri-phi-edge-emitter PRIVATE
+   Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri-phi-edge-emitter PRIVATE cxx_std_17)
+ target_link_libraries(noqeri-phi-edge-emitter PRIVATE noqeri_abi)
+ noqeri_apply_warnings(noqeri-phi-edge-emitter)
  add_executable(noqeri-simd-codegen-test
    tests/cpp/native_simd_emit_test.cpp Compiler/native_backend.cpp)
  target_include_directories(noqeri-simd-codegen-test PRIVATE

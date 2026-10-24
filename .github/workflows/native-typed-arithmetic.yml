@@ -65,6 +65,15 @@ jobs:
             actual="$("build-typed/phi-loop-$level")"
             test "$actual" = "$expected"
           done
+      - name: Execute critical-edge Phi destruction in native AOT
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-typed --target noqeri-phi-edge-emitter --parallel 2
+          build-typed/noqeri-phi-edge-emitter build-typed/phi-edges.s
+          cc -c build-typed/phi-edges.s -o build-typed/phi-edges.o
+          cc -std=c11 tests/cpp/phi_edge_host.c build-typed/phi-edges.o -o build-typed/phi-edges-exec
+          build-typed/phi-edges-exec
       - name: Assemble and execute opt-in SSE2 packed arithmetic
         shell: bash
         run: |
