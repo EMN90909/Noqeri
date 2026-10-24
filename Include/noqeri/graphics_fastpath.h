@@ -17,6 +17,12 @@ int nq_graphics_clear_argb32(uint32_t *pixels, size_t pixel_count, uint32_t colo
 int nq_graphics_clear_rows_argb32(uint32_t *pixels, size_t pixel_capacity,
                                  size_t width, size_t height, size_t pitch,
                                  uint32_t color);
+/* Compiled CPU clear kernel and platform diagnostics (static strings).
+ * These APIs do not probe GPU devices, so never imply actual hardware support.
+ */
+const char *nq_graphics_clear_backend(void); /* sse2, neon, scalar */
+const char *nq_graphics_cpu_arch(void);
+const char *nq_graphics_host_os(void);
 #ifdef __cplusplus
 }
 #endif
