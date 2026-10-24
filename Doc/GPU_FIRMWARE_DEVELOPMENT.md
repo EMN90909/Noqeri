@@ -61,6 +61,7 @@ Use the offline packer to bundle Noqeri source and a simulator payload.
 The `.bin` input is an arbitrary simulation byte sequence, not a GPU ROM:
 
 ```sh
+printf '\\001\\002\\003\\004' > build/gpu-sim.bin
 node scripts/gpu-firmware-package.mjs pack \
   examples/gpu_firmware_sim.noqeri build/gpu-sim.bin build/gpu-sim.nqfw.json
 node scripts/gpu-firmware-package.mjs verify build/gpu-sim.nqfw.json
