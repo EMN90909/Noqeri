@@ -83,7 +83,54 @@ jobs:
           (out/'native-speed-results.json').write_text(json.dumps(result,indent=2)+'\n')
           print('PERF_JSON '+json.dumps(result),flush=True)
           PY
+      - name: Measure native scaling at 200, 2000 and 20000 rounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib,platform,statistics,subprocess,time
+          root=pathlib.Path.cwd();out=root/'build-speed'
+          original=(root/'Benchmarks/workloads/sorting.noqeri').read_text()
+          c_template=(out/'ref.c').read_text()
+          go_template=(out/'ref.go').read_text()
+          assert original.count('round < 200 as usize')==1
+          assert c_template.count('round<2000')==1
+          assert go_template.count('round<2000')==1
+          def run(cmd):
+            r=subprocess.run(cmd,check=True,capture_output=True,text=True)
+            return r.stdout.strip()
+          def time_binary(binary):
+            samples=[]
+            for i in range(-3,21):
+              start=time.perf_counter_ns()
+              output=run([str(binary)])
+              ms=(time.perf_counter_ns()-start)/1e6
+              if output!='64\n65032':raise ValueError(f'Incorrect output {binary}: {output!r}')
+              if i>=0:samples.append(ms)
+            ordered=sorted(samples)
+            return {'median_ms':statistics.median(samples),'p95_ms':ordered[19],'raw_ms':samples}
+          result={'benchmark':'same sorting input and algorithm, larger round count','revision':run(['git','rev-parse','HEAD']),'execution_model':'native-aot','warmups':3,'samples':21,'workloads':[]}
+          for rounds in (200,2000,20000):
+            source=out/f'sorting_{rounds}.noqeri'
+            source.write_text(original.replace('round < 200 as usize',f'round < {rounds} as usize'))
+            native=out/f'sorting_{rounds}_noqeri'
+            run(['node','scripts/native-build.mjs',str(source),str(native),'--compiler=build-speed/noqeri','--opt=-O3'])
+            prov=json.loads(pathlib.Path(str(native)+'.native.json').read_text())
+            if prov.get('execution_model')!='native-aot' or prov.get('self_hosted_compiler')!=False:raise ValueError('invalid AOT provenance')
+            if hashlib.sha256(native.read_bytes()).hexdigest()!=prov['artifact_sha256']:raise ValueError('invalid native binary hash')
+            c_source=out/f'sorting_{rounds}.c';c_source.write_text(c_template.replace('round<2000',f'round<{rounds}'))
+            go_source=out/f'sorting_{rounds}.go';go_source.write_text(go_template.replace('round<2000',f'round<{rounds}'))
+            c=out/f'sorting_{rounds}_c';go=out/f'sorting_{rounds}_go'
+            run(['gcc','-O3','-std=c11',str(c_source),'-o',str(c)])
+            run(['go','build','-o',str(go),str(go_source)])
+            readings={name:time_binary(exe) for name,exe in [('noqeri',native),('c',c),('go',go)]}
+            result['workloads'].append({'rounds':rounds,'medians_ms':{k:v['median_ms'] for k,v in readings.items()},'full_readings':readings,'noqeri_provenance':prov})
+            print('SCALE_RESULT '+json.dumps({'rounds':rounds,'medians_ms':{k:round(v['median_ms'],5) for k,v in readings.items()}}),flush=True)
+          (out/'native-speed-scaling.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: native-noqeri-benchmark-results
-          path: build-speed/native-speed-results.json
+          path: |
+            build-speed/native-speed-results.json
+            build-speed/native-speed-scaling.json
