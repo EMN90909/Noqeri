@@ -6,7 +6,6 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const gate = resolve('scripts/perf-gate.mjs')
-const samples = Array(15).fill(10)
 const environment = {
   platform: 'linux', arch: 'x64', os_release: 'test-kernel',
   cpus: ['same-cpu'], logical_cpus: 1, total_memory_bytes: 1024,
@@ -20,7 +19,7 @@ function report(median = 10, p95 = 10) {
       execution_model: 'native-aot', self_hosted_compiler: false,
       validated_stdout: 'correct', artifact_sha256: 'abc',
       threshold_percent: 8, median_ms: median, p95_ms: p95,
-      raw_samples_ms: samples
+      raw_samples_ms: [...Array(14).fill(median), p95]
     }]
   }
 }
@@ -30,8 +29,11 @@ function run(before, after, extras = []) {
     const a = join(dir, 'baseline.json'), b = join(dir, 'candidate.json')
     writeFileSync(a, JSON.stringify(before))
     writeFileSync(b, JSON.stringify(after))
+    const required = extras.find(x => x.startsWith('--require=')) ||
+      '--require=noqeri:sorting'
     return spawnSync(process.execPath,
-      [gate, a, b, '--release', '--require=noqeri:sorting', ...extras],
+      [gate, a, b, '--release', required,
+       ...extras.filter(x => !x.startsWith('--require='))],
       { encoding: 'utf8' })
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }
