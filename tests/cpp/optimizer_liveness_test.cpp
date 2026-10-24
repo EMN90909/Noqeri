@@ -54,6 +54,36 @@ int main() {
         if(!check(!remaining,"signed index with two proven bounds"))return 1;
     }
     {
+        // A second trip through the body without rechecking the upper guard
+        // must not inherit the old bound proof. Mutation after the first
+        // checked access makes the second access invalid.
+        noe::NirProgram p;
+        auto oldIndex=withArgs(noe::NirOp::Load,{});
+        oldIndex.dest=1;oldIndex.text="index";
+        auto guard=withArgs(noe::NirOp::Binary,{1,2});
+        guard.dest=3;guard.text="<";guard.type.kind=noe::TypeKind::Bool;
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{3});
+        exit.target=10;
+        auto checked=withArgs(noe::NirOp::Load,{});
+        checked.dest=4;checked.text="index";
+        auto write=withArgs(noe::NirOp::Store,{5});write.text="index";
+        auto back=withArgs(noe::NirOp::Jump,{});
+        back.target=4;
+        p.entry.code={oldIndex,constant(2,8),guard,exit,
+                      checked,withArgs(noe::NirOp::CheckBounds,{4,2}),
+                      constant(5,99),write,back,
+                      withArgs(noe::NirOp::Nop,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(6);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Usize;
+        p.entry.registerTypes[4].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool hasCheck=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)hasCheck=true;
+        if(!check(hasCheck,"backedge cannot bypass bounds guard"))return 1;
+    }
+    {
         // An upper guard does NOT rule out negative indices. Keep the trap.
         noe::NirProgram p;
         auto index=withArgs(noe::NirOp::Load,{});index.dest=1;index.text="index";
