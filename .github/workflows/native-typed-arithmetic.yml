@@ -65,6 +65,8 @@ jobs:
             actual="$("build-typed/phi-loop-$level")"
             test "$actual" = "$expected"
           done
+      - name: Compare three hot locals against RBX-only baseline
+        run: node scripts/bench-hot-locals.mjs
       - name: Verify scalar diamond Phi lowering in native AOT
         shell: bash
         run: |
