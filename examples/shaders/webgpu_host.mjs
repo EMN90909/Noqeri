@@ -24,11 +24,13 @@ async function checkedModule(device, code) {
 function computeMetadata(wgsl) {
   if (typeof wgsl !== 'string') throw new TypeError('Compute WGSL must be text.')
   const workgroup = /@compute\s+@workgroup_size\((32|64|128|256)\)(?=\s|$)/.exec(wgsl)
-  const input = /var<storage,\s*read>\s+input_pixels\s*:\s*array<(u32|f32)>/.exec(wgsl)
-  const output = /var<storage,\s*read_write>\s+output_pixels\s*:\s*array<(u32|f32)>/.exec(wgsl)
+  const input = /var<storage,\s*read>\s+input_pixels\s*:\s*array<(u32|f32|vec[234]<f32>)>/.exec(wgsl)
+  const output = /var<storage,\s*read_write>\s+output_pixels\s*:\s*array<(u32|f32|vec[234]<f32>)>/.exec(wgsl)
   if (!workgroup || !input || !output || input[1] !== output[1])
     throw new TypeError('Expected a Noqeri compute shader with matching storage buffers and workgroup size.')
-  return {workgroupSize: Number(workgroup[1]), elementType: input[1]}
+  const type=input[1]
+  const width=type==='vec2<f32>'?2:type==='vec3<f32>'||type==='vec4<f32>'?4:1
+  return {workgroupSize: Number(workgroup[1]), elementType:type, storageStrideFloats:width}
 }
 function assertGpuLimits(device, bytes, groups, groupSize) {
   const limits = device.limits
@@ -46,17 +48,19 @@ function assertGpuLimits(device, bytes, groups, groupSize) {
 export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
   if (!(pixels instanceof Uint32Array) && !(pixels instanceof Float32Array))
     throw new TypeError('Compute input must be a Uint32Array or Float32Array.')
-  const {workgroupSize, elementType} = computeMetadata(wgsl)
+  const {workgroupSize, elementType, storageStrideFloats} = computeMetadata(wgsl)
   if ((elementType === 'u32' && !(pixels instanceof Uint32Array)) ||
-      (elementType === 'f32' && !(pixels instanceof Float32Array)))
+      (elementType !== 'u32' && !(pixels instanceof Float32Array)))
     throw new TypeError('Compute shader scalar type does not match input buffer type.')
+  if(pixels.length % storageStrideFloats !== 0)
+    throw new RangeError('GPU vector storage input must contain complete aligned vector elements.')
   if (!pixels.length) return new pixels.constructor(0)
   if (pixels.byteLength > 64 * 1024 * 1024)
     throw new RangeError('Compute demo input is capped at 64 MiB.')
   const device = await getDevice(requireGpu(suppliedGpu))
   let source, result, readback, mapped = false
   try {
-    const groups = Math.ceil(pixels.length / workgroupSize)
+    const groups = Math.ceil((pixels.length / storageStrideFloats) / workgroupSize)
     assertGpuLimits(device, pixels.byteLength, groups, workgroupSize)
     const module = await checkedModule(device, wgsl)
     const pipeline = device.createComputePipeline({
@@ -98,13 +102,13 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
     device.destroy()
   }
 }
-export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null) {
+export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, textureSource = null) {
   if (!canvas?.getContext) throw new TypeError('A WebGPU canvas is required.')
   if (typeof wgsl !== 'string' || !wgsl.includes('@fragment'))
     throw new TypeError('Expected a Noqeri fragment WGSL shader.')
   const gpu = requireGpu(suppliedGpu)
   const device = await getDevice(gpu)
-  let context, configured = false
+  let context, configured = false, texture = null
   try {
     context = canvas.getContext('webgpu')
     if (!context) throw new Error('Browser did not provide a WebGPU canvas context.')
@@ -126,6 +130,42 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null) {
       fragment: {module: fragment, entryPoint: 'main', targets: [{format}]},
       primitive: {topology: 'triangle-list'}
     })
+    let textureBindGroup=null
+    if (wgsl.includes('var nq_texture: texture_2d<f32>')) {
+      if (!textureSource || !Number.isInteger(textureSource.width) ||
+          !Number.isInteger(textureSource.height) ||
+          textureSource.width<=0 || textureSource.height<=0 ||
+          !(textureSource.pixels instanceof Uint8Array)) {
+        throw new TypeError('Sampled Noqeri shader needs {width,height,pixels: Uint8Array} RGBA8 texture.')
+      }
+      const {width,height,pixels}=textureSource
+      if (width>device.limits.maxTextureDimension2D||
+          height>device.limits.maxTextureDimension2D||
+          width*height*4>16*1024*1024||
+          pixels.byteLength!==width*height*4) {
+        throw new RangeError('Invalid RGBA8 texture dimensions, byte count or device limit.')
+      }
+      const pitch=Math.ceil(width*4/256)*256
+      const data=new Uint8Array(pitch*height)
+      for(let y=0;y<height;y++){
+        data.set(pixels.subarray(y*width*4,(y+1)*width*4),y*pitch)
+      }
+      texture=device.createTexture({
+        size:[width,height,1],format:'rgba8unorm',
+        usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST
+      })
+      device.queue.writeTexture({texture},data,
+        {offset:0,bytesPerRow:pitch,rowsPerImage:height},
+        {width,height,depthOrArrayLayers:1})
+      const sampler=device.createSampler({magFilter:'linear',minFilter:'linear'})
+      textureBindGroup=device.createBindGroup({
+        layout:pipeline.getBindGroupLayout(0),
+        entries:[
+          {binding:0,resource:texture.createView()},
+          {binding:1,resource:sampler}
+        ]
+      })
+    }
     const encoder = device.createCommandEncoder()
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -135,6 +175,7 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null) {
       }]
     })
     pass.setPipeline(pipeline)
+    if (textureBindGroup) pass.setBindGroup(0,textureBindGroup)
     pass.draw(3)
     pass.end()
     device.queue.submit([encoder.finish()])
@@ -144,10 +185,12 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null) {
       if (disposed) return
       disposed = true
       context.unconfigure()
+      texture?.destroy()
       device.destroy()
     }
   } catch (error) {
     if (configured) context.unconfigure()
+    texture?.destroy()
     device.destroy()
     throw error
   }
