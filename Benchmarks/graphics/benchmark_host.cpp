@@ -62,12 +62,12 @@ static void dump_ppm(const std::string& path){
 int main(int argc,char** argv){
     try{
         if(argc<5 || argc>6){
-            std::fprintf(stderr,"usage: render <gradient|checker> W H FRAMES [output.ppm]\n");
+            std::fprintf(stderr,"usage: render <gradient|checker|fractal> W H FRAMES [output.ppm]\n");
             return 2;
         }
         const std::string mode=argv[1];
-        if(mode!="gradient"&&mode!="checker")return 2;
-        g_mode=mode=="gradient"?0:1;
+        if(mode!="gradient"&&mode!="checker"&&mode!="fractal")return 2;
+        g_mode=mode=="gradient"?0:(mode=="checker"?1:2);
         g_width=std::stoull(argv[2]);
         g_height=std::stoull(argv[3]);
         g_frames=std::stoull(argv[4]);

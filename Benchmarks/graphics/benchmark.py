@@ -69,7 +69,7 @@ def main():
     cmd(["gcc","-std=c11","-O3","-c",SRC/"reference.c","-o",cobj])
     cmd(["g++","-std=c++17","-O2","-DBENCH_C_REFERENCE",host,cobj,"-o",cref])
     check_cases=[]
-    for mode in ("gradient","checker"):
+    for mode in ("gradient","checker","fractal"):
         nppm=out/f"{mode}_noqeri.ppm"
         cppm=out/f"{mode}_reference.ppm"
         n=run_case(noqexe,mode,640,360,1,nppm)
@@ -97,7 +97,7 @@ def main():
       "workloads":[]
     }
     for mode in ("gradient","checker"):
-        for width,height,frames in ((320,180,25),(640,360,12),(1280,720,3)):
+        for width,height,frames in (((320,180,2),(640,360,1),(1280,720,1)) if mode=="fractal" else ((320,180,25),(640,360,12),(1280,720,3))):
             # Every frame's output is sampled by a host callback, preventing
             # aggressive compilers from eliminating repeated writes.
             series={"Noqeri":[],"C":[]}
