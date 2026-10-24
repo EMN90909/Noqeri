@@ -388,50 +388,6 @@ int main(int argc, char** argv) {
             for (const auto& t : tokens) std::cout << t.span.line << ':' << t.span.column << "  " << tokenKindName(t.kind) << "  " << t.lexeme << "\n";
             return 0;
         }
-        auto options = optionsFromArgs(argc, argv, selected->target);
-        if (cmd == "bootstrap-seed") options.allowUnsafe = true;
-        auto compilation = compileFile(path, options);
-        if (compilation.diagnostics.hasErrors()) { compilation.diagnostics.print(path.string()); return 1; }
-        if (cmd == "check") {
-            std::cout << "check succeeded: " << path << " modules=" << (compilation.modules ? compilation.modules->modules().size() : 1) << " target=" << options.target << "\n";
-            return 0;
-        }
-        if (cmd == "nir") { std::cout << printNir(compilation.nir); return 0; }
-        if (cmd == "run") return Interpreter{}.run(compilation.nir);
-        if (cmd == "bootstrap-seed") {
-            if (argc < 3) { std::cerr << "NQR-B9035: bootstrap-seed requires Compiler/selfhost/main.noqeri or another compiler entry source\n"; return 1; }
-            const auto seedAbi = std::find_if(compilation.nir.functions.begin(), compilation.nir.functions.end(), [](const NirFunction& fn) {
-                return fn.name == "stage2CompileToNqri" && fn.isExport;
-            });
-            if (seedAbi == compilation.nir.functions.end()) {
-                std::cerr << "NQR-B9037: bootstrap compiler must export stage2CompileToNqri; refusing to emit an unusable Stage-1 seed\n";
-                return 1;
-            }
-            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / "noqeri-stage1.nqri";
-            if (output.extension().empty()) output += ".nqri";
-            if (output.extension() != ".nqri") {
-                std::cerr << "NQR-B9036: bootstrap seed output must use the .nqri extension\n";
-                return 1;
-            }
-            std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
-            Diagnostics d;
-            if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
-            std::cout << "emitted Stage-1 NQRI seed candidate (provenance not yet verified): " << output << "\n";
-            return 0;
-        }
-        if (cmd == "nqri") {
-            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".nqri");
-            if (output.extension().empty()) output += ".nqri";
-            if (output.extension() != ".nqri") {
-                std::cerr << "NQR-B9028: nqri output must use the .nqri extension\n";
-                return 1;
-            }
-            std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
-            Diagnostics d;
-            if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
-            std::cout << "emitted portable NQRI module: " << output << "\n";
-            return 0;
-        }
         if (cmd == "shader") {
             std::string stage;
             std::uint32_t workgroup = 64;
@@ -484,11 +440,63 @@ int main(int argc, char** argv) {
             std::filesystem::create_directories(output.parent_path().empty() ?
                 std::filesystem::path(".") : output.parent_path());
             Diagnostics d;
-            if(!ShaderBackend{}.emitWgsl(compilation.ast,output,stage,d,workgroup)) {
+            const auto raw=readTextFile(path);
+            Lexer lexer(raw,d);
+            const auto tokens=lexer.lex();
+            if(d.hasErrors()){d.print(path.string());return 1;}
+            Parser parser(tokens,d);
+            const auto program=parser.parse();
+            if(d.hasErrors()){d.print(path.string());return 1;}
+            if(!ShaderBackend{}.emitWgsl(program,output,stage,d,workgroup)) {
                 d.print(path.string());
                 return 1;
             }
             std::cout<<"emitted Noqeri WebGPU "<<stage<<" shader: "<<output<<"\n";
+            return 0;
+        }
+
+        auto options = optionsFromArgs(argc, argv, selected->target);
+        if (cmd == "bootstrap-seed") options.allowUnsafe = true;
+        auto compilation = compileFile(path, options);
+        if (compilation.diagnostics.hasErrors()) { compilation.diagnostics.print(path.string()); return 1; }
+        if (cmd == "check") {
+            std::cout << "check succeeded: " << path << " modules=" << (compilation.modules ? compilation.modules->modules().size() : 1) << " target=" << options.target << "\n";
+            return 0;
+        }
+        if (cmd == "nir") { std::cout << printNir(compilation.nir); return 0; }
+        if (cmd == "run") return Interpreter{}.run(compilation.nir);
+        if (cmd == "bootstrap-seed") {
+            if (argc < 3) { std::cerr << "NQR-B9035: bootstrap-seed requires Compiler/selfhost/main.noqeri or another compiler entry source\n"; return 1; }
+            const auto seedAbi = std::find_if(compilation.nir.functions.begin(), compilation.nir.functions.end(), [](const NirFunction& fn) {
+                return fn.name == "stage2CompileToNqri" && fn.isExport;
+            });
+            if (seedAbi == compilation.nir.functions.end()) {
+                std::cerr << "NQR-B9037: bootstrap compiler must export stage2CompileToNqri; refusing to emit an unusable Stage-1 seed\n";
+                return 1;
+            }
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / "noqeri-stage1.nqri";
+            if (output.extension().empty()) output += ".nqri";
+            if (output.extension() != ".nqri") {
+                std::cerr << "NQR-B9036: bootstrap seed output must use the .nqri extension\n";
+                return 1;
+            }
+            std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
+            Diagnostics d;
+            if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
+            std::cout << "emitted Stage-1 NQRI seed candidate (provenance not yet verified): " << output << "\n";
+            return 0;
+        }
+        if (cmd == "nqri") {
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".nqri");
+            if (output.extension().empty()) output += ".nqri";
+            if (output.extension() != ".nqri") {
+                std::cerr << "NQR-B9028: nqri output must use the .nqri extension\n";
+                return 1;
+            }
+            std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
+            Diagnostics d;
+            if (!NqriBackend{}.emitModule(compilation.nir, compilation.modules.get(), output, d)) { d.print(path.string()); return 1; }
+            std::cout << "emitted portable NQRI module: " << output << "\n";
             return 0;
         }
         if (cmd == "web") {

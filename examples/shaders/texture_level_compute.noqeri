@@ -1,0 +1,7 @@
+module examples.shaders.texture_level_compute
+
+// This source is intentionally expected to fail: a texture sample produces a
+// Vec4 that cannot be coerced to a scalar float without selecting a channel.
+export function shade(value: float): float {
+    return textureSampleLevel(vec2(value, value), 0.0)
+}

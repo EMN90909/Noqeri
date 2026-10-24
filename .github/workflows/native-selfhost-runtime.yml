@@ -252,6 +252,23 @@ jobs:
           grep -qx 'stage1_independently_trusted=false' build-selfhost/nqri-selfhost-proof.txt
           grep -qx 'byte_equal=true' build-selfhost/nqri-selfhost-proof.txt
           grep -qx 'equivalent=true' build-selfhost/nqri-selfhost-proof.txt
+      - name: Compile WGSL using actual Noqeri-authored Stage-2 NQRI backend (scalar profile)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime=build-native/noqeri-nqri
+          stage2=build-selfhost/noqeri-stage2.nqri
+          shader=build-selfhost/noqeri-shader-stage2.nqri
+          "$runtime" compile-manifest "$stage2" "$PWD" tests/stage2-shader-sources.txt "$shader" 3
+          "$runtime" has-export "$shader" stage2ShaderCompileWgsl
+          "$runtime" shader "$shader" examples/shaders/invert_compute.noqeri /tmp/nqri-shader-compute.wgsl compute 128
+          "$runtime" shader "$shader" examples/shaders/color_gradient.noqeri /tmp/nqri-shader-fragment.wgsl fragment
+          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/nqri-shader-compute.wgsl /tmp/nqri-shader-fragment.wgsl
+          if "$runtime" shader "$shader" examples/shaders/texture_fragment.noqeri /tmp/unsafe-unsupported.wgsl fragment; then
+            echo "Stage-2 shader subset must reject unsupported texture intrinsics" >&2
+            exit 1
+          fi
       - name: Build Stage-1 NQRI seed candidate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -281,6 +298,22 @@ jobs:
           $proof = Get-Content (Join-Path $env:BUILD_DIR 'nqri-selfhost-proof.json') -Raw | ConvertFrom-Json
           if (-not $proof.equivalent -or -not $proof.byte_equal -or -not $proof.stage1_pin_verified -or $proof.seed_origin -ne 'repository-committed' -or $proof.stage1_independently_trusted -ne $false -or $proof.execution_model -ne 'nqri-vm' -or $proof.native_codegen -ne $false -or $proof.native_selfhost -ne $false) {
             throw 'NQRI bootstrap evidence must prove the repository Stage-1 pin and Stage-2/Stage-3 byte equality while explicitly rejecting native qualification'
+          }
+      - name: Verify Noqeri-authored Stage-2 WGSL backend on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $runtime = '.\\build-native\\Release\\noqeri-nqri.exe'
+          $stage2 = 'build-selfhost/noqeri-stage2.nqri'
+          $shader = 'build-selfhost/noqeri-shader-stage2.nqri'
+          & $runtime compile-manifest $stage2 $PWD tests/stage2-shader-sources.txt $shader 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $runtime has-export $shader stage2ShaderCompileWgsl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $runtime shader $shader examples/shaders/invert_compute.noqeri build-selfhost/s2-compute.wgsl compute 64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path build-selfhost/s2-compute.wgsl -Pattern '@compute @workgroup_size\\(64\\)' -Quiet)) {
+            throw 'Stage-2 self-hosted WGSL compute shader did not render correctly'
           }
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'

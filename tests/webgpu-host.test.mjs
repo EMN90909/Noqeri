@@ -4,9 +4,10 @@ import {runNoqeriCompute, renderNoqeriFragment} from '../examples/shaders/webgpu
 
 globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8}
 globalThis.GPUMapMode = {READ: 1}
+globalThis.GPUTextureUsage = {TEXTURE_BINDING:16,COPY_DST:32}
 
 function gpuMock({compileError = false, limits = {}} = {}) {
-  const events={dispatches:[],buffers:[],destroyed:0,configured:0,unconfigured:0,submitted:0}
+  const events={dispatches:[],buffers:[],textures:[],uploads:[],bindings:0,destroyed:0,configured:0,unconfigured:0,submitted:0}
   const context={
     configure(){events.configured++},
     unconfigure(){events.unconfigured++},
@@ -18,6 +19,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
       maxBufferSize: 1024*1024,
       maxComputeWorkgroupsPerDimension: 10000,
       maxComputeInvocationsPerWorkgroup: 256,
+      maxTextureDimension2D:4096,
       ...limits
     },
     createShaderModule({code}){
@@ -25,7 +27,14 @@ function gpuMock({compileError = false, limits = {}} = {}) {
         ?[{type:'error',message:'mock WGSL parse failure'}]:[]})}
     },
     createComputePipeline(){return {getBindGroupLayout(){return {}}}},
-    createRenderPipeline(){return {}},
+    createRenderPipeline(){return {getBindGroupLayout(){return {}}}},
+    createTexture({size}){
+      const texture={size,destroyed:false,createView(){return {}},
+        destroy(){this.destroyed=true}}
+      events.textures.push(texture)
+      return texture
+    },
+    createSampler(){return {}},
     createBuffer({size}){
       const buffer={
         data: new ArrayBuffer(size),mapped:false,destroyed:false,
@@ -44,7 +53,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
           return {setPipeline(){},setBindGroup(){},dispatchWorkgroups(n){events.dispatches.push(n)},end(){}}
         },
         beginRenderPass(){
-          return {setPipeline(){},draw(){events.dispatches.push('fragment')},end(){}}
+          return {setPipeline(){},setBindGroup(){events.bindings++},draw(){events.dispatches.push('fragment')},end(){}}
         },
         copyBufferToBuffer(source,so,target,to,bytes){
           new Uint8Array(target.data,to,bytes).set(new Uint8Array(source.data,so,bytes))
@@ -56,6 +65,9 @@ function gpuMock({compileError = false, limits = {}} = {}) {
       writeBuffer(target,offset,typed){
         const bytes = new Uint8Array(typed.buffer,typed.byteOffset,typed.byteLength)
         new Uint8Array(target.data,offset,bytes.length).set(bytes)
+      },
+      writeTexture(target,data,layout,size){
+        events.uploads.push({target,layout,size,bytes:data.byteLength})
       },
       submit(){events.submitted++},
       async onSubmittedWorkDone(){}
@@ -129,4 +141,49 @@ test('fragment shader errors unconfigure and destroy the partially built context
   assert.equal(events.configured,1)
   assert.equal(events.unconfigured,1)
   assert.equal(events.destroyed,1)
+})
+
+test('vector compute honors storage-element stride and rejects incomplete vector buffers',async()=>{
+  for(const [kind,stride] of [['vec2<f32>',2],['vec3<f32>',4],['vec4<f32>',4]]){
+    const {gpu,events}=gpuMock()
+    const input=new Float32Array(stride*257)
+    const result=await runNoqeriCompute(computeWgsl(64,kind),input,gpu)
+    assert.equal(result.length,input.length)
+    assert.deepEqual(events.dispatches,[Math.ceil(257/64)])
+    assert.equal(events.destroyed,1)
+  }
+  const {gpu}=gpuMock()
+  await assert.rejects(runNoqeriCompute(computeWgsl(64,'vec3<f32>'),
+    new Float32Array(7),gpu),/complete aligned vector/)
+})
+test('RGBA texture upload binds and frees a sampled Noqeri fragment',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const shader=fragmentWgsl()+
+    '@group(0) @binding(0) var nq_texture: texture_2d<f32>;\n'+
+    '@group(0) @binding(1) var nq_sampler: sampler;\n'
+  const pixels=new Uint8Array(4*3*3)
+  const release=await renderNoqeriFragment({getContext(){return context}},
+    shader,gpu,{width:3,height:3,pixels})
+  assert.equal(events.uploads.length,1)
+  assert.equal(events.uploads[0].layout.bytesPerRow,256)
+  assert.equal(events.uploads[0].bytes,3*256)
+  assert.equal(events.bindings,1)
+  assert.equal(events.textures.length,1)
+  assert.equal(events.textures[0].destroyed,false)
+  release()
+  assert.equal(events.textures[0].destroyed,true)
+  assert.equal(events.destroyed,1)
+})
+test('texture shaders reject missing or malformed RGBA sources and release device',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const shader=fragmentWgsl()+
+    '@group(0) @binding(0) var nq_texture: texture_2d<f32>;\n'
+  await assert.rejects(renderNoqeriFragment({getContext(){return context}},shader,gpu),
+    /RGBA8 texture/)
+  assert.equal(events.destroyed,1)
+  const second=gpuMock()
+  await assert.rejects(renderNoqeriFragment({getContext(){return second.context}},
+    shader,second.gpu,{width:2,height:2,pixels:new Uint8Array(2)}),
+    /Invalid RGBA8 texture/)
+  assert.equal(second.events.destroyed,1)
 })
