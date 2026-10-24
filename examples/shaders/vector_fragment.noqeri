@@ -1,0 +1,8 @@
+module examples.shaders.vector_fragment
+
+// Typed Noqeri vectors are mapped to WebGPU f32 vector values.
+export function shade(x: float, y: float): vec4 {
+    const normalized: vec2 = vec2(x / 640.0, y / 360.0)
+    const rgb: vec3 = vec3(normalized.x, normalized.y, 0.25)
+    return vec4(rgb.x, rgb.y, rgb.z, 1.0)
+}
