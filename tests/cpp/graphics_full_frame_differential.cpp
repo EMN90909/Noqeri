@@ -100,7 +100,7 @@ void correctness() {
         compare("gradient",pair[0],pair[1],0,pair[0]*pair[1]);++verified;
         compare("checker",pair[0],pair[1],16,pair[0]*pair[1]);++verified;
     }
-    std::cout<<"Noqeri native raster exact C-reference differential: PASS cases="<<verified<<"\n";
+    std::cerr<<"Noqeri native raster exact C-reference differential: PASS cases="<<verified<<"\n";
 }
 
 struct Scene {
