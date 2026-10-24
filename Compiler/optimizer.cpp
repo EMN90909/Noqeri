@@ -747,6 +747,32 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
            edge.target<edgePc)
             backedges.emplace_back(edgePc,edge.target);
     }
+    // Pre-index every unknown-write barrier and direct named-local Store.
+    // The previous guard-proof scan walked all instructions between the
+    // defining Load and each candidate CheckBounds, potentially quadratic
+    // or worse when several guards protect large array-heavy loops.
+    const auto barrier=[](NirOp op){
+        return op==NirOp::Call||op==NirOp::InlineAsm||
+               op==NirOp::StoreMemory||op==NirOp::AtomicStore||
+               op==NirOp::AtomicExchange||
+               op==NirOp::AtomicCompareExchange;
+    };
+    std::vector<std::size_t> unsafePrefix(fn.code.size()+1,0);
+    std::unordered_map<std::string,std::vector<std::size_t>> storeLocations;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        unsafePrefix[pc+1]=unsafePrefix[pc]+(barrier(in.op)?1u:0u);
+        if(in.op==NirOp::Store)storeLocations[in.text].push_back(pc);
+    }
+    const auto invalidated=[&](const std::string& name,
+                               std::size_t from,std::size_t until){
+        if(from+1>=until)return false;
+        if(unsafePrefix[until]!=unsafePrefix[from+1])return true;
+        const auto it=storeLocations.find(name);
+        if(it==storeLocations.end())return false;
+        const auto pos=std::lower_bound(it->second.begin(),it->second.end(),from+1);
+        return pos!=it->second.end()&&*pos<until;
+    };
     const auto bypassesGuard=[&](std::size_t guard,std::size_t checkPc){
         for(const auto& edge:backedges)
             if(edge.first>checkPc&&edge.second>guard&&
@@ -794,20 +820,9 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             const auto source=g.definitions.find(comparison.args[0]);
             if(source==g.definitions.end()||source->second>=guardPc||
                fn.code[source->second].op!=NirOp::Load)continue;
-            bool mutated=false;
-            for(std::size_t mid=source->second+1;mid<pc;++mid){
-                const auto& in=fn.code[mid];
-                if(in.op==NirOp::Store&&in.text==indexName->second){
-                    mutated=true;break;
-                }
-                // Without a general points-to proof, do not move a safety
-                // check across unknown calls/unsafe writes/inline asm.
-                if(in.op==NirOp::Call||in.op==NirOp::InlineAsm||
-                   in.op==NirOp::StoreMemory||in.op==NirOp::AtomicStore||
-                   in.op==NirOp::AtomicExchange||
-                   in.op==NirOp::AtomicCompareExchange){mutated=true;break;}
-            }
-            if(mutated)continue;
+            // The proof is valid only if the named index and all memory
+            // which may alias it stay unchanged after the guard's Load.
+            if(invalidated(indexName->second,source->second,pc))continue;
             if(!checkedUnsigned){
                 // Signed x < bound proves only the upper half of 0 <= x < bound.
                 // Require a second dominating true-edge guard x >= 0. Both
@@ -841,21 +856,9 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                        lowerLoad->second>=lowerPc||
                        fn.code[lowerLoad->second].op!=NirOp::Load)
                         continue;
-                    bool invalidated=false;
-                    for(std::size_t mid=lowerLoad->second+1;mid<pc;++mid){
-                        const auto& current=fn.code[mid];
-                        if((current.op==NirOp::Store&&
-                            current.text==indexName->second)||
-                           current.op==NirOp::Call||
-                           current.op==NirOp::InlineAsm||
-                           current.op==NirOp::StoreMemory||
-                           current.op==NirOp::AtomicStore||
-                           current.op==NirOp::AtomicExchange||
-                           current.op==NirOp::AtomicCompareExchange){
-                            invalidated=true;break;
-                        }
+                    if(!invalidated(indexName->second,lowerLoad->second,pc)){
+                        nonnegative=true;break;
                     }
-                    if(!invalidated){nonnegative=true;break;}
                 }
                 if(!nonnegative)continue;
             }
