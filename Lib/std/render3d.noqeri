@@ -123,6 +123,8 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
     // Incremental depth numerator avoids three multiplies per pixel.
     // Its maximum magnitude is bounded below 3 * 2^30 * 65535.
     let depthX: i64 = dx0 * z0 + dx1 * z1 + dx2 * z2
+    let depthY: i64 = dy0 * z0 + dy1 * z1 + dy2 * z2
+    let rowNumerator: i64 = e0 * z0 + e1 * z1 + e2 * z2
     let flatDepth: bool = z0 == z1 && z1 == z2
     let y: i64 = minY
     let row: usize = (minY as usize) * width
@@ -130,7 +132,7 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
         let w0: i64 = e0
         let w1: i64 = e1
         let w2: i64 = e2
-        let numerator: i64 = e0 * z0 + e1 * z1 + e2 * z2
+        let numerator: i64 = rowNumerator
         let x: i64 = minX
         let index: usize = row + (minX as usize)
         while x <= maxX {
@@ -152,6 +154,7 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
         e0 = e0 + dy0
         e1 = e1 + dy1
         e2 = e2 + dy2
+        rowNumerator = rowNumerator + depthY
         y = y + 1 as i64
         row = row + width
     }
