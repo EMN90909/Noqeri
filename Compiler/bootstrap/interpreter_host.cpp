@@ -33,6 +33,31 @@ bool checkedOverflowEnabled(){
 }
 
 std::int64_t wrapped(std::uint64_t value){std::int64_t out=0;std::memcpy(&out,&value,sizeof(out));return out;}
+// Values are stored in the generic signed 64-bit NIR variant, but narrow
+// integer operations must wrap and sign/zero extend to their declared type.
+// Work in unsigned bit-patterns; signed narrowing casts may be undefined.
+std::int64_t typedBits(std::int64_t value,TypeKind kind){
+    unsigned width=64;
+    bool sign=false;
+    switch(kind){
+        case TypeKind::U8:width=8;break;
+        case TypeKind::U16:width=16;break;
+        case TypeKind::U32:width=32;break;
+        case TypeKind::I8:width=8;sign=true;break;
+        case TypeKind::I16:width=16;sign=true;break;
+        case TypeKind::I32:width=32;sign=true;break;
+        default:return value;
+    }
+    const std::uint64_t mask=(std::uint64_t{1}<<width)-1;
+    std::uint64_t bits=static_cast<std::uint64_t>(value)&mask;
+    if(sign&&(bits&(std::uint64_t{1}<<(width-1))))bits|=~mask;
+    return wrapped(bits);
+}
+bool unsignedOperand(TypeKind k){
+    return k==TypeKind::U8||k==TypeKind::U16||
+           k==TypeKind::U32||k==TypeKind::U64||k==TypeKind::Usize;
+}
+
 std::int64_t addInt(std::int64_t a,std::int64_t b){
     if(checkedOverflowEnabled()){
         if((b>0&&a>std::numeric_limits<std::int64_t>::max()-b)||(b<0&&a<std::numeric_limits<std::int64_t>::min()-b))throw std::runtime_error("checked integer overflow in addition");
@@ -78,6 +103,35 @@ std::int64_t negateInt(std::int64_t value){
 }
 
 NirValue binary(const std::string&op,const NirValue&a,const NirValue&b){if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){if(op=="+")return addInt(*x,*y);if(op=="-")return subInt(*x,*y);if(op=="*")return mulInt(*x,*y);if(op=="/")return divInt(*x,*y);if(op=="%")return modInt(*x,*y);if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;if(op=="<")return*x<*y;if(op=="<=")return*x<=*y;if(op==">")return*x>*y;if(op==">=")return*x>=*y;}if((std::holds_alternative<double>(a)||std::holds_alternative<std::int64_t>(a))&&(std::holds_alternative<double>(b)||std::holds_alternative<std::int64_t>(b))){double x=asDouble(a),y=asDouble(b);if(op=="+")return x+y;if(op=="-")return x-y;if(op=="*")return x*y;if(op=="/")return x/y;if(op=="==")return x==y;if(op=="!=")return x!=y;if(op=="<")return x<y;if(op=="<=")return x<=y;if(op==">")return x>y;if(op==">=")return x>=y;}if(auto x=std::get_if<std::string>(&a))if(auto y=std::get_if<std::string>(&b)){if(op=="+")return*x+*y;if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;}if(op=="&&")return truthyValue(a)&&truthyValue(b);if(op=="||")return truthyValue(a)||truthyValue(b);throw std::runtime_error("unsupported binary operation "+op);}
+// NIR comparison results have Boolean type; signedness comes from the
+// LEFT operand. The native backend follows that same rule, including
+// unsigned 64-bit division/modulo for values above INT64_MAX.
+NirValue typedBinary(const std::string& op,const NirValue& a,
+                     const NirValue& b,TypeKind operand,TypeKind result){
+    const auto x=std::get_if<std::int64_t>(&a);
+    const auto y=std::get_if<std::int64_t>(&b);
+    if(x&&y&&unsignedOperand(operand)){
+        const auto lhs=static_cast<std::uint64_t>(*x);
+        const auto rhs=static_cast<std::uint64_t>(*y);
+        if(op=="<")return lhs<rhs;
+        if(op=="<=")return lhs<=rhs;
+        if(op==">")return lhs>rhs;
+        if(op==">=")return lhs>=rhs;
+        if(op=="/"||op=="%"){
+            if(rhs==0)throw std::runtime_error(
+                op=="/"?"integer division by zero":
+                        "integer remainder by zero");
+            return typedBits(wrapped(op=="/"?lhs/rhs:lhs%rhs),result);
+        }
+        if(op=="+")return typedBits(wrapped(lhs+rhs),result);
+        if(op=="-")return typedBits(wrapped(lhs-rhs),result);
+        if(op=="*")return typedBits(wrapped(lhs*rhs),result);
+    }
+    NirValue value=binary(op,a,b);
+    if(x&&y&&(op=="+"||op=="-"||op=="*"||op=="/"||op=="%"))
+        return typedBits(asInt(value),result);
+    return value;
+}
 std::uint64_t rawLoad(std::uintptr_t address,std::size_t width,bool vol){if(address==0)throw std::runtime_error("null pointer dereference");switch(width){case 1:return vol?*reinterpret_cast<volatile std::uint8_t*>(address):*reinterpret_cast<std::uint8_t*>(address);case 2:return vol?*reinterpret_cast<volatile std::uint16_t*>(address):*reinterpret_cast<std::uint16_t*>(address);case 4:return vol?*reinterpret_cast<volatile std::uint32_t*>(address):*reinterpret_cast<std::uint32_t*>(address);case 8:return vol?*reinterpret_cast<volatile std::uint64_t*>(address):*reinterpret_cast<std::uint64_t*>(address);default:throw std::runtime_error("unsupported memory load width");}}
 void rawStore(std::uintptr_t address,std::size_t width,std::uint64_t value,bool vol){if(address==0)throw std::runtime_error("null pointer store");switch(width){case 1:if(vol)*reinterpret_cast<volatile std::uint8_t*>(address)=static_cast<std::uint8_t>(value);else*reinterpret_cast<std::uint8_t*>(address)=static_cast<std::uint8_t>(value);break;case 2:if(vol)*reinterpret_cast<volatile std::uint16_t*>(address)=static_cast<std::uint16_t>(value);else*reinterpret_cast<std::uint16_t*>(address)=static_cast<std::uint16_t>(value);break;case 4:if(vol)*reinterpret_cast<volatile std::uint32_t*>(address)=static_cast<std::uint32_t>(value);else*reinterpret_cast<std::uint32_t*>(address)=static_cast<std::uint32_t>(value);break;case 8:if(vol)*reinterpret_cast<volatile std::uint64_t*>(address)=static_cast<std::uint64_t>(value);else*reinterpret_cast<std::uint64_t*>(address)=static_cast<std::uint64_t>(value);break;default:throw std::runtime_error("unsupported memory store width");}}
 std::uintptr_t allocateBytes(std::size_t bytes){auto p=std::make_unique<std::uint8_t[]>(std::max<std::size_t>(bytes,1));std::memset(p.get(),0,std::max<std::size_t>(bytes,1));auto address=reinterpret_cast<std::uintptr_t>(p.get());allocations.push_back(std::move(p));return address;}
@@ -100,7 +154,7 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
             case NirOp::Load:{if(addressTaken.count(i.text)){regs[*i.dest]=static_cast<std::int64_t>(cells[i.text]);break;}auto it=vars.find(i.text);if(it==vars.end())throw std::runtime_error("undefined variable "+i.text);regs[*i.dest]=it->second;break;}
             case NirOp::Store:{vars[i.text]=get(i.args[0]);if(auto n=std::get_if<std::int64_t>(&vars[i.text]))cells[i.text]=static_cast<std::uint64_t>(*n);else if(auto b=std::get_if<bool>(&vars[i.text]))cells[i.text]=*b?1:0;break;}
             case NirOp::AddressOf:addressTaken.insert(i.text);cells.try_emplace(i.text,0);regs[*i.dest]=static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(&cells[i.text]));break;
-            case NirOp::LoadMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));regs[*i.dest]=static_cast<std::int64_t>(rawLoad(address,i.width,i.isVolatile));break;}
+            case NirOp::LoadMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));regs[*i.dest]=typedBits(wrapped(rawLoad(address,i.width,i.isVolatile)),i.type.kind);break;}
             case NirOp::StoreMemory:{auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));rawStore(address,i.width,static_cast<std::uint64_t>(asInt(get(i.args[1]))),i.isVolatile);break;}
             case NirOp::PtrOffset:{std::int64_t base=asInt(get(i.args[0]));std::int64_t delta=static_cast<std::int64_t>(i.target);if(i.args.size()>1)delta=mulInt(asInt(get(i.args[1])),static_cast<std::int64_t>(i.width));regs[*i.dest]=addInt(base,delta);break;}
             case NirOp::StackAlloc:regs[*i.dest]=static_cast<std::int64_t>(allocateBytes(i.width));break;
@@ -118,9 +172,15 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
             case NirOp::InlineAsm:if(i.dest)regs[*i.dest]=std::monostate{};break;
             case NirOp::Try:{auto value=asInt(get(i.args[0]));if(value<0)return NirValue(value);regs[*i.dest]=value;break;}
             case NirOp::Throw:{auto code=asInt(get(i.args[0]));return NirValue(code<0?code:-(code+1));}
-            case NirOp::Cast:{auto v=get(i.args[0]);Type t=typeFromName(i.text);if(t.kind==TypeKind::Float)regs[*i.dest]=asDouble(v);else if(t.isInteger()||t.kind==TypeKind::Pointer)regs[*i.dest]=asInt(v);else regs[*i.dest]=v;break;}
-            case NirOp::Unary:{auto v=get(i.args[0]);if(i.text=="!")regs[*i.dest]=!truthyValue(v);else if(i.text=="-"){if(auto n=std::get_if<std::int64_t>(&v))regs[*i.dest]=negateInt(*n);else regs[*i.dest]=-asDouble(v);}else regs[*i.dest]=v;break;}
-            case NirOp::Binary:regs[*i.dest]=binary(i.text,get(i.args[0]),get(i.args[1]));break;
+            case NirOp::Cast:{auto v=get(i.args[0]);Type t=typeFromName(i.text);if(t.kind==TypeKind::Float)regs[*i.dest]=asDouble(v);else if(t.isInteger())regs[*i.dest]=typedBits(asInt(v),t.kind);else if(t.kind==TypeKind::Pointer)regs[*i.dest]=asInt(v);else regs[*i.dest]=v;break;}
+            case NirOp::Unary:{auto v=get(i.args[0]);if(i.text=="!")regs[*i.dest]=!truthyValue(v);else if(i.text=="-"){if(auto n=std::get_if<std::int64_t>(&v))regs[*i.dest]=typedBits(negateInt(*n),i.type.kind);else regs[*i.dest]=-asDouble(v);}else regs[*i.dest]=v;break;}
+            case NirOp::Binary:{
+                const auto kind=i.args[0]<fn.registerTypes.size()?
+                    fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
+                regs[*i.dest]=typedBinary(i.text,get(i.args[0]),get(i.args[1]),
+                                         kind,i.type.kind);
+                break;
+            }
             case NirOp::Call:{std::vector<NirValue>a;for(auto r:i.args)a.push_back(get(r));auto user=std::find_if(p.functions.begin(),p.functions.end(),[&](const auto&x){return x.name==i.text&&!x.isExtern;});if(user!=p.functions.end()){regs[*i.dest]=runFunction(p,*user,a);break;}std::string error;if(i.text=="host"||i.text=="abi"){if(a.empty()||!std::holds_alternative<std::string>(a[0]))throw std::runtime_error(i.text+" requires a string service name");std::string service=std::get<std::string>(a[0]);std::vector<NirValue>serviceArgs(a.begin()+1,a.end());std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,service,serviceArgs,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),service,serviceArgs,error);if(!result)throw std::runtime_error(error.empty()?"unknown ABI service "+service:error);regs[*i.dest]=*result;break;}std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,i.text,a,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),i.text,a,error);if(!result)throw std::runtime_error(error.empty()?"unknown function "+i.text:error);regs[*i.dest]=*result;break;}
             case NirOp::Jump:pc=i.target;continue;
             case NirOp::JumpIfFalse:if(!truthyValue(get(i.args[0]))){pc=i.target;continue;}break;
