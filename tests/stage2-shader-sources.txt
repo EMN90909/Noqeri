@@ -1,0 +1,3 @@
+Compiler/selfhost/lexer.noqeri
+Compiler/selfhost/syntax.noqeri
+Compiler/selfhost/shader_wgsl.noqeri
