@@ -1,5 +1,9 @@
 # GPU shaders and OS rendering in Noqeri
 
+For cross-OS CPU architecture support, the graphics-only CMake build,
+WGSL compiler verification, Android NDK targets and GPU hardware-qualification
+limits, see [Graphics platform support](GRAPHICS_PLATFORM_SUPPORT.md).
+
 This is the first **executable** Noqeri-authored graphics integration, not a
 claim that Noqeri ships a custom GPU driver or complete game engine.
 
