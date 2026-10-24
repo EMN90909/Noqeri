@@ -4,7 +4,6 @@
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
-#include <iostream>
 #include <limits>
 #include <map>
 #include <sstream>
@@ -518,15 +517,6 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             const auto& addB=fn.code[pc+3];
             const auto& stA=fn.code[pc+4];
             const auto& stB=fn.code[pc+5];
-            if(fn.name=="simd_loop"&&pc==15)
-                std::cerr<<"SIMD probe: "<<static_cast<int>(a.op)<<","
-                         <<static_cast<int>(b.op)<<","
-                         <<static_cast<int>(addA.op)<<","
-                         <<static_cast<int>(addB.op)<<","
-                         <<static_cast<int>(stA.op)<<","
-                         <<static_cast<int>(stB.op)<<" uses="
-                         <<useCounts[12]<<","<<useCounts[13]<<","
-                         <<useCounts[14]<<","<<useCounts[15]<<"\n";
             if(a.op!=NirOp::LoadMemory||b.op!=NirOp::LoadMemory||
                addA.op!=NirOp::Binary||addB.op!=NirOp::Binary||
                stA.op!=NirOp::StoreMemory||stB.op!=NirOp::StoreMemory||
@@ -546,22 +536,22 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                stA.args[1]!=*addA.dest||stB.args[1]!=*addB.dest||
                useCounts[*a.dest]!=1||useCounts[*b.dest]!=1||
                useCounts[*addA.dest]!=1||useCounts[*addB.dest]!=1)
-                {if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: shape\n";continue;}
+                continue;
             if(std::any_of(fn.code.begin()+pc,fn.code.begin()+pc+6,
                 [](const NirInstruction& in){return in.isVolatile;}))
                 continue;
             bool branchEntry=false;
             for(std::size_t pos=pc;pos<=pc+5;++pos)
                 if(jumpTargets.count(pos)){branchEntry=true;break;}
-            if(branchEntry){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: branch\n";continue;}
+            if(branchEntry)continue;
             const auto ptrA=pointerInfo(a.args[0]);
             const auto ptrB=pointerInfo(b.args[0]);
             if(!ptrA||!ptrB||ptrA->first!=ptrB->first||
-               ptrA->second!=0||ptrB->second!=1){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: pointer\n";continue;}
+               ptrA->second!=0||ptrB->second!=1)continue;
             const auto root=onlyDefinitions.find(ptrA->first);
             if(root==onlyDefinitions.end()||
                fn.code[root->second].op!=NirOp::StackAlloc||
-               fn.code[root->second].width<16){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: root\n";continue;}
+               fn.code[root->second].width<16)continue;
             bool privateStack=true;
             for(const auto& instr:fn.code){
                 for(std::size_t k=0;k<instr.args.size();++k){
@@ -575,20 +565,20 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                         privateStack=false;
                 }
             }
-            if(!privateStack){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: escape\n";continue;}
+            if(!privateStack)continue;
             std::size_t loopHeader=fn.code.size();
             for(std::size_t end=pc+6;end<fn.code.size();++end){
                 const auto& edge=fn.code[end];
                 if(edge.op==NirOp::Jump&&edge.target<pc&&
                    edge.target<end){loopHeader=edge.target;break;}
             }
-            if(loopHeader==fn.code.size()){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: loop\n";continue;}
+            if(loopHeader==fn.code.size())continue;
             // Hoist the broadcast into a unique constant definition
             // preceding the whole loop. No opaque calls or SIMD clobbers
             // may occur between setup and the loop backedge.
             const auto rhs=onlyDefinitions.find(addA.args[1]);
             if(rhs==onlyDefinitions.end()||
-               rhs->second>=loopHeader){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: rhs\n";continue;}
+               rhs->second>=loopHeader)continue;
             const auto& rhsValue=fn.code[rhs->second];
             if(rhsValue.op!=NirOp::Const||
                !std::holds_alternative<std::int64_t>(rhsValue.literal))
@@ -602,7 +592,7 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                     clobber=true;break;
                 }
             }
-            if(clobber||!loopSimdStarts.empty()){if(fn.name=="simd_loop"&&pc==15)std::cerr<<"SIMD reject: clobber\n";continue;}
+            if(clobber||!loopSimdStarts.empty())continue;
             loopSimdStarts.insert(pc);
             loopSimdStackRoot[pc]=root->second;
             loopSimdBroadcastAt.insert(rhs->second);
