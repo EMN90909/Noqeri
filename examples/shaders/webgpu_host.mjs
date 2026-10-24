@@ -206,6 +206,16 @@ function checkedClipVertices(vertices) {
   return vertices
 }
 
+function snapshotClipVertices(input) {
+  // Check immutable typed-array shape before allocating a defensive copy.
+  // Validate the copied values so concurrently mutable input cannot bypass
+  // the finite-coordinate and homogeneous-depth restrictions.
+  if(!(input instanceof Float32Array) || input.length===0 ||
+     input.length%12!==0 || input.length>393216)
+    throw new TypeError('3D vertices must be a bounded Float32Array triangle list.')
+  return checkedClipVertices(new Float32Array(input))
+}
+
 // One-frame mesh renderer with GPU hardware depth testing. This is a narrow
 // WebGPU bridge; the vertex and fragment algorithms are compiled from Noqeri.
 // Input positions are already transformed to homogeneous clip space. No
@@ -219,11 +229,7 @@ export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, posit
      !vertexWgsl.includes('@builtin(position)') ||
      typeof fragmentWgsl!=='string' || !fragmentWgsl.includes('@fragment'))
     throw new TypeError('Expected Noqeri-generated vertex and fragment WGSL.')
-  if(!(positions instanceof Float32Array))
-    throw new TypeError('3D mesh positions must be Float32Array.')
-  // Snapshot caller storage before validating, so a shared/mutable input
-  // cannot change between GPU validation and queue.writeBuffer.
-  const vertices=checkedClipVertices(new Float32Array(positions))
+  const vertices=snapshotClipVertices(positions)
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
   let context,configured=false,vertexBuffer,depthTexture
@@ -363,9 +369,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
         if(busy)throw new Error('3D renderer already has a frame in flight.')
         if(canvas.width!==width||canvas.height!==height)
           throw new Error('3D canvas was resized; recreate renderer and depth attachment.')
-        if(!(input instanceof Float32Array))
-          throw new TypeError('3D mesh positions must be Float32Array.')
-        const vertices=checkedClipVertices(new Float32Array(input))
+        const vertices=snapshotClipVertices(input)
         if(vertices.length/4>maxVertices)
           throw new RangeError('3D vertex count exceeds persistent capacity.')
         busy=true
