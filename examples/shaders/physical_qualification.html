@@ -4,10 +4,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body>
 <h1>Noqeri WebGPU hardware qualification</h1>
-<p>Generate shaders in build/ and serve the repository root using localhost or HTTPS. A successful result only qualifies the tested browser, GPU and driver combination.</p>
+<p>Generate shaders in build/ and serve the repository root using localhost or HTTPS. These opt-in rendering checks are useful evidence, but do not independently certify physical GPU hardware or driver correctness. Save GPU/driver details and screenshot for manual review.</p>
 <button id="start" type="button">Run actual GPU tests</button>
 <button id="release" type="button">Release GPU resources</button>
 <canvas id="output" width="2" height="2" style="width:256px;height:256px;image-rendering:pixelated" aria-label="GPU texture output"></canvas>
+<canvas id="mesh" width="256" height="256" style="width:256px;height:256px" aria-label="3D depth-tested mesh output"></canvas>
 <pre id="result" role="status" aria-live="polite"></pre>
 <script type="module">
 import {qualifyPhysicalGpu,releasePhysicalGpu} from './physical_qualification.mjs'
@@ -17,7 +18,7 @@ document.querySelector('#start').addEventListener('click',async()=>{
   const out=document.querySelector('#result')
   out.textContent='Running GPU qualification...'
   try {out.textContent=JSON.stringify(await qualifyPhysicalGpu(
-    document.querySelector('#output')),null,2)}
+    document.querySelector('#output'),'/build',document.querySelector('#mesh')),null,2)}
   catch(error){out.textContent='FAIL: '+String(error.stack||error)}
 })
 </script>
