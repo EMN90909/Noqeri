@@ -167,3 +167,34 @@ These changes reduce repeated compiler analyses but provide no universal
 end-to-end compiler speedup guarantee. Neither full SSA/Phi, general loop
 induction/range proof, auto-vectorization, nor native compiler self-hosting
 is complete.
+
+## Issue #48 engineering qualification: additional foundations
+
+The following changes are merged and qualified by the native compiler and
+Linux/Windows NQRI bootstrap workflows. They do **not** imply that the entire
+compiler optimization roadmap is complete.
+
+- PR #75 adds a conservative whole-memory version graph with explicit memory
+  join Phi records. Only nonvolatile repeated loads from proved nonescaping
+  stack roots may be reused when the same pointer, type, width, incoming
+  memory version and CFG dominance are proven. Unknown writes, calls, atomic
+  operations, fences, volatile accesses and inline assembly invalidate or
+  disable this proof. This is not per-object MemorySSA or scalar SSA Phi
+  insertion/lowering.
+- PR #76 adds opt-in fail-closed release performance gate arguments to
+  scripts/perf-gate.mjs. Required workload IDs, same-host profiles, raw
+  samples, independently recomputed median/p95, native AOT provenance,
+  deterministic output and two release regressions are verified. This
+  provides evidence policy, not measured parity with another language.
+- PR #77 removes more redundant bounds checks when a guarded index plus
+  a positive constant is provably in range without overflow. It also
+  fixes the unsafe stale-snapshot case where the checked index was read
+  before a mutation but the guard used a newer value. This is a scoped
+  affine range proof, not general symbolic induction analysis.
+
+Still missing or unqualified: general scalar SSA renaming and Phi
+insertion/destruction (including critical edges and loops), per-object memory
+SSA and interprocedural alias analysis, induction trip-count proofs, general
+safe unrolling, typed vector NIR and SIMD machine lowering, full integer
+parity across native, interpreter and NQRI, native self-hosted Stage-2/Stage-3
+executables, and broad measured cross-language performance comparisons.
