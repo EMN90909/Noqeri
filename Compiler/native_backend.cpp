@@ -313,10 +313,15 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
     // and linker to process needless symbols. Only branch destinations need
     // PC labels; diagnostic/trap labels remain emitted at their own sites.
     std::unordered_set<std::size_t> jumpTargets;
-    for(const auto& i:fn.code)
+    std::unordered_map<Reg,std::size_t> useCounts;
+    for(const auto& i:fn.code){
         if(i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)
             jumpTargets.insert(i.target);
+        for(auto r:i.args)++useCounts[r];
+    }
+    std::unordered_set<std::size_t> fusedBranches;
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(fusedBranches.count(pc))continue;
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
@@ -383,6 +388,29 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         const bool unsign=isUnsigned(operandKind)||
             (i.args[1]<fn.registerTypes.size()&&
              isUnsigned(fn.registerTypes[i.args[1]].kind));
+        // If a comparison feeds only the immediately following conditional
+        // branch, emit one compare and a direct inverted jcc. Preserve NIR
+        // short-circuit structure: RHS evaluation is never speculated.
+        const bool singleUse=i.dest&&useCounts[*i.dest]==1;
+        const bool adjacent=pc+1<fn.code.size()&&
+            fn.code[pc+1].op==NirOp::JumpIfFalse&&
+            fn.code[pc+1].args.size()==1&&
+            fn.code[pc+1].args[0]==*i.dest&&
+            !jumpTargets.count(pc+1);
+        const char* inverted=nullptr;
+        if(i.text=="==")inverted="jne";
+        else if(i.text=="!=")inverted="je";
+        else if(i.text=="<")inverted=unsign?"jae":"jge";
+        else if(i.text=="<=")inverted=unsign?"ja":"jg";
+        else if(i.text==">")inverted=unsign?"jbe":"jle";
+        else if(i.text==">=")inverted=unsign?"jb":"jl";
+        if(singleUse&&adjacent&&inverted){
+            load(i.args[0],"rax");load(i.args[1],"r10");
+            out<<"    cmp rax, r10\n"
+               <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
+            fusedBranches.insert(pc+1);
+            break;
+        }
         load(i.args[0],"rax");
         if(i.text=="/"||i.text=="%"){
             const auto it=constantValues.find(i.args[1]);
