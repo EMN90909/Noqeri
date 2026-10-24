@@ -327,9 +327,24 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             load(i.args[0],"rax");
             const auto failed=localLabel(fn,pc,"bounds_fail");
             const auto valid=localLabel(fn,pc,"bounds_ok");
-            out<<"    test rax, rax\n    js "<<failed<<"\n";
-            load(i.args[1],"r10");
-            out<<"    cmp rax, r10\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
+            const auto fixed=constantValues.find(i.args[1]);
+            // A fixed non-negative length <= INT64_MAX needs only one
+            // unsigned comparison: every negative i64 index is encoded above
+            // every representable fixed length. Dynamic slice bounds retain
+            // the explicit negative-index test.
+            if(fixed!=constantValues.end()&&fixed->second>=0){
+                if(fixed->second<=std::numeric_limits<std::int32_t>::max())
+                    out<<"    cmp rax, "<<fixed->second<<"\n";
+                else{
+                    out<<"    mov r10, "<<fixed->second<<"\n";
+                    out<<"    cmp rax, r10\n";
+                }
+                out<<"    jb "<<valid<<"\n    ud2\n"<<valid<<":\n";
+            }else{
+                out<<"    test rax, rax\n    js "<<failed<<"\n";
+                load(i.args[1],"r10");
+                out<<"    cmp rax, r10\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
+            }
             break;
         }
         case NirOp::AtomicLoad:if(i.dest&&!i.args.empty()){out<<"    mfence\n";load(i.args[0],"rax");emitLoadWidth(out,i.width);out<<"    mfence\n";store(*i.dest,"rax");}break;
