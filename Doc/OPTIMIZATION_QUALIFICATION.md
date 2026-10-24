@@ -4,15 +4,15 @@
 
 | Requested pass | Current implementation | What is NOT implemented or qualified |
 | --- | --- | --- |
-| SSA optimization | CFG fixed-point scalar Load forwarding for identical incoming registers; O2+ lowers a restricted typed Phi at two-way acyclic branch diamonds into two predecessor-edge virtual register copies, replacing the join Load | Full SSA renaming, dominance-frontier Phi insertion, loop-carried Phi, critical-edge splitting, parallel-copy cycles, general mutable-variable promotion |
+| SSA optimization | CFG scalar value forwarding; scalar Store-version SSA analysis constructs incoming Phi versions for branch joins and loop headers; eligible acyclic two-way diamonds lower typed Phi to two executable edge copies | Full SSA renaming and executable loop Phi lowering, critical-edge splitting, parallel-copy cycles, general mutable-variable promotion |
 | GVN | Basic-block integer `+`, `-`, `*`, `%` value numbering; duplicate NIR operations coalesced when result has no users in other blocks | Global value numbering across branches, loads, volatile memory, pointer calculations, floating NaNs |
 | SCCP | Sparse constant discovery on dominance-proven SSA temporaries, Boolean conditional folding, CFG reachability, dead-code pruning | Phi-lattice propagation and fully edge-sensitive sparse dataflow |
 | LICM | O3 hoists literals and proven preheader-dominating Int/I64 `+`, `-`, `*` from single-entry structured loops; a capped repetition handles several invariants | General LICM with side effects, trapping division, invariant memory loads, alias-aware hoisting, loop unswitching and full SSA/Phi |
-| Loop unrolling | Not implemented | Requires proven trip count, exact overflow semantics, size and target cost gating |
+| Loop unrolling | O3 guarded 2x unrolling for single-backedge structured loops with a duplicated exit test, fresh virtual registers and mapped branches; O0/O3 parity tested for zero, odd and even iteration counts | Arbitrary CFG/nested loops, trip-count-driven removal of redundant exit guards, calibrated profitability model and SIMD vectorization |
 | Loop vectorization | Not implemented | Requires typed vector NIR, legality checks and target SIMD lowering |
 | SLP vectorization | Not implemented | Requires pack formation, def-use/alias and instruction selection |
 | Alias analysis | `NirAliasAnalysis` propagates `StackAlloc` roots through pointer derivations using an O(N+E) worklist; distinct nonescaping acyclic roots are proven NoAlias and all uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing | 
-| Memory SSA | One conservative whole-memory version partition with stable instruction write versions, CFG join/backedge Phi records and same-version CSE for typed nonvolatile loads from nonescaping stack roots | Per-object alias-partitioned MemorySSA, MemoryDef/MemoryUse walkers, interprocedural barriers, arbitrary memory-Phi lowering |
+| Memory SSA | Whole-memory and per-nonescaping-stack-root version partitions, CFG join/backedge Phi records and same-version CSE; distinct NoAlias StoreMemory writes no longer invalidate independent root loads | General heap/global/interprocedural alias partitioning, arbitrary MemoryDef/MemoryUse walkers and executable memory-Phi lowering |
 | Escape analysis | Tracks direct StackAlloc roots and derivatives, marks values passed to unknown sites / returned as escaping | Allocation replacement, promotion, allocation sinking and heap devirtualization |
 | Interprocedural optimization | Exact pure zero-argument constant-return call substitution; externs and unknown bodies retained | Full call-graph specialization, partial inlining, recursion handling and whole-program IPO |
 | Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; deterministic linear scan with stack spills and preserved r12-r15. The Linux x86-64 emitter also promotes at most one loop-hot non-address-taken named local into callee-saved RBX, disabled for inline-asm functions. | Graph coloring, split spills, promotion of multiple locals, optimal spill costs, cross-target machine scheduling and native Stage-2 parity |
@@ -215,3 +215,45 @@ branch Phi selection and guarded loops. Neither backend may silently disagree
 on printed observable output. This is qualification of two Stage-0 execution
 paths on the cited fixtures. NQRI VM integer-width parity, other target ABIs
 and exhaustive integer edge-case fuzzing remain unqualified.
+
+## Additional Issue #48 qualification, 25 October 2026
+
+- **PR #79:** conservative executable O3 guarded loop 2x unrolling for
+  single-entry/single-backedge loops without exceptional or complex CFG.
+  It duplicates the condition between iterations, preserving odd and zero
+  trip counts, traps and side effects. It does not imply vectorization.
+- **PR #80:** named mutable-local Store-version SSA analysis now constructs
+  scalar Phi records at CFG joins **and loop headers**, excluding volatile
+  and address-taken locals. Loop Phi nodes are *analysis only* until general
+  critical-edge-safe lowering is implemented.
+- **PR #81:** per-nonescaping-stack-allocation MemorySSA partitions and
+  NoAlias-safe load reuse across unrelated stack writes. MayAlias, volatile,
+  atomic and unknown effects remain barriers.
+- **PR #82:** Stage-0 interpreter no longer interprets large unsigned
+  arithmetic as signed. O0/O3 reference-interpreter-vs-native-AOT parity
+  compares unsigned, narrow signed/wrapping, Phi and guarded-loop fixtures.
+  This does not establish full NQRI/ARM64/WASM parity.
+- **PR #84:** records *real* C/Go/Noqeri native execution evidence on the
+  same AMD EPYC 7763 GitHub runner with 25 samples and deterministic
+  outputs. Measured median durations in milliseconds:
+
+  | Workload | C O3 | Go | Noqeri Stage-0 AOT O3 |
+  | --- | ---: | ---: | ---: |
+  | 5M modulo | 16.39 | 23.86 | 20.03 |
+  | 200-pass 16x16 matrix | 0.91 | 1.88 | 5.15 |
+  | 200-round reshuffled insertion sorting | 2.66 | 3.29 | 17.80 |
+
+  Each sample includes process startup. Machine/runner performance can
+  vary; source, output validation, toolchain, binary hashes and full raw
+  timing samples are archived in the GitHub Actions artifact
+  `crosslang-native-evidence`. The three kernels **do not establish
+  broad performance parity**; matrix and sorting identify optimization
+  deficits to prioritize.
+
+Still unqualified: a complete scalar SSA renamer/loop Phi lowering pass;
+general per-object/interprocedural MemorySSA; induction trip-count and
+cost-based unrolling; actual SIMD vector instruction emission; integer
+semantics across NQRI and all native targets; an independently executing
+Noqeri-written native Stage-2/Stage-3 compiler; representative system-level
+cross-language parity and release CPU/RSS profiling. The native self-host
+gate remains fail-closed.
