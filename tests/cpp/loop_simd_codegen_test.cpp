@@ -82,7 +82,7 @@ int main(int argc,char** argv){
                            std::istreambuf_iterator<char>());
     const char* env=std::getenv("NOQERI_EXPERIMENTAL_LOOP_SIMD");
     const bool enabled=env&&std::string(env)=="1";
-    const bool present=text.find("movdqu xmm0, XMMWORD PTR [rax]")!=
+    const bool present=text.find("movdqu xmm0, XMMWORD PTR [rbp-")!=
         std::string::npos&&text.find("paddq xmm0, xmm1")!=
         std::string::npos;
     if(present!=enabled){
