@@ -1,0 +1,102 @@
+name: Native AOT performance A/B
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/native_backend.cpp'
+      - 'Compiler/register_alloc.cpp'
+      - 'Compiler/optimizer.cpp'
+      - 'scripts/native-build.mjs'
+      - '.github/workflows/native-perf-ab.yml'
+permissions:
+  contents: read
+jobs:
+  same-runner-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout original base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+      - name: Checkout proposed compiler
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+      - name: Build Stage-0 compilers with identical C++ settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for revision in baseline candidate; do
+            cmake -S "$revision" -B "$revision/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+            cmake --build "$revision/build" --target noqeri --parallel 2
+          done
+      - name: Prepare identical long-running sort workload
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for revision in ("baseline", "candidate"):
+              source = Path(revision) / "Benchmarks/workloads/sorting.noqeri"
+              text = source.read_text()
+              original = "while round < 200 as usize"
+              assert text.count(original) == 1, "expected pinned input workload"
+              (source.parent / "sorting_ab.noqeri").write_text(text.replace(original, "while round < 20000 as usize"))
+          PY
+      - name: Build standalone native ELF for both revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for revision in baseline candidate; do
+            (
+              cd "$revision"
+              node scripts/native-build.mjs Benchmarks/workloads/sorting_ab.noqeri build/aot-ab-sorting --compiler=build/noqeri --opt=-O3
+              ./build/noqeri build Benchmarks/workloads/sorting_ab.noqeri build/aot-ab-sorting.s -O3
+            )
+          done
+      - name: Validate outputs and compare runtime on one runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os, platform, statistics, subprocess, time
+          paths = {revision: Path(revision) / "build/aot-ab-sorting" for revision in ("baseline", "candidate")}
+          samples = {revision: [] for revision in paths}
+          expected = b"64\n65032\n"
+          def execute(revision):
+              start = time.perf_counter_ns()
+              result = subprocess.run([str(paths[revision].resolve())], capture_output=True, check=True)
+              duration = (time.perf_counter_ns() - start) / 1e6
+              if result.stdout != expected:
+                  raise AssertionError(f"{revision} unexpected stdout: {result.stdout!r}")
+              return duration
+          for _ in range(3):
+              for revision in paths:
+                  execute(revision)
+          for i in range(25):
+              for revision in (("baseline", "candidate") if i % 2 == 0 else ("candidate", "baseline")):
+                  samples[revision].append(execute(revision))
+          result = {
+              "schema": 1, "cpu": platform.processor(), "machine": platform.machine(),
+              "kernel": platform.release(), "workload": "sorting_ab.noqeri (20000 rounds)",
+              "optimizer": "-O3", "warmups_per_binary": 3,
+              "samples": samples,
+              "median_ms": {k: statistics.median(v) for k,v in samples.items()},
+              "assembly_stack_mov_lines": {k: sum("mov" in line and "[rbp-" in line for line in
+                  (Path(k) / "build/aot-ab-sorting.s").read_text().splitlines()) for k in paths},
+              "sha256": {k: hashlib.sha256(path.read_bytes()).hexdigest() for k,path in paths.items()},
+          }
+          result["speedup"] = result["median_ms"]["baseline"] / result["median_ms"]["candidate"]
+          print(json.dumps(result, indent=2))
+          Path("candidate/build/native-perf-ab.json").write_text(json.dumps(result, indent=2)+"\n")
+          if result["speedup"] < 0.80:
+              raise SystemExit("Performance regression exceeds 20% on this runner.")
+          PY
+      - name: Upload raw measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-native-perf-ab
+          path: candidate/build/native-perf-ab.json
