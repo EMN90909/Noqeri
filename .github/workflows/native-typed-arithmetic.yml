@@ -37,6 +37,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'NIR O0 fixture:'
+          ./build-typed/noqeri nir tests/native_bounds_guard.noqeri -O0
+          echo 'NIR O3 fixture:'
+          ./build-typed/noqeri nir tests/native_bounds_guard.noqeri -O3
           node scripts/native-build.mjs tests/native_bounds_guard.noqeri build-typed/bounds-O0 --compiler=build-typed/noqeri --opt=-O0 --keep-asm
           node scripts/native-build.mjs tests/native_bounds_guard.noqeri build-typed/bounds-O3 --compiler=build-typed/noqeri --opt=-O3 --keep-asm
           test "$(build-typed/bounds-O0)" = "$(printf '%s\n' 0 21)"
