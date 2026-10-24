@@ -65,6 +65,18 @@ jobs:
             actual="$("build-typed/phi-loop-$level")"
             test "$actual" = "$expected"
           done
+      - name: Qualify contiguous stack loop SIMD and speedup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-typed --target noqeri-loop-simd-emitter --parallel 2
+          build-typed/noqeri-loop-simd-emitter build-typed/loop-scalar.s
+          NOQERI_EXPERIMENTAL_LOOP_SIMD=1 build-typed/noqeri-loop-simd-emitter build-typed/loop-vector.s
+          cc -c build-typed/loop-scalar.s -o build-typed/loop-scalar.o
+          cc -c build-typed/loop-vector.s -o build-typed/loop-vector.o
+          cc -std=c11 tests/cpp/loop_simd_host.c build-typed/loop-scalar.o -o build-typed/loop-simd-scalar
+          cc -std=c11 tests/cpp/loop_simd_host.c build-typed/loop-vector.o -o build-typed/loop-simd-vector
+          node scripts/bench-loop-simd.mjs
       - name: Assemble and execute opt-in SSE2 packed arithmetic
         shell: bash
         run: |
