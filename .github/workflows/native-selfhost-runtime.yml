@@ -156,6 +156,12 @@ jobs:
             set -e
             if [ "$code" -eq 0 ]; then echo "$sample did not trap" >&2; exit 1; fi
           done
+      - name: Differential native constant division matrix
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/native_division_matrix.py
       - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
