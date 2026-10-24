@@ -40,6 +40,14 @@ export function nqDepthClear3D(depth: []u32, width: usize, height: usize): bool 
     if height > len(depth) / width { return false }
     let count: usize = width * height
     let i: usize = 0 as usize
+    // Four bounded stores per loop; no overflow-prone i+4 guard.
+    while i < count && count - i >= 4 as usize {
+        depth[i] = 4294967295 as u32
+        depth[i + 1 as usize] = 4294967295 as u32
+        depth[i + 2 as usize] = 4294967295 as u32
+        depth[i + 3 as usize] = 4294967295 as u32
+        i = i + 4 as usize
+    }
     while i < count {
         depth[i] = 4294967295 as u32
         i = i + 1 as usize
