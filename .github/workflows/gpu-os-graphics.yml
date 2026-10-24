@@ -124,11 +124,12 @@ jobs:
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/posterize_fragment.noqeri /tmp/noqeri-posterize.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/grayscale_fragment.noqeri /tmp/noqeri-grayscale.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_fragment.noqeri /tmp/noqeri-vector-fragment.wgsl --stage=fragment
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_lighting_fragment.noqeri /tmp/noqeri-vector-lighting-fragment.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/texture_fragment.noqeri /tmp/noqeri-texture-fragment.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_compute.noqeri /tmp/noqeri-vector-compute.wgsl --stage=compute
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vertex3d.noqeri /tmp/noqeri-vertex3d.wgsl --stage=vertex
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/fragment3d.noqeri /tmp/noqeri-fragment3d.wgsl --stage=fragment
-          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-vertex3d.wgsl /tmp/noqeri-fragment3d.wgsl /tmp/noqeri-vector-fragment.wgsl /tmp/noqeri-texture-fragment.wgsl /tmp/noqeri-vector-compute.wgsl /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
+          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-vertex3d.wgsl /tmp/noqeri-fragment3d.wgsl /tmp/noqeri-vector-fragment.wgsl /tmp/noqeri-vector-lighting-fragment.wgsl /tmp/noqeri-texture-fragment.wgsl /tmp/noqeri-vector-compute.wgsl /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
         env:
           GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
