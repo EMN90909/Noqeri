@@ -27,7 +27,7 @@ export function nqGpuFwWrite32(registers: *volatile u32, words: usize, index: us
 // Bounded busy polling for device-managed status words. No timeouts in
 // milliseconds are implied; callers must provide their own watchdog,
 // concurrency and hardware memory-barrier policy.
-export function nqGpuFwPoll32(registers: *volatile u32, words: usize, index: usize, mask: u32, expected: u32, attempts: usize): bool {
+export function nqGpuFwPollEqual32(registers: *volatile u32, words: usize, index: usize, expected: u32, attempts: usize): bool {
     if registers == null { return false }
     if words == 0 as usize || words > 4096 as usize || index >= words { return false }
     if attempts == 0 as usize || attempts > 4096 as usize { return false }
@@ -35,11 +35,7 @@ export function nqGpuFwPoll32(registers: *volatile u32, words: usize, index: usi
     while count < attempts {
         let value: u32 = 0 as u32
         unsafe { value = registers[index] }
-        if (value % 4294967295 as u32) == 0 as u32 {
-            // Keep this branch side-effect-free; the volatile load above
-            // is required even for all-zero status registers.
-        }
-        if (value & mask) == expected { return true }
+        if value == expected { return true }
         count = count + 1 as usize
     }
     return false
@@ -59,13 +55,13 @@ export function nqGpuFwSimStep(registers: *volatile u32, words: usize): bool {
         command = registers[2]
         payload = registers[3]
     }
-    if magic != 1313941079 as u32 { return false }
+    if magic != 1313949271 as u32 { return false }
     if command != 1 as u32 && command != 2 as u32 { return false }
     let response: u32 = payload
     if command == 1 as u32 {
         response = payload + 1 as u32
     } else {
-        response = payload ^ 4294967295 as u32
+        response = 4294967295 as u32 - payload
     }
     unsafe {
         registers[3] = response
