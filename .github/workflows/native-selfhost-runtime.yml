@@ -126,6 +126,36 @@ jobs:
           grep -Eq 'mov r1[2-5], QWORD PTR .*' build-native/aot-sort-inspect.s
           grep -Fq 'lea rax, [rax + r10*8]' build-native/aot-sort-inspect.s
           test "$(build-native/aot-sort-inspect)" = "$(printf '%s\n' 64 65032)"
+      - name: Qualify typed unsigned arithmetic and bounds-preserving O3
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/native_unsigned_arithmetic.noqeri build-native/aot-typed-unsigned --compiler=build-native/noqeri --opt=-O3 --keep-asm
+          expected="$(printf '%s\n' true false 190172619316593315 60 0 -13 -2 13 -2 -95086309658296657 -79)"
+          test "$(build-native/aot-typed-unsigned)" = "$expected"
+          grep -Fq 'mul r10' build-native/aot-typed-unsigned.s
+          grep -Eq 'seta al|setb al' build-native/aot-typed-unsigned.s
+          node scripts/native-build.mjs tests/native_bounds_guard.noqeri build-native/aot-bounds-guard-O0 --compiler=build-native/noqeri --opt=-O0 --keep-asm
+          node scripts/native-build.mjs tests/native_bounds_guard.noqeri build-native/aot-bounds-guard-O3 --compiler=build-native/noqeri --opt=-O3 --keep-asm
+          test "$(build-native/aot-bounds-guard-O0)" = "$(printf '%s\n' 0 21)"
+          test "$(build-native/aot-bounds-guard-O3)" = "$(printf '%s\n' 0 21)"
+          python3 - <<'PY'
+          from pathlib import Path
+          old=Path('build-native/aot-bounds-guard-O0.s').read_text().count('    ud2\n')
+          new=Path('build-native/aot-bounds-guard-O3.s').read_text().count('    ud2\n')
+          print('Range proof: O0 trap sites',old,'O3 trap sites',new)
+          assert new < old,'expected provably redundant bound-check removal'
+          PY
+          for sample in native_bounds_mutation_trap native_bounds_oob_trap; do
+            node scripts/native-build.mjs "tests/$sample.noqeri" "build-native/$sample" --compiler=build-native/noqeri --opt=-O3
+            ulimit -c 0
+            set +e
+            "build-native/$sample" >/dev/null 2>&1
+            code=$?
+            set -e
+            if [ "$code" -eq 0 ]; then echo "$sample did not trap" >&2; exit 1; fi
+          done
       - name: Verify zero initialization through C++ -> NQRI (Linux)
         if: runner.os == 'Linux'
         shell: bash
