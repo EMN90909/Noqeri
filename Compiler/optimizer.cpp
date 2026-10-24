@@ -567,6 +567,22 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             if(it!=constants.end())constants[*in.dest]=it->second;
         }else if(in.op==NirOp::Load)loads[*in.dest]=in.text;
     }
+    // A backedge from AFTER a check into the protected body can bypass the
+    // guard that proved its bound. Dominance alone does not establish that
+    // the scalar still satisfies the guard after another loop iteration.
+    std::vector<std::pair<std::size_t,std::size_t>> backedges;
+    for(std::size_t edgePc=0;edgePc<fn.code.size();++edgePc){
+        const auto& edge=fn.code[edgePc];
+        if((edge.op==NirOp::Jump||edge.op==NirOp::JumpIfFalse)&&
+           edge.target<edgePc)
+            backedges.emplace_back(edgePc,edge.target);
+    }
+    const auto bypassesGuard=[&](std::size_t guard,std::size_t checkPc){
+        for(const auto& edge:backedges)
+            if(edge.first>checkPc&&edge.second>guard&&
+               edge.second<=checkPc)return true;
+        return false;
+    };
     bool changed=false;
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         auto& check=fn.code[pc];
@@ -597,7 +613,8 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                 continue;
             const bool proven=comparison.text=="<"?upper->second<=limit->second:
                 upper->second<limit->second;
-            if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]])continue;
+            if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]]||
+               bypassesGuard(guardPc,pc))continue;
             // The comparison can use a value loaded BEFORE the guard.
             // If x changes between that original load and the indexed load,
             // the guard no longer constrains the checked value. Starting at
@@ -646,7 +663,8 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                        lowerName->second!=indexName->second||
                        lowerConst==constants.end()||lowerConst->second!=0||
                        !signedIndexType(operandType(fn,lowerCompare.args[0]))||
-                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]])
+                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]]||
+                       bypassesGuard(lowerPc,pc))
                         continue;
                     const auto lowerLoad=g.definitions.find(lowerCompare.args[0]);
                     if(lowerLoad==g.definitions.end()||
