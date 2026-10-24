@@ -71,3 +71,26 @@ Bulk-fill lowering for `nqRenderClear`, SIMD feature-gating and tails,
 safe dynamic-slice bounds elimination, improved named-local promotion,
 and independent GPU-driver qualification are separate milestones. Keep
 volatile framebuffer I/O away from nonvolatile bulk-memory optimizations.
+
+## First independent CI A/B result (2026-10-24)
+
+GitHub Actions [run 40119159745](https://github.com/EMN90909/Noqeri/actions/runs/40119159745)
+successfully compiled both native binaries, passed **4,657** complete
+buffer and guard tests, and uploaded its raw 30-sample evidence.
+
+| 256-square scene | Pinned baseline median | Optimized median | Speedup |
+|---|---:|---:|---:|
+| Gradient | 1,040,599.5 ns | 387,218.5 ns | 2.69× |
+| Checker | 576,347 ns | 238,967 ns | 2.41× |
+| Clear | 182,531 ns | 182,451 ns | 1.00× |
+
+The independently compiled C reference in the same CI run measured
+141,474 ns for gradient, 142,106 ns for checker, and 5,174.5 ns
+for clear. Thus optimized Noqeri is **still slower than C**, most
+markedly for clear. This is CPU-kernel-only evidence on a CI runner.
+The historical 256-square C gradient outlier has not been reproduced
+or explained; this reference uses the old source's scalar pixel formula.
+
+The CI per-scene results are not release-performance qualifications for
+physical GPUs or other host processors. Historical ratios must not be
+substituted for same-run measurements.
