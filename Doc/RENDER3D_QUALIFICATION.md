@@ -294,3 +294,17 @@ Optional browser-only examples have been moved to
 `examples/browser-webgpu/` to isolate JavaScript from the Noqeri/C++
 shader compiler and shader source tree. This does not imply that the
 C++ compiler now contains a native WebGPU hardware driver.
+
+
+## Optional native accelerated Z-buffer clear (October 2026)
+
+`Lib/std/render3d_accel.noqeri` provides
+`nqDepthClearAccelerated(depth, width, height)`, which validates the
+dimensions and slice length exactly as the portable `nqDepthClear3D`
+function does, then calls the same explicit SIMD C++ native fill
+backend used by 2D color clearing. The visible pixels become
+`0xffffffff`; tail sentinels remain unchanged. This backend is
+CPU-only and nonvolatile. Use the original Noqeri depth clear if
+you cannot link `noqeri_graphics_fastpath`.
+`tests/cpp/graphics_depth_fastpath_native_test.cpp` verifies the
+real compiled Noqeri ABI against independent full-buffer expectations.
