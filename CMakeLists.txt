@@ -55,6 +55,13 @@ noqeri_apply_warnings(noqeri-nqri)
 noqeri_apply_warnings(noqeri_abi)
 include(CTest)
 if(BUILD_TESTING)
+ add_executable(noqeri-simd-codegen-test
+   tests/cpp/native_simd_emit_test.cpp Compiler/native_backend.cpp)
+ target_include_directories(noqeri-simd-codegen-test PRIVATE
+   Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri-simd-codegen-test PRIVATE cxx_std_17)
+ target_link_libraries(noqeri-simd-codegen-test PRIVATE noqeri_abi)
+ noqeri_apply_warnings(noqeri-simd-codegen-test)
  add_executable(noqeri-optimizer-test tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp)
  add_executable(noqeri-register-allocator-test tests/cpp/register_allocator_cfg_test.cpp Compiler/register_alloc.cpp)
  target_include_directories(noqeri-register-allocator-test PRIVATE Include/noqeri Compiler/bootstrap)
