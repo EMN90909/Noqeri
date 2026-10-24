@@ -332,9 +332,15 @@ bool promoteLocalLoads(NirFunction& fn){
             if(previous==values.end())continue;
             const Reg source=previous->second,loaded=*in.dest;
             if(source==loaded||source>=fn.registerTypes.size()||
-               loaded>=fn.registerTypes.size()||
-               fn.registerTypes[source].kind==TypeKind::Unknown||
-               fn.registerTypes[source]!=fn.registerTypes[loaded])
+               loaded>=fn.registerTypes.size())
+                continue;
+            const auto kind=fn.registerTypes[source].kind;
+            // Use only primitive scalar types: full Type equality requires
+            // the type engine, which is not linked into optimizer-only tests.
+            // Pointers, aggregates and floats remain in memory.
+            if(kind!=fn.registerTypes[loaded].kind||
+               !(signedIndexType(kind)||unsignedType(kind)||
+                 kind==TypeKind::Bool))
                 continue;
             const auto last=finalUseBlock.find(loaded);
             if(last!=finalUseBlock.end()&&last->second>block)continue;
