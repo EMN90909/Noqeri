@@ -11,6 +11,13 @@
 #include <unordered_map>
 #include <unordered_set>
 namespace noe { namespace {
+bool unsignedType(TypeKind k){
+    return k==TypeKind::U8||k==TypeKind::U16||k==TypeKind::U32||
+           k==TypeKind::U64||k==TypeKind::Usize;
+}
+TypeKind operandType(const NirFunction& fn, Reg r){
+    return r<fn.registerTypes.size()?fn.registerTypes[r].kind:TypeKind::Unknown;
+}
 bool truthy(const NirValue&v){if(auto p=std::get_if<bool>(&v))return*p;if(auto p=std::get_if<std::int64_t>(&v))return*p!=0;if(auto p=std::get_if<double>(&v))return*p!=0.0;if(auto p=std::get_if<std::string>(&v))return!p->empty();return false;}
 std::int64_t wrapped(std::uint64_t value){std::int64_t out=0;std::memcpy(&out,&value,sizeof(out));return out;}
 std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue&b,TypeKind operand=TypeKind::Int){
@@ -34,13 +41,6 @@ std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue
     if(auto x=std::get_if<double>(&a))if(auto y=std::get_if<double>(&b)){if(op=="+")return NirValue(*x+*y);if(op=="-")return NirValue(*x-*y);if(op=="*")return NirValue(*x**y);if(op=="/"&&*y!=0)return NirValue(*x / *y);if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);if(op=="<")return NirValue(*x<*y);if(op=="<=")return NirValue(*x<=*y);if(op==">")return NirValue(*x>*y);if(op==">=")return NirValue(*x>=*y);}
     if(auto x=std::get_if<std::string>(&a))if(auto y=std::get_if<std::string>(&b)){if(op=="+")return NirValue(*x+*y);if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);}
     if(op=="&&")return NirValue(truthy(a)&&truthy(b));if(op=="||")return NirValue(truthy(a)||truthy(b));return std::nullopt;
-}
-bool unsignedType(TypeKind k){
-    return k==TypeKind::U8||k==TypeKind::U16||k==TypeKind::U32||
-           k==TypeKind::U64||k==TypeKind::Usize;
-}
-TypeKind operandType(const NirFunction& fn, Reg r){
-    return r<fn.registerTypes.size()?fn.registerTypes[r].kind:TypeKind::Unknown;
 }
 bool sideEffect(const NirInstruction&i){switch(i.op){case NirOp::CheckNonNull:case NirOp::CheckBounds:case NirOp::Store:case NirOp::StoreMemory:case NirOp::Call:case NirOp::AtomicStore:case NirOp::AtomicExchange:case NirOp::AtomicCompareExchange:case NirOp::AtomicFence:case NirOp::Intrinsic:case NirOp::InlineAsm:case NirOp::Try:case NirOp::Throw:case NirOp::Jump:case NirOp::JumpIfFalse:case NirOp::Return:return true;case NirOp::LoadMemory:case NirOp::AtomicLoad:return i.isVolatile||i.op==NirOp::AtomicLoad;default:return false;}}
 bool constants(NirFunction&fn){
