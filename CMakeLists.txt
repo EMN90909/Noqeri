@@ -80,6 +80,12 @@ if(BUILD_TESTING)
  endif()
  noqeri_apply_warnings(noqeri-graphics-portability-test)
  add_test(NAME noqeri-graphics-portability COMMAND noqeri-graphics-portability-test)
+ add_test(NAME noqeri-graphics-shader-portability
+  COMMAND ${CMAKE_COMMAND}
+   "-DNOQERI_COMPILER=$<TARGET_FILE:noqeri>"
+   "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+   "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+   -P ${CMAKE_SOURCE_DIR}/tests/cmake/graphics_shader_portability.cmake)
 endif()
 # This opt-in mode isolates portable shader generation and native framebuffer
 # runtime even on BSD/Android, where networking services differ. A full native
