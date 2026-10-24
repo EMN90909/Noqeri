@@ -1,0 +1,121 @@
+name: Graphics compiler platform portability
+on:
+  pull_request:
+    paths:
+      - 'Compiler/**'
+      - 'CMakeLists.txt'
+      - 'Runtime/native/graphics_fastpath.cpp'
+      - 'Include/noqeri/graphics_fastpath.h'
+      - 'tests/cpp/graphics_portability_test.cpp'
+      - 'tests/cmake/graphics_shader_portability.cmake'
+      - 'examples/shaders/**'
+      - '.github/workflows/graphics-portability.yml'
+  push:
+    paths:
+      - 'Compiler/**'
+      - 'CMakeLists.txt'
+      - 'Runtime/native/graphics_fastpath.cpp'
+      - 'Include/noqeri/graphics_fastpath.h'
+      - 'tests/cpp/graphics_portability_test.cpp'
+      - 'tests/cmake/graphics_shader_portability.cmake'
+      - 'examples/shaders/**'
+      - '.github/workflows/graphics-portability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: "${{ matrix.label }} graphics compiler + scalar/SIMD"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x86-64
+            runner: ubuntu-24.04
+          - label: Linux ARM64
+            runner: ubuntu-24.04-arm
+          - label: Windows x86-64
+            runner: windows-2022
+          - label: macOS ARM64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure portable native graphics and real shader compiler
+        run: cmake -S . -B build-graphics -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WARNINGS_AS_ERRORS=ON
+      - name: Build cross-platform Noqeri WGSL emitter and SIMD framebuffer
+        run: cmake --build build-graphics --config Release --target noqeri noqeri-graphics-portability-test --parallel 2
+      - name: Verify C++ framebuffer ABI and Noqeri WGSL shader compilation
+        run: ctest --test-dir build-graphics -C Release --output-on-failure -R "^noqeri-graphics-"
+      - name: Configure CPU scalar fallback
+        run: cmake -S . -B build-graphics-scalar -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_GRAPHICS_FORCE_SCALAR=ON -DNOQERI_WARNINGS_AS_ERRORS=ON
+      - name: Verify force-scalar fallback on this OS
+        run: |
+          cmake --build build-graphics-scalar --config Release --target noqeri-graphics-portability-test --parallel 2
+          ctest --test-dir build-graphics-scalar -C Release --output-on-failure -R "^noqeri-graphics-portability$"
+
+  freebsd:
+    name: FreeBSD native graphics and shader compilation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run on FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: '14.3'
+          usesh: true
+          prepare: |
+            pkg install -y cmake
+          run: |
+            cmake -S . -B build-graphics -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+            cmake --build build-graphics --target noqeri noqeri-graphics-portability-test -j 2
+            ctest --test-dir build-graphics --output-on-failure -R '^noqeri-graphics-'
+
+  openbsd:
+    name: OpenBSD native graphics and shader compilation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run on OpenBSD VM
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: '7.8'
+          usesh: true
+          prepare: |
+            pkg_add cmake
+          run: |
+            cmake -S . -B build-graphics -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+            cmake --build build-graphics --target noqeri noqeri-graphics-portability-test -j 2
+            ctest --test-dir build-graphics --output-on-failure -R '^noqeri-graphics-'
+
+  android:
+    name: "Android NDK native graphics ABI ${{ matrix.abi }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-compile portable SIMD/scalar graphics for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [[ -z "$ndk" || ! -f "$ndk/build/cmake/android.toolchain.cmake" ]]; then
+            echo "Required Android NDK is not installed; cannot qualify Android" >&2
+            exit 1
+          fi
+          cmake -S . -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+            -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+          cmake --build build-android --target noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
+          echo "Android ${{ matrix.abi }} cross-compile PASS (not an on-device execution test)"
