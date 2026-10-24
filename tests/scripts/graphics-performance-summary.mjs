@@ -24,19 +24,41 @@ function load(path){
     throw Error('Require 30 samples for all 3 scenes x 3 dimensions x 2 engines')
   return out
 }
-function median(data){const v=[...data].sort((a,b)=>a-b);return (v[14]+v[15])/2}
+function stats(data){
+  const sorted=[...data].sort((a,b)=>a-b)
+  return {median_ns:(sorted[14]+sorted[15])/2,p95_ns:sorted[28]}
+}
 const baseline=load(baselinePath),optimized=load(optimizedPath)
 const scenes=[]
+const regressionFailures=[]
 for(const [key,b] of baseline) {
   const o=optimized.get(key)
   if(!o)throw Error('Missing paired measurement: '+key)
-  const before=median(b),after=median(o)
-  scenes.push({key,baseline_median_ns:before,optimized_median_ns:after,
-    speedup_vs_baseline:after>0?before/after:null})
+  const before=stats(b),after=stats(o)
+  const [scene,resolution,engine]=key.split(':')
+  if(engine==='noqeri' && resolution!=='64x64' &&
+     after.median_ns>before.median_ns*1.20){
+    regressionFailures.push(key)
+  }
+  const cKey=scene+':'+resolution+':c'
+  const optimizedC=optimized.get(cKey)
+  scenes.push({key,baseline_median_ns:before.median_ns,optimized_median_ns:after.median_ns,
+    optimized_p95_ns:after.p95_ns,
+    speedup_vs_baseline:after.median_ns>0?before.median_ns/after.median_ns:null,
+    optimized_noqeri_vs_c_ratio:engine==='noqeri' && optimizedC?
+      after.median_ns/stats(optimizedC).median_ns:null})
 }
-process.stdout.write(JSON.stringify({
-  schema:1,execution:'native-cpu-raster-only',not_gpu_hardware:true,
-  sample_count_per_scene_engine:30,comparison:'paired CI host, separate executables',
+const result={
+  schema:2,execution:'native-cpu-raster-only',not_gpu_hardware:true,
+  sample_count_per_scene_engine:30,
+  comparison:'same CI host, separately executed baseline and optimized binaries',
+  regression_gate:{max_slowdown_percent:20,resolutions:['256x256','512x512'],
+    passed:regressionFailures.length===0,failures:regressionFailures},
   results:scenes,
   claim:'CI metrics are not comparable to uploaded CSV without matched hardware/provenance'
-},null,2)+'\n')
+}
+process.stdout.write(JSON.stringify(result,null,2)+'\n')
+if(regressionFailures.length){
+  console.error('Native CPU raster regression against pinned same-run baseline: '+regressionFailures.join(', '))
+  process.exitCode=1
+}
