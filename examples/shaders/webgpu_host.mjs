@@ -5,8 +5,46 @@ function requireGpu(provided) {
   if (!gpu) throw new Error('WebGPU is unavailable. Use a secure-context browser with WebGPU support.')
   return gpu
 }
+async function selectNoqeriAdapter(gpu) {
+  // Prefer a high-performance adapter when available, but do not exclude
+  // low-power/integrated GPUs or portable software-backed implementations.
+  const preferred = await gpu.requestAdapter({powerPreference:'high-performance'})
+  return preferred ?? await gpu.requestAdapter()
+}
+export async function inspectNoqeriGpuCompatibility(suppliedGpu = null) {
+  const gpu = suppliedGpu ?? globalThis.navigator?.gpu
+  if (!gpu || typeof gpu.requestAdapter !== 'function')
+    return {available:false,reason:'WebGPU is unavailable in this browser or context.'}
+  try {
+    const adapter = await selectNoqeriAdapter(gpu)
+    if (!adapter)return {available:false,reason:'No WebGPU adapter was available.'}
+    const limits=adapter.limits ?? {}
+    return {
+      available:true,
+      // This is adapter capability reporting, NOT proof of a physical GPU.
+      fallbackAdapter:adapter.isFallbackAdapter ?? null,
+      adapter:{
+        vendor:adapter.info?.vendor ?? null,
+        architecture:adapter.info?.architecture ?? null,
+        device:adapter.info?.device ?? null
+      },
+      format:typeof gpu.getPreferredCanvasFormat==='function'?
+        gpu.getPreferredCanvasFormat():null,
+      features:adapter.features ? Array.from(adapter.features).sort():[],
+      limits:{
+        maxTextureDimension2D:limits.maxTextureDimension2D ?? null,
+        maxBufferSize:limits.maxBufferSize ?? null,
+        maxStorageBufferBindingSize:limits.maxStorageBufferBindingSize ?? null,
+        maxComputeInvocationsPerWorkgroup:limits.maxComputeInvocationsPerWorkgroup ?? null
+      },
+      profile:'webgpu-noqeri-vertex-fragment-compute-subset'
+    }
+  }catch(error){
+    return {available:false,reason:String(error.message||error)}
+  }
+}
 async function getDevice(gpu) {
-  const adapter = await gpu.requestAdapter()
+  const adapter = await selectNoqeriAdapter(gpu)
   if (!adapter) throw new Error('No WebGPU adapter was returned by the browser.')
   const device = await adapter.requestDevice()
   if (!device) throw new Error('WebGPU adapter failed to create a device.')
@@ -324,6 +362,17 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
   let context,configured=false,vertexBuffer,depthTexture,disposed=false,busy=false
+  let lossMessage=null
+  if(device.lost && typeof device.lost.then==='function'){
+    device.lost.then(info=>{
+      if(!disposed){
+        lossMessage='WebGPU device lost: '+String(info?.message||info?.reason||'unknown')
+        dispose()
+      }
+    },()=>{
+      if(!disposed){lossMessage='WebGPU device loss notification failed';dispose()}
+    })
+  }
   function dispose(){
     if(disposed)return
     disposed=true
@@ -365,6 +414,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
     })
     return {
       async render(input){
+        if(lossMessage)throw new Error(lossMessage)
         if(disposed)throw new Error('3D renderer is disposed.')
         if(busy)throw new Error('3D renderer already has a frame in flight.')
         if(canvas.width!==width||canvas.height!==height)
