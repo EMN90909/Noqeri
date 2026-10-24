@@ -13,8 +13,17 @@
 namespace noe { namespace {
 bool truthy(const NirValue&v){if(auto p=std::get_if<bool>(&v))return*p;if(auto p=std::get_if<std::int64_t>(&v))return*p!=0;if(auto p=std::get_if<double>(&v))return*p!=0.0;if(auto p=std::get_if<std::string>(&v))return!p->empty();return false;}
 std::int64_t wrapped(std::uint64_t value){std::int64_t out=0;std::memcpy(&out,&value,sizeof(out));return out;}
-std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue&b){
+std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue&b,TypeKind operand=TypeKind::Int){
     if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){
+        if(unsignedType(operand)){
+            const auto lhs=static_cast<std::uint64_t>(*x),rhs=static_cast<std::uint64_t>(*y);
+            if(op=="/"&&rhs)return NirValue(wrapped(lhs/rhs));
+            if(op=="%"&&rhs)return NirValue(wrapped(lhs%rhs));
+            if(op=="<")return NirValue(lhs<rhs);
+            if(op=="<=")return NirValue(lhs<=rhs);
+            if(op==">")return NirValue(lhs>rhs);
+            if(op==">=")return NirValue(lhs>=rhs);
+        }
         if(op=="+")return NirValue(wrapped(static_cast<std::uint64_t>(*x)+static_cast<std::uint64_t>(*y)));
         if(op=="-")return NirValue(wrapped(static_cast<std::uint64_t>(*x)-static_cast<std::uint64_t>(*y)));
         if(op=="*")return NirValue(wrapped(static_cast<std::uint64_t>(*x)*static_cast<std::uint64_t>(*y)));
@@ -25,6 +34,13 @@ std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue
     if(auto x=std::get_if<double>(&a))if(auto y=std::get_if<double>(&b)){if(op=="+")return NirValue(*x+*y);if(op=="-")return NirValue(*x-*y);if(op=="*")return NirValue(*x**y);if(op=="/"&&*y!=0)return NirValue(*x / *y);if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);if(op=="<")return NirValue(*x<*y);if(op=="<=")return NirValue(*x<=*y);if(op==">")return NirValue(*x>*y);if(op==">=")return NirValue(*x>=*y);}
     if(auto x=std::get_if<std::string>(&a))if(auto y=std::get_if<std::string>(&b)){if(op=="+")return NirValue(*x+*y);if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);}
     if(op=="&&")return NirValue(truthy(a)&&truthy(b));if(op=="||")return NirValue(truthy(a)||truthy(b));return std::nullopt;
+}
+bool unsignedType(TypeKind k){
+    return k==TypeKind::U8||k==TypeKind::U16||k==TypeKind::U32||
+           k==TypeKind::U64||k==TypeKind::Usize;
+}
+TypeKind operandType(const NirFunction& fn, Reg r){
+    return r<fn.registerTypes.size()?fn.registerTypes[r].kind:TypeKind::Unknown;
 }
 bool sideEffect(const NirInstruction&i){switch(i.op){case NirOp::CheckNonNull:case NirOp::CheckBounds:case NirOp::Store:case NirOp::StoreMemory:case NirOp::Call:case NirOp::AtomicStore:case NirOp::AtomicExchange:case NirOp::AtomicCompareExchange:case NirOp::AtomicFence:case NirOp::Intrinsic:case NirOp::InlineAsm:case NirOp::Try:case NirOp::Throw:case NirOp::Jump:case NirOp::JumpIfFalse:case NirOp::Return:return true;case NirOp::LoadMemory:case NirOp::AtomicLoad:return i.isVolatile||i.op==NirOp::AtomicLoad;default:return false;}}
 bool constants(NirFunction&fn){
@@ -39,7 +55,7 @@ bool constants(NirFunction&fn){
         if(index!=0&&leaders.count(index))known.clear();
         auto&i=fn.code[index];
         if(i.op==NirOp::Const&&i.dest){known[*i.dest]=i.literal;continue;}
-        if(i.op==NirOp::Binary&&i.dest&&i.args.size()==2){auto a=known.find(i.args[0]),b=known.find(i.args[1]);if(a!=known.end()&&b!=known.end())if(auto value=fold(i.text,a->second,b->second)){i.op=NirOp::Const;i.literal=*value;i.text.clear();i.args.clear();known[*i.dest]=*value;changed=true;continue;}}
+        if(i.op==NirOp::Binary&&i.dest&&i.args.size()==2){auto a=known.find(i.args[0]),b=known.find(i.args[1]);if(a!=known.end()&&b!=known.end())if(auto value=fold(i.text,a->second,b->second,operandType(fn,i.args[0]))){i.op=NirOp::Const;i.literal=*value;i.text.clear();i.args.clear();known[*i.dest]=*value;changed=true;continue;}}
         if(i.op==NirOp::CheckNonNull&&i.args.size()==1){auto a=known.find(i.args[0]);if(a!=known.end()){if(auto value=std::get_if<std::int64_t>(&a->second);value&&*value!=0){i.op=NirOp::Nop;i.args.clear();changed=true;continue;}}}
         if(i.op==NirOp::CheckBounds&&i.args.size()==2){auto a=known.find(i.args[0]),b=known.find(i.args[1]);if(a!=known.end()&&b!=known.end()){auto indexValue=std::get_if<std::int64_t>(&a->second),length=std::get_if<std::int64_t>(&b->second);if(indexValue&&length&&*indexValue>=0&&*length>=0&&*indexValue<*length){i.op=NirOp::Nop;i.args.clear();changed=true;continue;}}}
         if(i.dest)known.erase(*i.dest);
@@ -299,7 +315,7 @@ bool sparseConstants(NirFunction& fn) {
             if(i.op==NirOp::Const&&!std::holds_alternative<std::monostate>(i.literal))value=i.literal;
             if(i.op==NirOp::Binary&&i.args.size()==2){
                 const auto a=facts.find(i.args[0]),b=facts.find(i.args[1]);
-                if(a!=facts.end()&&b!=facts.end())value=fold(i.text,a->second,b->second);
+                if(a!=facts.end()&&b!=facts.end())value=fold(i.text,a->second,b->second,operandType(fn,i.args[0]));
             }
             if(value){facts.emplace(*i.dest,*value);progress=true;}
         }
@@ -476,6 +492,98 @@ bool hoistLoopLiteral(NirFunction& fn) {
     }
     return false;
 }
+// A prior identical bounds check dominates this point when virtual register
+// definitions are unique. Trap-on-failure means reaching the later check proves
+// that the earlier one succeeded with the same index and length.
+bool eliminateDominatedChecks(NirFunction& fn){
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    std::map<std::pair<Reg,Reg>,std::vector<std::size_t>> checked;
+    bool changed=false;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        auto& in=fn.code[pc];
+        if(in.op!=NirOp::CheckBounds||in.args.size()!=2)continue;
+        const auto key=std::make_pair(in.args[0],in.args[1]);
+        const auto block=g.owner[pc];
+        bool redundant=false;
+        for(const auto prev:checked[key]){
+            const auto prior=g.owner[prev];
+            if((prior==block&&prev<pc)||(prior!=block&&g.dominates[block][prior])){
+                redundant=true;break;
+            }
+        }
+        if(redundant){in.op=NirOp::Nop;in.args.clear();changed=true;}
+        else checked[key].push_back(pc);
+    }
+    return changed;
+}
+// Range proof for a canonical unsigned loop/conditional:
+//    if/while (index < bound) { array[index] ... }
+// A true-edge-dominating comparison plus zero intervening writes to the
+// indexed source variable makes the fixed-array CheckBounds redundant.
+// Any unknown alias, extra entry, mutation or non-unsigned index fails closed.
+bool eliminateGuardedBounds(NirFunction& fn){
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    std::unordered_map<Reg,std::int64_t> constants;
+    std::unordered_map<Reg,std::string> loads;
+    for(const auto& in:fn.code){
+        if(!in.dest)continue;
+        if(in.op==NirOp::Const){
+            if(auto value=std::get_if<std::int64_t>(&in.literal))constants[*in.dest]=*value;
+        }else if(in.op==NirOp::Cast&&in.args.size()==1&&
+                 (in.text=="usize"||in.text=="u64"||in.text=="int"||
+                  in.text=="i64"||in.text=="isize")){
+            const auto it=constants.find(in.args[0]);
+            if(it!=constants.end())constants[*in.dest]=it->second;
+        }else if(in.op==NirOp::Load)loads[*in.dest]=in.text;
+    }
+    bool changed=false;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        auto& check=fn.code[pc];
+        if(check.op!=NirOp::CheckBounds||check.args.size()!=2)continue;
+        auto indexName=loads.find(check.args[0]);
+        auto limit=constants.find(check.args[1]);
+        if(indexName==loads.end()||limit==constants.end()||limit->second<=0||
+           !unsignedType(operandType(fn,check.args[0])))continue;
+        // Do not reason about the contents of memory, slices, arbitrary
+        // pointer aliases, or dynamic bounds. Only named scalar loads.
+        for(std::size_t guardPc=0;guardPc<pc;++guardPc){
+            const auto& branch=fn.code[guardPc];
+            if(branch.op!=NirOp::JumpIfFalse||branch.args.size()!=1||
+               branch.target<=pc||guardPc+1>=fn.code.size())continue;
+            auto def=g.definitions.find(branch.args[0]);
+            if(def==g.definitions.end()||def->second>=guardPc)continue;
+            const auto& comparison=fn.code[def->second];
+            if(comparison.op!=NirOp::Binary||comparison.args.size()!=2||
+               (comparison.text!="<"&&comparison.text!="<="))continue;
+            const auto name=loads.find(comparison.args[0]);
+            const auto upper=constants.find(comparison.args[1]);
+            if(name==loads.end()||name->second!=indexName->second||
+               upper==constants.end()||upper->second<0||
+               !unsignedType(operandType(fn,comparison.args[0])))continue;
+            const bool proven=comparison.text=="<"?upper->second<=limit->second:
+                upper->second<limit->second;
+            if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]])continue;
+            bool mutated=false;
+            for(std::size_t mid=guardPc+1;mid<pc;++mid){
+                const auto& in=fn.code[mid];
+                if(in.op==NirOp::Store&&in.text==indexName->second){
+                    mutated=true;break;
+                }
+                // Without a general points-to proof, do not move a safety
+                // check across unknown calls/unsafe writes/inline asm.
+                if(in.op==NirOp::Call||in.op==NirOp::InlineAsm||
+                   in.op==NirOp::StoreMemory||in.op==NirOp::AtomicStore||
+                   in.op==NirOp::AtomicExchange||
+                   in.op==NirOp::AtomicCompareExchange){mutated=true;break;}
+            }
+            if(mutated)continue;
+            check.op=NirOp::Nop;check.args.clear();changed=true;break;
+        }
+    }
+    return changed;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -500,7 +608,9 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
             const bool e = integerStrengthReduction(fn);
             const bool f = constants(fn);
             const bool g = dce(fn);
-            if (!a && !b && !c && !d && !e && !f && !g) break;
+            const bool h = eliminateDominatedChecks(fn);
+            const bool j = eliminateGuardedBounds(fn);
+            if (!a && !b && !c && !d && !e && !f && !g && !h && !j) break;
         }
     }
     if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
