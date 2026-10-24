@@ -24,6 +24,25 @@ jobs:
         run: cmake --build build-typed --target noqeri noqeri-optimizer-test --parallel 2
       - name: Native optimizer unit tests
         run: ctest --test-dir build-typed --output-on-failure -R '^noqeri-optimizer-liveness$'
+      - name: Compare Stage-0 interpreter and native integer behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-typed/backend-parity
+          for sample in \
+            tests/native_unsigned_arithmetic.noqeri \
+            tests/native_narrow_arithmetic.noqeri \
+            tests/native_guarded_unroll.noqeri \
+            tests/native_phi_diamond.noqeri; do
+            name="$(basename "$sample" .noqeri)"
+            for level in O0 O3; do
+              ./build-typed/noqeri run "$sample" "-$level" > "build-typed/backend-parity/$name-$level.reference.txt"
+              node scripts/native-build.mjs "$sample" "build-typed/backend-parity/$name-$level" --compiler=build-typed/noqeri "--opt=-$level"
+              "build-typed/backend-parity/$name-$level" > "build-typed/backend-parity/$name-$level.native.txt"
+              diff -u "build-typed/backend-parity/$name-$level.reference.txt" \
+                "build-typed/backend-parity/$name-$level.native.txt"
+            done
+          done
       - name: Build and validate unsigned/signed arithmetic
         shell: bash
         run: |

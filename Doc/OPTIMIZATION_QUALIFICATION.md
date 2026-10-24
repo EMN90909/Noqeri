@@ -205,3 +205,13 @@ SSA and interprocedural alias analysis, induction trip-count proofs, general
 safe unrolling, typed vector NIR and SIMD machine lowering, full integer
 parity across native, interpreter and NQRI, native self-hosted Stage-2/Stage-3
 executables, and broad measured cross-language performance comparisons.
+
+## Differential Stage-0 backend integer parity
+
+The native typed-arithmetic CI suite directly compares the C++ Stage-0
+reference interpreter against native x86-64 AOT output, at both O0 and O3, for
+unsigned wide division and comparison, narrow signed and unsigned overflow,
+branch Phi selection and guarded loops. Neither backend may silently disagree
+on printed observable output. This is qualification of two Stage-0 execution
+paths on the cited fixtures. NQRI VM integer-width parity, other target ABIs
+and exhaustive integer edge-case fuzzing remain unqualified.
