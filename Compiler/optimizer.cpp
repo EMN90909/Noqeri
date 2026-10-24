@@ -929,13 +929,19 @@ bool eliminateRepeatedStackLoads(NirFunction& fn){
         const auto& in=fn.code[pc];
         if(!in.dest||in.op!=NirOp::LoadMemory||in.isVolatile||
            in.args.size()!=1||!g.reachable[g.owner[pc]])continue;
+        // Only scalar integer and Boolean loads qualify. Excluding
+        // aggregate/pointer/string types also keeps this standalone
+        // optimizer linked without any Type runtime implementation.
+        const auto kind=in.type.kind;
+        if(!(signedIndexType(kind)||unsignedType(kind)||
+             kind==TypeKind::Bool))continue;
         const Reg ptr=in.args[0];
         if(alias.escapes(ptr))continue;
         for(const auto previous:candidates[ptr]){
             const auto& first=fn.code[previous];
             if(memory.beforeInstruction[pc]!=
                memory.beforeInstruction[previous]||
-               in.width!=first.width||in.type!=first.type)continue;
+               in.width!=first.width||in.type.kind!=first.type.kind)continue;
             if(g.owner[pc]==g.owner[previous]?previous>=pc:
                !g.dominates[g.owner[pc]][g.owner[previous]])continue;
             replace.emplace(*in.dest,*first.dest);
