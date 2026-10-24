@@ -701,19 +701,28 @@ OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
         }
         if(!escapes)++out.nonEscapingStackAllocations;
     }
-    for(const auto& i:fn.code){
-        if(i.op==NirOp::Binary && safeIntResult(i) && (i.text=="+"||i.text=="*"))
-            ++out.candidateVectorOperations;
-        if(i.op==NirOp::Const&&i.dest){
-            for(std::size_t pc=0;pc<fn.code.size();++pc) {
-                const auto& tail=fn.code[pc];
-                if(tail.op==NirOp::Jump&&tail.target<pc){
-                    if(i.dest && pc>tail.target && pc<fn.code.size())
-                        if((&i>=&fn.code[tail.target])&&(&i<&fn.code[pc]))
-                            ++out.candidateLoopConstants;
-                }
-            }
+    // Count literal candidates inside lexical backedge spans with a
+    // difference array. The previous nested scan visited every instruction
+    // for every literal and every backedge (quadratic on large generated NIR).
+    // This is read-only reporting, not proof of legal loop-invariant motion.
+    const auto n=fn.code.size();
+    std::vector<std::int64_t> coverage(n+1,0);
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Jump&&in.target<pc){
+            ++coverage[in.target];
+            --coverage[pc];
         }
+    }
+    std::int64_t inside=0;
+    for(std::size_t pc=0;pc<n;++pc){
+        inside+=coverage[pc];
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Binary && safeIntResult(in) &&
+           (in.text=="+"||in.text=="*"))
+            ++out.candidateVectorOperations;
+        if(in.op==NirOp::Const&&in.dest&&inside>0)
+            out.candidateLoopConstants+=static_cast<std::size_t>(inside);
     }
     return out;
 }

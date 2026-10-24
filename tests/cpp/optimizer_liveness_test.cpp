@@ -26,6 +26,21 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // Candidate reporting counts each lexical loop containing a literal.
+        // A nested backedge may cover the same constant twice; outside values
+        // must not be counted. These are diagnostics, not LICM proofs.
+        noe::NirFunction f;
+        auto inner=withArgs(noe::NirOp::Jump,{});inner.target=2;
+        auto outer=withArgs(noe::NirOp::Jump,{});outer.target=1;
+        f.code={constant(0,99),constant(1,1),constant(2,2),
+                constant(3,3),inner,constant(4,4),outer,
+                constant(5,5),withArgs(noe::NirOp::Return,{})};
+        const auto facts=noe::inspectOptimizations(f);
+        if(!check(facts.candidateLoopConstants==6,
+                  "linear-time loop candidate reporting preserves nested counts"))
+            return 1;
+    }
+    {
         // The unary result is unused, therefore its operand is also dead.
         // Previous DCE retained the operand because it counted all reads.
         noe::NirProgram p;
