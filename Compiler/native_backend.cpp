@@ -218,7 +218,18 @@ noqeri_rt_platform:
     lea rax, [rip + .L_noqeri_standalone]
     ret
 )ASM";}
-void emitLoadWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    movzx eax, BYTE PTR [rax]\n";else if(width==2)out<<"    movzx eax, WORD PTR [rax]\n";else if(width==4)out<<"    mov eax, DWORD PTR [rax]\n";else out<<"    mov rax, QWORD PTR [rax]\n";}
+bool signedNarrow(TypeKind kind){
+    return kind==TypeKind::I8||kind==TypeKind::I16||kind==TypeKind::I32;
+}
+void emitLoadWidth(std::ostream&out,std::size_t width,bool signExtend=false){
+    if(width==1)out<<(signExtend?"    movsx rax, BYTE PTR [rax]\n":
+                                      "    movzx eax, BYTE PTR [rax]\n");
+    else if(width==2)out<<(signExtend?"    movsx rax, WORD PTR [rax]\n":
+                                           "    movzx eax, WORD PTR [rax]\n");
+    else if(width==4)out<<(signExtend?"    movsxd rax, DWORD PTR [rax]\n":
+                                           "    mov eax, DWORD PTR [rax]\n");
+    else out<<"    mov rax, QWORD PTR [rax]\n";
+}
 void emitStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    mov BYTE PTR [rax], r10b\n";else if(width==2)out<<"    mov WORD PTR [rax], r10w\n";else if(width==4)out<<"    mov DWORD PTR [rax], r10d\n";else out<<"    mov QWORD PTR [rax], r10\n";}
 void emitExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n    movzx eax, r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n    movzx eax, r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n    mov eax, r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n    mov rax, r10\n";}
 void emitAtomicStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n";}
@@ -328,7 +339,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<varSlot(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<varSlot(fn,l,i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width);store(*i.dest,"rax");}break;
+        case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width,*i.dest<fn.registerTypes.size()&&
+            signedNarrow(fn.registerTypes[*i.dest].kind));store(*i.dest,"rax");}break;
         case NirOp::StoreMemory:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitStoreWidth(out,i.width);}break;
         case NirOp::PtrOffset:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
                         out<<"    lea rax, [rax + r10*"<<i.width<<"]\n";
@@ -372,7 +384,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             }
             break;
         }
-        case NirOp::AtomicLoad:if(i.dest&&!i.args.empty()){out<<"    mfence\n";load(i.args[0],"rax");emitLoadWidth(out,i.width);out<<"    mfence\n";store(*i.dest,"rax");}break;
+        case NirOp::AtomicLoad:if(i.dest&&!i.args.empty()){out<<"    mfence\n";load(i.args[0],"rax");emitLoadWidth(out,i.width,*i.dest<fn.registerTypes.size()&&
+            signedNarrow(fn.registerTypes[*i.dest].kind));out<<"    mfence\n";store(*i.dest,"rax");}break;
         case NirOp::AtomicStore:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitAtomicStoreWidth(out,i.width);}break;
         case NirOp::AtomicExchange:if(i.dest&&i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitExchangeWidth(out,i.width);store(*i.dest,"rax");}break;
         case NirOp::AtomicCompareExchange:if(i.dest&&i.args.size()==3){load(i.args[0],"r10");load(i.args[1],"rax");load(i.args[2],"rcx");emitCompareExchangeWidth(out,i.width);store(*i.dest,"rax");}break;
