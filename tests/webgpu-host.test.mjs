@@ -332,3 +332,25 @@ test('WebGPU adapter inspection recovers when preferred adapter request throws',
   assert.equal(count,2)
   assert.equal(events.destroyed,0)
 })
+
+test('persistent WebGPU 3D resize reuses pipeline and allocates exactly one depth attachment',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const canvas={width:64,height:64,getContext(){return context}}
+  const r=await createNoqeriMeshRenderer3D(canvas,vertexWgsl(),fragmentWgsl(),gpu,3)
+  const input=meshPixels().slice(0,12)
+  await r.render(input)
+  canvas.width=128
+  await assert.rejects(r.render(input),/resized/)
+  assert.throws(()=>r.resize(128,8192),/device limits/)
+  assert.throws(()=>r.resize(64,64),/backing dimensions/)
+  r.resize(128,64)
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.textures.length,2)
+  assert.equal(events.textures[0].destroyed,true)
+  assert.equal(events.textures[1].destroyed,false)
+  await r.render(input)
+  assert.equal(events.draws.length,2)
+  r.dispose()
+  assert.equal(events.textures[1].destroyed,true)
+  assert.equal(events.destroyed,1)
+})
