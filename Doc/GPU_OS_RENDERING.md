@@ -167,3 +167,63 @@ toy mailbox execution and checksum-verified offline development artifacts.
 This **does not** program a physical GPU or generate vendor GPU microcode.
 See [GPU firmware development](GPU_FIRMWARE_DEVELOPMENT.md) and the
 [3D rendering qualification](RENDER3D_QUALIFICATION.md).
+
+## Crisp, lightweight desktop presentation
+
+The SDL2 bridge now preserves the pixel aspect ratio when the desktop
+window is resized. Instead of unconditionally stretching the framebuffer,
+it computes a centered letterboxed viewport using safe 64-bit integer
+arithmetic, and reuses the existing SDL texture and renderer.
+
+The optional `nq_os_renderer_set_scale_mode(mode)` supports:
+
+| Mode | Filtering | Placement | Best use |
+|---|---|---|---|
+| 0 (default) | Nearest | Integer upscale where it fits, otherwise aspect-fit | Sharp low-resolution / pixel-art graphics |
+| 1 | Linear | Aspect-fit | Smooth scaled photography, gradients |
+| 2 | Nearest | Aspect-fit at any scale | Crisp pixels at arbitrary window sizes |
+
+The renderer clears the letterbox background to opaque black and
+calculates the viewport from the actual SDL render-output dimensions
+each frame, without recreating the texture on window resize. The pure
+`nq_os_renderer_fit_viewport` ABI is tested against wide-to-square,
+noninteger, tiny-window and invalid-dimension cases.
+Nearest-neighbor scaling does not add detail to a low-resolution source:
+higher native framebuffer resolution is still required for detailed
+3D scenes. Integer scaling avoids uneven widths on pixel art.
+
+### WebGPU frame pacing and optional edge quality
+
+The persistent 3D renderer retains `await renderer.render(vertices)`,
+which waits for queue completion to preserve its original contract.
+For responsive frame loops, `await renderer.renderFast(vertices)`
+allows two queued frames without waiting and fences on the third to
+bound GPU submissions. `await renderer.flush()` synchronizes explicitly,
+and resizing is blocked until outstanding quick-submitted frames are
+flushed. This reduces unnecessary per-frame synchronization, not
+render workload or physical GPU frame time.
+
+To soften jagged edges in 3D, enable optional `{sampleCount:4}` as
+the sixth argument to `createNoqeriMeshRenderer3D`. It adds
+multisampled color/depth attachments and resolves color to the swapchain.
+The default `sampleCount:1` remains lighter. For predictable resource
+usage, 4x MSAA is limited to 1920x1080 backing pixels, while native
+resolution and the 1x profile can use the established dimension cap.
+For example:
+
+```js
+const renderer = await createNoqeriMeshRenderer3D(
+  canvas, vertexWGSL, fragmentWGSL, navigator.gpu, 4095,
+  {sampleCount: 4} // optional: prefer 1x for minimum GPU memory
+)
+await renderer.renderFast(vertices)
+await renderer.flush() // required before replacing depth on resize
+renderer.resize(canvas.width, canvas.height)
+renderer.dispose()
+```
+
+Both modes preserve resource ownership and GPU validation, but real
+end-to-end FPS, device memory and image-quality qualification still
+requires a physical GPU, driver/version inventory, and captured test
+frames. These optimizations must not be described as measured hardware
+speedups without that evidence.
