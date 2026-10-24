@@ -22,8 +22,18 @@ if [[ -n "$(printenv GRAPHICS_EVIDENCE_DIR || true)" ]]; then
   timeout 90s "$work/render3d-test" --bench > "$evidence/render3d-raw.csv"
   node tests/scripts/render3d-performance-summary.mjs "$evidence/render3d-raw.csv" \
     > "$evidence/render3d-summary.json"
+  # Compile the original 3D source with this SAME compiler and C++ driver.
+  # This proves speedup claims are source-to-source, not cross-machine.
+  cp tests/fixtures/render3d_baseline.txt "$work/render3d-baseline.noqeri"
+  "$compiler" build "$work/render3d-baseline.noqeri" "$work/render3d-baseline.s" -O3
+  g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread \
+    "$work/render3d-baseline.s" tests/cpp/render3d_differential.cpp -o "$work/render3d-baseline"
+  timeout 90s "$work/render3d-baseline" --bench > "$evidence/render3d-baseline-raw.csv"
+  node tests/scripts/render3d-ab-summary.mjs "$evidence/render3d-baseline-raw.csv" \
+    "$evidence/render3d-raw.csv" > "$evidence/render3d-ab-summary.json"
   cp "$work/render3d.s" "$evidence/render3d.s"
   cp "$work/render3d-test" "$evidence/render3d.bin"
+  cp "$work/render3d-baseline.s" "$evidence/render3d-baseline.s"
   {
     git rev-parse HEAD
     uname -a
