@@ -480,7 +480,139 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             }
         }
     }
+    // Opt-in loop-local SIMD memory update. The scalar pattern must be six
+    // consecutive operations: two adjacent private-stack 64-bit loads,
+    // two additions by the SAME scalar, and two stores back to each lane.
+    // We only pack if we prove a 16-byte StackAlloc and two independent
+    // addresses (elements 0 and 1), all intermediates have exactly one use,
+    // and the body is enclosed by a natural backedge. This preserves
+    // integer wrap, memory visibility, traps, and conditional semantics.
+    std::unordered_set<std::size_t> loopSimdStarts;
+    std::unordered_set<std::size_t> loopSimdSkipped;
+    std::unordered_map<std::size_t,std::size_t> loopSimdStackRoot;
+    std::unordered_set<std::size_t> loopSimdBroadcastAt;
+    const char* loopEnv=std::getenv("NOQERI_EXPERIMENTAL_LOOP_SIMD");
+    const bool loopSimd=loopEnv&&std::string(loopEnv)=="1"&&
+        !experimentalSimd;
+    if(loopSimd){
+        std::unordered_map<Reg,std::size_t> onlyDefinitions;
+        for(std::size_t pc=0;pc<fn.code.size();++pc)
+            if(fn.code[pc].dest&&definitions[*fn.code[pc].dest]==1)
+                onlyDefinitions[*fn.code[pc].dest]=pc;
+        const auto pointerInfo=[&](Reg ptr)
+            ->std::optional<std::pair<Reg,std::int64_t>>{
+            const auto it=onlyDefinitions.find(ptr);
+            if(it==onlyDefinitions.end())return std::nullopt;
+            const auto& p=fn.code[it->second];
+            if(p.op!=NirOp::PtrOffset||p.width!=8||
+               p.args.size()!=2)return std::nullopt;
+            const auto offset=constantValues.find(p.args[1]);
+            if(offset==constantValues.end())return std::nullopt;
+            return std::make_pair(p.args[0],offset->second);
+        };
+        for(std::size_t pc=0;pc+5<fn.code.size();++pc){
+            const auto& a=fn.code[pc];
+            const auto& b=fn.code[pc+1];
+            const auto& addA=fn.code[pc+2];
+            const auto& addB=fn.code[pc+3];
+            const auto& stA=fn.code[pc+4];
+            const auto& stB=fn.code[pc+5];
+            if(a.op!=NirOp::LoadMemory||b.op!=NirOp::LoadMemory||
+               addA.op!=NirOp::Binary||addB.op!=NirOp::Binary||
+               stA.op!=NirOp::StoreMemory||stB.op!=NirOp::StoreMemory||
+               !a.dest||!b.dest||!addA.dest||!addB.dest||
+               a.isVolatile||b.isVolatile||addA.isVolatile||
+               addB.isVolatile||stA.isVolatile||stB.isVolatile||
+               a.width!=8||b.width!=8||stA.width!=8||stB.width!=8||
+               a.args.size()!=1||b.args.size()!=1||
+               addA.args.size()!=2||addB.args.size()!=2||
+               stA.args.size()!=2||stB.args.size()!=2||
+               addA.text!="+"||addB.text!="+"||
+               addA.type.kind!=addB.type.kind||
+               !integer64(addA.type.kind)||
+               addA.args[0]!=*a.dest||addB.args[0]!=*b.dest||
+               addA.args[1]!=addB.args[1]||
+               stA.args[0]!=a.args[0]||stB.args[0]!=b.args[0]||
+               stA.args[1]!=*addA.dest||stB.args[1]!=*addB.dest||
+               useCounts[*a.dest]!=1||useCounts[*b.dest]!=1||
+               useCounts[*addA.dest]!=1||useCounts[*addB.dest]!=1)
+                continue;
+            if(std::any_of(fn.code.begin()+pc,fn.code.begin()+pc+6,
+                [](const NirInstruction& in){return in.isVolatile;}))
+                continue;
+            bool branchEntry=false;
+            for(std::size_t pos=pc;pos<=pc+5;++pos)
+                if(jumpTargets.count(pos)){branchEntry=true;break;}
+            if(branchEntry)continue;
+            const auto ptrA=pointerInfo(a.args[0]);
+            const auto ptrB=pointerInfo(b.args[0]);
+            if(!ptrA||!ptrB||ptrA->first!=ptrB->first||
+               ptrA->second!=0||ptrB->second!=1)continue;
+            const auto root=onlyDefinitions.find(ptrA->first);
+            if(root==onlyDefinitions.end()||
+               fn.code[root->second].op!=NirOp::StackAlloc||
+               fn.code[root->second].width<16)continue;
+            bool privateStack=true;
+            for(const auto& instr:fn.code){
+                for(std::size_t k=0;k<instr.args.size();++k){
+                    const auto arg=instr.args[k];
+                    if(arg==ptrA->first&&
+                       !(instr.op==NirOp::PtrOffset&&k==0))
+                        privateStack=false;
+                    if((arg==a.args[0]||arg==b.args[0])&&
+                       !(k==0&&(instr.op==NirOp::LoadMemory||
+                                 instr.op==NirOp::StoreMemory)))
+                        privateStack=false;
+                }
+            }
+            if(!privateStack)continue;
+            std::size_t loopHeader=fn.code.size();
+            for(std::size_t end=pc+6;end<fn.code.size();++end){
+                const auto& edge=fn.code[end];
+                if(edge.op==NirOp::Jump&&edge.target<pc&&
+                   edge.target<end){loopHeader=edge.target;break;}
+            }
+            if(loopHeader==fn.code.size())continue;
+            // Hoist the broadcast into a unique constant definition
+            // preceding the whole loop. No opaque calls or SIMD clobbers
+            // may occur between setup and the loop backedge.
+            const auto rhs=onlyDefinitions.find(addA.args[1]);
+            if(rhs==onlyDefinitions.end()||
+               rhs->second>=loopHeader)continue;
+            const auto& rhsValue=fn.code[rhs->second];
+            if(rhsValue.op!=NirOp::Const||
+               !std::holds_alternative<std::int64_t>(rhsValue.literal))
+                continue;
+            bool clobber=false;
+            for(std::size_t at=rhs->second+1;at<fn.code.size();++at){
+                const auto& operation=fn.code[at];
+                if(operation.op==NirOp::Call||
+                   operation.op==NirOp::Intrinsic||
+                   operation.op==NirOp::InlineAsm){
+                    clobber=true;break;
+                }
+            }
+            if(clobber||!loopSimdStarts.empty())continue;
+            loopSimdStarts.insert(pc);
+            loopSimdStackRoot[pc]=root->second;
+            loopSimdBroadcastAt.insert(rhs->second);
+            for(std::size_t skip=pc+1;skip<=pc+5;++skip)
+                loopSimdSkipped.insert(skip);
+            pc+=5;
+        }
+    }
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(loopSimdSkipped.count(pc))continue;
+        if(loopSimdStarts.count(pc)){
+            // Two contiguous private-stack elements, with an identical
+            // scalar increment. One packed load/update/store replaces
+            // two loads, two adds and two stores per loop iteration.
+            const auto storage=fixedStorage[loopSimdStackRoot.at(pc)];
+            out<<"    movdqu xmm0, XMMWORD PTR [rbp-"<<storage<<"]\n"
+               <<"    paddq xmm0, xmm1\n"
+               <<"    movdqu XMMWORD PTR [rbp-"<<storage<<"], xmm0\n";
+            continue;
+        }
         if(fusedBranches.count(pc)||packedStarts.count(pc))continue;
         const auto pair=packedEnds.find(pc);
         if(pair!=packedEnds.end()){
@@ -509,7 +641,11 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         }
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
-        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
+        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");
+            if(loopSimdBroadcastAt.count(pc))
+                out<<"    movq xmm1, rax\n"
+                   <<"    punpcklqdq xmm1, xmm1\n";
+            break;}
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
