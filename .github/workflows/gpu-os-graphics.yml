@@ -25,7 +25,7 @@ on:
       - 'Doc/GPU_FIRMWARE_DEVELOPMENT.md'
       - 'examples/render3d_demo.noqeri'
       - 'tests/shader-vertex3d.test.mjs'
-      - 'examples/shaders/webgpu3d_demo.html'
+      - 'examples/browser-webgpu/**'
       - 'tests/cpp/render3d_headless_demo.cpp'
       - 'examples/os_framebuffer_demo.noqeri'
       - 'tests/cpp/os_framebuffer_headless_test.cpp'
@@ -49,7 +49,7 @@ on:
       - 'tests/shader-stage2-gate.test.mjs'
       - 'scripts/qualify-shader-stage2.mjs'
       - 'Doc/GPU_SHADER_V3.md'
-      - 'examples/shaders/physical_qualification.*'
+      - 'examples/browser-webgpu/**'
       - 'tests/webgpu-host.test.mjs'
       - 'tests/wgsl-validator/**'
       - '.github/workflows/gpu-os-graphics.yml'
@@ -75,7 +75,7 @@ on:
       - 'Doc/GPU_FIRMWARE_DEVELOPMENT.md'
       - 'examples/render3d_demo.noqeri'
       - 'tests/shader-vertex3d.test.mjs'
-      - 'examples/shaders/webgpu3d_demo.html'
+      - 'examples/browser-webgpu/**'
       - 'tests/cpp/render3d_headless_demo.cpp'
       - 'examples/graphics_demo.noqeri'
       - 'examples/shaders/**'
@@ -90,7 +90,7 @@ on:
       - 'tests/shader-stage2-gate.test.mjs'
       - 'scripts/qualify-shader-stage2.mjs'
       - 'Doc/GPU_SHADER_V3.md'
-      - 'examples/shaders/physical_qualification.*'
+      - 'examples/browser-webgpu/**'
       - 'tests/webgpu-host.test.mjs'
       - 'Doc/GPU_SHADER_V2.md'
       - 'tests/wgsl-validator/**'
@@ -113,8 +113,8 @@ jobs:
         run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/shader-v3.test.mjs tests/shader-vertex3d.test.mjs tests/shader-stage2-gate.test.mjs tests/webgpu-host.test.mjs tests/gpu-firmware-package.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
         run: |
-          node --check examples/shaders/webgpu_host.mjs
-          node --check examples/shaders/physical_qualification.mjs
+          node --check examples/browser-webgpu/webgpu_host.mjs
+          node --check examples/browser-webgpu/physical_qualification.mjs
           node --check scripts/qualify-shader-stage2.mjs
       - name: Naga syntax and semantic validation of both generated GPU stages
         run: |
@@ -135,6 +135,17 @@ jobs:
           GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 150s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
+      - name: Verify fast native CPU clear and measure the 10us target
+        env:
+          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
+        run: |
+          timeout 90s bash tests/scripts/graphics-fastpath-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
+      - name: Reject JavaScript or HTML in Noqeri shader source tree
+        run: |
+          if find examples/shaders -type f ! -name '*.noqeri' | grep -q .; then
+            echo 'Shader sources must be pure Noqeri; browser hosts belong in examples/browser-webgpu' >&2
+            exit 1
+          fi
       - name: Verify GPU firmware development MMIO simulator and package tool
         run: |
           timeout 90s bash tests/scripts/gpu-firmware-sim-e2e.sh /tmp/noqeri-graphics-build/noqeri
