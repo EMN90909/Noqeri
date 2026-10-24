@@ -56,9 +56,12 @@ vector-generated RGB and RGBA texture sampling.
 `Compiler/selfhost/shader_wgsl.noqeri` is a Noqeri-written WGSL
 compiler that runs as **actual Stage-2 NQRI bytecode**. Its export
 `stage2ShaderCompileWgsl(source,stage,workgroup,out)` is invoked by
-`noqeri-nqri shader`, and the Stage-2 compiler module is rebuilt by
-the pinned Stage-1 seed, then checked against Stage-3 for byte
-identity.
+`noqeri-nqri shader`. The **trusted Stage-1 source closure is untouched**.
+The pinned Stage-1 seed first builds the byte-identical Stage-2 and Stage-3
+compilers. Verified Stage-2 separately compiles
+`tests/stage2-shader-sources.txt` to
+`build-selfhost/noqeri-shader-stage2.nqri`, whose exported shader entry
+then actually emits WGSL. This avoids changing the canonical trusted seed.
 
 **Stage-2 currently only accepts one exported `shade` function with
 a pure u32 return expression, one u32 argument (compute) or two
@@ -71,9 +74,11 @@ To compile via the self-hosted NQRI compiler once the bootstrap has
 produced `build-selfhost/noqeri-stage2.nqri`:
 
 ```sh
-build-native/noqeri-nqri shader build-selfhost/noqeri-stage2.nqri \
+build-native/noqeri-nqri compile-manifest build-selfhost/noqeri-stage2.nqri \
+  . tests/stage2-shader-sources.txt build-selfhost/noqeri-shader-stage2.nqri 3
+build-native/noqeri-nqri shader build-selfhost/noqeri-shader-stage2.nqri \
   examples/shaders/invert_compute.noqeri build/s2-invert.wgsl compute 128
-build-native/noqeri-nqri shader build-selfhost/noqeri-stage2.nqri \
+build-native/noqeri-nqri shader build-selfhost/noqeri-shader-stage2.nqri \
   examples/shaders/color_gradient.noqeri build/s2-gradient.wgsl fragment
 ```
 
