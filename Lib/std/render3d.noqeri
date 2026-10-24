@@ -52,7 +52,7 @@ export function nqDepthClear3D(depth: []u32, width: usize, height: usize): bool 
         i = i + 4 as usize
     }
     while i < count {
-        depth[i] = 4294967295 as u32
+        unsafe { storage[i] = 4294967295 as u32 }
         i = i + 1 as usize
     }
     return true
