@@ -46,6 +46,16 @@ jobs:
             actual="$("build-typed/phi-${level}")"
             test "$actual" = "$expected"
           done
+      - name: Verify guarded loop unrolling zero odd even trip counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(printf '%s\n' 0 0 1 10 15 136)"
+          for level in O0 O3; do
+            node scripts/native-build.mjs tests/native_guarded_unroll.noqeri "build-typed/unroll-${level}" --compiler=build-typed/noqeri "--opt=-${level}"
+            actual="$("build-typed/unroll-${level}")"
+            test "$actual" = "$expected"
+          done
       - name: Verify typed narrow arithmetic wraps at O0 and O3
         shell: bash
         run: |

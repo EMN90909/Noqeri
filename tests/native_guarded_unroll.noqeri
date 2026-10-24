@@ -1,0 +1,15 @@
+function accumulate(n: usize): int {
+    let i: usize = 0 as usize
+    let total: int = 0
+    while i < n {
+        total = total + (i as int)
+        i = i + 1 as usize
+    }
+    return total
+}
+print(accumulate(0 as usize))
+print(accumulate(1 as usize))
+print(accumulate(2 as usize))
+print(accumulate(5 as usize))
+print(accumulate(6 as usize))
+print(accumulate(17 as usize))

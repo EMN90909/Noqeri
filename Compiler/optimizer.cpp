@@ -1115,6 +1115,108 @@ bool lowerStraightDiamondPhi(NirFunction& fn){
     }
     return false;
 }
+// 2x guarded loop unrolling. Every half still executes its original exit
+// condition, so zero/odd trip counts, side effects and safety traps retain
+// their exact evaluation order. Only single-entry, one-backedge structured
+// loops with no internal branches or externally consumed virtual registers
+// are eligible. This intentionally does NOT require a guessed trip count.
+bool unrollGuardedLoop2x(NirFunction& fn){
+    const std::size_t n=fn.code.size();
+    if(n<6||n>4096)return false;
+    const Graph cfg=graphOf(fn);
+    if(!cfg.uniqueDefs||!cfg.validDominance)return false;
+    std::size_t back=n;
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Try||in.op==NirOp::Throw||
+           in.op==NirOp::InlineAsm)return false;
+        if(in.op==NirOp::Jump&&in.target<pc){
+            if(back!=n)return false; // reject nesting and several loops
+            back=pc;
+        }else if(in.op==NirOp::JumpIfFalse&&in.target<pc)
+            return false;
+    }
+    if(back==n)return false;
+    const auto header=fn.code[back].target;
+    if(header>=back)return false;
+    const auto span=back-header;
+    if(span<3||span>24||n+span>4096)return false;
+    std::size_t guard=n;
+    for(std::size_t pc=header;pc<back;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::JumpIfFalse){
+            if(guard!=n||in.target!=back+1||in.args.size()!=1)
+                return false;
+            guard=pc;
+        }else if(in.op==NirOp::Jump||in.op==NirOp::Return||
+                 in.op==NirOp::Throw)return false;
+    }
+    if(guard==n||guard==back-1)return false;
+    // An externally targeted instruction within the body must never be
+    // entered via a path bypassing the loop's condition.
+    for(std::size_t pc=0;pc<n;++pc){
+        if(pc>=header&&pc<=back)continue;
+        const auto& in=fn.code[pc];
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+           in.target>header&&in.target<=back)return false;
+    }
+    // Reject virtual values defined by one iteration but consumed after
+    // the loop. Otherwise a duplicated destination could change the
+    // value visible to the exit on odd/even trip counts.
+    std::unordered_map<Reg,Reg> fresh;
+    Reg next=std::max(fn.nextReg,
+        static_cast<Reg>(fn.registerTypes.size()));
+    for(const auto& in:fn.code)if(in.dest){
+        if(*in.dest==std::numeric_limits<Reg>::max())return false;
+        next=std::max(next,static_cast<Reg>(*in.dest+1));
+    }
+    for(std::size_t pc=header;pc<back;++pc)
+        if(fn.code[pc].dest){
+            const Reg reg=*fn.code[pc].dest;
+            for(std::size_t user=0;user<n;++user){
+                if(user>=header&&user<=back)continue;
+                if(std::find(fn.code[user].args.begin(),
+                             fn.code[user].args.end(),reg)!=
+                   fn.code[user].args.end())return false;
+            }
+            if(next==std::numeric_limits<Reg>::max())return false;
+            fresh.emplace(reg,next++);
+        }
+    if(fresh.empty())return false;
+    const auto oldSize=n;
+    std::vector<NirInstruction> out;
+    out.reserve(n+span);
+    out.insert(out.end(),fn.code.begin(),fn.code.begin()+back);
+    for(std::size_t pc=header;pc<back;++pc){
+        NirInstruction clone=fn.code[pc];
+        if(clone.dest)clone.dest=fresh.at(*clone.dest);
+        for(auto& arg:clone.args){
+            const auto it=fresh.find(arg);
+            if(it!=fresh.end())arg=it->second;
+        }
+        if(clone.op==NirOp::JumpIfFalse)
+            clone.target=back+span+1;
+        out.push_back(std::move(clone));
+    }
+    out.insert(out.end(),fn.code.begin()+back,fn.code.end());
+    // The copied condition targets the exit after the shifted backedge.
+    // Every *original* jump to the old back/exit is remapped exactly once.
+    for(std::size_t pc=0;pc<out.size();++pc){
+        if(pc>=back&&pc<back+span)continue;
+        auto& in=out[pc];
+        if(in.op!=NirOp::Jump&&in.op!=NirOp::JumpIfFalse)continue;
+        if(in.target>=back){
+            if(in.target>oldSize)return false;
+            in.target+=span;
+        }
+    }
+    fn.registerTypes.resize(static_cast<std::size_t>(next));
+    for(const auto& [original,copy]:fresh)
+        fn.registerTypes[copy]=fn.registerTypes[original];
+    fn.nextReg=next;
+    fn.code=std::move(out);
+    return true;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -1175,6 +1277,9 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
             dce(fn);
     }
     if (level == OptimizationLevel::Oz) dce(fn);
+    // Transform at most one structured loop per function, after all
+    // dominance-dependent optimizations and before lowering branch Phis.
+    if(level==OptimizationLevel::O3)unrollGuardedLoop2x(fn);
     // Emit branch-edge scalar Phi copies only after dominance-sensitive SSA
     // optimizer passes have finished. Any later unique-def analysis must
     // first rebuild actual SSA from these lowered edge definitions.
