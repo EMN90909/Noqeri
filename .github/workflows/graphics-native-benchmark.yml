@@ -1,0 +1,47 @@
+name: Noqeri CPU graphics rendering benchmark
+on:
+  push:
+    branches: [benchmark/graphics-render-20261024]
+    paths:
+      - 'Benchmarks/graphics/**'
+      - '.github/workflows/graphics-native-benchmark.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  graphics-performance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2 for native OS presentation smoke test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsdl2-dev pkg-config
+      - name: Build original Noqeri Stage-0 compiler
+        run: |
+          cmake -S . -B build-graphics -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-graphics --target noqeri -j 2
+      - name: Verify native framebuffer and SDL2 presentation
+        run: |
+          NOQERI_REQUIRE_SDL2=1 timeout 100s bash tests/scripts/graphics-native-e2e.sh build-graphics/noqeri
+      - name: Run headless CPU graphics benchmarks and verify pixel-perfect output
+        run: |
+          python3 Benchmarks/graphics/benchmark.py --compiler build-graphics/noqeri --out build-graphics
+      - name: Compile and validate Noqeri WebGPU shaders (not hardware GPU execution)
+        run: |
+          NOQERI_COMPILER=build-graphics/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/webgpu-host.test.mjs
+          build-graphics/noqeri shader examples/shaders/color_gradient.noqeri build-graphics/color.wgsl --stage=fragment
+          build-graphics/noqeri shader examples/shaders/invert_compute.noqeri build-graphics/invert.wgsl --stage=compute
+          build-graphics/noqeri shader examples/shaders/float_compute.noqeri build-graphics/float.wgsl --stage=compute --workgroup-size=128
+          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- build-graphics/color.wgsl build-graphics/invert.wgsl build-graphics/float.wgsl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: noqeri-native-cpu-graphics-evidence
+          retention-days: 14
+          path: |
+            build-graphics/graphics_results.json
+            build-graphics/*_noqeri.ppm
+            build-graphics/*_reference.ppm
+            build-graphics/*.wgsl
