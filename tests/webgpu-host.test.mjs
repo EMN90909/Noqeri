@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D} from '../examples/shaders/webgpu_host.mjs'
+import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D, createNoqeriMeshRenderer3D} from '../examples/shaders/webgpu_host.mjs'
 
 globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8, VERTEX: 16}
 globalThis.GPUMapMode = {READ: 1}
@@ -230,4 +230,46 @@ test('3D mesh rejects exceeded device limits and compilation errors, then frees 
     vertexWgsl(),fragmentWgsl(),meshPixels(),bad.gpu),/WGSL was rejected/)
   assert.equal(bad.events.destroyed,1)
   assert.equal(bad.events.unconfigured,1)
+})
+
+test('persistent GPU 3D renderer reuses vertex buffers, pipeline and depth between frames',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const canvas={width:64,height:64,getContext(){return context}}
+  const renderer=await createNoqeriMeshRenderer3D(
+    canvas,vertexWgsl(),fragmentWgsl(),gpu,6)
+  await renderer.render(meshPixels())
+  await renderer.render(meshPixels())
+  assert.equal(events.configured,1)
+  assert.equal(events.pipelines.length,1)
+  assert.equal(events.buffers.length,1)
+  assert.equal(events.textures.length,1)
+  assert.deepEqual(events.draws,[6,6])
+  assert.equal(events.submitted,2)
+  const pending=renderer.render(meshPixels())
+  await assert.rejects(renderer.render(meshPixels()),/in flight/)
+  await pending
+  renderer.dispose()
+  renderer.dispose()
+  assert.equal(events.unconfigured,1)
+  assert.ok(events.buffers[0].destroyed && events.textures[0].destroyed)
+  assert.equal(events.destroyed,1)
+  await assert.rejects(renderer.render(meshPixels()),/disposed/)
+})
+test('persistent 3D detects canvas resize and oversized mesh; GPU submission errors dispose resources',async()=>{
+  const setup=gpuMock()
+  const canvas={width:64,height:64,getContext(){return setup.context}}
+  const renderer=await createNoqeriMeshRenderer3D(
+    canvas,vertexWgsl(),fragmentWgsl(),setup.gpu,3)
+  await assert.rejects(renderer.render(meshPixels()),/exceeds persistent capacity/)
+  canvas.width=128
+  await assert.rejects(renderer.render(meshPixels().slice(0,12)),/resized/)
+  renderer.dispose()
+  const damaged=gpuMock()
+  damaged.device.queue.onSubmittedWorkDone=async()=>{throw new Error('GPU device lost')}
+  const bad=await createNoqeriMeshRenderer3D(
+    {width:64,height:64,getContext(){return damaged.context}},
+    vertexWgsl(),fragmentWgsl(),damaged.gpu,3)
+  await assert.rejects(bad.render(meshPixels().slice(0,12)),/device lost/)
+  assert.equal(damaged.events.destroyed,1)
+  assert.ok(damaged.events.buffers[0].destroyed && damaged.events.textures[0].destroyed)
 })
