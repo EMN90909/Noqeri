@@ -244,3 +244,16 @@ pinned Noqeri implementation, not individual instruction attribution.
 CI runner results vary with host loading; speedups require continued
 same-run regression monitoring. These are CPU benchmarks only and do not
 qualify GPU/driver performance or physical firmware execution.
+
+## Resize without rebuilding shader pipelines
+
+The persistent WebGPU 3D renderer now exposes
+`renderer.resize(width,height)` for canvas backing dimensions already
+changed by the caller. It validates device limits and rejects concurrent
+in-flight frames. It allocates the replacement `depth24plus` attachment
+before destroying the previous attachment, retains shader and pipeline
+objects, and permits subsequent frames without shader recompilation.
+Invalid resize calls and normal resize cleanup have mock-GPU tests.
+This avoids repeated pipeline setup when changing window resolution,
+but does not itself qualify physical driver behavior or guarantee a
+specific measured GPU speedup.
