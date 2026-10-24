@@ -1,0 +1,159 @@
+module noqeri.std.render3d
+
+// Checked CPU 3D raster profile, deliberately independent of WebGPU drivers.
+// 3D camera coordinates and projected coordinates are signed i64 integers.
+// Perspective uses x*focal/z and y*focal/z, with camera looking along +Z.
+// Screen-space raster input is [x,y,z] for each of three vertices, with
+// x/y in [-8192,8192] and z in [1,65535]. A smaller z is nearer.
+// Depth is an independent u32 slice initialized to UINT32_MAX.
+// These caps keep edge products and depth interpolation within signed i64.
+
+// Output is [screen_x, screen_y, positive_z] (length >= 3).
+// Validation finishes before changing output, including off-screen overflow.
+export function nqProjectVertex3D(x: i64, y: i64, z: i64, width: usize, height: usize, output: []i64): bool {
+    if width == 0 as usize || height == 0 as usize { return false }
+    if width > 4096 as usize || height > 4096 as usize { return false }
+    if len(output) < 3 as usize { return false }
+    if z < 1 as i64 || z > 65535 as i64 { return false }
+    if x < -262144 as i64 || x > 262144 as i64 { return false }
+    if y < -262144 as i64 || y > 262144 as i64 { return false }
+    let focal: usize = width
+    if height < focal { focal = height }
+    let halfFocal: i64 = (focal / 2 as usize) as i64
+    let sx: i64 = (width / 2 as usize) as i64 + (x * halfFocal) / z
+    let sy: i64 = (height / 2 as usize) as i64 - (y * halfFocal) / z
+    // Clip safely to the supported raster-coordinate domain; do not
+    // silently clamp individual vertices, which distorts triangles.
+    if sx < -8192 as i64 || sx > 8192 as i64 { return false }
+    if sy < -8192 as i64 || sy > 8192 as i64 { return false }
+    output[0] = sx
+    output[1] = sy
+    output[2] = z
+    return true
+}
+
+// Clear the *visible* depth image, never touch slice tail or row padding.
+// Caller may reuse color and depth buffers over multiple triangles.
+export function nqDepthClear3D(depth: []u32, width: usize, height: usize): bool {
+    if width == 0 as usize || height == 0 as usize { return false }
+    if width > 4096 as usize || height > 4096 as usize { return false }
+    if height > len(depth) / width { return false }
+    let count: usize = width * height
+    let i: usize = 0 as usize
+    while i < count {
+        depth[i] = 4294967295 as u32
+        i = i + 1 as usize
+    }
+    return true
+}
+
+// Indexed solid-color triangle with interpolated Z-buffer occlusion.
+// A complete triangle must be inside the bounded coordinate/depth domain,
+// though its screen bounding rectangle is clipped to the viewport.
+// Invalid arguments fail without touching any pixels; a degenerate or
+// completely offscreen valid triangle succeeds without drawing.
+export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, height: usize, vertices: []i64, color: u32): bool {
+    if width == 0 as usize || height == 0 as usize { return false }
+    if width > 4096 as usize || height > 4096 as usize { return false }
+    if len(vertices) < 9 as usize { return false }
+    if height > len(pixels) / width { return false }
+    if height > len(depth) / width { return false }
+
+    let x0: i64 = vertices[0]
+    let y0: i64 = vertices[1]
+    let z0: i64 = vertices[2]
+    let x1: i64 = vertices[3]
+    let y1: i64 = vertices[4]
+    let z1: i64 = vertices[5]
+    let x2: i64 = vertices[6]
+    let y2: i64 = vertices[7]
+    let z2: i64 = vertices[8]
+
+    if x0 < -8192 as i64 || x0 > 8192 as i64 || y0 < -8192 as i64 || y0 > 8192 as i64 { return false }
+    if x1 < -8192 as i64 || x1 > 8192 as i64 || y1 < -8192 as i64 || y1 > 8192 as i64 { return false }
+    if x2 < -8192 as i64 || x2 > 8192 as i64 || y2 < -8192 as i64 || y2 > 8192 as i64 { return false }
+    if z0 < 1 as i64 || z0 > 65535 as i64 { return false }
+    if z1 < 1 as i64 || z1 > 65535 as i64 { return false }
+    if z2 < 1 as i64 || z2 > 65535 as i64 { return false }
+
+    let area: i64 = (x2 - x0) * (y1 - y0) - (y2 - y0) * (x1 - x0)
+    if area == 0 as i64 { return true }
+
+    let minX: i64 = x0
+    let minY: i64 = y0
+    let maxX: i64 = x0
+    let maxY: i64 = y0
+    if x1 < minX { minX = x1 }
+    if x2 < minX { minX = x2 }
+    if y1 < minY { minY = y1 }
+    if y2 < minY { minY = y2 }
+    if x1 > maxX { maxX = x1 }
+    if x2 > maxX { maxX = x2 }
+    if y1 > maxY { maxY = y1 }
+    if y2 > maxY { maxY = y2 }
+    if maxX < 0 as i64 || maxY < 0 as i64 { return true }
+    if minX >= width as i64 || minY >= height as i64 { return true }
+    if minX < 0 as i64 { minX = 0 as i64 }
+    if minY < 0 as i64 { minY = 0 as i64 }
+    if maxX >= width as i64 { maxX = width as i64 - 1 as i64 }
+    if maxY >= height as i64 { maxY = height as i64 - 1 as i64 }
+
+    // Standard signed 2D edge determinant for the three opposite edges.
+    let e0: i64 = (minX - x1) * (y2 - y1) - (minY - y1) * (x2 - x1)
+    let e1: i64 = (minX - x2) * (y0 - y2) - (minY - y2) * (x0 - x2)
+    let e2: i64 = (minX - x0) * (y1 - y0) - (minY - y0) * (x1 - x0)
+    let dx0: i64 = y2 - y1
+    let dx1: i64 = y0 - y2
+    let dx2: i64 = y1 - y0
+    let dy0: i64 = x1 - x2
+    let dy1: i64 = x2 - x0
+    let dy2: i64 = x0 - x1
+    if area < 0 as i64 {
+        area = -area
+        e0 = -e0
+        e1 = -e1
+        e2 = -e2
+        dx0 = -dx0
+        dx1 = -dx1
+        dx2 = -dx2
+        dy0 = -dy0
+        dy1 = -dy1
+        dy2 = -dy2
+    }
+    // Incremental depth numerator avoids three multiplies per pixel.
+    // Its maximum magnitude is bounded below 3 * 2^30 * 65535.
+    let depthX: i64 = dx0 * z0 + dx1 * z1 + dx2 * z2
+    let flatDepth: bool = z0 == z1 && z1 == z2
+    let y: i64 = minY
+    let row: usize = (minY as usize) * width
+    while y <= maxY {
+        let w0: i64 = e0
+        let w1: i64 = e1
+        let w2: i64 = e2
+        let numerator: i64 = e0 * z0 + e1 * z1 + e2 * z2
+        let x: i64 = minX
+        let index: usize = row + (minX as usize)
+        while x <= maxX {
+            if w0 >= 0 as i64 && w1 >= 0 as i64 && w2 >= 0 as i64 {
+                let z: u32 = z0 as u32
+                if !flatDepth { z = (numerator / area) as u32 }
+                if z < depth[index] {
+                    depth[index] = z
+                    pixels[index] = color
+                }
+            }
+            w0 = w0 + dx0
+            w1 = w1 + dx1
+            w2 = w2 + dx2
+            numerator = numerator + depthX
+            x = x + 1 as i64
+            index = index + 1 as usize
+        }
+        e0 = e0 + dy0
+        e1 = e1 + dy1
+        e2 = e2 + dy2
+        y = y + 1 as i64
+        row = row + width
+    }
+    return true
+}
