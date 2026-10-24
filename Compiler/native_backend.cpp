@@ -309,7 +309,12 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         std::unordered_set<std::string> addressTaken,initialized;
         for(const auto& name:fn.params)initialized.insert(name);
         for(const auto& in:fn.code){
-            if(in.op==NirOp::AddressOf)addressTaken.insert(in.text);
+            // A volatile named local must remain backed by memory,
+            // even if its address is never explicitly taken.
+            if(in.op==NirOp::AddressOf||
+               (in.isVolatile&&(in.op==NirOp::Load||
+                                in.op==NirOp::Store)))
+                addressTaken.insert(in.text);
             if(in.op==NirOp::Store)initialized.insert(in.text);
         }
         std::vector<int> depthDiff(fn.code.size()+1,0);
@@ -330,18 +335,30 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                 hot[in.text]+=static_cast<std::size_t>(std::min(depth,4))*
                     (in.op==NirOp::Load?2u:1u);
         }
-        std::string best;
-        std::size_t score=0;
-        for(const auto& entry:hot)if(entry.second>score){
-            best=entry.first;score=entry.second;
-        }
-        if(score>=2){
-            variablePhysical.emplace(best,"rbx");
-            saved.emplace_back("rbx");
+        // The first hot local takes RBX; two additional truly hot locals
+        // can use R12/R13, leaving R14/R15 for virtual temporaries.
+        // Deterministic ranking keeps emitted code reproducible.
+        std::vector<std::pair<std::string,std::size_t>> ranked(
+            hot.begin(),hot.end());
+        std::sort(ranked.begin(),ranked.end(),
+            [](const auto& a,const auto& b){
+                return a.second>b.second||
+                       (a.second==b.second&&a.first<b.first);
+            });
+        const std::vector<std::string> pool{"rbx","r12","r13"};
+        for(std::size_t n=0;n<pool.size()&&n<ranked.size();++n){
+            if(ranked[n].second<(n==0?2u:6u))break;
+            variablePhysical.emplace(ranked[n].first,pool[n]);
+            saved.push_back(pool[n]);
         }
     }
     if(!hasInlineAsm){
-        const auto plan=LinearScanRegisterAllocator{}.allocate(fn,{"r12","r13","r14","r15"});
+        std::vector<std::string> available;
+        for(const auto* reg:{"r12","r13","r14","r15"}){
+            if(std::find(saved.begin(),saved.end(),reg)==saved.end())
+                available.emplace_back(reg);
+        }
+        const auto plan=LinearScanRegisterAllocator{}.allocate(fn,available);
         for(const auto& loc:plan.locations)
             if(!loc.spilled&&!loc.physical.empty())physical.emplace(loc.value,loc.physical);
         for(const auto* reg:{"r12","r13","r14","r15"})
