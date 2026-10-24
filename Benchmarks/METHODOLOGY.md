@@ -45,3 +45,19 @@ Allowed: "On host X, revision A measured Y ms median for workload Z; revision B 
 Allowed when the evidence says so: "The Noqeri program was compiled to a native Linux x86-64 executable by the Stage-0 compiler and measured against C under the recorded flags."
 
 Not allowed without matching evidence: "Noqeri is 1.1x C", "Noqeri is faster than Rust/Zig/C++", or broad claims extrapolated from a VM/interpreter run, one microbenchmark, or a result bundle that hides the compiler/execution model.
+
+## Fail-closed release comparisons
+
+For release decisions, run:
+    node scripts/perf-gate.mjs baseline.json candidate.json --release --require=noqeri:sorting,noqeri:compilation
+
+Required IDs must have measured-local results in both reports, at least 10
+valid positive raw samples, validated outputs, native runtime provenance,
+matching platform, CPU model, OS, memory, Node version and safety profile.
+Both revisions must be recorded; release reports cannot have failed tasks.
+Both median and p95 have independent regression thresholds. Use an accepted
+same-host archival baseline. The legacy two-file invocation is exploratory,
+not release qualification.
+
+This cannot prove universal superiority to C, C++, Rust, Go or Zig. Publish
+representative workloads, raw results, machine profiles and source revisions.
