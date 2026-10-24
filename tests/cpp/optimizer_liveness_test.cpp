@@ -27,6 +27,43 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // A 2048-element transitive chain is live when returned, even when
+        // every link has a separate virtual register and the first input is
+        // unknown. The old repeated global scans were quadratic here.
+        noe::NirProgram p;
+        auto input=withArgs(noe::NirOp::Load,{});input.dest=1;input.text="x";
+        p.entry.code.push_back(input);
+        for(noe::Reg r=2;r<=2049;++r){
+            auto next=withArgs(noe::NirOp::Unary,{r-1});
+            next.dest=r;next.text="-";
+            p.entry.code.push_back(next);
+        }
+        p.entry.code.push_back(withArgs(noe::NirOp::Return,{2049}));
+        p.entry.registerTypes.resize(2050);
+        for(noe::Reg r=1;r<=2049;++r)
+            p.entry.registerTypes[r].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O1);
+        if(!check(p.entry.code.size()==2050,
+                  "worklist preserves long transitive live unary chain"))
+            return 1;
+    }
+    {
+        // Entirely unused chains must still be deleted transitively.
+        noe::NirProgram p;
+        p.entry.code.push_back(constant(1,7));
+        for(noe::Reg r=2;r<=512;++r){
+            auto next=withArgs(noe::NirOp::Unary,{r-1});
+            next.dest=r;next.text="-";
+            p.entry.code.push_back(next);
+        }
+        p.entry.code.push_back(withArgs(noe::NirOp::Return,{}));
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O1);
+        if(!check(p.entry.code.size()==1&&
+                  p.entry.code[0].op==noe::NirOp::Return,
+                  "worklist removes 512 dead transitive values"))
+            return 1;
+    }
+    {
         // A long single-definition dependency chain must propagate without
         // changing wraparound integer semantics or leaving live binary ops.
         noe::NirProgram p;
@@ -408,6 +445,54 @@ int main() {
             if(in.op==noe::NirOp::CheckBounds)retained=true;
         if(!check(retained,"bounds proof rejects stale guard load"))
             return 1;
+    }
+    {
+        // An unrelated named local may be written between the guard and
+        // the access: that does not invalidate the protected index proof.
+        noe::NirProgram p;
+        auto index=withArgs(noe::NirOp::Load,{});index.dest=1;index.text="index";
+        auto compare=withArgs(noe::NirOp::Binary,{1,2});
+        compare.dest=3;compare.text="<";compare.type.kind=noe::TypeKind::Bool;
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=9;
+        auto otherStore=withArgs(noe::NirOp::Store,{4});otherStore.text="other";
+        auto fresh=withArgs(noe::NirOp::Load,{});fresh.dest=5;fresh.text="index";
+        auto bounds=withArgs(noe::NirOp::CheckBounds,{5,2});
+        p.entry.code={index,constant(2,8),compare,branch,
+                      constant(4,42),otherStore,fresh,bounds,
+                      withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(6);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Usize;
+        p.entry.registerTypes[5].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)kept=true;
+        if(!check(!kept,"unrelated store does not invalidate guard proof"))return 1;
+    }
+    {
+        // Unknown memory writes may alias an address-taken index, so the
+        // bounds check must stay even after a dominating true guard.
+        noe::NirProgram p;
+        auto index=withArgs(noe::NirOp::Load,{});index.dest=1;index.text="index";
+        auto compare=withArgs(noe::NirOp::Binary,{1,2});
+        compare.dest=3;compare.text="<";compare.type.kind=noe::TypeKind::Bool;
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=9;
+        auto write=withArgs(noe::NirOp::StoreMemory,{4,5});
+        auto fresh=withArgs(noe::NirOp::Load,{});fresh.dest=6;fresh.text="index";
+        auto bounds=withArgs(noe::NirOp::CheckBounds,{6,2});
+        p.entry.code={index,constant(2,8),compare,branch,
+                      constant(4,0),constant(5,99),write,fresh,bounds,
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.code[3].target=9;
+        p.entry.registerTypes.resize(7);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Usize;
+        p.entry.registerTypes[6].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool kept=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)kept=true;
+        if(!check(kept,"unknown memory write preserves guard check"))return 1;
     }
     {
         // Candidate reporting counts each lexical loop containing a literal.

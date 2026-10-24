@@ -24,28 +24,48 @@ TypeKind operandType(const NirFunction& fn, Reg r){
 }
 bool truthy(const NirValue&v){if(auto p=std::get_if<bool>(&v))return*p;if(auto p=std::get_if<std::int64_t>(&v))return*p!=0;if(auto p=std::get_if<double>(&v))return*p!=0.0;if(auto p=std::get_if<std::string>(&v))return!p->empty();return false;}
 std::int64_t wrapped(std::uint64_t value){std::int64_t out=0;std::memcpy(&out,&value,sizeof(out));return out;}
+// Arithmetic on fixed-width integers wraps to its expression type. Keep
+// optimizer folding identical to native lowering; avoid undefined signed
+// overflow and implementation-defined narrowing conversions.
+std::int64_t typedArithmetic(std::uint64_t bits,TypeKind kind){
+    unsigned width=64;bool sign=false;
+    switch(kind){
+        case TypeKind::U8:width=8;break;
+        case TypeKind::U16:width=16;break;
+        case TypeKind::U32:width=32;break;
+        case TypeKind::I8:width=8;sign=true;break;
+        case TypeKind::I16:width=16;sign=true;break;
+        case TypeKind::I32:width=32;sign=true;break;
+        default:return wrapped(bits);
+    }
+    const auto mask=(std::uint64_t{1}<<width)-1;
+    bits&=mask;
+    if(sign&&(bits&(std::uint64_t{1}<<(width-1))))bits|=~mask;
+    return wrapped(bits);
+}
+
 std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue&b,TypeKind operand=TypeKind::Int){
     if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){
         if(unsignedType(operand)){
             const auto lhs=static_cast<std::uint64_t>(*x),rhs=static_cast<std::uint64_t>(*y);
-            if(op=="/"&&rhs)return NirValue(wrapped(lhs/rhs));
-            if(op=="%"&&rhs)return NirValue(wrapped(lhs%rhs));
+            if(op=="/"&&rhs)return NirValue(typedArithmetic(lhs/rhs,operand));
+            if(op=="%"&&rhs)return NirValue(typedArithmetic(lhs%rhs,operand));
             if(op=="<")return NirValue(lhs<rhs);
             if(op=="<=")return NirValue(lhs<=rhs);
             if(op==">")return NirValue(lhs>rhs);
             if(op==">=")return NirValue(lhs>=rhs);
         }
-        if(op=="+")return NirValue(wrapped(static_cast<std::uint64_t>(*x)+static_cast<std::uint64_t>(*y)));
-        if(op=="-")return NirValue(wrapped(static_cast<std::uint64_t>(*x)-static_cast<std::uint64_t>(*y)));
-        if(op=="*")return NirValue(wrapped(static_cast<std::uint64_t>(*x)*static_cast<std::uint64_t>(*y)));
+        if(op=="+")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x)+static_cast<std::uint64_t>(*y),operand));
+        if(op=="-")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x)-static_cast<std::uint64_t>(*y),operand));
+        if(op=="*")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x)*static_cast<std::uint64_t>(*y),operand));
         // x86-64 signed IDIV traps for INT64_MIN / -1 AND INT64_MIN % -1.
         // Folding either instruction into a nontrapping Const changes observable
         // semantics between O0 and O3. Preserve the operation instead.
         if((op=="/"||op=="%")&&*y!=0){
             if(*x==std::numeric_limits<std::int64_t>::min()&&*y==-1)
                 return std::nullopt;
-            if(op=="/")return NirValue(*x / *y);
-            return NirValue(*x % *y);
+            if(op=="/")return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x / *y),operand));
+            return NirValue(typedArithmetic(static_cast<std::uint64_t>(*x % *y),operand));
         }
         if(op=="==")return NirValue(*x==*y);if(op=="!=")return NirValue(*x!=*y);if(op=="<")return NirValue(*x<*y);if(op=="<=")return NirValue(*x<=*y);if(op==">")return NirValue(*x>*y);if(op==">=")return NirValue(*x>=*y);
     }
@@ -80,18 +100,28 @@ bool dce(NirFunction&fn){
     // Seed from instructions that may affect execution, then walk definitions
     // until no additional operands become live.  Global (rather than local)
     // liveness remains conservative around branches and register reuse.
-    std::unordered_set<Reg>used;
-    for(const auto&i:fn.code){
-        if(sideEffect(i)||!i.dest)for(auto arg:i.args)used.insert(arg);
+    // Build one conservative def -> operand relation. Repeated virtual
+    // register definitions contribute all their dependencies, just like the
+    // previous scan, until general SSA renaming/phi insertion is available.
+    std::unordered_map<Reg,std::vector<Reg>> dependencies;
+    for(const auto& in:fn.code)if(in.dest){
+        auto& inputs=dependencies[*in.dest];
+        inputs.insert(inputs.end(),in.args.begin(),in.args.end());
     }
-    bool grew=true;
-    while(grew){
-        grew=false;
-        for(const auto&i:fn.code){
-            if(i.dest&&used.count(*i.dest)){
-                for(auto arg:i.args)grew=used.insert(arg).second||grew;
-            }
-        }
+    std::unordered_set<Reg>used;
+    std::vector<Reg> pending;
+    const auto mark=[&](Reg r){
+        if(used.insert(r).second)pending.push_back(r);
+    };
+    for(const auto& in:fn.code)
+        if(sideEffect(in)||!in.dest)
+            for(const auto arg:in.args)mark(arg);
+    // Liveness reaches every dependency once, avoiding a full instruction
+    // scan per edge of a long chain of live SSA temporaries.
+    for(std::size_t cursor=0;cursor<pending.size();++cursor){
+        const auto def=dependencies.find(pending[cursor]);
+        if(def==dependencies.end())continue;
+        for(const auto arg:def->second)mark(arg);
     }
     const std::size_t oldCount=fn.code.size();
     std::vector<bool>keep(oldCount,true);
@@ -747,6 +777,32 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
            edge.target<edgePc)
             backedges.emplace_back(edgePc,edge.target);
     }
+    // Pre-index every unknown-write barrier and direct named-local Store.
+    // The previous guard-proof scan walked all instructions between the
+    // defining Load and each candidate CheckBounds, potentially quadratic
+    // or worse when several guards protect large array-heavy loops.
+    const auto barrier=[](NirOp op){
+        return op==NirOp::Call||op==NirOp::InlineAsm||
+               op==NirOp::StoreMemory||op==NirOp::AtomicStore||
+               op==NirOp::AtomicExchange||
+               op==NirOp::AtomicCompareExchange;
+    };
+    std::vector<std::size_t> unsafePrefix(fn.code.size()+1,0);
+    std::unordered_map<std::string,std::vector<std::size_t>> storeLocations;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        unsafePrefix[pc+1]=unsafePrefix[pc]+(barrier(in.op)?1u:0u);
+        if(in.op==NirOp::Store)storeLocations[in.text].push_back(pc);
+    }
+    const auto invalidated=[&](const std::string& name,
+                               std::size_t from,std::size_t until){
+        if(from+1>=until)return false;
+        if(unsafePrefix[until]!=unsafePrefix[from+1])return true;
+        const auto it=storeLocations.find(name);
+        if(it==storeLocations.end())return false;
+        const auto pos=std::lower_bound(it->second.begin(),it->second.end(),from+1);
+        return pos!=it->second.end()&&*pos<until;
+    };
     const auto bypassesGuard=[&](std::size_t guard,std::size_t checkPc){
         for(const auto& edge:backedges)
             if(edge.first>checkPc&&edge.second>guard&&
@@ -794,20 +850,9 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             const auto source=g.definitions.find(comparison.args[0]);
             if(source==g.definitions.end()||source->second>=guardPc||
                fn.code[source->second].op!=NirOp::Load)continue;
-            bool mutated=false;
-            for(std::size_t mid=source->second+1;mid<pc;++mid){
-                const auto& in=fn.code[mid];
-                if(in.op==NirOp::Store&&in.text==indexName->second){
-                    mutated=true;break;
-                }
-                // Without a general points-to proof, do not move a safety
-                // check across unknown calls/unsafe writes/inline asm.
-                if(in.op==NirOp::Call||in.op==NirOp::InlineAsm||
-                   in.op==NirOp::StoreMemory||in.op==NirOp::AtomicStore||
-                   in.op==NirOp::AtomicExchange||
-                   in.op==NirOp::AtomicCompareExchange){mutated=true;break;}
-            }
-            if(mutated)continue;
+            // The proof is valid only if the named index and all memory
+            // which may alias it stay unchanged after the guard's Load.
+            if(invalidated(indexName->second,source->second,pc))continue;
             if(!checkedUnsigned){
                 // Signed x < bound proves only the upper half of 0 <= x < bound.
                 // Require a second dominating true-edge guard x >= 0. Both
@@ -841,21 +886,9 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                        lowerLoad->second>=lowerPc||
                        fn.code[lowerLoad->second].op!=NirOp::Load)
                         continue;
-                    bool invalidated=false;
-                    for(std::size_t mid=lowerLoad->second+1;mid<pc;++mid){
-                        const auto& current=fn.code[mid];
-                        if((current.op==NirOp::Store&&
-                            current.text==indexName->second)||
-                           current.op==NirOp::Call||
-                           current.op==NirOp::InlineAsm||
-                           current.op==NirOp::StoreMemory||
-                           current.op==NirOp::AtomicStore||
-                           current.op==NirOp::AtomicExchange||
-                           current.op==NirOp::AtomicCompareExchange){
-                            invalidated=true;break;
-                        }
+                    if(!invalidated(indexName->second,lowerLoad->second,pc)){
+                        nonnegative=true;break;
                     }
-                    if(!invalidated){nonnegative=true;break;}
                 }
                 if(!nonnegative)continue;
             }

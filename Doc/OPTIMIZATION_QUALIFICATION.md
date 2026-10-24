@@ -140,3 +140,30 @@ branch diamond produced median runtime **5.389196 ms** (previous main) versus
 **5.117053 ms** (candidate), approximately **1.053x** for this one workload.
 The benchmark and Linux/Windows bootstrap qualification passed on PR #66.
 Those timings do not establish a cross-workload or cross-target speedup.
+
+## Additional Issue #48 compiler work (October 24, 2026)
+
+- **PR #68:** sparse integer constant propagation uses a def-use worklist
+  rather than rescanning whole NIR bodies until no constant changes. This is
+  *not* complete edge-sensitive SCCP or Phi-lattice propagation.
+- **PR #70:** guarded fixed-array bounds-check removal indexes unknown memory
+  writes by prefix counts and named-local Store positions, replacing repeated
+  instruction rescans. Stale-value, may-alias, signed nonnegativity and
+  loop-backedge safety qualifications remain intact.
+- **PR #72:** transitive NIR DCE register liveness uses a dependency worklist,
+  conservatively combining operands from repeated definitions. A 2,048-link
+  live chain and 512-link dead chain are regression-tested.
+- **PR #71:** Stage-0 native arithmetic now normalizes u8/i8/u16/i16
+  and u32/i32 signedness and wrapping at operation boundaries, matched by
+  typed optimizer constant folding. The TypeChecker's declared array,
+  field and pointer element types now reach the NIR LoadMemory instruction:
+  generic StackAlloc byte pointers no longer mislabel 64-bit indexed loads
+  as u8. O0 and O3 narrow-integer and 64-bit matrix results agree with
+  expected outputs; Linux/Windows bootstrap and independent GCC/Clang
+  Stage-1 seed reproducibility passed. This is not cross-target or
+  self-hosted Stage-2 native instruction-selection parity.
+
+These changes reduce repeated compiler analyses but provide no universal
+end-to-end compiler speedup guarantee. Neither full SSA/Phi, general loop
+induction/range proof, auto-vectorization, nor native compiler self-hosting
+is complete.
