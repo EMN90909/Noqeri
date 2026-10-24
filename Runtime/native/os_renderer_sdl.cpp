@@ -41,7 +41,7 @@ int nq_os_renderer_fit_viewport(uint32_t sw,uint32_t sh,
        mode<0 || mode>2)return -EINVAL;
     uint64_t dw=0,dh=0;
     const uint64_t scale=std::min<uint64_t>(ow/sw,oh/sh);
-    if(mode==0 && scale>=1){
+    if(mode==0 && scale>=2){
         dw=uint64_t(sw)*scale;
         dh=uint64_t(sh)*scale;
     }else if(uint64_t(ow)*sh<=uint64_t(oh)*sw){
