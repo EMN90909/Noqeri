@@ -116,3 +116,15 @@ resource layouts, derivatives, arbitrary memory access, bounded loops, full
 GPU standard library, SPIR-V/MSL/HLSL output, or native driver integration.
 It is a useful checked WebGPU subset, **not a complete general-purpose shader
 language**.
+
+## Bounded 3D vertex profile
+
+The experimental `--stage=vertex` extension accepts one
+`shade(value: vec4): vec4` function for **homogeneous clip positions**.
+The 3D browser adapter builds an actual WebGPU depth24plus render
+pipeline and accepts validated float32x4 triangle lists. The GPU vertex
+source is still compiled by the Stage-0 shader emitter.
+
+Refer to [Render3D qualification](RENDER3D_QUALIFICATION.md) for the
+native Noqeri CPU triangle raster pipeline, depth semantics, WebGPU
+host resource contracts, testing and device-qualification limitations.

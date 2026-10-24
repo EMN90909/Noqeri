@@ -393,8 +393,8 @@ bool ShaderBackend::emitWgsl(const Program& program,
                              const std::filesystem::path& output,
                              const std::string& stage,Diagnostics& diagnostics,
                              std::uint32_t workgroupSize)const{
-    if(stage!="compute"&&stage!="fragment")
-        return shaderError(diagnostics,{},"shader stage must be compute or fragment");
+    if(stage!="compute"&&stage!="fragment"&&stage!="vertex")
+        return shaderError(diagnostics,{},"shader stage must be compute, fragment or vertex");
     if(workgroupSize!=32&&workgroupSize!=64&&workgroupSize!=128&&workgroupSize!=256)
         return shaderError(diagnostics,{},"workgroup size must be 32, 64, 128 or 256");
 
@@ -408,18 +408,23 @@ bool ShaderBackend::emitWgsl(const Program& program,
                  "shader source must contain exactly one exported pure shade function");
         shader=fn.get();
     }
-    const auto args=stage=="compute"?std::size_t{1}:std::size_t{2};
+    const auto args=stage=="fragment"?std::size_t{2}:std::size_t{1};
     if(!shader||!shader->returnType||shader->params.size()!=args||!shader->body)
         return shaderError(diagnostics,{},
             "expected export function shade(value: u32|float): u32|float "
             "or shade(x: u32|float, y: u32|float): u32|float");
     auto resultType=scalarType(*shader->returnType);
     if(!resultType||*resultType==Scalar::Bool||
+       (stage=="vertex"&&*resultType!=Scalar::Vec4)||
        (stage=="compute"&&*resultType!=Scalar::U32&&
         *resultType!=Scalar::F32&&*resultType!=Scalar::Vec4)||
        (stage=="fragment"&&*resultType!=Scalar::U32&&
         *resultType!=Scalar::F32&&*resultType!=Scalar::Vec4))
         return shaderError(diagnostics,shader->span,"shader has an unsupported stage result type");
+    if(stage=="vertex" && (!shader->params[0].annotation ||
+       *shader->params[0].annotation!="vec4"))
+        return shaderError(diagnostics,shader->params[0].span,
+            "vertex shader input must be vec4 clip-space positions");
     if(stage=="fragment"&&*resultType==Scalar::Vec4) {
         for(const auto& p:shader->params)
             if(!p.annotation||*p.annotation!="float")
@@ -453,6 +458,11 @@ bool ShaderBackend::emitWgsl(const Program& program,
             <<"  let i = id.x;\n"
             <<"  if (i >= arrayLength(&input_pixels) || i >= arrayLength(&output_pixels)) { return; }\n"
             <<"  output_pixels[i] = noqeri_shade(input_pixels[i]);\n"
+            <<"}\n";
+    }else if(stage=="vertex"){
+        wgsl<<"@vertex\n"
+            <<"fn main(@location(0) position: vec4<f32>) -> @builtin(position) vec4<f32> {\n"
+            <<"  return noqeri_shade(position);\n"
             <<"}\n";
     }else if(*resultType==Scalar::Vec4){
         wgsl<<"@fragment\n"

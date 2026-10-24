@@ -1,0 +1,7 @@
+module examples.shaders.vertex3d
+
+// WebGPU clip coordinates, including depth Z and homogeneous W.
+// Callers own perspective transforms and provide bounded vertex data.
+export function shade(value: vec4): vec4 {
+    return vec4(value.x, value.y, value.z, value.w)
+}

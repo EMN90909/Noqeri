@@ -149,7 +149,11 @@ flipping, permissions, input and lifecycle management.
 - WebGPU device enumeration, shader module creation, pipeline/bindings
   and actual GPU compute/fragment dispatch in a Noqeri-owned runtime
 - Direct Windows/macOS native executable linking and platform CI graphics tests
-- Vulkan/DX12/Metal backends, textures/matrices and 3D scene support
+- General-purpose Vulkan/DX12/Metal backends, matrix/vertex-attribute pipelines,
+  GPU driver qualification, and production 3D scene support.
+  Experimental checked native CPU triangles, depth testing, projection,
+  WebGPU vertex shaders and depth-attachment hosting are documented in
+  [RENDER3D_QUALIFICATION.md](RENDER3D_QUALIFICATION.md).
 - Robust window resize, high-DPI scaling, swapchain recovery,
   presentation pacing and driver/device-loss recovery
 

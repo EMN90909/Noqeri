@@ -1,0 +1,6 @@
+module examples.shaders.fragment3d
+
+// Constant RGBA 3D surface. A depth attachment controls occlusion.
+export function shade(x: float, y: float): vec4 {
+    return vec4(0.1, 0.75, 0.95, 1.0)
+}

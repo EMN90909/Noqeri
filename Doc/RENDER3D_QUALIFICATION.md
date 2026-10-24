@@ -1,0 +1,169 @@
+# Noqeri rendering verification and 3D profile (experimental)
+
+The rendering work has **two separately qualified execution paths**:
+
+1. Native Noqeri-authored **CPU raster** using `Lib/std/render2d.noqeri`
+   and `Lib/std/render3d.noqeri`, with an optional SDL2 presentation bridge.
+2. WebGPU 3D **shader and host subset**: a Noqeri-written vertex function
+   compiled to WGSL, a Noqeri-written fragment shader, and JavaScript
+   resource/pipeline setup through the browser's WebGPU API.
+
+These are NOT interchangeable. A successful CPU differential test is
+not evidence of GPU execution, and a Naga shader-validation pass is not
+physical driver qualification.
+
+## New native 3D functionality
+
+`Lib/std/render3d.noqeri` exports:
+
+| Function | Contract |
+|---|---|
+| `nqProjectVertex3D(x,y,z,width,height,out)` | Signed camera coordinates looking along +Z, integer perspective using focal = min(width,height)/2, output `[screenX, screenY, positiveZ]` |
+| `nqDepthClear3D(depth,width,height)` | Initialize exactly the visible depth pixels to `0xffffffff`; preserve any tail |
+| `nqRasterTriangle3D(pixels,depth,width,height,vertices,color)` | Solid-color triangle with signed pixel coordinates, barycentric interpolated integer depth, Z-buffer occlusion, both windings and bounding-box clipping |
+
+The vertex slice stores three `[x,y,z]` triples (9 signed 64-bit
+integers). The units of `z` are arbitrary but consistent: smaller is
+nearer. The projection output is suitable for the raster call; it is
+not a perspective-correct varying/attribute implementation.
+
+**Safety invariants:**
+
+- Width and height must be nonzero and at most 4096 each.
+- Buffer lengths are checked with `height <= len / width` before
+  computing `width*height`.
+- Vertex slice length >= 9 and output projection length >= 3.
+- Screen x/y in [-8192,8192], positive z in [1,65535].
+- Camera x/y in [-262144,262144].
+- Invalid calls must return `false` without modifying buffers.
+- A degenerate triangle is a no-op success. Triangles outside the
+  viewport have no effect.
+- Signed edge products and z-weight interpolation are bounded by the
+  input caps, and therefore fit i64.
+- An existing depth value is replaced only when the new interpolated
+  value is **strictly smaller**. Draw ordering resolves exact-depth ties.
+
+The pixel loop uses incremental edge stepping and a precomputed
+depth-numerator step; no per-pixel coordinate divisions or repeated
+three-product barycentric calculations. Flat-depth triangles avoid
+depth division entirely. This is an optimized scalar path, **not SIMD**.
+
+The independent native C++ reference in
+`tests/cpp/render3d_differential.cpp` computes raster coverage and
+depth independently per pixel. CI compiles the Noqeri module through
+the real x86-64 native compiler with `-O3` and checks projection,
+occlusion, depth/pixel arrays, winding, clipping, out-of-domain
+rejection, truncated slices and untouched tail guards.
+
+To reproduce:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNOQERI_WARNINGS_AS_ERRORS=ON
+cmake --build build --target noqeri -j2
+bash tests/scripts/render3d-native-e2e.sh build/noqeri
+```
+
+The native sample is `examples/render3d_demo.noqeri`. It draws
+overlapping triangles with different Z values and presents the finished
+pixels using the narrow OS/SDL2 host ABI.
+
+## Noqeri WebGPU vertex and depth path
+
+The compiler's experimental `--stage=vertex` accepts exactly
+`export function shade(value: vec4): vec4`. Its input is an
+already-transformed homogeneous clip position `[x,y,z,w]`.
+It emits `@vertex` with `@location(0) vec4<f32>` input and
+`@builtin(position) vec4<f32>` output. A fragment shader
+emits `@location(0) vec4<f32>` RGBA.
+
+```sh
+build/noqeri shader examples/shaders/vertex3d.noqeri build/vertex3d.wgsl --stage=vertex
+build/noqeri shader examples/shaders/fragment3d.noqeri build/fragment3d.wgsl --stage=fragment
+cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- build/vertex3d.wgsl build/fragment3d.wgsl
+python3 -m http.server 8000
+```
+
+Open `http://localhost:8000/examples/shaders/webgpu3d_demo.html` in
+a secure-context WebGPU browser. `renderNoqeriMesh3D()` builds a
+hardware depth-tested render pipeline with `depth24plus` and
+`depthCompare: less`; it uploads bounded float32x4 vertex arrays and
+draws complete triangle lists. The JavaScript host is resource/
+lifecycle glue only, not the Noqeri shader implementation.
+
+The host validates canvas size, input type/count, clip-space finiteness
+and W/depth ranges; snapshots caller memory; checks device resource
+limits and shader compilation messages; and destroys vertex buffers,
+depth textures and the device on explicit release or failure. Mocked
+device tests exercise these branches. CI independently validates
+generated WGSL with Naga.
+
+## Performance and qualification
+
+The earlier **measured** native 2D 256×256 benchmark improved gradient
+by 2.69× and checker by 2.41× over pinned Noqeri source on a matched
+GitHub runner (see `Doc/CPU_RASTER_PERFORMANCE.md`). Clearing
+remained essentially unchanged and slower than C. This new 3D pipeline
+did not exist in the pinned benchmark; **no legitimate before/after 3D
+speedup can be claimed from that dataset**.
+
+A production 3D release still requires hardware/driver/WebGPU
+qualification (including output pixel comparisons, device loss, resize,
+timing, pacing and real GPU timestamps), plus broader engine features.
+The following remain unsupported: vertex-indexed meshes, interpolated
+vertex attributes, matrix/uniform transforms in the GPU shader,
+arbitrary shaders, backface configuration, texture UV interpolation,
+near-plane polygon clipping, a watertight top-left triangle fill rule,
+perspective-correct varying interpolation, MSAA, skeletal animation,
+resource streaming and physical Vulkan/Metal/D3D drivers.
+
+The rasterizer's **fixed bounded profile** is appropriate for
+controlled demos and differential testing. Do not treat it as a
+general-purpose production 3D game engine. Stage-2 self-hosted WGSL
+generation also remains unqualified; these WGSL stages are generated
+by the Stage-0 C++ emitter.
+
+## First 3D CPU performance evidence (2026-10-24)
+
+GitHub Actions [run 40121020892](https://github.com/EMN90909/Noqeri/actions/runs/40121020892)
+passed native 3D differential qualification and archived 30 raw samples
+per engine and depth scene. The independent C++ reference recomputes
+barycentric pixel coverage across the full surface; it is **not** an
+identical implementation of the Noqeri optimized incremental algorithm.
+
+| 256×256 | Noqeri median | Independent C++ median | Noqeri/C++ time ratio |
+|---|---:|---:|---:|
+| Flat depth | 0.334 ms | 0.093 ms | 3.60× |
+| Interpolated depth | 0.349 ms | 0.092 ms | 3.79× |
+
+No earlier Noqeri 3D CPU implementation was measured in the uploaded
+performance CSV, so these numbers establish a performance baseline
+rather than a historical improvement. No real GPU shader timestamps
+or physical-device performance were measured.
+
+## Multi-frame WebGPU resource reuse
+
+For interactive 3D loops, use
+`createNoqeriMeshRenderer3D(canvas, vertexWGSL, fragmentWGSL, gpu?, maxVertices?)`
+to compile once and reuse the WebGPU device, pipeline, vertex buffer
+and depth attachment. The returned object has `await renderer.render(vertices)`
+and `renderer.dispose()`. The default capacity is 4095 vertices and
+triangle counts must be a multiple of three.
+
+The host rejects canvas resize and concurrent in-flight submissions,
+snapshots and validates caller arrays, and destroys resources after
+device errors. The single-frame helper remains for one-off renders but
+incurs shader and pipeline setup costs on every invocation.
+
+This architecture removes repeated GPU initialization from subsequent
+frames. **No numerical GPU speedup is claimed** until real device
+timestamps and browser/driver results are collected.
+
+## Native executable-stack hardening
+
+The Linux ELF x86-64 Stage-0 native emitter now writes
+`.note.GNU-stack` with non-executable permissions, so linked
+graphics executables no longer silently inherit an executable stack
+from missing assembler metadata. The 2D and 3D native test harnesses
+fail if `readelf -W -l` reports an executable `GNU_STACK` segment
+or no such segment. This is an important defense-in-depth property,
+not a proof that all native memory operations are memory-safe.

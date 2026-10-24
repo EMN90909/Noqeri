@@ -13,8 +13,18 @@ export function nqArgb8888(red: u32, green: u32, blue: u32): u32 {
 }
 
 export function nqRenderClear(pixels: []u32, color: u32): bool {
+    // Four stores per branch; the remainder is checked using count-i so the
+    // loop guard cannot overflow even for a very large valid slice length.
+    let count: usize = len(pixels)
     let i: usize = 0 as usize
-    while i < len(pixels) {
+    while i < count && count - i >= 4 as usize {
+        pixels[i] = color
+        pixels[i + 1 as usize] = color
+        pixels[i + 2 as usize] = color
+        pixels[i + 3 as usize] = color
+        i = i + 4 as usize
+    }
+    while i < count {
         pixels[i] = color
         i = i + 1 as usize
     }

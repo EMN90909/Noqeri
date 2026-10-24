@@ -14,9 +14,10 @@ WebGPU shader throughput, SDL texture uploads or presentation latency.
 - **Checker** paints horizontal runs of equal color and flips row parity
   at cell boundaries; no per-pixel coordinate or tile division is required.
   Variable cell sizes, including sizes greater than the image, are supported.
-- **Clear** retains the original checked scalar loop while the compiler's
-  bulk-fill lowering and volatile semantics are separately qualified.
-  No unsupported SIMD claims are made.
+- **Clear** now unrolls nonvolatile stores four at a time with a
+  subtraction-based remainder guard and a scalar tail. All slice writes
+  retain bounds checking. This improves measured native CPU throughput,
+  but does **not** implement SIMD or the outstanding optimized bulk-fill backend.
 
 All dimension and buffer-length guards remain in place. The gradient still
 caps both dimensions at 4096; checker retains its original flexible shape
@@ -94,3 +95,21 @@ or explained; this reference uses the old source's scalar pixel formula.
 The CI per-scene results are not release-performance qualifications for
 physical GPUs or other host processors. Historical ratios must not be
 substituted for same-run measurements.
+
+## Follow-up clear unrolling result (2026-10-24)
+
+GitHub Actions [run 40121310864](https://github.com/EMN90909/Noqeri/actions/runs/40121310864)
+passed the complete **4,657-case** native C++ pixel differential and
+paired baseline timing gate with the four-store checked scalar clear:
+
+| Scene 256×256 | Original native Noqeri | Optimized Noqeri | Improvement |
+|---|---:|---:|---:|
+| Gradient | 1.041 ms | 0.374 ms | **2.79×** |
+| Checker | 0.576 ms | 0.224 ms | **2.57×** |
+| Clear | 0.183 ms | 0.172 ms | **1.06×** |
+
+The 512×512 clear also improved by approximately **1.06×**. This
+is a modest improvement: the optimized Noqeri clear remained roughly
+**33× slower** than its C reference on the same runner. A truly
+optimized nonvolatile bulk-fill implementation, with volatile MMIO
+isolation and full semantics verification, remains outstanding.

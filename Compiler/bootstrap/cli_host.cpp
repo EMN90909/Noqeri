@@ -25,7 +25,7 @@ void usage() {
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
-              << "  shader [file] [out.wgsl] --stage=compute|fragment  emit WebGPU WGSL\n"
+              << "  shader [file] [out.wgsl] --stage=compute|fragment|vertex  emit WebGPU WGSL\n"
               << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
@@ -427,8 +427,8 @@ int main(int argc, char** argv) {
                     positionalOutput=std::filesystem::path(option);
                 }
             }
-            if(stage!="compute"&&stage!="fragment") {
-                std::cerr<<"NQR-GPU102: choose --stage=compute or --stage=fragment\n";
+            if(stage!="compute"&&stage!="fragment"&&stage!="vertex") {
+                std::cerr<<"NQR-GPU102: choose --stage=compute, --stage=fragment or --stage=vertex\n";
                 return 1;
             }
             if(stage!="compute"&&hasWorkgroupOption) {
