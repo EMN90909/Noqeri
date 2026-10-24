@@ -7,14 +7,14 @@
 | SSA optimization | Single-definition virtual-register inspection and CFG-dominance verification gate cross-block optimization | SSA construction with Phi nodes, mutable variables, memory SSA and Phi lowering |
 | GVN | Basic-block integer `+`, `-`, `*`, `%` value numbering; duplicate NIR operations coalesced when result has no users in other blocks | Global value numbering across branches, loads, volatile memory, pointer calculations, floating NaNs |
 | SCCP | Sparse constant discovery on dominance-proven SSA temporaries, Boolean conditional folding, CFG reachability, dead-code pruning | Phi-lattice propagation and fully edge-sensitive sparse dataflow |
-| LICM | Hoists pure integer/boolean literals from single-entry, single-exit structured loop bodies at O3 | Hoisting arithmetic, invariant memory loads or operations which could trap |
+| LICM | O3 hoists literals and proven preheader-dominating Int/I64 `+`, `-`, `*` from single-entry structured loops; a capped repetition handles several invariants | General LICM with side effects, trapping division, invariant memory loads, alias-aware hoisting, loop unswitching and full SSA/Phi |
 | Loop unrolling | Not implemented | Requires proven trip count, exact overflow semantics, size and target cost gating |
 | Loop vectorization | Not implemented | Requires typed vector NIR, legality checks and target SIMD lowering |
 | SLP vectorization | Not implemented | Requires pack formation, def-use/alias and instruction selection |
-| Alias analysis | `NirAliasAnalysis` proves distinct nonescaping acyclic `StackAlloc` roots do not alias; all other uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing, memory SSA |
+| Alias analysis | `NirAliasAnalysis` propagates `StackAlloc` roots through pointer derivations using an O(N+E) worklist; distinct nonescaping acyclic roots are proven NoAlias and all uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing, memory SSA |
 | Escape analysis | Tracks direct StackAlloc roots and derivatives, marks values passed to unknown sites / returned as escaping | Allocation replacement, promotion, allocation sinking and heap devirtualization |
 | Interprocedural optimization | Exact pure zero-argument constant-return call substitution; externs and unknown bodies retained | Full call-graph specialization, partial inlining, recursion handling and whole-program IPO |
-| Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; repeated Reg defs unioned; deterministic linear scan with unique spill slots. The Linux x86-64 Stage-0 emitter consumes the plan for eligible virtual registers using preserved r12-r15, with stack fallback/spills and an inline-assembly guard. | Graph coloring, interval splitting, optimal spill costs, named-local register promotion, full machine scheduling, and native Stage-2 parity |
+| Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; deterministic linear scan with stack spills and preserved r12-r15. The Linux x86-64 emitter also promotes at most one loop-hot non-address-taken named local into callee-saved RBX, disabled for inline-asm functions. | Graph coloring, split spills, promotion of multiple locals, optimal spill costs, cross-target machine scheduling and native Stage-2 parity |
 | Instruction scheduling | O3 moves only integer/Boolean literals within a straight-line basic block toward first use; effects and branch indices unchanged | Dependency-latency DAG, hazard tracking, machine-instruction scheduling |
 | Strength reduction | O2+ `x*0` and `x%1` for wraparound `Int/I64`; Stage-0 native x86-64 emits unsigned reciprocal/multiply/correction division for constant 64-bit divisors and shifts for power-of-two constants, with guarded signed reconstruction. | Induction-variable algebra and a generic target-independent magic-number division pass; Stage-2 native parity |
 | Autovectorization | Not implemented | No vector-producing pass exists yet |
@@ -27,7 +27,7 @@
 - **O0:** No optimizations.
 - **O1:** Existing local constant folding, dead-code elimination and proven safe bounds-check simplification.
 - **O2:** O1, dominance-gated sparse constant propagation, branch pruning, conservative local integer GVN and identity strength reduction. Proven redundant bounds checks with identical operands and guarded unsigned fixed-array indices are removed only when the CFG and mutation proof succeeds.
-- **O3:** O2, structured literal-only LICM and pure local literal scheduling for lower register pressure.
+- **O3:** O2, capped structured literal plus nontrapping invariant Int/I64 addition/subtraction/multiplication LICM, and local literal scheduling for register pressure.
 - **Oz:** Conservative algebraic/CFG optimization with code size goal; no speculative loop unroll.
 - **Os:** O1-like baseline. Not automatically equivalent to O3.
 
@@ -37,7 +37,8 @@ All passes must preserve Noqeri's source-visible side effects, overflow and trap
 
 The Linux x86-64 Stage-0 emitter uses conservative, callee-saved physical
 registers for allocated NIR values. It still reserves the original virtual
-stack slots, and named mutable locals still live in memory. This is a
+stack slots; most named mutable locals still live in memory, except for
+one eligible loop-hot local promoted to saved RBX. This is a
 first-stage improvement, **not** proof of globally optimal register
 allocation or elimination of redundant array bounds checks.
 
@@ -98,3 +99,29 @@ not be presented as self-hosted Stage-2 performance.
 6. Run O0/O1/O2/O3/Oz differential tests, native sanitizer/fuzzer suites, multithreaded memory tests and CMake release builds on Linux and Windows. Record compile time, executable speed and memory before claiming mature performance.
 
 **Release gate:** native Stage-2 compiler parity, real NoeSQL integration, full platform qualification and performance baselines are not yet proven. Keep these pass statuses explicit in published documentation.
+
+## Issue #48 native optimization status (October 24, 2026)
+
+- **Correctness regression fixed:** O3 no longer folds signed i64 minimum
+  divided/remainder by -1 into a nontrapping constant. The native qualification
+  suite now expects SIGFPE at both O0 and O3 for overflow and zero division.
+- **Bounds proof hardening:** a guarded index cannot inherit stale range
+  information from a scalar load preceding a named-local mutation.
+- **Loop hoisting:** the Stage-0 pass now covers nontrapping invariant
+  64-bit integer `+`, `-`, `*` as well as literals. This is not general
+  SSA/Phi construction or arbitrary code motion.
+- **Compiler analyses:** loop candidate counting and stack-pointer root
+  propagation use linear-time scans/worklists instead of repeated scans.
+- **Native measurements:** hot-local RBX promotion passed ABI/native
+  correctness tests but its same-runner already-sorted insertion-sort speedup
+  was ~1.001x, essentially unchanged. The scoped O3 LICM branch measured
+  ~1.263x on dependent modulo and ~0.894x on the already-sorted traversal;
+  neither supports a blanket speedup claim.
+- **Better benchmarking:** a fresh deterministic seeded data fill every sorting
+  round adds a reshuffled-sorting A/B lane with checksum 13104300. A test-only
+  change yielded median 21.932 vs 21.911 ms, within practical measurement noise.
+
+**Still pending:** full SSA and Phi creation/destruction, memory SSA,
+induction/range proofs beyond guarded scalar cases, generalized
+unrolling/vectorization, full typed integer-width semantics and
+native Stage-2/Stage-3 self-hosted compiler parity. Issue #48 remains open.

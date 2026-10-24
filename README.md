@@ -81,7 +81,7 @@ NQON is specified independently of the compiler and can be converted to/from JSO
 
 ## Compiler optimizer (Stage-0, partially implemented)
 
-The C++ Stage-0 NIR pipeline implements local integer value numbering (GVN), SSA-register dominance verification, sparse constant propagation and Boolean branch pruning (SCCP subset), conservative integer strength reduction, O3 structured loop-literal hoisting (LICM subset), and effect-preserving literal instruction scheduling. The register allocator uses CFG liveness over branches and loop backedges. Conservative stack pointer alias/escape inspection and uncalibrated x86-64/ARM64 cost profiles are available for future passes.
+The C++ Stage-0 NIR pipeline implements local integer value numbering (GVN), SSA-register dominance verification, sparse constant propagation and Boolean branch pruning (SCCP subset), conservative integer strength reduction, O3 structured hoisting of literals and provably invariant nontrapping Int/I64 arithmetic (LICM subset), and effect-preserving literal instruction scheduling. The register allocator uses CFG liveness over branches and loop backedges. Conservative stack pointer alias/escape inspection and uncalibrated x86-64/ARM64 cost profiles are available for future passes.
 
 **Not implemented:** full SSA Phi construction, trip-count loop unrolling, SLP/loop/autovectorization, general memory optimization, full interprocedural specialization, target machine scheduling, LTO or PGO. The proposed vectorizer does not yet emit SIMD; the cost model is not a claim that it does. See [the detailed qualification matrix](Doc/OPTIMIZATION_QUALIFICATION.md).
 
