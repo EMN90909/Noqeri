@@ -33,7 +33,8 @@ test('GPU profile v3 rejects invalid swizzles, unauthorized calls and texture sa
       'export function shade(x: float, y: float): vec4 { return vec4(clockMillis(), y, 0.0, 1.0) }',
       'export function shade(x: float, y: float): vec4 { return sampleTexture(vec2(x, y)) + vec3(1.0) }',
       'export function shade(value: vec4): vec4 { return sampleTexture(value.xy) }',
-      'export function shade(value: vec4): vec4 { return vec4(value.x, value.y, value.z, value.x / 0.0) }'
+      'export function shade(value: vec4): vec4 { return vec4(value.x, value.y, value.z, value.x / 0.0) }',
+      'export function shade(value: vec3): vec3 { return value }'
     ]
     for(let i=0;i<sources.length;i++){
       const file=join(dir,i+'.noqeri'),output=join(dir,i+'.wgsl')
