@@ -33,6 +33,15 @@ jobs:
           grep -Eq 'seta al|setb al' build-typed/unsigned-O3.s
           node scripts/native-build.mjs tests/native_unsigned_arithmetic.noqeri build-typed/unsigned-O0 --compiler=build-typed/noqeri --opt=-O0
           test "$(build-typed/unsigned-O0)" = "$expected"
+      - name: Verify signed and unsigned narrow memory loads
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/native_integer_widths.noqeri build-typed/integer-widths --compiler=build-typed/noqeri --opt=-O3 --keep-asm
+          expected="$(printf '%s\n' -1 255 -32768 65535 -2147483648 4294967295)"
+          test "$(build-typed/integer-widths)" = "$expected"
+          grep -Fq 'movsx rax, BYTE PTR [rax]' build-typed/integer-widths.s
+          grep -Fq 'movsxd rax, DWORD PTR [rax]' build-typed/integer-widths.s
       - name: Bounds proof and OOB trap preservation
         shell: bash
         run: |
