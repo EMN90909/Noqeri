@@ -28,4 +28,5 @@ Compiler/selfhost/security.noqeri
 Compiler/selfhost/pipeline.noqeri
 Compiler/selfhost/stage2.noqeri
 Compiler/selfhost/nqri_writer.noqeri
+Compiler/selfhost/shader_wgsl.noqeri
 Compiler/selfhost/main.noqeri
