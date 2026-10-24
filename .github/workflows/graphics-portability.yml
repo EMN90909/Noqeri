@@ -1,4 +1,7 @@
 name: Graphics compiler platform portability
+concurrency:
+  group: graphics-portable-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 on:
   pull_request:
     paths:
