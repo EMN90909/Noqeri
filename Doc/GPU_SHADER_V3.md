@@ -63,7 +63,7 @@ After generating WGSL in `build/`, serve the repository root:
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/examples/shaders/physical_qualification.html`
+Open `http://localhost:8000/examples/browser-webgpu/physical_qualification.html`
 in a browser with hardware-backed WebGPU. Click **Run actual GPU tests**.
 The runner exercises a **real** vector-compute pipeline, checks eight
 f32 output components, and compiles, binds, uploads and executes a
@@ -148,3 +148,9 @@ generated WGSL, **not a measured GPU performance claim**.
 vector lighting and is compiled and validated through the same Naga CI
 gate as the other shader fixtures. Shader Stage-2 self-hosting and
 physical GPU qualification are still not proven.
+
+
+Optional browser-only examples have been moved to
+`examples/browser-webgpu/` to isolate JavaScript from the Noqeri/C++
+shader compiler and shader source tree. This does not imply that the
+C++ compiler now contains a native WebGPU hardware driver.
