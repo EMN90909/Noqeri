@@ -1,0 +1,43 @@
+import "../../Lib/std/render2d.noqeri"
+
+// Benchmarks the repository's actual Noqeri CPU renderer.
+// The host owns only the buffer, high-resolution clock and optional PPM capture.
+extern function nq_bench_framebuffer(): *u32
+extern function nq_bench_width(): usize
+extern function nq_bench_height(): usize
+extern function nq_bench_frames(): usize
+extern function nq_bench_mode(): int
+extern function nq_bench_clock_start(): void
+extern function nq_bench_clock_stop(): void
+extern function nq_bench_frame_marker(pixels: *u32, pixel_count: usize): void
+extern function nq_bench_fail(): void
+
+let width: usize = nq_bench_width()
+let height: usize = nq_bench_height()
+let count: usize = width * height
+let pointer: *u32 = nq_bench_framebuffer()
+let pixels: []u32 = slice(pointer, count)
+let frames: usize = nq_bench_frames()
+let mode: int = nq_bench_mode()
+let frame: usize = 0 as usize
+
+nq_bench_clock_start()
+while frame < frames {
+    let worked: bool = false
+    if mode == 0 {
+        worked = nqRenderGradient(pixels, width, height)
+    } else {
+        worked = nqRenderChecker(
+            pixels, width, height, 16 as usize,
+            4279383126 as u32, 4294892730 as u32
+        )
+    }
+    if !worked {
+        nq_bench_fail()
+    }
+    // The host samples pixels after EVERY frame. Prevents dead-store elimination
+    // and forces both implementations to perform every rendering pass.
+    nq_bench_frame_marker(pointer, count)
+    frame = frame + 1 as usize
+}
+nq_bench_clock_stop()
