@@ -8,6 +8,10 @@ on:
       - 'CMakeLists.txt'
       - 'Lib/std/render2d.noqeri'
       - 'Lib/std/render3d.noqeri'
+      - 'examples/render3d_demo.noqeri'
+      - 'tests/shader-vertex3d.test.mjs'
+      - 'examples/shaders/webgpu3d_demo.html'
+      - 'tests/cpp/render3d_headless_demo.cpp'
       - 'Lib/std/os_framebuffer.noqeri'
       - 'examples/os_framebuffer_demo.noqeri'
       - 'tests/cpp/os_framebuffer_headless_test.cpp'
@@ -40,6 +44,10 @@ on:
       - 'CMakeLists.txt'
       - 'Lib/std/render2d.noqeri'
       - 'Lib/std/render3d.noqeri'
+      - 'examples/render3d_demo.noqeri'
+      - 'tests/shader-vertex3d.test.mjs'
+      - 'examples/shaders/webgpu3d_demo.html'
+      - 'tests/cpp/render3d_headless_demo.cpp'
       - 'examples/graphics_demo.noqeri'
       - 'examples/shaders/**'
       - 'Runtime/native/os_renderer_sdl.cpp'
@@ -72,7 +80,7 @@ jobs:
           cmake -S . -B /tmp/noqeri-graphics-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
           cmake --build /tmp/noqeri-graphics-build --target noqeri noqeri_os_renderer_sdl -j 2
       - name: Check typed shader source and reject unsafe GPU programs
-        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/shader-v3.test.mjs tests/shader-stage2-gate.test.mjs tests/webgpu-host.test.mjs
+        run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/shader-v3.test.mjs tests/shader-vertex3d.test.mjs tests/shader-stage2-gate.test.mjs tests/webgpu-host.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
         run: |
           node --check examples/shaders/webgpu_host.mjs
@@ -88,7 +96,9 @@ jobs:
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_fragment.noqeri /tmp/noqeri-vector-fragment.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/texture_fragment.noqeri /tmp/noqeri-texture-fragment.wgsl --stage=fragment
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vector_compute.noqeri /tmp/noqeri-vector-compute.wgsl --stage=compute
-          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-vector-fragment.wgsl /tmp/noqeri-texture-fragment.wgsl /tmp/noqeri-vector-compute.wgsl /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/vertex3d.noqeri /tmp/noqeri-vertex3d.wgsl --stage=vertex
+          /tmp/noqeri-graphics-build/noqeri shader examples/shaders/fragment3d.noqeri /tmp/noqeri-fragment3d.wgsl --stage=fragment
+          cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-vertex3d.wgsl /tmp/noqeri-fragment3d.wgsl /tmp/noqeri-vector-fragment.wgsl /tmp/noqeri-texture-fragment.wgsl /tmp/noqeri-vector-compute.wgsl /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
