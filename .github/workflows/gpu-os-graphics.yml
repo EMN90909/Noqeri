@@ -16,6 +16,9 @@ on:
       - 'Include/noqeri/os_renderer_sdl.h'
       - 'tests/cpp/graphics_headless_test.cpp'
       - 'tests/scripts/graphics-native-e2e.sh'
+      - 'tests/scripts/graphics-raster-perf.sh'
+      - 'tests/scripts/graphics-performance-summary.mjs'
+      - 'tests/cpp/graphics_full_frame_differential.cpp'
       - 'tests/shader-compiler.test.mjs'
       - 'tests/shader-v2.test.mjs'
       - 'tests/shader-v3.test.mjs'
@@ -37,6 +40,8 @@ on:
       - 'examples/shaders/**'
       - 'Runtime/native/os_renderer_sdl.cpp'
       - 'tests/**/graphics*'
+      - 'tests/scripts/graphics-raster-perf.sh'
+      - 'tests/scripts/graphics-performance-summary.mjs'
       - 'tests/shader-compiler.test.mjs'
       - 'tests/shader-v2.test.mjs'
       - 'tests/shader-v3.test.mjs'
@@ -83,3 +88,15 @@ jobs:
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 90s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
+      - name: Validate every pixel and record native CPU raster A/B timings
+        env:
+          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
+        run: timeout 180s bash tests/scripts/graphics-raster-perf.sh /tmp/noqeri-graphics-build/noqeri
+      - name: Archive native CPU raster results and assembly (not GPU timing)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-cpu-raster-evidence
+          if-no-files-found: warn
+          path: /tmp/noqeri-graphics-evidence/
+          retention-days: 14
