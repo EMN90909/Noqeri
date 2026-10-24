@@ -19,6 +19,7 @@ on:
       - 'tests/shader-compiler.test.mjs'
       - 'tests/shader-v2.test.mjs'
       - 'tests/shader-v3.test.mjs'
+      - 'examples/shaders/physical_qualification.*'
       - 'tests/webgpu-host.test.mjs'
       - 'tests/wgsl-validator/**'
       - '.github/workflows/gpu-os-graphics.yml'
@@ -36,6 +37,7 @@ on:
       - 'tests/shader-compiler.test.mjs'
       - 'tests/shader-v2.test.mjs'
       - 'tests/shader-v3.test.mjs'
+      - 'examples/shaders/physical_qualification.*'
       - 'tests/webgpu-host.test.mjs'
       - 'Doc/GPU_SHADER_V2.md'
       - 'tests/wgsl-validator/**'
@@ -57,7 +59,9 @@ jobs:
       - name: Check typed shader source and reject unsafe GPU programs
         run: NOQERI_COMPILER=/tmp/noqeri-graphics-build/noqeri node --test tests/shader-compiler.test.mjs tests/shader-v2.test.mjs tests/shader-v3.test.mjs tests/webgpu-host.test.mjs
       - name: Verify WebGPU browser host is valid JavaScript
-        run: node --check examples/shaders/webgpu_host.mjs
+        run: |
+          node --check examples/shaders/webgpu_host.mjs
+          node --check examples/shaders/physical_qualification.mjs
       - name: Naga syntax and semantic validation of both generated GPU stages
         run: |
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/color_gradient.noqeri /tmp/noqeri-fragment.wgsl --stage=fragment
