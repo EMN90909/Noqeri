@@ -7,7 +7,6 @@ import "stage2.noqeri"
 import "ast.noqeri"
 import "nir.noqeri"
 import "nqri_writer.noqeri"
-import "shader_wgsl.noqeri"
 
 // Compatibility exports used by the portable Stage-1 loader. `check` now owns
 // the complete Noqeri grammar rather than the old token/syntax-only seed path.
@@ -41,13 +40,6 @@ export function stage2CompileToNqri(source: []u8, target: int, debug: bool, unsa
     if status < 0 as isize { return status }
     return nqNqriWrite(source, slice(functions, result.functionCount), slice(instructions, result.instructionCount), out)
 }
-// Stage-2 NQRI compiler entry for the constrained pure u32 shader profile.
-// This implementation is entirely Noqeri-authored and fails closed on VecN
-// and texture constructs until its typed frontend matches Stage-0.
-export function stage2ShaderCompileWgsl(source: []u8, stage: int, workgroup: int, out: []u8): isize {
-    return nqShaderS2Compile(source, stage, workgroup, out)
-}
-
 export function stage2WorkspaceAstMinimum(): usize { return nqPipelineWorkspaceAstMinimum() }
 export function stage2WorkspaceNirMinimum(): usize { return nqPipelineWorkspaceNirMinimum() }
 export function stage2WorkspaceFunctionMinimum(): usize { return nqPipelineWorkspaceFunctionMinimum() }
