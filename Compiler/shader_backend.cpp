@@ -415,6 +415,8 @@ bool ShaderBackend::emitWgsl(const Program& program,
             "or shade(x: u32|float, y: u32|float): u32|float");
     auto resultType=scalarType(*shader->returnType);
     if(!resultType||*resultType==Scalar::Bool||
+       (stage=="compute"&&*resultType!=Scalar::U32&&
+        *resultType!=Scalar::F32&&*resultType!=Scalar::Vec4)||
        (stage=="fragment"&&*resultType!=Scalar::U32&&
         *resultType!=Scalar::F32&&*resultType!=Scalar::Vec4))
         return shaderError(diagnostics,shader->span,"shader has an unsupported stage result type");
