@@ -60,7 +60,7 @@ function nqS2Same(src: []u8, from: usize, to: usize, token: *NqToken): bool {
     }
     return true
 }
-export function nqShaderS2Compile(src: []u8, stage: int, workgroup: int, out: []u8): isize {
+export function stage2ShaderCompileWgsl(src: []u8, stage: int, workgroup: int, out: []u8): isize {
     if len(src) > 4096 as usize || stage < 1 || stage > 2 { return -920 as isize }
     if workgroup != 32 && workgroup != 64 && workgroup != 128 && workgroup != 256 { return -921 as isize }
     if nqCompilerSyntaxCheck(src) != 0 as isize { return -922 as isize }
