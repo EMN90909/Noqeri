@@ -218,3 +218,29 @@ comparison builds the pinned original `render3d.noqeri` with the
 **same** compiler and reference driver as the updated source. CI gates
 a median regression above 25%. This is native CPU performance evidence,
 not GPU shader execution or frame rate qualification.
+
+## New guarded-pointer 3D performance evidence
+
+The rasterizer and depth clear now validate framebuffer slice lengths
+before deriving native nonvolatile pointers, and then use those pointers
+only for indexes proven below `width * height`. This removes dynamic
+slice-header checks from the hot loop while retaining the C++ full-buffer
+oracle and no-write invalid-input tests. External code must not mutate
+or invalidate the buffers during rendering.
+
+GitHub Actions [run 40127662918](https://github.com/EMN90909/Noqeri/actions/runs/40127662918)
+passed native correctness, shader validation, the GPU firmware simulator
+and a 30-sample same-host A/B comparison against the pinned previous
+Noqeri source:
+
+| 256×256 native CPU operation | Previous median | Candidate median | Speedup |
+|---|---:|---:|---:|
+| Flat-depth triangle | 0.470 ms | 0.424 ms | 1.109× |
+| Interpolated-depth triangle | 0.455 ms | 0.433 ms | 1.053× |
+| Clear Z-buffer | 0.129 ms | 0.103 ms | 1.254× |
+
+The results reflect the complete candidate optimization relative to the
+pinned Noqeri implementation, not individual instruction attribution.
+CI runner results vary with host loading; speedups require continued
+same-run regression monitoring. These are CPU benchmarks only and do not
+qualify GPU/driver performance or physical firmware execution.
