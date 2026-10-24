@@ -5,12 +5,18 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
-#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
-# include <emmintrin.h>
-# define NOQERI_GRAPHICS_SSE2 1
-#elif defined(__aarch64__) || defined(_M_ARM64)
-# include <arm_neon.h>
-# define NOQERI_GRAPHICS_NEON 1
+// Keep the binary baseline safe for older CPUs. x86-64 guarantees SSE2,
+// while x86-32 uses it only when the compiler explicitly enables it.
+// ARM NEON is used only when the toolchain exposes intrinsics for this target.
+// Other CPU architectures use the same bit-exact scalar algorithm.
+#if !defined(NOQERI_GRAPHICS_FORCE_SCALAR)
+# if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#  include <emmintrin.h>
+#  define NOQERI_GRAPHICS_SSE2 1
+# elif defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(__aarch64__) || defined(_M_ARM64)
+#  include <arm_neon.h>
+#  define NOQERI_GRAPHICS_NEON 1
+# endif
 #endif
 namespace {
 inline void fill_pixels(std::uint32_t* pixels,std::size_t n,std::uint32_t color) noexcept {
@@ -62,4 +68,56 @@ extern "C" int nq_graphics_clear_rows_argb32(std::uint32_t* pixels,
     for(std::size_t y=0;y<height;++y)
         fill_pixels(pixels+y*pitch,width,color);
     return 0;
+}
+
+extern "C" const char* nq_graphics_clear_backend(void) {
+#if defined(NOQERI_GRAPHICS_SSE2)
+    return "sse2";
+#elif defined(NOQERI_GRAPHICS_NEON)
+    return "neon";
+#else
+    return "scalar";
+#endif
+}
+extern "C" const char* nq_graphics_cpu_arch(void) {
+#if defined(__x86_64__) || defined(_M_X64)
+    return "x86_64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__arm__) || defined(_M_ARM)
+    return "arm";
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    return "riscv64";
+#elif defined(__riscv)
+    return "riscv";
+#elif defined(__powerpc64__) || defined(__ppc64__)
+    return "ppc64";
+#elif defined(__powerpc__) || defined(__ppc__)
+    return "ppc";
+#elif defined(__s390x__)
+    return "s390x";
+#elif defined(__mips64)
+    return "mips64";
+#else
+    return "other";
+#endif
+}
+extern "C" const char* nq_graphics_host_os(void) {
+#if defined(__ANDROID__)
+    return "android";
+#elif defined(_WIN32)
+    return "windows";
+#elif defined(__APPLE__)
+    return "macos";
+#elif defined(__FreeBSD__)
+    return "freebsd";
+#elif defined(__OpenBSD__)
+    return "openbsd";
+#elif defined(__linux__)
+    return "linux";
+#else
+    return "other";
+#endif
 }
