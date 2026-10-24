@@ -45,7 +45,45 @@ function assertGpuLimits(device, bytes, groups, groupSize) {
       groupSize > limits.maxComputeInvocationsPerWorkgroup)
     throw new RangeError('Input exceeds this GPU device compute workgroup limits.')
 }
-export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
+function bindSampledTexture(device,pipeline,group,textureSource){
+  if (!textureSource || !Number.isInteger(textureSource.width) ||
+      !Number.isInteger(textureSource.height) ||
+      textureSource.width<=0 || textureSource.height<=0 ||
+      !(textureSource.pixels instanceof Uint8Array)) {
+    throw new TypeError('Sampled Noqeri shader needs {width,height,pixels: Uint8Array} RGBA8 texture.')
+  }
+  const {width,height,pixels}=textureSource
+  if (width>device.limits.maxTextureDimension2D ||
+      height>device.limits.maxTextureDimension2D ||
+      width*height*4>16*1024*1024 ||
+      pixels.byteLength!==width*height*4) {
+    throw new RangeError('Invalid RGBA8 texture dimensions, byte count or device limit.')
+  }
+  const pitch=Math.ceil(width*4/256)*256
+  const data=new Uint8Array(pitch*height)
+  for(let y=0;y<height;y++)
+    data.set(pixels.subarray(y*width*4,(y+1)*width*4),y*pitch)
+  const texture=device.createTexture({
+    size:[width,height,1],format:'rgba8unorm',
+    usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST
+  })
+  try{
+    device.queue.writeTexture({texture},data,
+      {offset:0,bytesPerRow:pitch,rowsPerImage:height},
+      {width,height,depthOrArrayLayers:1})
+    const sampler=device.createSampler({magFilter:'linear',minFilter:'linear'})
+    const bindGroup=device.createBindGroup({
+      layout:pipeline.getBindGroupLayout(group),
+      entries:[
+        {binding:0,resource:texture.createView()},
+        {binding:1,resource:sampler}
+      ]
+    })
+    return {texture,bindGroup}
+  }catch(error){texture.destroy();throw error}
+}
+
+export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null, textureSource = null) {
   if (!(pixels instanceof Uint32Array) && !(pixels instanceof Float32Array))
     throw new TypeError('Compute input must be a Uint32Array or Float32Array.')
   const {workgroupSize, elementType, storageStrideFloats} = computeMetadata(wgsl)
@@ -58,7 +96,7 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
   if (pixels.byteLength > 64 * 1024 * 1024)
     throw new RangeError('Compute demo input is capped at 64 MiB.')
   const device = await getDevice(requireGpu(suppliedGpu))
-  let source, result, readback, mapped = false
+  let source, result, readback, texture, mapped = false
   try {
     const groups = Math.ceil((pixels.length / storageStrideFloats) / workgroupSize)
     assertGpuLimits(device, pixels.byteLength, groups, workgroupSize)
@@ -66,6 +104,9 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
     const pipeline = device.createComputePipeline({
       layout: 'auto', compute: {module, entryPoint: 'main'}
     })
+    const textureResource=wgsl.includes('var nq_texture: texture_2d<f32>')?
+      bindSampledTexture(device,pipeline,1,textureSource):null
+    texture=textureResource?.texture
     source = device.createBuffer({
       size: pixels.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     })
@@ -84,6 +125,7 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
     const pass = encoder.beginComputePass()
     pass.setPipeline(pipeline)
     pass.setBindGroup(0, bindGroup)
+    if(textureResource)pass.setBindGroup(1,textureResource.bindGroup)
     pass.dispatchWorkgroups(groups)
     pass.end()
     encoder.copyBufferToBuffer(result, 0, readback, 0, pixels.byteLength)
@@ -97,6 +139,7 @@ export async function runNoqeriCompute(wgsl, pixels, suppliedGpu = null) {
   } finally {
     if (mapped) readback?.unmap()
     readback?.destroy()
+    texture?.destroy()
     result?.destroy()
     source?.destroy()
     device.destroy()
@@ -130,42 +173,9 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, tex
       fragment: {module: fragment, entryPoint: 'main', targets: [{format}]},
       primitive: {topology: 'triangle-list'}
     })
-    let textureBindGroup=null
-    if (wgsl.includes('var nq_texture: texture_2d<f32>')) {
-      if (!textureSource || !Number.isInteger(textureSource.width) ||
-          !Number.isInteger(textureSource.height) ||
-          textureSource.width<=0 || textureSource.height<=0 ||
-          !(textureSource.pixels instanceof Uint8Array)) {
-        throw new TypeError('Sampled Noqeri shader needs {width,height,pixels: Uint8Array} RGBA8 texture.')
-      }
-      const {width,height,pixels}=textureSource
-      if (width>device.limits.maxTextureDimension2D||
-          height>device.limits.maxTextureDimension2D||
-          width*height*4>16*1024*1024||
-          pixels.byteLength!==width*height*4) {
-        throw new RangeError('Invalid RGBA8 texture dimensions, byte count or device limit.')
-      }
-      const pitch=Math.ceil(width*4/256)*256
-      const data=new Uint8Array(pitch*height)
-      for(let y=0;y<height;y++){
-        data.set(pixels.subarray(y*width*4,(y+1)*width*4),y*pitch)
-      }
-      texture=device.createTexture({
-        size:[width,height,1],format:'rgba8unorm',
-        usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST
-      })
-      device.queue.writeTexture({texture},data,
-        {offset:0,bytesPerRow:pitch,rowsPerImage:height},
-        {width,height,depthOrArrayLayers:1})
-      const sampler=device.createSampler({magFilter:'linear',minFilter:'linear'})
-      textureBindGroup=device.createBindGroup({
-        layout:pipeline.getBindGroupLayout(0),
-        entries:[
-          {binding:0,resource:texture.createView()},
-          {binding:1,resource:sampler}
-        ]
-      })
-    }
+    const textureResource=wgsl.includes('var nq_texture: texture_2d<f32>')?
+      bindSampledTexture(device,pipeline,0,textureSource):null
+    texture=textureResource?.texture
     const encoder = device.createCommandEncoder()
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
@@ -175,7 +185,7 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, tex
       }]
     })
     pass.setPipeline(pipeline)
-    if (textureBindGroup) pass.setBindGroup(0,textureBindGroup)
+    if (textureResource) pass.setBindGroup(0,textureResource.bindGroup)
     pass.draw(3)
     pass.end()
     device.queue.submit([encoder.finish()])
