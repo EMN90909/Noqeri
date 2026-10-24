@@ -7,6 +7,8 @@ on:
       - 'Compiler/register_alloc.cpp'
       - 'Compiler/optimizer.cpp'
       - 'scripts/native-build.mjs'
+      - 'scripts/native-perf-evidence.py'
+      - 'tests/native_perf_evidence_test.py'
       - '.github/workflows/native-perf-ab.yml'
 permissions:
   contents: read
@@ -205,6 +207,12 @@ jobs:
           if med["candidate"]>med["baseline"]*1.2:
               raise SystemExit("Shuffled sorting regressed by more than 20%")
           PY
+      - name: Qualify p50/p95, binary size, RSS and optional perf counters
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s candidate/tests -p native_perf_evidence_test.py
+          python3 candidate/scripts/native-perf-evidence.py candidate/build/native-perf-ab.json
       - name: Upload raw measurements
         uses: actions/upload-artifact@v4
         with:
