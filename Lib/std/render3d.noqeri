@@ -39,13 +39,16 @@ export function nqDepthClear3D(depth: []u32, width: usize, height: usize): bool 
     if width > 4096 as usize || height > 4096 as usize { return false }
     if height > len(depth) / width { return false }
     let count: usize = width * height
+    // Safe after count <= len(depth) and count > 0. Each store is below count.
+    // A single pointer avoids redundant dynamic slice-header bounds checks.
+    let storage: *u32 = &depth[0]
     let i: usize = 0 as usize
     // Four bounded stores per loop; no overflow-prone i+4 guard.
     while i < count && count - i >= 4 as usize {
-        depth[i] = 4294967295 as u32
-        depth[i + 1 as usize] = 4294967295 as u32
-        depth[i + 2 as usize] = 4294967295 as u32
-        depth[i + 3 as usize] = 4294967295 as u32
+        unsafe { storage[i] = 4294967295 as u32 }
+        unsafe { storage[i + 1 as usize] = 4294967295 as u32 }
+        unsafe { storage[i + 2 as usize] = 4294967295 as u32 }
+        unsafe { storage[i + 3 as usize] = 4294967295 as u32 }
         i = i + 4 as usize
     }
     while i < count {
@@ -66,6 +69,11 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
     if len(vertices) < 9 as usize { return false }
     if height > len(pixels) / width { return false }
     if height > len(depth) / width { return false }
+    // Proof: all raster indexes lie within [0,width*height); the two
+    // checked slice lengths are each at least that many u32 elements.
+    // Input slices must not be concurrently resized or invalidated.
+    let pixelMemory: *u32 = &pixels[0]
+    let depthMemory: *u32 = &depth[0]
 
     let x0: i64 = vertices[0]
     let y0: i64 = vertices[1]
@@ -147,9 +155,13 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
             if w0 >= 0 as i64 && w1 >= 0 as i64 && w2 >= 0 as i64 {
                 let z: u32 = z0 as u32
                 if !flatDepth { z = (numerator / area) as u32 }
-                if z < depth[index] {
-                    depth[index] = z
-                    pixels[index] = color
+                let oldDepth: u32 = 0 as u32
+                unsafe { oldDepth = depthMemory[index] }
+                if z < oldDepth {
+                    unsafe {
+                        depthMemory[index] = z
+                        pixelMemory[index] = color
+                    }
                 }
             }
             w0 = w0 + dx0
