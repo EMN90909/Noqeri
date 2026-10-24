@@ -679,6 +679,24 @@ int main() {
                   "escaping stack pointer suppresses NoAlias assumption"))return 1;
     }
     {
+        // Candidate escape accounting must scale with large numbers of
+        // nonescaping allocations without treating pointer dereferences
+        // as escapes. Returning one raw pointer marks only that root.
+        noe::NirFunction fn;
+        for(noe::Reg r=1;r<=256;++r){
+            auto root=withArgs(noe::NirOp::StackAlloc,{});
+            root.dest=r;fn.code.push_back(root);
+            auto read=withArgs(noe::NirOp::LoadMemory,{r});
+            read.dest=r+256;fn.code.push_back(read);
+        }
+        fn.code.push_back(withArgs(noe::NirOp::Return,{}));
+        if(!check(noe::inspectOptimizations(fn).nonEscapingStackAllocations==256,
+                  "linear escape accounting for 256 nonescaping roots"))return 1;
+        fn.code.back()=withArgs(noe::NirOp::Return,{1});
+        if(!check(noe::inspectOptimizations(fn).nonEscapingStackAllocations==255,
+                  "only returned root escapes"))return 1;
+    }
+    {
         // A register rewritten by a second definition is not a stable pointer
         // identity across the function, so MustAlias must not be asserted.
         noe::NirFunction f;

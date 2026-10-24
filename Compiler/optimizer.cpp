@@ -957,19 +957,24 @@ OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
         for(std::size_t succ:g.edges[b])if(succ<=b&&g.dominates[b][succ])
             ++out.naturalBackedges;
     std::unordered_set<Reg> pointerRoots;
-    for(const auto& i:fn.code)if(i.op==NirOp::StackAlloc&&i.dest)pointerRoots.insert(*i.dest);
-    // Conservative escape analysis: only direct stack addresses that never
-    // participate in unknown use sites count as nonescaping candidates.
-    for(const auto root:pointerRoots){
-        bool escapes=false;
-        for(const auto& i:fn.code)for(std::size_t a=0;a<i.args.size();++a){
-            if(i.args[a]!=root)continue;
-            if((i.op==NirOp::LoadMemory||i.op==NirOp::CheckNonNull)&&a==0)continue;
-            if(i.op==NirOp::StoreMemory&&a==0)continue;
-            escapes=true;
+    for(const auto& i:fn.code)
+        if(i.op==NirOp::StackAlloc&&i.dest)
+            pointerRoots.insert(*i.dest);
+    // Mark escaped stack roots in one pass over instruction arguments.
+    // Previously each StackAlloc rescanned the entire function, turning
+    // resource-intensive compiler workloads into quadratic analysis.
+    // Preserve the exact same conservative escape/use-site conditions.
+    std::unordered_set<Reg> escaping;
+    for(const auto& in:fn.code)
+        for(std::size_t index=0;index<in.args.size();++index){
+            const Reg used=in.args[index];
+            if(!pointerRoots.count(used))continue;
+            if(index==0&&(in.op==NirOp::LoadMemory||
+                           in.op==NirOp::CheckNonNull||
+                           in.op==NirOp::StoreMemory))continue;
+            escaping.insert(used);
         }
-        if(!escapes)++out.nonEscapingStackAllocations;
-    }
+    out.nonEscapingStackAllocations=pointerRoots.size()-escaping.size();
     // Count literal candidates inside lexical backedge spans with a
     // difference array. The previous nested scan visited every instruction
     // for every literal and every backedge (quadratic on large generated NIR).
