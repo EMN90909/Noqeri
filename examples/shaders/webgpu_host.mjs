@@ -219,7 +219,11 @@ export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, posit
      !vertexWgsl.includes('@builtin(position)') ||
      typeof fragmentWgsl!=='string' || !fragmentWgsl.includes('@fragment'))
     throw new TypeError('Expected Noqeri-generated vertex and fragment WGSL.')
-  const vertices=checkedClipVertices(positions)
+  if(!(positions instanceof Float32Array))
+    throw new TypeError('3D mesh positions must be Float32Array.')
+  // Snapshot caller storage before validating, so a shared/mutable input
+  // cannot change between GPU validation and queue.writeBuffer.
+  const vertices=checkedClipVertices(new Float32Array(positions))
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
   let context,configured=false,vertexBuffer,depthTexture
