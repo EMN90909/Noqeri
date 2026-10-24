@@ -10,6 +10,18 @@ trap 'rm -rf "$work"' EXIT
 g++ -std=c++17 -Wall -Wextra -Werror -pthread \
   "$work/os_framebuffer.s" tests/cpp/os_framebuffer_headless_test.cpp -o "$work/noqeri-osfb"
 timeout 20s "$work/noqeri-osfb"
+# Link the actual Noqeri-compiled volatile framebuffer module directly into
+# an independent pitched-buffer oracle; test many dimensions and tile sizes.
+"$compiler" build Lib/std/os_framebuffer.noqeri "$work/osfb-kernels.s" -O3
+g++ -std=c++17 -O3 -Wall -Wextra -Werror -pthread \
+  "$work/osfb-kernels.s" tests/cpp/os_framebuffer_differential.cpp \
+  -o "$work/noqeri-osfb-differential"
+timeout 30s "$work/noqeri-osfb-differential"
+if [[ -n "${GRAPHICS_EVIDENCE_DIR:-}" ]]; then
+  mkdir -p "$GRAPHICS_EVIDENCE_DIR"
+  timeout 90s "$work/noqeri-osfb-differential" --bench \
+    > "$GRAPHICS_EVIDENCE_DIR/os-framebuffer-native.csv"
+fi
 "$compiler" build examples/graphics_demo.noqeri "$work/graphics.s" -O0
 g++ -std=c++17 -Wall -Wextra -Werror -pthread \
   "$work/graphics.s" tests/cpp/graphics_headless_test.cpp -o "$work/noqeri-headless"
