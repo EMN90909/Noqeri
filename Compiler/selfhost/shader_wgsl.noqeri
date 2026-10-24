@@ -158,7 +158,7 @@ export function nqShaderS2Compile(src: []u8, stage: int, workgroup: int, out: []
                 out[written + 1 as usize] = 32 as u8
                 written = written + 2 as usize
             } else { return -959 as isize }
-            pos = t.end
+            if !nqTokenTextEqual(src,&t,slice([97 as u8, 115 as u8])) { pos = t.end }
         }
     }
     if count == 0 as usize || parens != 0 { return -960 as isize }
