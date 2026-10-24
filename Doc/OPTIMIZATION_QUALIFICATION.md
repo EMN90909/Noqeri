@@ -4,11 +4,11 @@
 
 | Requested pass | Current implementation | What is NOT implemented or qualified |
 | --- | --- | --- |
-| SSA optimization | CFG scalar value forwarding; scalar Store-version SSA analysis constructs incoming Phi versions for branch joins and loop headers; eligible acyclic two-way diamonds lower typed Phi to two executable edge copies | Full SSA renaming and executable loop Phi lowering, critical-edge splitting, parallel-copy cycles, general mutable-variable promotion |
+| SSA optimization | Scalar version/Phi analysis constructs CFG join and loop-header incoming versions; executable edge-copy lowering for eligible diamonds and canonical one-backedge induction loops (PR #85) | Full CFG SSA renaming, arbitrary critical edges, multi-variable loop Phi destruction and parallel-copy cycles |
 | GVN | Basic-block integer `+`, `-`, `*`, `%` value numbering; duplicate NIR operations coalesced when result has no users in other blocks | Global value numbering across branches, loads, volatile memory, pointer calculations, floating NaNs |
 | SCCP | Sparse constant discovery on dominance-proven SSA temporaries, Boolean conditional folding, CFG reachability, dead-code pruning | Phi-lattice propagation and fully edge-sensitive sparse dataflow |
 | LICM | O3 hoists literals and proven preheader-dominating Int/I64 `+`, `-`, `*` from single-entry structured loops; a capped repetition handles several invariants | General LICM with side effects, trapping division, invariant memory loads, alias-aware hoisting, loop unswitching and full SSA/Phi |
-| Loop unrolling | O3 guarded 2x unrolling for single-backedge structured loops with a duplicated exit test, fresh virtual registers and mapped branches; O0/O3 parity tested for zero, odd and even iteration counts | Arbitrary CFG/nested loops, trip-count-driven removal of redundant exit guards, calibrated profitability model and SIMD vectorization |
+| Loop unrolling | Executable O3 guarded 2x iteration unrolling for canonical loops with rechecked exits and zero/odd/even parity | Arbitrary nested loops, trip-count-driven profitable unrolling and SIMD loop-vectorization |
 | Loop vectorization | Not implemented | Requires typed vector NIR, legality checks and target SIMD lowering |
 | SLP vectorization | Not implemented | Requires pack formation, def-use/alias and instruction selection |
 | Alias analysis | `NirAliasAnalysis` propagates `StackAlloc` roots through pointer derivations using an O(N+E) worklist; distinct nonescaping acyclic roots are proven NoAlias and all uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing | 
@@ -18,7 +18,7 @@
 | Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; deterministic linear scan with stack spills and preserved r12-r15. The Linux x86-64 emitter also promotes at most one loop-hot non-address-taken named local into callee-saved RBX, disabled for inline-asm functions. | Graph coloring, split spills, promotion of multiple locals, optimal spill costs, cross-target machine scheduling and native Stage-2 parity |
 | Instruction scheduling | O3 moves only integer/Boolean literals within a straight-line basic block toward first use; effects and branch indices unchanged | Dependency-latency DAG, hazard tracking, machine-instruction scheduling |
 | Strength reduction | O2+ `x*0` and `x%1` for wraparound `Int/I64`; Stage-0 native x86-64 emits unsigned reciprocal/multiply/correction division for constant 64-bit divisors and shifts for power-of-two constants, with guarded signed reconstruction. | Induction-variable algebra and a generic target-independent magic-number division pass; Stage-2 native parity |
-| Autovectorization | Not implemented | No vector-producing pass exists yet |
+| Autovectorization | Opt-in experimental SSE2 two-lane 64-bit straight-line SLP addition/subtraction (PR #88), verified by assembled and executed paddq/psubq fixtures | Automatic loop vectorization, vector NIR/typed memory packs, cost model and proven speedup |
 | LTO | Not implemented for compiled Noqeri modules | Linker IR summary/import, symbol resolution and cross-module IPO |
 | PGO | Not implemented | Instrumentation, counter collection, profile validation, hot/cold layout |
 | Target cost models | `TargetCostModel` includes conservative heuristic x86_64/ARM64 integer ops and 128-bit candidate SIMD width; unknown targets deny SIMD assumptions | Empirically calibrated throughput/latency models or use by vector/codegen passes |
@@ -257,3 +257,12 @@ semantics across NQRI and all native targets; an independently executing
 Noqeri-written native Stage-2/Stage-3 compiler; representative system-level
 cross-language parity and release CPU/RSS profiling. The native self-host
 gate remains fail-closed.
+
+## Further Issue #48 implementation: PRs #85, #87 and #88
+
+- **PR #85 merged:** executable typed scalar loop-header Phi lowered into preheader and backedge copies; the backedge jumps past initialization. Native O0/O2/O3 and bootstrap tests passed. General SSA across arbitrary loops and critical edges remains incomplete.
+- **PR #87 merged:** guarded array bounds proofs now accept selected affine index times positive stride plus constant offset, using overflow-safe quotient bounds in the declared integer width. Unsafe u8 wrap and off-by-one counterexamples still trap.
+- **PR #88 merged:** NOQERI_EXPERIMENTAL_SIMD=1 produces real 128-bit SSE2 two-lane integer add/sub code from safe straight-line operations. Emitted paddq and psubq were assembled, linked and executed with expected results. No default vectorization or measured speedup is claimed.
+- **PR #89 closed unmerged:** reserving three hot named loop variables instead of one showed no median speedup in 21 interleaved samples with matching outputs. Matrix one/three: 2.3036/2.3179 ms; reshuffled sorting one/three: 18.2790/18.3007 ms. The default backend remains unchanged.
+
+Missing: general executable SSA and Phi resolution, heap/global/interprocedural MemorySSA, arbitrary loop induction analysis, cost-effective automatic SIMD loop vectorization, NQRI and all-native-target integer parity, a genuinely Noqeri-owned independent native Stage-2/Stage-3 compiler, and representative CPU/RSS/cross-language performance parity. scripts/bootstrap-native.sh remains intentionally fail-closed.
