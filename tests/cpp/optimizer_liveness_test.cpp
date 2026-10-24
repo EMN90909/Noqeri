@@ -27,6 +27,60 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // A join with competing scalar Store definitions constructs a
+        // Phi with one distinct incoming version from each predecessor.
+        noe::NirFunction fn;
+        auto br=withArgs(noe::NirOp::JumpIfFalse,{1});br.target=3;
+        auto left=withArgs(noe::NirOp::Store,{2});left.text="x";
+        auto j=withArgs(noe::NirOp::Jump,{});j.target=4;
+        auto right=withArgs(noe::NirOp::Store,{3});right.text="x";
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=4;load.text="x";
+        fn.code={br,left,j,right,load,withArgs(noe::NirOp::Return,{4})};
+        fn.registerTypes.resize(5);
+        const auto ssa=noe::analyzeScalarSsa(fn);
+        bool seen=false;
+        for(const auto& phi:ssa.phis)
+            if(phi.variable=="x"&&phi.incoming.size()==2&&
+               phi.incoming[0].second!=phi.incoming[1].second)
+                seen=true;
+        if(!check(ssa.valid&&seen,
+                  "scalar SSA constructs divergent diamond value Phi"))return 1;
+    }
+    {
+        // The loop-header Phi joins an entry value and the backedge Store.
+        // It is represented even when executable loop Phi lowering is not
+        // yet implemented.
+        noe::NirFunction fn;
+        auto init=withArgs(noe::NirOp::Store,{1});init.text="i";
+        auto current=withArgs(noe::NirOp::Load,{});current.dest=2;current.text="i";
+        auto cond=withArgs(noe::NirOp::JumpIfFalse,{3});cond.target=6;
+        auto update=withArgs(noe::NirOp::Store,{4});update.text="i";
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=1;
+        fn.code={init,current,cond,update,jump,
+                 withArgs(noe::NirOp::Nop,{}),
+                 withArgs(noe::NirOp::Return,{})};
+        fn.registerTypes.resize(5);
+        const auto ssa=noe::analyzeScalarSsa(fn);
+        bool loopPhi=false;
+        for(const auto& phi:ssa.phis)
+            if(phi.variable=="i"&&phi.incoming.size()==2&&
+               phi.incoming[0].second!=phi.incoming[1].second)
+                loopPhi=true;
+        if(!check(ssa.valid&&loopPhi,
+                  "scalar SSA constructs loop-carried header Phi"))return 1;
+    }
+    {
+        // Taking a variable's address excludes it from scalar promotion
+        // because unknown pointer writes may mutate its value.
+        noe::NirFunction fn;
+        auto ptr=withArgs(noe::NirOp::AddressOf,{});ptr.text="x";ptr.dest=2;
+        auto write=withArgs(noe::NirOp::Store,{1});write.text="x";
+        fn.code={ptr,write,withArgs(noe::NirOp::Return,{})};
+        const auto ssa=noe::analyzeScalarSsa(fn);
+        if(!check(ssa.valid&&ssa.variables.empty(),
+                  "scalar SSA excludes address-taken mutable locals"))return 1;
+    }
+    {
         // Two guarded iterations should be executed per backedge, each
         // independently checking the original termination condition.
         noe::NirProgram p;

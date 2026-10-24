@@ -1287,6 +1287,90 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
        level==OptimizationLevel::Oz)lowerStraightDiamondPhi(fn);
 }
 }
+NirScalarSsa analyzeScalarSsa(const NirFunction& fn){
+    NirScalarSsa result;
+    const Graph g=graphOf(fn);
+    const std::size_t n=fn.code.size(),blocks=g.spans.size();
+    if(!g.uniqueDefs||!g.validDominance)return result;
+    // No modelled exceptional edge exists for Try. Address-taken locals
+    // can be changed by aliasing writes that Store versions do not see.
+    std::unordered_set<std::string> excluded;
+    std::set<std::string> names;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Try||in.op==NirOp::InlineAsm)return result;
+        if(in.op==NirOp::AddressOf)
+            excluded.insert(in.text);
+        if((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile)
+            excluded.insert(in.text);
+        if((in.op==NirOp::Load||in.op==NirOp::Store)&&
+           !in.text.empty())names.insert(in.text);
+    }
+    for(const auto& name:excluded)names.erase(name);
+    if(names.size()>512||n>1000000)return result;
+    result.variables.assign(names.begin(),names.end());
+    const std::size_t count=result.variables.size();
+    result.blockEntry.assign(blocks,std::vector<std::size_t>(count,0));
+    result.blockExit.assign(blocks,std::vector<std::size_t>(count,0));
+    if(!count){result.valid=true;return result;}
+    std::unordered_map<std::string,std::size_t> nameIndex;
+    for(std::size_t i=0;i<count;++i)nameIndex.emplace(result.variables[i],i);
+    const auto phiVersion=[&](std::size_t block,std::size_t v){
+        return n+1+block*count+v;
+    };
+    // Every named local is a distinct conservative scalar partition.
+    // A Store creates a stable version; equal predecessor versions pass
+    // through a join, and unequal versions construct a stable Phi.
+    bool changed=true;
+    std::size_t iteration=0;
+    const std::size_t limit=std::max<std::size_t>(8,blocks*8+8);
+    while(changed&&iteration++<limit){
+        changed=false;
+        for(std::size_t b=0;b<blocks;++b){
+            if(!g.reachable[b])continue;
+            std::vector<std::size_t> in(count,0);
+            if(b!=0){
+                bool first=true;
+                for(const auto pred:g.preds[b]){
+                    if(!g.reachable[pred])continue;
+                    if(first){in=result.blockExit[pred];first=false;}
+                    else for(std::size_t v=0;v<count;++v)
+                        if(in[v]!=result.blockExit[pred][v])
+                            in[v]=phiVersion(b,v);
+                }
+            }
+            auto out=in;
+            for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc){
+                const auto& ins=fn.code[pc];
+                if(ins.op!=NirOp::Store)continue;
+                const auto it=nameIndex.find(ins.text);
+                if(it!=nameIndex.end())out[it->second]=pc+1;
+            }
+            if(in!=result.blockEntry[b]||out!=result.blockExit[b]){
+                result.blockEntry[b]=std::move(in);
+                result.blockExit[b]=std::move(out);
+                changed=true;
+            }
+        }
+    }
+    if(changed)return result; // fail closed on nonconvergent cyclic CFG
+    for(std::size_t b=1;b<blocks;++b){
+        if(!g.reachable[b])continue;
+        for(std::size_t v=0;v<count;++v){
+            if(result.blockEntry[b][v]!=phiVersion(b,v))continue;
+            NirScalarPhi phi;
+            phi.block=static_cast<BlockId>(b);
+            phi.variable=result.variables[v];
+            phi.version=phiVersion(b,v);
+            for(const auto pred:g.preds[b])
+                if(g.reachable[pred])
+                    phi.incoming.emplace_back(
+                        static_cast<BlockId>(pred),result.blockExit[pred][v]);
+            result.phis.push_back(std::move(phi));
+        }
+    }
+    result.valid=true;
+    return result;
+}
 NirMemorySsa analyzeMemorySsa(const NirFunction& fn){
     NirMemorySsa result;
     const Graph g=graphOf(fn);
