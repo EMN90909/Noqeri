@@ -11,6 +11,14 @@ g++ -std=c++17 -O3 -Wall -Wextra -Werror -pthread -IInclude \
 readelf -W -l "$work/fastclear" |
   awk '$1=="GNU_STACK" {found=1; if($7 ~ /E/)bad=1} END {if(!found || bad)exit 1}'
 timeout 45s "$work/fastclear"
+"$compiler" check Lib/std/render3d_accel.noqeri
+"$compiler" build Lib/std/render3d_accel.noqeri "$work/noqeri-depth-accelerated.s" -O3
+g++ -std=c++17 -O3 -Wall -Wextra -Werror -pthread -IInclude \
+  "$work/noqeri-depth-accelerated.s" Runtime/native/graphics_fastpath.cpp \
+  tests/cpp/graphics_depth_fastpath_native_test.cpp -o "$work/depth-clear"
+readelf -W -l "$work/depth-clear" |
+  awk '$1=="GNU_STACK" {found=1; if($7 ~ /E/)bad=1} END {if(!found || bad)exit 1}'
+timeout 45s "$work/depth-clear"
 evidence="${GRAPHICS_EVIDENCE_DIR:-}"
 if [[ -n "$evidence" ]]; then
   mkdir -p "$evidence"
