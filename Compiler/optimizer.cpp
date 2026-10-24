@@ -15,6 +15,10 @@ bool unsignedType(TypeKind k){
     return k==TypeKind::U8||k==TypeKind::U16||k==TypeKind::U32||
            k==TypeKind::U64||k==TypeKind::Usize;
 }
+bool signedIndexType(TypeKind k){
+    return k==TypeKind::Int||k==TypeKind::I8||k==TypeKind::I16||
+           k==TypeKind::I32||k==TypeKind::I64||k==TypeKind::Isize;
+}
 TypeKind operandType(const NirFunction& fn, Reg r){
     return r<fn.registerTypes.size()?fn.registerTypes[r].kind:TypeKind::Unknown;
 }
@@ -569,8 +573,10 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
         if(check.op!=NirOp::CheckBounds||check.args.size()!=2)continue;
         auto indexName=loads.find(check.args[0]);
         auto limit=constants.find(check.args[1]);
-        if(indexName==loads.end()||limit==constants.end()||limit->second<=0||
-           !unsignedType(operandType(fn,check.args[0])))continue;
+        if(indexName==loads.end()||limit==constants.end()||limit->second<=0)continue;
+        const auto checkedKind=operandType(fn,check.args[0]);
+        const bool checkedUnsigned=unsignedType(checkedKind);
+        if(!checkedUnsigned&&!signedIndexType(checkedKind))continue;
         // Do not reason about the contents of memory, slices, arbitrary
         // pointer aliases, or dynamic bounds. Only named scalar loads.
         for(std::size_t guardPc=0;guardPc<pc;++guardPc){
@@ -585,8 +591,10 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             const auto name=loads.find(comparison.args[0]);
             const auto upper=constants.find(comparison.args[1]);
             if(name==loads.end()||name->second!=indexName->second||
-               upper==constants.end()||upper->second<0||
-               !unsignedType(operandType(fn,comparison.args[0])))continue;
+               upper==constants.end()||upper->second<0)continue;
+            if(checkedUnsigned!=unsignedType(operandType(fn,comparison.args[0]))||
+               (!checkedUnsigned&&!signedIndexType(operandType(fn,comparison.args[0]))))
+                continue;
             const bool proven=comparison.text=="<"?upper->second<=limit->second:
                 upper->second<limit->second;
             if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]])continue;
@@ -613,6 +621,56 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                    in.op==NirOp::AtomicCompareExchange){mutated=true;break;}
             }
             if(mutated)continue;
+            if(!checkedUnsigned){
+                // Signed x < bound proves only the upper half of 0 <= x < bound.
+                // Require a second dominating true-edge guard x >= 0. Both
+                // guarded loads and the bounds access must see the SAME named
+                // local value, with no intervening stores or unknown writes.
+                // This is a local range proof, not general induction analysis.
+                bool nonnegative=false;
+                for(std::size_t lowerPc=0;lowerPc<guardPc;++lowerPc){
+                    const auto& lowerBranch=fn.code[lowerPc];
+                    if(lowerBranch.op!=NirOp::JumpIfFalse||
+                       lowerBranch.args.size()!=1||lowerBranch.target<=pc||
+                       lowerPc+1>=fn.code.size())continue;
+                    const auto lowerDef=g.definitions.find(lowerBranch.args[0]);
+                    if(lowerDef==g.definitions.end()||lowerDef->second>=lowerPc)
+                        continue;
+                    const auto& lowerCompare=fn.code[lowerDef->second];
+                    if(lowerCompare.op!=NirOp::Binary||
+                       lowerCompare.text!=">="||lowerCompare.args.size()!=2)
+                        continue;
+                    const auto lowerName=loads.find(lowerCompare.args[0]);
+                    const auto lowerConst=constants.find(lowerCompare.args[1]);
+                    if(lowerName==loads.end()||
+                       lowerName->second!=indexName->second||
+                       lowerConst==constants.end()||lowerConst->second!=0||
+                       !signedIndexType(operandType(fn,lowerCompare.args[0]))||
+                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]])
+                        continue;
+                    const auto lowerLoad=g.definitions.find(lowerCompare.args[0]);
+                    if(lowerLoad==g.definitions.end()||
+                       lowerLoad->second>=lowerPc||
+                       fn.code[lowerLoad->second].op!=NirOp::Load)
+                        continue;
+                    bool invalidated=false;
+                    for(std::size_t mid=lowerLoad->second+1;mid<pc;++mid){
+                        const auto& current=fn.code[mid];
+                        if((current.op==NirOp::Store&&
+                            current.text==indexName->second)||
+                           current.op==NirOp::Call||
+                           current.op==NirOp::InlineAsm||
+                           current.op==NirOp::StoreMemory||
+                           current.op==NirOp::AtomicStore||
+                           current.op==NirOp::AtomicExchange||
+                           current.op==NirOp::AtomicCompareExchange){
+                            invalidated=true;break;
+                        }
+                    }
+                    if(!invalidated){nonnegative=true;break;}
+                }
+                if(!nonnegative)continue;
+            }
             check.op=NirOp::Nop;check.args.clear();changed=true;break;
         }
     }
