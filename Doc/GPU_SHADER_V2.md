@@ -1,5 +1,10 @@
 # Noqeri shader profile v2 (experimental)
 
+**Newer profile:** [GPU shader v3](GPU_SHADER_V3.md) adds checked f32 vectors,
+2D sampled textures, RGBA fragment output and vec4 compute storage. The
+Stage-2 self-hosted shader emitter and physical driver qualification are
+still outstanding; refer to v3 documentation for precise acceptance gates.
+
 GPU shaders remain authored in **Noqeri** and compiled by Stage-0 to WebGPU
 WGSL. The renderer/device APIs are separate host integrations, not GPU
 drivers written in Noqeri.
