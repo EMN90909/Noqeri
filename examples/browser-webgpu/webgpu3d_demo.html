@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noqeri WGSL 3D triangle renderer</title>
+<style>body{background:#101722;color:#e8f0fc;font:16px system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem}
+canvas{display:block;width:min(100%,512px);height:auto;background:#121722;border:1px solid #4d5a6b}button{padding:.7rem 1rem;margin:.75rem 0}
+pre{white-space:pre-wrap;word-break:break-word}</style></head>
+<body>
+<h1>Noqeri WebGPU 3D depth demo</h1>
+<p>Noqeri-written vertex and fragment shaders, clip-space triangles, and a GPU depth24plus attachment. Hardware GPU support varies by browser and driver.</p>
+<label><input id="msaa" type="checkbox"> Smooth triangle edges (4× MSAA, uses extra GPU memory)</label>
+<button id="run" type="button">Render 3D triangles</button>
+<button id="release" type="button">Release GPU resources</button>
+<canvas id="scene" width="512" height="512" aria-label="3D triangle depth render"></canvas>
+<pre id="result" role="status" aria-live="polite"></pre>
+<script type="module">
+import {createNoqeriMeshRenderer3D} from './webgpu_host.mjs'
+const canvas=document.querySelector('#scene')
+const status=document.querySelector('#result')
+const msaa=document.querySelector('#msaa')
+let renderer=null
+function cleanup(){renderer?.dispose();renderer=null}
+document.querySelector('#release').addEventListener('click',cleanup)
+msaa.addEventListener('change',cleanup)
+window.addEventListener('pagehide',cleanup)
+document.querySelector('#run').addEventListener('click',async()=>{
+  const button=document.querySelector('#run')
+  button.disabled=true
+  status.textContent='Running Noqeri depth-tested 3D frame...'
+  try{
+    if(!renderer){
+      const shaders=await Promise.all(['vertex3d.wgsl','fragment3d.wgsl'].map(async name=>{
+        const res=await fetch('/build/'+name,{cache:'no-store'})
+        if(!res.ok)throw new Error('Compile '+name+' first (HTTP '+res.status+')')
+        return res.text()
+      }))
+      renderer=await createNoqeriMeshRenderer3D(canvas,shaders[0],shaders[1],undefined,6,
+        {sampleCount:msaa.checked?4:1})
+    }
+    // Four shared clip-space vertices form two indexed triangles.
+    // Indexed rendering avoids uploading the two repeated corner vertices.
+    const verts=new Float32Array([
+      -0.7,-0.7,0.3,1, 0.7,-0.7,0.3,1,
+       0.7, 0.7,0.3,1, -0.7,0.7,0.3,1
+    ])
+    const indices=new Uint16Array([0,1,2,0,2,3])
+    await renderer.renderIndexedFast(verts,indices)
+    status.textContent='Indexed depth-tested frame submitted with '+(msaa.checked?'4× MSAA':'lightweight 1×')+'. Four shared vertices, six indices; pipeline and GPU buffers are reused.'
+  }catch(err){cleanup();status.textContent=String(err.stack||err)}
+  finally{button.disabled=false}
+})
+</script>
+</body></html>
