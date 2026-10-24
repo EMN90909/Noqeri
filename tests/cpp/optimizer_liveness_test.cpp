@@ -27,6 +27,40 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // Two guarded iterations should be executed per backedge, each
+        // independently checking the original termination condition.
+        noe::NirProgram p;
+        auto load=withArgs(noe::NirOp::Load,{});load.dest=1;load.text="i";
+        auto guardCmp=withArgs(noe::NirOp::Binary,{1,2});
+        guardCmp.dest=3;guardCmp.text="<";guardCmp.type.kind=noe::TypeKind::Bool;
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{3});exit.target=8;
+        auto next=withArgs(noe::NirOp::Binary,{1,4});
+        next.dest=5;next.text="+";
+        auto store=withArgs(noe::NirOp::Store,{5});store.text="i";
+        auto repeat=withArgs(noe::NirOp::Jump,{});repeat.target=0;
+        p.entry.code={load,constant(2,7),guardCmp,exit,
+                      constant(4,1),next,store,repeat,
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(6);
+        for(noe::Reg reg:{1u,2u,4u,5u})
+            p.entry.registerTypes[reg].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[3].kind=noe::TypeKind::Bool;
+        p.entry.nextReg=6;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t guards=0,backedges=0;
+        for(std::size_t pc=0;pc<p.entry.code.size();++pc){
+            const auto& in=p.entry.code[pc];
+            if(in.op==noe::NirOp::JumpIfFalse)++guards;
+            if(in.op==noe::NirOp::Jump&&in.target<pc)++backedges;
+            if((in.op==noe::NirOp::Jump||in.op==noe::NirOp::JumpIfFalse)&&
+               !check(in.target<p.entry.code.size(),
+                      "unrolled branch target stays in bounds"))return 1;
+        }
+        if(!check(guards==2&&backedges==1,
+                  "guarded unroll has two exits and one shared backedge"))
+            return 1;
+    }
+    {
         // Diamond branch joins two distinct stored scalar values. The Phi
         // must be lowered into two edge-specific copies, not a memory Load.
         noe::NirProgram p;
@@ -972,7 +1006,8 @@ int main() {
         for(std::size_t i=0;i<p.entry.code.size();++i){
             const auto& in=p.entry.code[i];
             if(in.op==noe::NirOp::Const &&in.dest&&*in.dest==2)literal=i;
-            if(in.op==noe::NirOp::JumpIfFalse)conditional=i;
+            if(in.op==noe::NirOp::JumpIfFalse&&conditional==999)
+                conditional=i;
             if(in.op==noe::NirOp::Jump)backedge=i;
         }
         if(!check(literal<conditional&&p.entry.code[backedge].target==conditional,
