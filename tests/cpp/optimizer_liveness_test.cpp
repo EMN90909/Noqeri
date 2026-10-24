@@ -291,6 +291,42 @@ int main() {
         if(!check(additions==1 && returned==3,"local integer GVN"))return 1;
     }
     {
+        // Duplicate arithmetic at scale must preserve the one live result.
+        noe::NirProgram p;
+        auto x=withArgs(noe::NirOp::Load,{});x.dest=1;x.text="x";
+        auto y=withArgs(noe::NirOp::Load,{});y.dest=2;y.text="y";
+        p.entry.code={x,y};
+        for(noe::Reg r=3;r<263;++r){
+            auto sum=withArgs(noe::NirOp::Binary,{1,2});
+            sum.dest=r;sum.text="+";sum.type.kind=noe::TypeKind::I64;
+            p.entry.code.push_back(sum);
+        }
+        p.entry.code.push_back(withArgs(noe::NirOp::Return,{262}));
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        int additions=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Binary&&in.text=="+")++additions;
+        if(!check(additions==1,"many duplicate expressions in one block"))
+            return 1;
+    }
+    {
+        // A consumer in a following block prevents cross-block replacement.
+        noe::NirProgram p;
+        auto x=withArgs(noe::NirOp::Load,{});x.dest=1;x.text="x";
+        auto y=withArgs(noe::NirOp::Load,{});y.dest=2;y.text="y";
+        auto sum=withArgs(noe::NirOp::Binary,{1,2});
+        sum.dest=3;sum.text="+";sum.type.kind=noe::TypeKind::I64;
+        auto duplicate=sum;duplicate.dest=4;
+        auto jump=withArgs(noe::NirOp::Jump,{});jump.target=5;
+        p.entry.code={x,y,sum,duplicate,jump,withArgs(noe::NirOp::Return,{4})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        noe::Reg returned=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Return&&!in.args.empty())returned=in.args[0];
+        if(!check(returned==4,"cross-block duplicate retains SSA result"))
+            return 1;
+    }
+    {
         // Block boundary separates the definition from the branch: SCCP may
         // propagate the proven boolean only when the definition dominates.
         noe::NirProgram p;

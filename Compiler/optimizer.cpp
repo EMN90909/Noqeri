@@ -357,6 +357,10 @@ bool sparseConstants(NirFunction& fn) {
 bool localGvn(NirFunction& fn) {
     const Graph g=graphOf(fn);
     if(!g.uniqueDefs||!g.validDominance)return false;
+    // Index uses once; avoid rescanning the trailing function for every CSE.
+    std::unordered_map<Reg,std::size_t> lastUse;
+    for(std::size_t pc=0;pc<fn.code.size();++pc)
+        for(const Reg arg:fn.code[pc].args)lastUse[arg]=pc;
     bool changed=false;
     for(const auto& span:g.spans){
         std::map<std::string,Reg> expressions;
@@ -371,10 +375,9 @@ bool localGvn(NirFunction& fn) {
             const auto found=expressions.find(key);
             if(found==expressions.end()){expressions.emplace(key,*in.dest);continue;}
             const Reg redundant=*in.dest,canonical=found->second;
-            bool outside=false;
-            for(std::size_t later=span.second;later<fn.code.size()&&!outside;++later)
-                for(const auto arg:fn.code[later].args)if(arg==redundant){outside=true;break;}
-            if(outside)continue;
+            const auto finalUse=lastUse.find(redundant);
+            if(finalUse!=lastUse.end()&&finalUse->second>=span.second)
+                continue;
             for(std::size_t later=pc+1;later<span.second;++later)
                 for(auto& arg:fn.code[later].args)if(arg==redundant)arg=canonical;
             in.op=NirOp::Nop;in.dest.reset();in.args.clear();changed=true;
