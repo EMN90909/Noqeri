@@ -294,3 +294,110 @@ export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, posit
     throw error
   }
 }
+
+/**
+ * Persistent 3D pipeline for repeated frames. Device, shader modules, render
+ * pipeline, vertex storage and depth attachment are reused until dispose().
+ * One draw is in-flight at a time, and any resize requires recreating the
+ * renderer so the depth surface cannot silently mismatch the canvas.
+ */
+export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgsl,
+                                                  suppliedGpu = null, maxVertices = 4096) {
+  if(!canvas?.getContext || !Number.isSafeInteger(canvas.width) ||
+     !Number.isSafeInteger(canvas.height) ||
+     canvas.width<1 || canvas.height<1 || canvas.width>4096 || canvas.height>4096)
+    throw new TypeError('Invalid persistent 3D canvas size.')
+  if(!Number.isSafeInteger(maxVertices)||maxVertices<3||maxVertices>98304||
+     maxVertices%3!==0)
+    throw new RangeError('3D vertex capacity must be a bounded multiple of three.')
+  if(typeof vertexWgsl!=='string'||!vertexWgsl.includes('@vertex')||
+     !vertexWgsl.includes('@builtin(position)')||
+     typeof fragmentWgsl!=='string'||!fragmentWgsl.includes('@fragment'))
+    throw new TypeError('3D renderer requires Noqeri vertex and fragment WGSL.')
+  const width=canvas.width,height=canvas.height
+  const gpu=requireGpu(suppliedGpu)
+  const device=await getDevice(gpu)
+  let context,configured=false,vertexBuffer,depthTexture,disposed=false,busy=false
+  function dispose(){
+    if(disposed)return
+    disposed=true
+    if(configured){context.unconfigure();configured=false}
+    depthTexture?.destroy()
+    vertexBuffer?.destroy()
+    device.destroy()
+  }
+  try{
+    if(!device.limits||!Number.isSafeInteger(device.limits.maxTextureDimension2D)||
+       !Number.isSafeInteger(device.limits.maxBufferSize)||
+       width>device.limits.maxTextureDimension2D||
+       height>device.limits.maxTextureDimension2D||
+       maxVertices*16>device.limits.maxBufferSize)
+      throw new RangeError('3D render surface or vertex capacity exceeds device limits.')
+    context=canvas.getContext('webgpu')
+    if(!context)throw new Error('WebGPU 3D canvas context not supported.')
+    const format=gpu.getPreferredCanvasFormat()
+    context.configure({device,format,alphaMode:'opaque'})
+    configured=true
+    const vertex=await checkedModule(device,vertexWgsl)
+    const fragment=await checkedModule(device,fragmentWgsl)
+    const pipeline=device.createRenderPipeline({
+      layout:'auto',
+      vertex:{module:vertex,entryPoint:'main',buffers:[{
+        arrayStride:16,stepMode:'vertex',
+        attributes:[{shaderLocation:0,offset:0,format:'float32x4'}]
+      }]},
+      fragment:{module:fragment,entryPoint:'main',targets:[{format}]},
+      primitive:{topology:'triangle-list',cullMode:'none'},
+      depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'}
+    })
+    vertexBuffer=device.createBuffer({
+      size:maxVertices*16,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST
+    })
+    depthTexture=device.createTexture({
+      size:[width,height,1],format:'depth24plus',
+      usage:GPUTextureUsage.RENDER_ATTACHMENT
+    })
+    return {
+      async render(input){
+        if(disposed)throw new Error('3D renderer is disposed.')
+        if(busy)throw new Error('3D renderer already has a frame in flight.')
+        if(canvas.width!==width||canvas.height!==height)
+          throw new Error('3D canvas was resized; recreate renderer and depth attachment.')
+        if(!(input instanceof Float32Array))
+          throw new TypeError('3D mesh positions must be Float32Array.')
+        const vertices=checkedClipVertices(new Float32Array(input))
+        if(vertices.length/4>maxVertices)
+          throw new RangeError('3D vertex count exceeds persistent capacity.')
+        busy=true
+        try{
+          device.queue.writeBuffer(vertexBuffer,0,vertices)
+          const encoder=device.createCommandEncoder()
+          const pass=encoder.beginRenderPass({
+            colorAttachments:[{
+              view:context.getCurrentTexture().createView(),
+              clearValue:{r:0.05,g:0.05,b:0.07,a:1},
+              loadOp:'clear',storeOp:'store'
+            }],
+            depthStencilAttachment:{
+              view:depthTexture.createView(),
+              depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'
+            }
+          })
+          pass.setPipeline(pipeline)
+          pass.setVertexBuffer(0,vertexBuffer)
+          pass.draw(vertices.length/4)
+          pass.end()
+          device.queue.submit([encoder.finish()])
+          await device.queue.onSubmittedWorkDone()
+        }catch(error){
+          dispose()
+          throw error
+        }finally{busy=false}
+      },
+      dispose
+    }
+  }catch(error){
+    dispose()
+    throw error
+  }
+}
