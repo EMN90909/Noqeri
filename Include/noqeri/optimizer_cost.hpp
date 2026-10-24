@@ -2,6 +2,8 @@
 #include "nir.hpp"
 #include <cstddef>
 #include <string>
+#include <vector>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -39,6 +41,22 @@ struct OptimizationCapabilities {
     std::size_t nonEscapingStackAllocations=0;
 };
 OptimizationCapabilities inspectOptimizations(const NirFunction& fn);
+// Conservative whole-memory SSA. Version 0 is the function's entry state,
+// every write/barrier instruction has a stable unique version, and different
+// predecessor versions meet at a memory Phi. This is an analysis graph, not
+// machine Phi emission or a per-object points-to proof.
+struct NirMemoryPhi {
+    BlockId block=0;
+    std::size_t version=0;
+    std::vector<std::pair<BlockId,std::size_t>> incoming;
+};
+struct NirMemorySsa {
+    bool valid=false;
+    std::vector<std::size_t> beforeInstruction,afterInstruction;
+    std::vector<std::size_t> blockEntry,blockExit;
+    std::vector<NirMemoryPhi> phis;
+};
+NirMemorySsa analyzeMemorySsa(const NirFunction& fn);
 // MustAlias means the *same virtual pointer value*, not that two different
 // pointer expressions happen to have the same address. Distinct, nonescaping
 // StackAlloc roots permit NoAlias only in acyclic NIR. Everything else is May.

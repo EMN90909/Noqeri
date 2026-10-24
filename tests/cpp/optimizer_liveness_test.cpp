@@ -27,6 +27,68 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // Distinct incoming memory definitions create a version Phi at
+        // the diamond join. An unknown memory write cannot be discarded
+        // merely because a pointer register is identical on both arms.
+        noe::NirFunction fn;
+        auto br=withArgs(noe::NirOp::JumpIfFalse,{1});br.target=4;
+        auto writeA=withArgs(noe::NirOp::StoreMemory,{2,3});
+        auto j=withArgs(noe::NirOp::Jump,{});j.target=5;
+        auto writeB=withArgs(noe::NirOp::StoreMemory,{2,4});
+        auto load=withArgs(noe::NirOp::LoadMemory,{2});load.dest=5;
+        fn.code={br,writeA,j,withArgs(noe::NirOp::Nop,{}),
+                 writeB,load,withArgs(noe::NirOp::Return,{5})};
+        const auto memory=noe::analyzeMemorySsa(fn);
+        if(!check(memory.valid&&memory.phis.size()==1&&
+                  memory.phis[0].incoming.size()==2&&
+                  memory.beforeInstruction[5]==memory.phis[0].version,
+                  "memory SSA constructs join Phi for divergent stores"))
+            return 1;
+    }
+    {
+        // A single nonescaping StackAlloc permits same-pointer load reuse
+        // until any memory store has invalidated the version.
+        noe::NirProgram p;
+        auto alloc=withArgs(noe::NirOp::StackAlloc,{});alloc.dest=1;alloc.width=8;
+        auto write=withArgs(noe::NirOp::StoreMemory,{1,2});write.width=8;
+        auto left=withArgs(noe::NirOp::LoadMemory,{1});left.dest=3;left.width=8;
+        auto right=withArgs(noe::NirOp::LoadMemory,{1});right.dest=4;right.width=8;
+        p.entry.code={alloc,constant(2,17),write,left,right,
+                      withArgs(noe::NirOp::Return,{4})};
+        p.entry.registerTypes.resize(5);
+        p.entry.registerTypes[3].kind=noe::TypeKind::Int;
+        p.entry.registerTypes[4].kind=noe::TypeKind::Int;
+        left.type.kind=right.type.kind=noe::TypeKind::Int;
+        p.entry.code[3].type=left.type;
+        p.entry.code[4].type=right.type;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O2);
+        std::size_t reads=0;bool forwarded=false;
+        for(const auto& in:p.entry.code){
+            if(in.op==noe::NirOp::LoadMemory)++reads;
+            if(in.op==noe::NirOp::Return&&in.args.size()==1&&
+               in.args[0]==3)forwarded=true;
+        }
+        if(!check(reads==1&&forwarded,
+                  "memory SSA removes redundant nonescaping stack load"))
+            return 1;
+    }
+    {
+        // Atomic synchronization invalidates load reuse, even if the
+        // pointer and the observed bytes appear unchanged in local NIR.
+        noe::NirFunction fn;
+        auto alloc=withArgs(noe::NirOp::StackAlloc,{});alloc.dest=1;
+        auto first=withArgs(noe::NirOp::LoadMemory,{1});first.dest=2;
+        auto fence=withArgs(noe::NirOp::AtomicFence,{});
+        auto last=withArgs(noe::NirOp::LoadMemory,{1});last.dest=3;
+        fn.code={alloc,first,fence,last,
+                 withArgs(noe::NirOp::Return,{3})};
+        const auto mem=noe::analyzeMemorySsa(fn);
+        if(!check(mem.valid&&
+                  mem.beforeInstruction[1]!=mem.beforeInstruction[3],
+                  "atomic fence invalidates memory SSA version"))
+            return 1;
+    }
+    {
         // A 2048-element transitive chain is live when returned, even when
         // every link has a separate virtual register and the first input is
         // unknown. The old repeated global scans were quadratic here.
