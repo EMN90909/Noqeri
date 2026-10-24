@@ -219,6 +219,29 @@ void benchmark3D() {
                     "native Noqeri 3D differs from reference after timed sample");
         }
     }
+    // Depth reset is in every frame and needs separate CPU cost evidence.
+    std::vector<U> nqDepth(n+3,initial),cDepth(n+3,initial);
+    Slice<U> depthSlice{nqDepth.data(),n};
+    for(int iteration=-5;iteration<30;++iteration){
+        const bool reverse=(iteration&1)!=0;
+        for(int pass=0;pass<2;++pass){
+            const bool noqeri=(pass==0)^reverse;
+            auto& buffer=noqeri?nqDepth:cDepth;
+            std::fill(buffer.begin(),buffer.end(),initial);
+            const auto begin=std::chrono::steady_clock::now();
+            const bool ok=noqeri ? nqDepthClear3D(&depthSlice,width,height)!=0 :
+                referenceDepth(cDepth,n,width,height);
+            const auto end=std::chrono::steady_clock::now();
+            require(ok,"depth clear benchmark rejected valid slice");
+            perfSink=perfSink+buffer[(static_cast<unsigned>(iteration+5)*137+pass)%n];
+            if(iteration>=0){
+                const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(end-begin).count();
+                std::cout<<"depth-clear,256x256,"<<(noqeri?"noqeri":"c")<<','
+                         <<iteration<<','<<ns<<'\n';
+            }
+        }
+        require(nqDepth==cDepth,"Noqeri depth clear differs from C reference");
+    }
     std::cerr<<"3D benchmark sink="<<perfSink<<'\n';
 }
 } // namespace
