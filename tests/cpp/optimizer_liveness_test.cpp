@@ -283,6 +283,57 @@ int main() {
                   "structured LICM and backedge retarget"))return 1;
     }
     {
+        // Arithmetic using two preheader SSA values is loop-invariant.
+        // It is nontrapping and must be evaluated before the while header,
+        // with the backedge skipping its new preheader definition.
+        noe::NirProgram p;
+        auto left=withArgs(noe::NirOp::Load,{});left.dest=1;left.text="lhs";
+        auto right=withArgs(noe::NirOp::Load,{});right.dest=2;right.text="rhs";
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=3;cond.text="run";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{3});exit.target=7;
+        auto sum=withArgs(noe::NirOp::Binary,{1,2});
+        sum.dest=4;sum.type.kind=noe::TypeKind::I64;sum.text="+";
+        auto write=withArgs(noe::NirOp::Store,{4});write.text="answer";
+        auto back=withArgs(noe::NirOp::Jump,{});back.target=2;
+        p.entry.code={left,right,cond,exit,sum,write,back,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t plus=999,guard=999,backedge=999;
+        for(std::size_t k=0;k<p.entry.code.size();++k){
+            const auto& in=p.entry.code[k];
+            if(in.op==noe::NirOp::Binary&&in.text=="+")plus=k;
+            if(in.op==noe::NirOp::JumpIfFalse)guard=k;
+            if(in.op==noe::NirOp::Jump)backedge=k;
+        }
+        if(!check(plus<guard&&guard<backedge&&
+                  p.entry.code[backedge].target>plus,
+                  "O3 hoists nontrapping invariant addition"))return 1;
+    }
+    {
+        // Variable division can trap on zero. It must stay in the loop
+        // even if both SSA inputs were defined before the loop.
+        noe::NirProgram p;
+        auto left=withArgs(noe::NirOp::Load,{});left.dest=1;left.text="lhs";
+        auto right=withArgs(noe::NirOp::Load,{});right.dest=2;right.text="rhs";
+        auto cond=withArgs(noe::NirOp::Load,{});cond.dest=3;cond.text="run";
+        auto exit=withArgs(noe::NirOp::JumpIfFalse,{3});exit.target=7;
+        auto div=withArgs(noe::NirOp::Binary,{1,2});
+        div.dest=4;div.type.kind=noe::TypeKind::I64;div.text="/";
+        auto write=withArgs(noe::NirOp::Store,{4});write.text="answer";
+        auto back=withArgs(noe::NirOp::Jump,{});back.target=2;
+        p.entry.code={left,right,cond,exit,div,write,back,
+                      withArgs(noe::NirOp::Return,{})};
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        std::size_t division=999,guard=999;
+        for(std::size_t k=0;k<p.entry.code.size();++k){
+            const auto& in=p.entry.code[k];
+            if(in.op==noe::NirOp::Binary&&in.text=="/")division=k;
+            if(in.op==noe::NirOp::JumpIfFalse)guard=k;
+        }
+        if(!check(division>guard&&division!=999,
+                  "LICM must not speculatively execute trapping division"))return 1;
+    }
+    {
         noe::NirFunction f;
         auto memory=withArgs(noe::NirOp::StackAlloc,{});memory.dest=7;
         auto ptrRead=withArgs(noe::NirOp::LoadMemory,{7});ptrRead.dest=8;

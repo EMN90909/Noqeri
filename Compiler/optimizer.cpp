@@ -471,7 +471,27 @@ bool hoistLoopLiteral(NirFunction& fn) {
         if(!structured||branch==n)continue;
         for(std::size_t candidate=branch+1;candidate<back;++candidate){
             const auto& instruction=fn.code[candidate];
-            if(instruction.op!=NirOp::Const||!instruction.dest)continue;
+            if(!instruction.dest)continue;
+            bool pureInvariant=instruction.op==NirOp::Const;
+            if(instruction.op==NirOp::Binary&&instruction.args.size()==2&&
+               (instruction.type.kind==TypeKind::Int||
+                instruction.type.kind==TypeKind::I64)&&
+               (instruction.text=="+"||instruction.text=="-"||
+                instruction.text=="*")){
+                pureInvariant=true;
+                // Registers must be defined before the loop and their unique
+                // definitions must dominate the preheader. No memory loads,
+                // calls, divisions, overflow traps or volatile effects move.
+                for(Reg arg:instruction.args){
+                    const auto def=analysis.definitions.find(arg);
+                    if(def==analysis.definitions.end()||def->second>=header||
+                       !analysis.dominates[analysis.owner[header]]
+                                          [analysis.owner[def->second]]){
+                        pureInvariant=false;break;
+                    }
+                }
+            }
+            if(!pureInvariant)continue;
             const auto reg=*instruction.dest;
             bool outside=false;
             for(std::size_t k=0;k<n&&!outside;++k)
@@ -643,10 +663,13 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         }
     }
     if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
-    if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
-        // Hoisting changes jump indices: the existing branch compaction pass
-        // rechecks all targets and dead definitions after transformation.
-        dce(fn);
+    if(level==OptimizationLevel::O3) {
+        // Repeatedly hoist nontrapping, invariant integer arithmetic and
+        // literals from structured loops. Each move removes one candidate
+        // from the loop; cap iterations to bound compile-time overhead.
+        const auto cap=std::min<std::size_t>(8,fn.code.size());
+        for(std::size_t k=0;k<cap&&hoistLoopLiteral(fn);++k)
+            dce(fn);
     }
     if (level == OptimizationLevel::Oz) dce(fn);
 }
