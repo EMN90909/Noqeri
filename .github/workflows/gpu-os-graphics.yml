@@ -27,7 +27,6 @@ on:
       - 'tests/shader-vertex3d.test.mjs'
       - 'examples/shaders/webgpu3d_demo.html'
       - 'tests/cpp/render3d_headless_demo.cpp'
-      - 'Lib/std/os_framebuffer.noqeri'
       - 'examples/os_framebuffer_demo.noqeri'
       - 'tests/cpp/os_framebuffer_headless_test.cpp'
       - 'examples/graphics_demo.noqeri'
