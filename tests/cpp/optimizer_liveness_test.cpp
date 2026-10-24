@@ -214,8 +214,8 @@ int main() {
             return 1;
     }
     {
-        // Incoming values differ. A real Phi would be necessary to
-        // replace the final Load, so keep it until Phi lowering exists.
+        // Incoming values differ; a scalar Phi chooses the correct value from
+        // the branch when both incoming edges are eligible for lowering.
         noe::NirProgram p;
         auto flag=withArgs(noe::NirOp::Load,{});flag.dest=3;flag.text="flag";
         auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=5;
@@ -235,7 +235,17 @@ int main() {
         bool kept=false;
         for(const auto& in:p.entry.code)
             if(in.op==noe::NirOp::Load&&in.text=="x")kept=true;
-        if(!check(kept,"diverging diamond values retain load"))return 1;
+        std::size_t incomingCopies=0;
+        noe::Reg merged=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Return&&in.args.size()==1)
+                merged=in.args[0];
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Cast&&in.dest&&*in.dest==merged)
+                ++incomingCopies;
+        if(!check(!kept&&incomingCopies==2,
+                  "diverging diamond Phi uses both predecessor copies"))
+            return 1;
     }
     {
         // An assigned loop-carried value may differ on each iteration.
@@ -329,8 +339,8 @@ int main() {
             return 1;
     }
     {
-        // Incoming values differ. A real Phi would be necessary to
-        // replace the final Load, so keep it until Phi lowering exists.
+        // Incoming values differ; a scalar Phi chooses the correct value from
+        // the branch when both incoming edges are eligible for lowering.
         noe::NirProgram p;
         auto flag=withArgs(noe::NirOp::Load,{});flag.dest=3;flag.text="flag";
         auto branch=withArgs(noe::NirOp::JumpIfFalse,{3});branch.target=5;
@@ -350,7 +360,17 @@ int main() {
         bool kept=false;
         for(const auto& in:p.entry.code)
             if(in.op==noe::NirOp::Load&&in.text=="x")kept=true;
-        if(!check(kept,"diverging diamond values retain load"))return 1;
+        std::size_t incomingCopies=0;
+        noe::Reg merged=0;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Return&&in.args.size()==1)
+                merged=in.args[0];
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::Cast&&in.dest&&*in.dest==merged)
+                ++incomingCopies;
+        if(!check(!kept&&incomingCopies==2,
+                  "diverging diamond Phi uses both predecessor copies"))
+            return 1;
     }
     {
         // An assigned loop-carried value may differ on each iteration.
