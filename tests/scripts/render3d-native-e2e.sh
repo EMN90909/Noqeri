@@ -7,6 +7,9 @@ trap 'rm -rf "$work"' EXIT
 "$compiler" build Lib/std/render3d.noqeri "$work/render3d.s" -O3
 g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread \
   "$work/render3d.s" tests/cpp/render3d_differential.cpp -o "$work/render3d-test"
+# Any codegen regression that requests an executable ELF stack is unsafe.
+readelf -W -l "$work/render3d-test" |
+  awk '$1=="GNU_STACK" {found=1; if($7 ~ /E/)bad=1} END {if(!found || bad)exit 1}'
 timeout 90s "$work/render3d-test"
 "$compiler" check examples/render3d_demo.noqeri
 "$compiler" build examples/render3d_demo.noqeri "$work/render3d-demo.s" -O3
