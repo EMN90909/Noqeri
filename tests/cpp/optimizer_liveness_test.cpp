@@ -2,6 +2,7 @@
 #include "optimizer_cost.hpp"
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -25,6 +26,51 @@ bool check(bool ok, const char* label) {
 }
 
 int main() {
+    {
+        // Signed INT64_MIN / -1 and % -1 must retain a native division trap.
+        // Constant folding these into wraparound results breaks O0/O3 parity.
+        for(const auto* op:{"/","%"}) {
+            noe::NirProgram p;
+            auto division=withArgs(noe::NirOp::Binary,{1,2});
+            division.dest=3;division.text=op;division.type.kind=noe::TypeKind::I64;
+            p.entry.registerTypes.resize(4);
+            p.entry.registerTypes[1].kind=noe::TypeKind::I64;
+            p.entry.code={constant(1,std::numeric_limits<std::int64_t>::min()),
+                          constant(2,-1),division,
+                          withArgs(noe::NirOp::Return,{3})};
+            noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+            bool retained=false;
+            for(const auto& in:p.entry.code)
+                if(in.op==noe::NirOp::Binary&&in.text==op)
+                    retained=true;
+            if(!check(retained,"signed overflow division trap kept at O3"))
+                return 1;
+        }
+    }
+    {
+        // Guard reads OLD x, but indexing reads x after a Store before
+        // the guard. No bound may be inferred from this stale comparison.
+        noe::NirProgram p;
+        auto stale=withArgs(noe::NirOp::Load,{});stale.dest=1;stale.text="x";
+        auto write=withArgs(noe::NirOp::Store,{3});write.text="x";
+        auto cmp=withArgs(noe::NirOp::Binary,{1,2});
+        cmp.dest=4;cmp.text="<";cmp.type.kind=noe::TypeKind::Bool;
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{4});branch.target=9;
+        auto fresh=withArgs(noe::NirOp::Load,{});fresh.dest=5;fresh.text="x";
+        auto checkBounds=withArgs(noe::NirOp::CheckBounds,{5,2});
+        p.entry.code={stale,constant(2,10),constant(3,99),write,cmp,branch,
+                      fresh,checkBounds,withArgs(noe::NirOp::Return,{}),
+                      withArgs(noe::NirOp::Return,{})};
+        p.entry.registerTypes.resize(6);
+        p.entry.registerTypes[1].kind=noe::TypeKind::Usize;
+        p.entry.registerTypes[5].kind=noe::TypeKind::Usize;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O3);
+        bool retained=false;
+        for(const auto& in:p.entry.code)
+            if(in.op==noe::NirOp::CheckBounds)retained=true;
+        if(!check(retained,"bounds proof rejects stale guard load"))
+            return 1;
+    }
     {
         // Candidate reporting counts each lexical loop containing a literal.
         // A nested backedge may cover the same constant twice; outside values
