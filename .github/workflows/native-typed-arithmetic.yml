@@ -5,6 +5,7 @@ on:
       - 'Compiler/**'
       - 'Include/noqeri/**'
       - 'tests/native_unsigned_arithmetic.noqeri'
+      - 'tests/native_division_traps.py'
       - 'tests/native_bounds_*.noqeri'
       - '.github/workflows/native-typed-arithmetic.yml'
 permissions:
@@ -42,6 +43,9 @@ jobs:
           test "$(build-typed/integer-widths)" = "$expected"
           grep -Fq 'movsx rax, BYTE PTR [rax]' build-typed/integer-widths.s
           grep -Fq 'movsxd rax, DWORD PTR [rax]' build-typed/integer-widths.s
+      - name: Verify signed overflow and zero-divisor traps at O0 and O3
+        shell: bash
+        run: python3 tests/native_division_traps.py --compiler=build-typed/noqeri
       - name: Bounds proof and OOB trap preservation
         shell: bash
         run: |
