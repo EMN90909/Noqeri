@@ -4,6 +4,8 @@ on:
     paths:
       - 'Compiler/**'
       - 'Include/noqeri/**'
+      - 'tests/cpp/phi_edge_codegen_test.cpp'
+      - 'tests/cpp/phi_edge_host.c'
       - 'tests/native_unsigned_arithmetic.noqeri'
       - 'tests/native_narrow_arithmetic.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
