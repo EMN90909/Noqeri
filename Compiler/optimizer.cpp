@@ -608,10 +608,17 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
             const bool e = integerStrengthReduction(fn);
             const bool f = constants(fn);
             const bool g = dce(fn);
-            const bool h = eliminateDominatedChecks(fn);
-            const bool j = eliminateGuardedBounds(fn);
-            if (!a && !b && !c && !d && !e && !f && !g && !h && !j) break;
+            if (!a && !b && !c && !d && !e && !f && !g) break;
         }
+    }
+    // Bounds proofs depend on final CFG shape. Running two dominance
+    // computations inside each SCCP/DCE round multiplied compile-time cost
+    // without exposing any new facts, since these passes only remove checks.
+    if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
+       level==OptimizationLevel::Oz){
+        const bool a=eliminateDominatedChecks(fn);
+        const bool b=eliminateGuardedBounds(fn);
+        if(a||b)dce(fn);
     }
     if(level==OptimizationLevel::O3) scheduleLocalConstants(fn);
     if(level==OptimizationLevel::O3 && hoistLoopLiteral(fn)) {
