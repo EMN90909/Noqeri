@@ -1,0 +1,11 @@
+function choose(flag: bool): int {
+    let result: int = 0
+    if flag {
+        result = 37
+    } else {
+        result = 81
+    }
+    return result
+}
+print(choose(true))
+print(choose(false))
