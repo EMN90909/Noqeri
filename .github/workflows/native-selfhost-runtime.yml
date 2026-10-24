@@ -116,6 +116,7 @@ jobs:
           check_aot Benchmarks/workloads/sorting.noqeri sorting "$(printf '64\n65032')"
           check_aot Benchmarks/workloads/json.noqeri json "5600000"
           check_aot Benchmarks/workloads/regex.noqeri regex "200000"
+          check_aot tests/native_named_local_promotion.noqeri named-local "$(printf '%s\n' 1000 1000 43)"
       - name: Inspect native register allocation and indexed addresses
         if: runner.os == 'Linux'
         shell: bash
