@@ -40,6 +40,8 @@ jobs:
             runner: windows-2022
           - label: macOS ARM64
             runner: macos-15
+          - label: macOS x86-64
+            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -117,5 +119,5 @@ jobs:
             -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-24 \
             -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
-          cmake --build build-android --target noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
-          echo "Android ${{ matrix.abi }} cross-compile PASS (not an on-device execution test)"
+          cmake --build build-android --target noqeri noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
+          echo "Android ${{ matrix.abi }} shader compiler and graphics ABI cross-compile PASS (not an on-device execution test)"
