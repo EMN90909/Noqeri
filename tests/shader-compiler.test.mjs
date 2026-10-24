@@ -54,3 +54,26 @@ test('Noqeri shader compiler refuses host calls, mutable state and unsupported s
     assert.match(invalidStage.stderr,/NQR-GPU102/)
   }finally{await rm(dir,{recursive:true,force:true})}
 })
+
+test('shader compiler folds exact bounded u32 arithmetic and rejects folded zero division',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'noqeri-shader-peephole-'))
+  try {
+    const valid=join(dir,'fold.noqeri'),dest=join(dir,'fold.wgsl')
+    await writeFile(valid,`export function shade(value: u32): u32 {
+      const factor: u32 = ((2 as u32) + (3 as u32)) * (4 as u32)
+      return value + factor
+    }\n`)
+    const compiled=run('shader',valid,dest,'--stage=compute')
+    assert.equal(compiled.status,0,compiled.stderr)
+    const generated=await readFile(dest,'utf8')
+    assert.match(generated,/let nq_local0: u32 = 20u;/)
+    const invalid=join(dir,'invalid.noqeri'),keep=join(dir,'keep.wgsl')
+    await writeFile(invalid,`export function shade(value: u32): u32 {
+      return value / ((3 as u32) - (3 as u32))
+    }\n`)
+    await writeFile(keep,'preserve-previous-verified-result')
+    const rejected=run('shader',invalid,keep,'--stage=compute')
+    assert.notEqual(rejected.status,0,'folded zero divisor must fail closed')
+    assert.equal(await readFile(keep,'utf8'),'preserve-previous-verified-result')
+  } finally {await rm(dir,{recursive:true,force:true})}
+})
