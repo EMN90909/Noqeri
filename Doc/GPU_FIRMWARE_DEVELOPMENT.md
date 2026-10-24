@@ -89,3 +89,22 @@ redistribution authorization. Add emulated instruction-set tests,
 fuzzed binary parsing, reproducible toolchain qualifications and a
 recoverable hardware test station before any real device loading.
 There is no evidence yet for any of those physical-device gates.
+
+## Safer simulated command submission
+
+The `nqGpuFwSimSubmit(registers, words, command, payload)` API requires
+**exactly four** mapped words, validates the fixed simulator signature
+`0x4e514657`, rejects a busy status, and accepts only mock opcodes
+1 (increment) and 2 (ones-complement). It writes the payload before
+publishing the command. `nqGpuFwSimReset` clears only the simulated
+status and command fields after verifying that same signature.
+Tests verify no mutation for invalid addresses, signatures, busy states,
+and opcodes, and successful submit/execute/reset transitions.
+
+The lower-level `nqGpuFwWrite32` remains an intentionally powerful,
+unsafe hardware-facing primitive: callers must never point it at a
+real GPU memory BAR without a privileged driver, hardware-specific
+register policy, locking, DMA fencing, and recovery plan. Simulator
+`volatile` ordering is **not** a replacement for interprocessor or
+device memory barriers, and these APIs are not guaranteed safe against
+concurrent writers or hot-unplug.
