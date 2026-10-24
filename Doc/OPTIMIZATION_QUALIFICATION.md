@@ -4,14 +4,15 @@
 
 | Requested pass | Current implementation | What is NOT implemented or qualified |
 | --- | --- | --- |
-| SSA optimization | Unique-definition and dominance proofs plus CFG fixed-point scalar Load forwarding when all reachable predecessor blocks agree on the same typed register; divergent and loop-carried values stay in memory | General SSA construction and renaming, Phi nodes and destruction, mutable-variable global promotion, memory SSA |
+| SSA optimization | CFG fixed-point scalar Load forwarding for identical incoming registers; O2+ lowers a restricted typed Phi at two-way acyclic branch diamonds into two predecessor-edge virtual register copies, replacing the join Load | Full SSA renaming, dominance-frontier Phi insertion, loop-carried Phi, critical-edge splitting, parallel-copy cycles, general mutable-variable promotion |
 | GVN | Basic-block integer `+`, `-`, `*`, `%` value numbering; duplicate NIR operations coalesced when result has no users in other blocks | Global value numbering across branches, loads, volatile memory, pointer calculations, floating NaNs |
 | SCCP | Sparse constant discovery on dominance-proven SSA temporaries, Boolean conditional folding, CFG reachability, dead-code pruning | Phi-lattice propagation and fully edge-sensitive sparse dataflow |
 | LICM | O3 hoists literals and proven preheader-dominating Int/I64 `+`, `-`, `*` from single-entry structured loops; a capped repetition handles several invariants | General LICM with side effects, trapping division, invariant memory loads, alias-aware hoisting, loop unswitching and full SSA/Phi |
 | Loop unrolling | Not implemented | Requires proven trip count, exact overflow semantics, size and target cost gating |
 | Loop vectorization | Not implemented | Requires typed vector NIR, legality checks and target SIMD lowering |
 | SLP vectorization | Not implemented | Requires pack formation, def-use/alias and instruction selection |
-| Alias analysis | `NirAliasAnalysis` propagates `StackAlloc` roots through pointer derivations using an O(N+E) worklist; distinct nonescaping acyclic roots are proven NoAlias and all uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing, memory SSA |
+| Alias analysis | `NirAliasAnalysis` propagates `StackAlloc` roots through pointer derivations using an O(N+E) worklist; distinct nonescaping acyclic roots are proven NoAlias and all uncertain uses remain MayAlias | General points-to graph, interprocedural heap aliasing | 
+| Memory SSA | One conservative whole-memory version partition with stable instruction write versions, CFG join/backedge Phi records and same-version CSE for typed nonvolatile loads from nonescaping stack roots | Per-object alias-partitioned MemorySSA, MemoryDef/MemoryUse walkers, interprocedural barriers, arbitrary memory-Phi lowering |
 | Escape analysis | Tracks direct StackAlloc roots and derivatives, marks values passed to unknown sites / returned as escaping | Allocation replacement, promotion, allocation sinking and heap devirtualization |
 | Interprocedural optimization | Exact pure zero-argument constant-return call substitution; externs and unknown bodies retained | Full call-graph specialization, partial inlining, recursion handling and whole-program IPO |
 | Register allocation | CFG liveness fixpoint extends intervals over backedges/branches; deterministic linear scan with stack spills and preserved r12-r15. The Linux x86-64 emitter also promotes at most one loop-hot non-address-taken named local into callee-saved RBX, disabled for inline-asm functions. | Graph coloring, split spills, promotion of multiple locals, optimal spill costs, cross-target machine scheduling and native Stage-2 parity |
@@ -179,8 +180,8 @@ compiler optimization roadmap is complete.
   stack roots may be reused when the same pointer, type, width, incoming
   memory version and CFG dominance are proven. Unknown writes, calls, atomic
   operations, fences, volatile accesses and inline assembly invalidate or
-  disable this proof. This is not per-object MemorySSA or scalar SSA Phi
-  insertion/lowering.
+  disable this proof. This is not per-object MemorySSA and does not itself
+  lower scalar Phi copies.
 - PR #76 adds opt-in fail-closed release performance gate arguments to
   scripts/perf-gate.mjs. Required workload IDs, same-host profiles, raw
   samples, independently recomputed median/p95, native AOT provenance,
@@ -191,6 +192,12 @@ compiler optimization roadmap is complete.
   fixes the unsafe stale-snapshot case where the checked index was read
   before a mutation but the guard used a newer value. This is a scoped
   affine range proof, not general symbolic induction analysis.
+- PR #78 inserts a typed scalar Phi candidate for a strictly eligible
+  two-way acyclic branch join, lowers it into predecessor-edge NIR Cast
+  copies and removes the redundant join Load. Native O0/O3 tests select
+  both incoming values correctly. It refuses loops, exceptional flows,
+  address-taken/volatile variables, critical edges and unsupported types.
+  This is not complete general scalar SSA or edge copy resolution.
 
 Still missing or unqualified: general scalar SSA renaming and Phi
 insertion/destruction (including critical edges and loops), per-object memory
