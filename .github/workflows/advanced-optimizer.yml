@@ -46,5 +46,7 @@ jobs:
             ./build-opt/noqeri run "$sample" -O3 > /tmp/semantics-O3.txt
             diff -u /tmp/semantics-O0.txt /tmp/semantics-O3.txt
           done
+      - name: Qualify fail-closed release performance gating
+        run: node --test tests/perf_gate_release.test.mjs
       - name: Preserve browser compatibility
         run: node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
