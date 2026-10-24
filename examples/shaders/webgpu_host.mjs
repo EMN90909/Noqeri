@@ -504,7 +504,6 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
       // It is not a GPU completion signal; use flush() before resize.
       renderFast(input){return drawFrame(input,true)},
       flush(){return flushGpu()},
-,
       dispose
     }
   }catch(error){
