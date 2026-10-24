@@ -448,8 +448,9 @@ bool ShaderBackend::emitWgsl(const Program& program,
     wgsl<<"fn noqeri_shade("<<emitter.parameters(*shader)<<") -> "<<wgslType(*resultType)<<" {\n"
         <<emitter.result()<<"}\n";
     if(emitter.needsTexture()) {
-        wgsl<<"@group(0) @binding(0) var nq_texture: texture_2d<f32>;\n"
-            <<"@group(0) @binding(1) var nq_sampler: sampler;\n";
+        const unsigned bindGroup=stage=="compute"?1u:0u;
+        wgsl<<"@group("<<bindGroup<<") @binding(0) var nq_texture: texture_2d<f32>;\n"
+            <<"@group("<<bindGroup<<") @binding(1) var nq_sampler: sampler;\n";
     }
     if(stage=="compute"){
         const auto type=wgslType(*resultType);
