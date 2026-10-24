@@ -1,6 +1,7 @@
 #include "noe.hpp"
 #include "optimizer_cost.hpp"
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
