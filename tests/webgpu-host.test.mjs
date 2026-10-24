@@ -7,7 +7,7 @@ globalThis.GPUMapMode = {READ: 1}
 globalThis.GPUTextureUsage = {TEXTURE_BINDING: 1, COPY_DST: 2, RENDER_ATTACHMENT: 4}
 
 function gpuMock({compileError = false, limits = {}} = {}) {
-  const events={dispatches:[],buffers:[],textures:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0,renderPasses:[]}
+  const events={dispatches:[],buffers:[],textures:[],samplers:[],uploads:[],pipelines:[],draws:[],destroyed:0,configured:0,unconfigured:0,submitted:0,waits:0,renderPasses:[]}
   const context={
     configure(){events.configured++},
     unconfigure(){events.unconfigured++},
@@ -44,7 +44,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
       events.textures.push(texture)
       return texture
     },
-    createSampler(){return {}},
+    createSampler(descriptor){events.samplers.push(descriptor);return {}},
     createBindGroup(){return {}},
     createCommandEncoder(){
       return {
@@ -161,8 +161,27 @@ test('textured fragment uploads RGBA8 and disposes GPU resource',async()=>{
   assert.equal(events.uploads.length,1)
   assert.equal(events.uploads[0].layout.bytesPerRow,16)
   assert.equal(events.textures[0].destroyed,false)
+  assert.deepEqual(events.samplers,[{magFilter:'nearest',minFilter:'nearest'}])
   release()
   assert.equal(events.textures[0].destroyed,true)
+  assert.equal(events.destroyed,1)
+})
+test('linear texture filtering is opt-in; invalid sampling modes never allocate GPUs',async()=>{
+  const {gpu,context,events}=gpuMock()
+  const shader='fn noqeri_shade(nq_arg0: f32, nq_arg1: f32) -> vec4<f32> {return vec4<f32>(1.0);}\n'
+    +'@group(0) @binding(0) var nq_texture: texture_2d<f32>;\n'
+    +'@group(0) @binding(1) var nq_sampler: sampler;\n@fragment\nfn main() {}\n'
+  const canvas={getContext(){return context}}
+  const texture={width:2,height:2,data:new Uint8Array(16)}
+  for(const invalid of [null,{textureFilter:'cubic'},'linear']){
+    await assert.rejects(renderNoqeriFragment(canvas,shader,gpu,texture,invalid),
+      /options|filter/)
+  }
+  assert.equal(events.destroyed,0)
+  const release=await renderNoqeriFragment(canvas,shader,gpu,texture,
+    {textureFilter:'linear'})
+  assert.deepEqual(events.samplers,[{magFilter:'linear',minFilter:'linear'}])
+  release()
   assert.equal(events.destroyed,1)
 })
 test('textured shader refuses missing, malformed and over-limit texture without leaking resources',async()=>{
@@ -194,6 +213,7 @@ test('3D WebGPU mesh configures depth24plus and cleans up all resources',async()
   assert.equal(events.pipelines.length,1)
   assert.equal(events.pipelines[0].depthStencil.format,'depth24plus')
   assert.equal(events.pipelines[0].depthStencil.depthCompare,'less')
+  assert.equal(events.renderPasses[0].depthStencilAttachment.depthStoreOp,'discard')
   assert.deepEqual(events.pipelines[0].vertex.buffers[0].attributes,
     [{shaderLocation:0,offset:0,format:'float32x4'}])
   assert.deepEqual(events.draws,[6])
@@ -245,6 +265,7 @@ test('persistent GPU 3D renderer reuses vertex buffers, pipeline and depth betwe
   assert.equal(events.buffers.length,1)
   assert.equal(events.textures.length,1)
   assert.deepEqual(events.draws,[6,6])
+  assert.ok(events.renderPasses.every(p=>p.colorAttachments[0].storeOp==='store'))
   assert.equal(events.submitted,2)
   const pending=renderer.render(meshPixels())
   await assert.rejects(renderer.render(meshPixels()),/in flight/)
@@ -424,6 +445,8 @@ test('optional 4x MSAA sharpens triangle edges with depth/color resolve and stri
   await renderer.renderFast(meshPixels())
   assert.equal(events.renderPasses.length,1)
   assert.ok(events.renderPasses[0].colorAttachments[0].resolveTarget)
+  assert.equal(events.renderPasses[0].colorAttachments[0].storeOp,'discard')
+  assert.equal(events.renderPasses[0].depthStencilAttachment.depthStoreOp,'discard')
   assert.ok(events.renderPasses[0].colorAttachments[0].view)
   assert.equal(events.renderPasses[0].depthStencilAttachment.depthClearValue,1)
   await renderer.flush()
