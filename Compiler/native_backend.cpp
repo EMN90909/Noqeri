@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -417,8 +418,95 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
            !access.args.empty()&&access.args[0]==*pointer.dest)
             fusedPointers.insert(pc);
     }
+    // Experimental two-lane 64-bit SLP: use real SSE2 paddq/psubq for
+    // independent scalar operations in one straight-line region. Disabled
+    // by default because pack/unpack overhead can exceed scalar cost; no
+    // broad vectorization or performance claim is implied by this path.
+    // The intermediate instructions may only be nonvolatile scalar
+    // definitions, so delaying the first wrapping arithmetic is safe.
+    std::unordered_set<std::size_t> packedStarts;
+    std::unordered_map<std::size_t,std::size_t> packedEnds;
+    const char* simdEnv=std::getenv("NOQERI_EXPERIMENTAL_SIMD");
+    const bool experimentalSimd=simdEnv&&std::string(simdEnv)=="1";
+    const auto integer64=[](TypeKind kind){
+        return kind==TypeKind::Int||kind==TypeKind::I64||
+               kind==TypeKind::U64||kind==TypeKind::Usize||
+               kind==TypeKind::Isize;
+    };
+    if(experimentalSimd){
+        for(std::size_t pc=0;pc<fn.code.size();++pc){
+            const auto& first=fn.code[pc];
+            if(first.op!=NirOp::Binary||!first.dest||
+               first.args.size()!=2||first.isVolatile||
+               (first.text!="+"&&first.text!="-")||
+               !integer64(first.type.kind))continue;
+            const auto last=std::min(fn.code.size(),pc+7);
+            for(std::size_t at=pc+1;at<last;++at){
+                const auto& second=fn.code[at];
+                if(jumpTargets.count(at))break;
+                if(second.op==NirOp::Binary&&second.dest&&
+                   second.args.size()==2&&!second.isVolatile&&
+                   second.text==first.text&&
+                   second.type.kind==first.type.kind&&
+                   *first.dest!=*second.dest&&
+                   std::find(second.args.begin(),second.args.end(),
+                             *first.dest)==second.args.end()){
+                    bool compatible=true;
+                    for(const auto r:{first.args[0],first.args[1],
+                                      second.args[0],second.args[1]}){
+                        const auto k=r<fn.registerTypes.size()?
+                            fn.registerTypes[r].kind:TypeKind::Unknown;
+                        if(k!=TypeKind::Unknown&&!integer64(k))
+                            compatible=false;
+                        if(r==*first.dest||r==*second.dest)
+                            compatible=false;
+                    }
+                    if(compatible){
+                        packedStarts.insert(pc);
+                        packedEnds.emplace(at,pc);
+                        pc=at;
+                    }
+                    break;
+                }
+                const bool pure=second.op==NirOp::Nop||
+                    (second.op==NirOp::Load&&!second.isVolatile)||
+                    (second.op==NirOp::Const&&
+                     std::holds_alternative<std::int64_t>(second.literal))||
+                    (second.op==NirOp::Cast&&second.args.size()==1&&
+                     integer64(second.type.kind));
+                if(!pure||std::find(second.args.begin(),second.args.end(),
+                                   *first.dest)!=second.args.end())
+                    break;
+            }
+        }
+    }
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
-        if(fusedBranches.count(pc))continue;
+        if(fusedBranches.count(pc)||packedStarts.count(pc))continue;
+        const auto pair=packedEnds.find(pc);
+        if(pair!=packedEnds.end()){
+            const auto& first=fn.code[pair->second];
+            // Pack two independent 64-bit lanes, apply one SSE2 vector
+            // instruction, then extract both destinations. XMM0..XMM3 are
+            // volatile registers in the supported x86-64 calling ABIs.
+            load(first.args[0],"rax");
+            out<<"    movq xmm0, rax\n";
+            load(i.args[0],"rax");
+            out<<"    movq xmm1, rax\n"
+               <<"    punpcklqdq xmm0, xmm1\n";
+            load(first.args[1],"rax");
+            out<<"    movq xmm2, rax\n";
+            load(i.args[1],"rax");
+            out<<"    movq xmm3, rax\n"
+               <<"    punpcklqdq xmm2, xmm3\n"
+               <<(i.text=="+"?"    paddq xmm0, xmm2\n":
+                             "    psubq xmm0, xmm2\n")
+               <<"    movq rax, xmm0\n";
+            store(*first.dest,"rax");
+            out<<"    psrldq xmm0, 8\n"
+               <<"    movq rax, xmm0\n";
+            store(*i.dest,"rax");
+            continue;
+        }
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}

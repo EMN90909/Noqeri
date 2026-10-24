@@ -65,6 +65,17 @@ jobs:
             actual="$("build-typed/phi-loop-$level")"
             test "$actual" = "$expected"
           done
+      - name: Assemble and execute opt-in SSE2 packed arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-typed --target noqeri-simd-codegen-test --parallel 2
+          NOQERI_EXPERIMENTAL_SIMD=1 build-typed/noqeri-simd-codegen-test build-typed/simd-emit.s
+          grep -Fq 'paddq xmm0, xmm2' build-typed/simd-emit.s
+          grep -Fq 'psubq xmm0, xmm2' build-typed/simd-emit.s
+          cc -c build-typed/simd-emit.s -o build-typed/simd-emit.o
+          cc -std=c11 tests/cpp/native_simd_host.c build-typed/simd-emit.o -o build-typed/simd-emit-exec
+          build-typed/simd-emit-exec
       - name: Verify scalar diamond Phi lowering in native AOT
         shell: bash
         run: |
