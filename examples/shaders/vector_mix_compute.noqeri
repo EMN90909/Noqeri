@@ -1,0 +1,11 @@
+module examples.shaders.vector_mix_compute
+
+// This compute shader reads and writes float32 vec4 storage elements.
+export function shade(value: Vec4): Vec4 {
+    const tint: Vec4 = vec4(0.2, 0.6, 0.9, 1.0)
+    const strength: float = dot(value, tint)
+    if strength < 0.1 {
+        return tint
+    }
+    return mix(value, tint, 0.25)
+}
