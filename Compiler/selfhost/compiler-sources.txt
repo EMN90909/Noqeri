@@ -29,7 +29,6 @@ Compiler/selfhost/race.noqeri
 Compiler/selfhost/record_layout.noqeri
 Compiler/selfhost/security.noqeri
 Compiler/selfhost/semantic_program.noqeri
-Compiler/selfhost/shader_wgsl.noqeri
 Compiler/selfhost/semantics.noqeri
 Compiler/selfhost/stage2.noqeri
 Compiler/selfhost/symbols.noqeri
