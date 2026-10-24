@@ -20,8 +20,10 @@ bool presented=false;
 bool video_owned=false;
 int scale_mode=0;
 void applyTextureFiltering(){
+#if SDL_VERSION_ATLEAST(2,0,12)
     if(texture)SDL_SetTextureScaleMode(texture,
         scale_mode==1 ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+#endif
 }
 void cleanup(){
     if(texture){SDL_DestroyTexture(texture);texture=nullptr;}
