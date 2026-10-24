@@ -84,6 +84,22 @@ compiler. It currently does **not** expose a Noqeri-written shader-to-WGSL
 emitter. This profile is implemented in `Compiler/shader_backend.cpp`.
 It must not be described as self-hosted.
 
+The fail-closed parity runner can be invoked once an independently built
+shader-capable Stage-2 compiler and its provenance record exist:
+
+```sh
+NOQERI_STAGE0_SHADER_COMPILER=build/noqeri \\
+NOQERI_STAGE2_SHADER_COMPILER=/path/to/independent-stage2-shader-compiler \\
+NOQERI_STAGE2_SHADER_PROOF=/path/to/verified-stage2-shader-proof.json \\
+node scripts/qualify-shader-stage2.mjs
+```
+
+The runner checks both paths are distinct, checks the Stage-2 artifact's
+SHA-256 against its proof, rejects unverified Stage-1 / unequal Stage-2 and
+Stage-3 / Stage-0 delegation claims, then checks byte-identical output
+from six shader fixtures. Its proof JSON must come from an independently
+auditable build: self-asserted JSON is not independent provenance.
+
 To qualify self-hosted shaders, implement shader parsing, typed vectors,
 swizzles, texture resources, control-flow checks, and WGSL serialization
 inside `Compiler/selfhost/*.noqeri`; compile that emitter through the
