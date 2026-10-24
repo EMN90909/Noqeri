@@ -203,3 +203,18 @@ inspection. It deliberately reports `hardwareQualified: false`;
 real driver certification still requires a trusted adapter/driver
 inventory, framebuffer readback assertions, device-loss/resize testing
 on named hardware and GPU timestamp evidence.
+
+## 3D depth-clear optimization acceptance
+
+`nqDepthClear3D` now uses four checked u32 stores per iteration and a
+scalar remainder. This does not relax dimension validation and never
+writes beyond the visible `width * height` pixels. The full-buffer
+reference check includes truncated slices and untouched tail sentinels.
+
+The independent 3D benchmark records three scenes: flat-depth triangles,
+interpolated-depth triangles and depth-buffer clear at 256×256. Each
+scene is tested with thirty native Noqeri and C++ samples. The A/B
+comparison builds the pinned original `render3d.noqeri` with the
+**same** compiler and reference driver as the updated source. CI gates
+a median regression above 25%. This is native CPU performance evidence,
+not GPU shader execution or frame rate qualification.
