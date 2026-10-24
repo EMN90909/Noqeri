@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="$(printf '%s\\n' 37 81)"
+          expected="$(printf '%s\n' 37 81)"
           for level in O0 O3; do
             node scripts/native-build.mjs tests/native_phi_diamond.noqeri "build-typed/phi-${level}" --compiler=build-typed/noqeri "--opt=-${level}"
             actual="$("build-typed/phi-${level}")"
