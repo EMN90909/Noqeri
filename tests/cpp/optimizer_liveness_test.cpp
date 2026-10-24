@@ -27,6 +27,43 @@ bool check(bool ok, const char* label) {
 
 int main() {
     {
+        // A 2048-element transitive chain is live when returned, even when
+        // every link has a separate virtual register and the first input is
+        // unknown. The old repeated global scans were quadratic here.
+        noe::NirProgram p;
+        auto input=withArgs(noe::NirOp::Load,{});input.dest=1;input.text="x";
+        p.entry.code.push_back(input);
+        for(noe::Reg r=2;r<=2049;++r){
+            auto next=withArgs(noe::NirOp::Unary,{r-1});
+            next.dest=r;next.text="-";
+            p.entry.code.push_back(next);
+        }
+        p.entry.code.push_back(withArgs(noe::NirOp::Return,{2049}));
+        p.entry.registerTypes.resize(2050);
+        for(noe::Reg r=1;r<=2049;++r)
+            p.entry.registerTypes[r].kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O1);
+        if(!check(p.entry.code.size()==2050,
+                  "worklist preserves long transitive live unary chain"))
+            return 1;
+    }
+    {
+        // Entirely unused chains must still be deleted transitively.
+        noe::NirProgram p;
+        p.entry.code.push_back(constant(1,7));
+        for(noe::Reg r=2;r<=512;++r){
+            auto next=withArgs(noe::NirOp::Unary,{r-1});
+            next.dest=r;next.text="-";
+            p.entry.code.push_back(next);
+        }
+        p.entry.code.push_back(withArgs(noe::NirOp::Return,{}));
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O1);
+        if(!check(p.entry.code.size()==1&&
+                  p.entry.code[0].op==noe::NirOp::Return,
+                  "worklist removes 512 dead transitive values"))
+            return 1;
+    }
+    {
         // A long single-definition dependency chain must propagate without
         // changing wraparound integer semantics or leaving live binary ops.
         noe::NirProgram p;

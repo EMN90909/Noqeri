@@ -80,18 +80,28 @@ bool dce(NirFunction&fn){
     // Seed from instructions that may affect execution, then walk definitions
     // until no additional operands become live.  Global (rather than local)
     // liveness remains conservative around branches and register reuse.
-    std::unordered_set<Reg>used;
-    for(const auto&i:fn.code){
-        if(sideEffect(i)||!i.dest)for(auto arg:i.args)used.insert(arg);
+    // Build one conservative def -> operand relation. Repeated virtual
+    // register definitions contribute all their dependencies, just like the
+    // previous scan, until general SSA renaming/phi insertion is available.
+    std::unordered_map<Reg,std::vector<Reg>> dependencies;
+    for(const auto& in:fn.code)if(in.dest){
+        auto& inputs=dependencies[*in.dest];
+        inputs.insert(inputs.end(),in.args.begin(),in.args.end());
     }
-    bool grew=true;
-    while(grew){
-        grew=false;
-        for(const auto&i:fn.code){
-            if(i.dest&&used.count(*i.dest)){
-                for(auto arg:i.args)grew=used.insert(arg).second||grew;
-            }
-        }
+    std::unordered_set<Reg>used;
+    std::vector<Reg> pending;
+    const auto mark=[&](Reg r){
+        if(used.insert(r).second)pending.push_back(r);
+    };
+    for(const auto& in:fn.code)
+        if(sideEffect(in)||!in.dest)
+            for(const auto arg:in.args)mark(arg);
+    // Liveness reaches every dependency once, avoiding a full instruction
+    // scan per edge of a long chain of live SSA temporaries.
+    for(std::size_t cursor=0;cursor<pending.size();++cursor){
+        const auto def=dependencies.find(pending[cursor]);
+        if(def==dependencies.end())continue;
+        for(const auto arg:def->second)mark(arg);
     }
     const std::size_t oldCount=fn.code.size();
     std::vector<bool>keep(oldCount,true);
