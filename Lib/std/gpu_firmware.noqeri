@@ -69,3 +69,40 @@ export function nqGpuFwSimStep(registers: *volatile u32, words: usize): bool {
     }
     return true
 }
+
+// Simulator-only safe host command submission. Unlike nqGpuFwWrite32,
+// this API cannot overwrite the read-only magic or device-owned status.
+// The caller must supply the exact four-word simulated mailbox window.
+// It does not grant access to actual GPU command registers.
+export function nqGpuFwSimSubmit(registers: *volatile u32, words: usize, command: u32, payload: u32): bool {
+    if registers == null || words != 4 as usize { return false }
+    if command != 1 as u32 && command != 2 as u32 { return false }
+    let magic: u32 = 0 as u32
+    let status: u32 = 0 as u32
+    unsafe {
+        magic = registers[0]
+        status = registers[1]
+    }
+    if magic != 1313949271 as u32 || status != 0 as u32 { return false }
+    // Payload must be available before publishing the command. This
+    // simulator uses same-thread volatile semantics, not cross-device DMA.
+    unsafe {
+        registers[3] = payload
+        registers[2] = command
+    }
+    return true
+}
+
+// Simulator reset: only the status and command slots are reset. Real
+// hardware reset sequences must be vendor-authored and explicitly audited.
+export function nqGpuFwSimReset(registers: *volatile u32, words: usize): bool {
+    if registers == null || words != 4 as usize { return false }
+    let magic: u32 = 0 as u32
+    unsafe { magic = registers[0] }
+    if magic != 1313949271 as u32 { return false }
+    unsafe {
+        registers[2] = 0 as u32
+        registers[1] = 0 as u32
+    }
+    return true
+}
