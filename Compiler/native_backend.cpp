@@ -231,6 +231,23 @@ void emitLoadWidth(std::ostream&out,std::size_t width,bool signExtend=false){
     else out<<"    mov rax, QWORD PTR [rax]\n";
 }
 void emitStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    mov BYTE PTR [rax], r10b\n";else if(width==2)out<<"    mov WORD PTR [rax], r10w\n";else if(width==4)out<<"    mov DWORD PTR [rax], r10d\n";else out<<"    mov QWORD PTR [rax], r10\n";}
+// A single-use PtrOffset feeding an adjacent memory instruction does not
+// require an intermediate LEA or virtual pointer register. Keep the operand
+// width/sign rules identical to ordinary LoadMemory and StoreMemory.
+void emitIndexedLoad(std::ostream&out,std::size_t width,bool signedValue,std::size_t scale){
+    const std::string address="[rax + r11*"+std::to_string(scale)+"]";
+    if(width==1)out<<(signedValue?"    movsx rax, BYTE PTR ":"    movzx eax, BYTE PTR ")<<address<<"\n";
+    else if(width==2)out<<(signedValue?"    movsx rax, WORD PTR ":"    movzx eax, WORD PTR ")<<address<<"\n";
+    else if(width==4)out<<(signedValue?"    movsxd rax, DWORD PTR ":"    mov eax, DWORD PTR ")<<address<<"\n";
+    else out<<"    mov rax, QWORD PTR "<<address<<"\n";
+}
+void emitIndexedStore(std::ostream&out,std::size_t width,std::size_t scale){
+    const std::string address="[rax + r11*"+std::to_string(scale)+"]";
+    if(width==1)out<<"    mov BYTE PTR "<<address<<", r10b\n";
+    else if(width==2)out<<"    mov WORD PTR "<<address<<", r10w\n";
+    else if(width==4)out<<"    mov DWORD PTR "<<address<<", r10d\n";
+    else out<<"    mov QWORD PTR "<<address<<", r10\n";
+}
 void emitExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n    movzx eax, r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n    movzx eax, r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n    mov eax, r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n    mov rax, r10\n";}
 void emitAtomicStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n";}
 void emitCompareExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    lock cmpxchg BYTE PTR [r10], cl\n    movzx eax, al\n";else if(width==2)out<<"    lock cmpxchg WORD PTR [r10], cx\n    movzx eax, ax\n";else if(width==4)out<<"    lock cmpxchg DWORD PTR [r10], ecx\n    mov eax, eax\n";else out<<"    lock cmpxchg QWORD PTR [r10], rcx\n";}
@@ -375,6 +392,20 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         for(auto r:i.args)++useCounts[r];
     }
     std::unordered_set<std::size_t> fusedBranches;
+    std::unordered_set<std::size_t> fusedPointers;
+    for(std::size_t pc=0;pc+1<fn.code.size();++pc){
+        const auto& pointer=fn.code[pc];
+        const auto& access=fn.code[pc+1];
+        if(pointer.op!=NirOp::PtrOffset||!pointer.dest||
+           pointer.args.size()!=2||
+           (pointer.width!=1&&pointer.width!=2&&
+            pointer.width!=4&&pointer.width!=8)||
+           jumpTargets.count(pc+1)||useCounts[*pointer.dest]!=1)
+            continue;
+        if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
+           !access.args.empty()&&access.args[0]==*pointer.dest)
+            fusedPointers.insert(pc);
+    }
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
         if(fusedBranches.count(pc))continue;
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
@@ -383,10 +414,34 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width,*i.dest<fn.registerTypes.size()&&
-            signedNarrow(fn.registerTypes[*i.dest].kind));store(*i.dest,"rax");}break;
-        case NirOp::StoreMemory:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitStoreWidth(out,i.width);}break;
-        case NirOp::PtrOffset:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
+        case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){
+            const bool sign=*i.dest<fn.registerTypes.size()&&
+                signedNarrow(fn.registerTypes[*i.dest].kind);
+            if(pc>0&&fusedPointers.count(pc-1)){
+                const auto& pointer=fn.code[pc-1];
+                load(pointer.args[0],"rax");
+                load(pointer.args[1],"r11");
+                emitIndexedLoad(out,i.width,sign,pointer.width);
+            }else{
+                load(i.args[0],"rax");
+                emitLoadWidth(out,i.width,sign);
+            }
+            store(*i.dest,"rax");
+        }break;
+        case NirOp::StoreMemory:if(i.args.size()==2){
+            if(pc>0&&fusedPointers.count(pc-1)){
+                const auto& pointer=fn.code[pc-1];
+                load(pointer.args[0],"rax");
+                load(pointer.args[1],"r11");
+                load(i.args[1],"r10");
+                emitIndexedStore(out,i.width,pointer.width);
+            }else{
+                load(i.args[0],"rax");
+                load(i.args[1],"r10");
+                emitStoreWidth(out,i.width);
+            }
+        }break;
+        case NirOp::PtrOffset:if(fusedPointers.count(pc))break;else if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
                         out<<"    lea rax, [rax + r10*"<<i.width<<"]\n";
                     else{
                         out<<"    imul r10, "<<i.width<<"\n";
@@ -526,9 +581,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
-    // GNU ELF assemblers assume an executable stack when this note is
-    // absent. Noqeri's generated native programs do not require code on
-    // the process stack; opt out explicitly for secure default ELF links.
+    // ELF x86-64 native objects must not request an executable stack.
     out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
     return !diagnostics.hasErrors();
 }

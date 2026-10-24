@@ -299,6 +299,141 @@ Graph graphOf(const NirFunction& fn) {
     }
     return g;
 }
+// CFG-aware, SSA-compatible scalar load promotion. A Load can reuse a
+// virtual register from a previous Store/Load only when EVERY reachable
+// predecessor agrees on the exact register. Different incoming values
+// represent an unresolved Phi: until Phi lowering exists, keep the Load.
+//
+// This analysis never speculates trapping/effectful instructions. In
+// particular, address-taken and volatile variables are never promoted,
+// and unknown memory effects kill cached facts. A fixed point handles
+// loop backedges without depending on lexical block ordering.
+bool promoteLocalLoads(NirFunction& fn){
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance||g.spans.empty())return false;
+    std::unordered_set<std::string> excluded;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::InlineAsm||in.op==NirOp::Try)return false;
+        if(in.op==NirOp::AddressOf||
+           ((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile))
+            excluded.insert(in.text);
+    }
+    const auto scalar=[&](Reg reg)->bool{
+        if(reg>=fn.registerTypes.size())return false;
+        const auto kind=fn.registerTypes[reg].kind;
+        return signedIndexType(kind)||unsignedType(kind)||kind==TypeKind::Bool;
+    };
+    const auto compatible=[&](Reg a,Reg b)->bool{
+        return scalar(a)&&scalar(b)&&
+               fn.registerTypes[a].kind==fn.registerTypes[b].kind;
+    };
+    using Facts=std::unordered_map<std::string,Reg>;
+    const auto barrier=[](NirOp op)->bool{
+        switch(op){
+            case NirOp::Call:case NirOp::InlineAsm:case NirOp::StoreMemory:
+            case NirOp::AtomicStore:case NirOp::AtomicExchange:
+            case NirOp::AtomicCompareExchange:case NirOp::AtomicFence:
+            case NirOp::Try:case NirOp::Throw:return true;
+            default:return false;
+        }
+    };
+    const auto transfer=[&](const NirInstruction& in,Facts& state){
+        if(barrier(in.op)){state.clear();return;}
+        if(in.op==NirOp::Store){
+            if(in.args.size()!=1||excluded.count(in.text)||
+               !scalar(in.args[0]))state.erase(in.text);
+            else state[in.text]=in.args[0];
+        }else if(in.op==NirOp::Load&&in.dest){
+            if(excluded.count(in.text)||!scalar(*in.dest)){
+                state.erase(in.text);
+            }else{
+                auto previous=state.find(in.text);
+                if(previous==state.end()||
+                   !compatible(previous->second,*in.dest))
+                    state[in.text]=*in.dest;
+            }
+        }
+    };
+    const auto blocks=g.spans.size();
+    std::vector<Facts> entries(blocks),exits(blocks);
+    std::vector<std::size_t> pending;
+    std::vector<bool> queued(blocks,false);
+    for(std::size_t b=0;b<blocks;++b)
+        if(g.reachable[b]){pending.push_back(b);queued[b]=true;}
+    for(std::size_t cursor=0;cursor<pending.size();++cursor){
+        const auto b=pending[cursor];queued[b]=false;
+        Facts incoming;
+        if(b!=0){
+            bool first=true;
+            for(auto predecessor:g.preds[b]){
+                if(!g.reachable[predecessor])continue;
+                if(first){incoming=exits[predecessor];first=false;}
+                else{
+                    for(auto it=incoming.begin();it!=incoming.end();){
+                        const auto found=exits[predecessor].find(it->first);
+                        if(found==exits[predecessor].end()||
+                           found->second!=it->second)
+                            it=incoming.erase(it);
+                        else ++it;
+                    }
+                }
+            }
+            if(first)incoming.clear();
+        }
+        entries[b]=incoming;
+        for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc)
+            transfer(fn.code[pc],incoming);
+        if(incoming==exits[b])continue;
+        exits[b]=std::move(incoming);
+        for(auto succ:g.edges[b])
+            if(g.reachable[succ]&&!queued[succ]){
+                queued[succ]=true;pending.push_back(succ);
+            }
+    }
+    std::unordered_map<Reg,Reg> substitutions;
+    for(std::size_t b=0;b<blocks;++b){
+        if(!g.reachable[b])continue;
+        auto state=entries[b];
+        for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc){
+            const auto& in=fn.code[pc];
+            if(in.op==NirOp::Load&&in.dest&&!in.isVolatile&&
+               !excluded.count(in.text)){
+                const auto known=state.find(in.text);
+                if(known!=state.end()&&known->second!=*in.dest&&
+                   compatible(known->second,*in.dest)){
+                    // The source must itself dominate this Load. Because
+                    // the Load dominates all its uses, global substitution
+                    // is legal even if the uses cross a basic-block edge.
+                    const auto def=g.definitions.find(known->second);
+                    if(def!=g.definitions.end()&&
+                       ((g.owner[def->second]==b&&def->second<pc)||
+                        (g.owner[def->second]!=b&&
+                         g.dominates[b][g.owner[def->second]])))
+                        substitutions.emplace(*in.dest,known->second);
+                }
+            }
+            transfer(in,state);
+        }
+    }
+    if(substitutions.empty())return false;
+    // Resolve a chain of two substituted Loads before erasing definitions.
+    const auto resolve=[&](Reg reg){
+        for(std::size_t steps=0;steps<substitutions.size();++steps){
+            const auto it=substitutions.find(reg);
+            if(it==substitutions.end()||it->second==reg)break;
+            reg=it->second;
+        }
+        return reg;
+    };
+    for(auto& in:fn.code){
+        for(auto& arg:in.args)arg=resolve(arg);
+        if(in.op==NirOp::Load&&in.dest&&substitutions.count(*in.dest)){
+            in.op=NirOp::Nop;
+            in.dest.reset();in.args.clear();
+        }
+    }
+    return true;
+}
 bool safeIntResult(const NirInstruction& i) {
     // No CSE for floats (NaNs, signed zero), pointers, volatile loads or
     // operations that might trap on a changed evaluation schedule.
@@ -357,6 +492,10 @@ bool sparseConstants(NirFunction& fn) {
 bool localGvn(NirFunction& fn) {
     const Graph g=graphOf(fn);
     if(!g.uniqueDefs||!g.validDominance)return false;
+    // Index uses once; avoid rescanning the trailing function for every CSE.
+    std::unordered_map<Reg,std::size_t> lastUse;
+    for(std::size_t pc=0;pc<fn.code.size();++pc)
+        for(const Reg arg:fn.code[pc].args)lastUse[arg]=pc;
     bool changed=false;
     for(const auto& span:g.spans){
         std::map<std::string,Reg> expressions;
@@ -371,10 +510,9 @@ bool localGvn(NirFunction& fn) {
             const auto found=expressions.find(key);
             if(found==expressions.end()){expressions.emplace(key,*in.dest);continue;}
             const Reg redundant=*in.dest,canonical=found->second;
-            bool outside=false;
-            for(std::size_t later=span.second;later<fn.code.size()&&!outside;++later)
-                for(const auto arg:fn.code[later].args)if(arg==redundant){outside=true;break;}
-            if(outside)continue;
+            const auto finalUse=lastUse.find(redundant);
+            if(finalUse!=lastUse.end()&&finalUse->second>=span.second)
+                continue;
             for(std::size_t later=pc+1;later<span.second;++later)
                 for(auto& arg:fn.code[later].args)if(arg==redundant)arg=canonical;
             in.op=NirOp::Nop;in.dest.reset();in.args.clear();changed=true;
@@ -567,6 +705,22 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             if(it!=constants.end())constants[*in.dest]=it->second;
         }else if(in.op==NirOp::Load)loads[*in.dest]=in.text;
     }
+    // A backedge from AFTER a check into the protected body can bypass the
+    // guard that proved its bound. Dominance alone does not establish that
+    // the scalar still satisfies the guard after another loop iteration.
+    std::vector<std::pair<std::size_t,std::size_t>> backedges;
+    for(std::size_t edgePc=0;edgePc<fn.code.size();++edgePc){
+        const auto& edge=fn.code[edgePc];
+        if((edge.op==NirOp::Jump||edge.op==NirOp::JumpIfFalse)&&
+           edge.target<edgePc)
+            backedges.emplace_back(edgePc,edge.target);
+    }
+    const auto bypassesGuard=[&](std::size_t guard,std::size_t checkPc){
+        for(const auto& edge:backedges)
+            if(edge.first>checkPc&&edge.second>guard&&
+               edge.second<=checkPc)return true;
+        return false;
+    };
     bool changed=false;
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         auto& check=fn.code[pc];
@@ -597,7 +751,8 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                 continue;
             const bool proven=comparison.text=="<"?upper->second<=limit->second:
                 upper->second<limit->second;
-            if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]])continue;
+            if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]]||
+               bypassesGuard(guardPc,pc))continue;
             // The comparison can use a value loaded BEFORE the guard.
             // If x changes between that original load and the indexed load,
             // the guard no longer constrains the checked value. Starting at
@@ -646,7 +801,8 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                        lowerName->second!=indexName->second||
                        lowerConst==constants.end()||lowerConst->second!=0||
                        !signedIndexType(operandType(fn,lowerCompare.args[0]))||
-                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]])
+                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]]||
+                       bypassesGuard(lowerPc,pc))
                         continue;
                     const auto lowerLoad=g.definitions.find(lowerCompare.args[0]);
                     if(lowerLoad==g.definitions.end()||
@@ -681,7 +837,10 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     // Eliminate duplicate expressions before conventional DCE discards their
     // first (temporarily unused) producer. Pass order is observable here.
     if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
-       level==OptimizationLevel::Oz) localGvn(fn);
+       level==OptimizationLevel::Oz){
+        promoteLocalLoads(fn);
+        localGvn(fn);
+    }
     const int rounds = level == OptimizationLevel::O3 ? 3 :
                        level == OptimizationLevel::O2 ? 2 : 1;
     for (int r = 0; r < rounds; ++r) {

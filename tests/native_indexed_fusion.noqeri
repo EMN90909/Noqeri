@@ -1,0 +1,7 @@
+let values: [int; 4]
+values[0 as usize] = 10
+values[1 as usize] = 20
+values[2 as usize] = 30
+values[3 as usize] = 40
+let index: usize = 2 as usize
+print(values[index])
