@@ -5,6 +5,7 @@ on:
       - 'Compiler/**'
       - 'Include/noqeri/**'
       - 'tests/native_unsigned_arithmetic.noqeri'
+      - 'tests/native_indexed_fusion.noqeri'
       - 'tests/native_division_traps.py'
       - 'tests/native_bounds_*.noqeri'
       - '.github/workflows/native-typed-arithmetic.yml'
@@ -46,6 +47,15 @@ jobs:
       - name: Verify signed overflow and zero-divisor traps at O0 and O3
         shell: bash
         run: python3 tests/native_division_traps.py --compiler=build-typed/noqeri
+      - name: Qualify direct scaled indexed memory operand
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/native_indexed_fusion.noqeri build-typed/indexed-O0 --compiler=build-typed/noqeri --opt=-O0 --keep-asm
+          node scripts/native-build.mjs tests/native_indexed_fusion.noqeri build-typed/indexed-O3 --compiler=build-typed/noqeri --opt=-O3 --keep-asm
+          test "$(build-typed/indexed-O0)" = "30"
+          test "$(build-typed/indexed-O3)" = "30"
+          grep -Fq 'QWORD PTR [rax + r11*8]' build-typed/indexed-O0.s
       - name: Bounds proof and OOB trap preservation
         shell: bash
         run: |
