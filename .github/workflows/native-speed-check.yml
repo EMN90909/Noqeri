@@ -128,9 +128,70 @@ jobs:
             print('SCALE_RESULT '+json.dumps({'rounds':rounds,'medians_ms':{k:round(v['median_ms'],5) for k,v in readings.items()}}),flush=True)
           (out/'native-speed-scaling.json').write_text(json.dumps(result,indent=2)+'\n')
           PY
+      - name: Native arithmetic throughput with dependent checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib,statistics,subprocess,time
+          out=pathlib.Path('build-speed')
+          def run(cmd):
+            return subprocess.run(list(map(str,cmd)),check=True,capture_output=True,text=True).stdout.strip()
+          noq=r'''
+          let sum: int = 7
+          let i: usize = 0 as usize
+          while i < COUNT as usize {
+              sum = (sum * 48271 + ((i % 97 as usize) as int)) % 2147483647
+              i = i + 1 as usize
+          }
+          print(sum)
+          '''
+          c=r'''
+          #include <stdio.h>
+          #include <stdint.h>
+          int main(){
+            int64_t sum=7;
+            for(uint64_t i=0;i<COUNT;i++)sum=(sum*48271+(int64_t)(i%97))%2147483647;
+            printf("%lld\n",(long long)sum);
+          }
+          '''
+          go=r'''
+          package main
+          import "fmt"
+          func main(){
+            var sum int64=7
+            for i:=uint64(0);i<COUNT;i++{sum=(sum*48271+int64(i%97))%2147483647}
+            fmt.Println(sum)
+          }
+          '''
+          def measure(cmd,correct):
+            raw=[]
+            for i in range(-3,21):
+              a=time.perf_counter_ns();output=run([cmd]);ms=(time.perf_counter_ns()-a)/1e6
+              if output!=correct:raise ValueError('output mismatch: '+str(cmd)+' '+output+' != '+correct)
+              if i>=0:raw.append(ms)
+            return {'median_ms':statistics.median(raw),'p95_ms':sorted(raw)[19],'raw_ms':raw}
+          result={'model':'native-aot','benchmark':'dependent integer checksum, modulo in hot loop','warmups':3,'samples':21,'variants':[]}
+          for count in (100000,1000000,5000000):
+            nqsrc=out/f'checksum_{count}.noqeri';nqsrc.write_text(noq.replace('COUNT',str(count)))
+            csrc=out/f'checksum_{count}.c';csrc.write_text(c.replace('COUNT',str(count)))
+            gosrc=out/f'checksum_{count}.go';gosrc.write_text(go.replace('COUNT',str(count)))
+            nqb=out/f'checksum_{count}_noqeri';cb=out/f'checksum_{count}_c';gob=out/f'checksum_{count}_go'
+            run(['node','scripts/native-build.mjs',nqsrc,nqb,'--compiler=build-speed/noqeri','--opt=-O3'])
+            run(['gcc','-O3','-std=c11',csrc,'-o',cb]);run(['go','build','-o',gob,gosrc])
+            proof=json.loads(pathlib.Path(str(nqb)+'.native.json').read_text())
+            if proof.get('execution_model')!='native-aot' or proof.get('self_hosted_compiler')!=False:raise ValueError('invalid Noqeri provenance')
+            if hashlib.sha256(nqb.read_bytes()).hexdigest()!=proof['artifact_sha256']:raise ValueError('AOT executable changed unexpectedly')
+            correct=run([cb]);assert run([nqb])==correct==run([gob]),'compiler output mismatch'
+            readings={name:measure(binary,correct) for name,binary in [('noqeri',nqb),('c',cb),('go',gob)]}
+            result['variants'].append({'iterations':count,'expected':correct,'results':readings,'noqeri_provenance':proof})
+            print('CHECKSUM_RESULT '+json.dumps({'iterations':count,'output':correct,'median_ms':{k:round(v['median_ms'],5) for k,v in readings.items()}}),flush=True)
+          (out/'native-arithmetic-results.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: native-noqeri-benchmark-results
           path: |
             build-speed/native-speed-results.json
             build-speed/native-speed-scaling.json
+            build-speed/native-arithmetic-results.json
