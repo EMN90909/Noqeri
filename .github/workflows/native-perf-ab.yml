@@ -166,6 +166,45 @@ jobs:
           report.write_text(json.dumps(data,indent=2)+"\n")
           print("Dependent modulo A/B:",json.dumps(data["dependent_modulo"],indent=2))
           PY
+      - name: Compare deterministic reshuffled sorting (not already sorted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp candidate/Benchmarks/workloads/sorting_reshuffled.noqeri baseline/Benchmarks/workloads/sorting_reshuffled.noqeri
+          for revision in baseline candidate; do
+            (
+              cd "$revision"
+              node scripts/native-build.mjs Benchmarks/workloads/sorting_reshuffled.noqeri build/reshuffle-ab --compiler=build/noqeri --opt=-O3
+            )
+          done
+          python3 - <<'PY'
+          import json, statistics, subprocess, time
+          from pathlib import Path
+          report=Path("candidate/build/native-perf-ab.json")
+          data=json.loads(report.read_text())
+          paths={name:(Path(name)/"build/reshuffle-ab").resolve() for name in ("baseline","candidate")}
+          samples={name:[] for name in paths}
+          expected=b"13104300\n"
+          def run(name):
+              begin=time.perf_counter_ns()
+              done=subprocess.run([str(paths[name])],capture_output=True,check=True)
+              if done.stdout!=expected:
+                  raise AssertionError(f"{name} shuffled-sort checksum mismatch {done.stdout!r}")
+              return (time.perf_counter_ns()-begin)/1e6
+          for _ in range(3):
+              for name in paths:run(name)
+          for i in range(15):
+              for name in (("baseline","candidate") if i%2==0 else ("candidate","baseline")):
+                  samples[name].append(run(name))
+          med={name:statistics.median(values) for name,values in samples.items()}
+          data["reshuffled_sorting"]={"median_ms":med,"samples_ms":samples,
+                                     "speedup":med["baseline"]/med["candidate"],
+                                     "checksum":int(expected.strip()),"warmups":3}
+          report.write_text(json.dumps(data,indent=2)+"\n")
+          print("Seeded reshuffled sorting:",json.dumps(data["reshuffled_sorting"],indent=2))
+          if med["candidate"]>med["baseline"]*1.2:
+              raise SystemExit("Shuffled sorting regressed by more than 20%")
+          PY
       - name: Upload raw measurements
         uses: actions/upload-artifact@v4
         with:
