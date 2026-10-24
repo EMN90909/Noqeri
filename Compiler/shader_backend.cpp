@@ -1,4 +1,5 @@
 #include "shader_backend.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -17,7 +18,7 @@ namespace {
 
 // Noqeri currently calls its IEEE floating point type "float". The shader
 // profile intentionally narrows it to WebGPU f32 and documents this ABI.
-enum class Scalar { U32, F32, Bool };
+enum class Scalar { U32, F32, Bool, Vec2, Vec3, Vec4 };
 struct Value { std::string code; Scalar kind; };
 struct Symbol { std::string target; Scalar kind; };
 using Scope = std::unordered_map<std::string, Symbol>;
@@ -26,6 +27,9 @@ std::optional<Scalar> scalarType(const std::string& name) {
     if(name=="u32")return Scalar::U32;
     if(name=="float")return Scalar::F32;
     if(name=="bool")return Scalar::Bool;
+    if(name=="vec2")return Scalar::Vec2;
+    if(name=="vec3")return Scalar::Vec3;
+    if(name=="vec4")return Scalar::Vec4;
     return std::nullopt;
 }
 const char* wgslType(Scalar kind) {
@@ -33,8 +37,22 @@ const char* wgslType(Scalar kind) {
         case Scalar::U32:return "u32";
         case Scalar::F32:return "f32";
         case Scalar::Bool:return "bool";
+        case Scalar::Vec2:return "vec2<f32>";
+        case Scalar::Vec3:return "vec3<f32>";
+        case Scalar::Vec4:return "vec4<f32>";
     }
     return "void";
+}
+unsigned vectorWidth(Scalar t) {
+    switch(t) {
+        case Scalar::Vec2:return 2;
+        case Scalar::Vec3:return 3;
+        case Scalar::Vec4:return 4;
+        default:return 0;
+    }
+}
+Scalar vectorOf(unsigned size) {
+    return size==2 ? Scalar::Vec2 : size==3 ? Scalar::Vec3 : Scalar::Vec4;
 }
 bool shaderError(Diagnostics& d, Span span, const std::string& message) {
     d.error("NQR-GPU100",span,message);
@@ -70,7 +88,8 @@ std::optional<std::string> f32Literal(double value) {
 // as WGSL identifiers. This prevents keyword clashes and code injection.
 class ShaderEmitter {
 public:
-    ShaderEmitter(Diagnostics& d,Scalar result):d_(d),returnType_(result) {}
+    ShaderEmitter(Diagnostics& d,Scalar result,std::string stage):d_(d),returnType_(result),stage_(std::move(stage)) {}
+    bool requiresTexture()const{return textured_;}
     bool parameter(const Parameter& p,std::size_t index,Scalar kind) {
         if(!p.annotation||scalarType(*p.annotation)!=kind)
             return shaderError(d_,p.span,"shader parameter has an unsupported or mismatched type");
@@ -96,10 +115,10 @@ public:
             if(auto local=std::dynamic_pointer_cast<LetStmt>(stmt)) {
                 if(!local->annotation||!local->initializer||local->partition||local->zeroInitialized)
                     return shaderError(d_,stmt->span,
-                         "shader locals require a scalar type and an initializer");
+                         "shader locals require a supported typed initializer");
                 auto type=scalarType(*local->annotation);
                 if(!type)return shaderError(d_,stmt->span,
-                         "shader local type must be u32, float or bool");
+                         "shader local type must be u32, float, bool, vec2, vec3 or vec4");
                 auto expression=expr(local->initializer);
                 if(!expression||expression->kind!=*type)
                     return shaderError(d_,stmt->span,"shader local initializer type mismatch");
@@ -151,7 +170,7 @@ public:
                 continue;
             }
             return shaderError(d_,stmt->span,
-                "shader supports only scalar locals, pure if/else and returns; no loops, writes or host calls");
+                "shader supports typed locals, pure if/else and returns; no loops, writes or host calls");
         }
         return true;
     }
@@ -208,10 +227,75 @@ private:
             shaderError(d_,name->span,"shader cannot reference host globals or unknown names");
             return std::nullopt;
         }
+        if(auto member=std::dynamic_pointer_cast<MemberExpr>(value)){
+            auto object=expr(member->object,depth+1);
+            if(!object)return std::nullopt;
+            const unsigned width=vectorWidth(object->kind);
+            if(!width||member->member.empty()||member->member.size()>4){
+                shaderError(d_,member->span,"shader member access requires a vector swizzle of 1..4 components");
+                return std::nullopt;
+            }
+            for(char component:member->member){
+                const auto position=std::string("xyzw").find(component);
+                if(position==std::string::npos||position>=width){
+                    shaderError(d_,member->span,"shader vector swizzle component is out of bounds");
+                    return std::nullopt;
+                }
+            }
+            const auto n=static_cast<unsigned>(member->member.size());
+            return Value{"("+object->code+")."+member->member,n==1?Scalar::F32:vectorOf(n)};
+        }
+        if(auto call=std::dynamic_pointer_cast<CallExpr>(value)){
+            auto name=std::dynamic_pointer_cast<NameExpr>(call->callee);
+            if(!name){
+                shaderError(d_,call->span,"shader calls must target an allowed builtin");
+                return std::nullopt;
+            }
+            const std::string& method=name->name;
+            std::vector<Value> args;
+            for(const auto& a:call->args){
+                auto item=expr(a,depth+1);
+                if(!item)return std::nullopt;
+                args.push_back(*item);
+            }
+            std::string joined;
+            for(const auto& item:args){if(!joined.empty())joined+=", ";joined+=item.code;}
+            if(method=="vec2"||method=="vec3"||method=="vec4"){
+                const unsigned width=static_cast<unsigned>(method[3]-'0');
+                if((args.size()!=width&&args.size()!=1)||
+                    !std::all_of(args.begin(),args.end(),[](const Value& a){return a.kind==Scalar::F32;})){
+                    shaderError(d_,call->span,"vector constructor needs one float or exactly N float components");
+                    return std::nullopt;
+                }
+                return Value{std::string(wgslType(vectorOf(width)))+"("+joined+")",vectorOf(width)};
+            }
+            if(method=="dot" && args.size()==2 && args[0].kind==args[1].kind &&
+                vectorWidth(args[0].kind))
+                return Value{"dot("+joined+")",Scalar::F32};
+            if((method=="normalize"||method=="length") && args.size()==1 &&
+                vectorWidth(args[0].kind))
+                return Value{method+"("+joined+")",method=="length"?Scalar::F32:args[0].kind};
+            if(method=="clamp"&&args.size()==3&&args[0].kind==args[1].kind&&
+                args[1].kind==args[2].kind&&
+                (args[0].kind==Scalar::F32||vectorWidth(args[0].kind)))
+                return Value{"clamp("+joined+")",args[0].kind};
+            if((method=="sampleTexture"||method=="textureSize")&&stage_=="fragment"&&
+                ((method=="sampleTexture"&&args.size()==1&&args[0].kind==Scalar::Vec2)||
+                 (method=="textureSize"&&args.empty()))){
+                textured_=true;
+                if(method=="textureSize")
+                    return Value{"vec2<f32>(textureDimensions(nq_texture))",Scalar::Vec2};
+                // Explicit LOD is legal even in non-uniform control flow.
+                return Value{"textureSampleLevel(nq_texture, nq_sampler, "+args[0].code+", 0.0)",Scalar::Vec4};
+            }
+            shaderError(d_,call->span,"unknown shader builtin or mismatched argument types");
+            return std::nullopt;
+        }
         if(auto cast=std::dynamic_pointer_cast<CastExpr>(value)){
             auto target=scalarType(cast->typeName);
             auto inside=expr(cast->value,depth+1);
-            if(!target||!inside||*target==Scalar::Bool||inside->kind==Scalar::Bool){
+            if(!target||!inside||(*target!=Scalar::U32&&*target!=Scalar::F32)||
+               (inside->kind!=Scalar::U32&&inside->kind!=Scalar::F32)){
                 shaderError(d_,cast->span,"shader casts only support u32 and float");
                 return std::nullopt;
             }
@@ -223,7 +307,8 @@ private:
             if(unary->op==TokenKind::Bang&&operand->kind==Scalar::Bool)
                 return Value{"(!"+operand->code+")",Scalar::Bool};
             if(unary->op==TokenKind::Plus&&operand->kind!=Scalar::Bool)return operand;
-            if(unary->op==TokenKind::Minus&&operand->kind==Scalar::F32)
+            if(unary->op==TokenKind::Minus&&
+               (operand->kind==Scalar::F32||vectorWidth(operand->kind)))
                 return Value{"(-"+operand->code+")",Scalar::F32};
             shaderError(d_,unary->span,"unary shader operator incompatible with scalar type");
             return std::nullopt;
@@ -263,6 +348,14 @@ private:
                 shaderError(d_,binary->span,"unsupported WGSL shader operator");
                 return std::nullopt;
             }
+            const bool isVector=vectorWidth(left->kind)!=0;
+            const bool vectorMath=binary->op==TokenKind::Plus||
+                binary->op==TokenKind::Minus||binary->op==TokenKind::Star||
+                binary->op==TokenKind::Slash;
+            if(isVector&&!vectorMath){
+                shaderError(d_,binary->span,"vectors support only component-wise + - * /");
+                return std::nullopt;
+            }
             const bool logical=binary->op==TokenKind::AndAnd||binary->op==TokenKind::OrOr;
             const bool equality=binary->op==TokenKind::EqualEqual||binary->op==TokenKind::BangEqual;
             if((logical&&left->kind!=Scalar::Bool) ||
@@ -288,6 +381,8 @@ private:
     }
     Diagnostics& d_;
     Scalar returnType_;
+    std::string stage_;
+    bool textured_=false;
     std::vector<Scope> scopes_{Scope{}};
     std::ostringstream body_;
     std::size_t statements_=0,expressions_=0,locals_=0;
@@ -319,11 +414,21 @@ bool ShaderBackend::emitWgsl(const Program& program,
             "expected export function shade(value: u32|float): u32|float "
             "or shade(x: u32|float, y: u32|float): u32|float");
     auto resultType=scalarType(*shader->returnType);
-    if(!resultType||*resultType==Scalar::Bool)
-        return shaderError(diagnostics,shader->span,"shader must return u32 or float");
-    ShaderEmitter emitter(diagnostics,*resultType);
-    for(std::size_t i=0;i<shader->params.size();++i)
-        if(!emitter.parameter(shader->params[i],i,*resultType))return false;
+    if(!resultType||*resultType==Scalar::Bool||
+       (stage=="fragment"&&*resultType!=Scalar::U32&&
+        *resultType!=Scalar::F32&&*resultType!=Scalar::Vec4))
+        return shaderError(diagnostics,shader->span,"shader has an unsupported stage result type");
+    if(stage=="fragment"&&*resultType==Scalar::Vec4) {
+        for(const auto& p:shader->params)
+            if(!p.annotation||*p.annotation!="float")
+                return shaderError(diagnostics,p.span,"RGBA fragment shaders require x: float, y: float");
+    }
+    ShaderEmitter emitter(diagnostics,*resultType,stage);
+    for(std::size_t i=0;i<shader->params.size();++i) {
+        const Scalar paramType=(stage=="fragment"&&*resultType==Scalar::Vec4)?
+            Scalar::F32:*resultType;
+        if(!emitter.parameter(shader->params[i],i,paramType))return false;
+    }
     bool returns=false;
     if(!emitter.statements(shader->body->statements,1,returns)||!returns)
         return shaderError(diagnostics,shader->span,
@@ -332,6 +437,9 @@ bool ShaderBackend::emitWgsl(const Program& program,
 
     std::ostringstream wgsl;
     wgsl<<"// Generated from typechecked Noqeri source; pure bounded shader profile.\n";
+    if(emitter.requiresTexture())
+        wgsl<<"@group(0) @binding(0) var nq_texture: texture_2d<f32>;\n"
+            <<"@group(0) @binding(1) var nq_sampler: sampler;\n";
     wgsl<<"fn noqeri_shade("<<emitter.parameters(*shader)<<") -> "<<wgslType(*resultType)<<" {\n"
         <<emitter.result()<<"}\n";
     if(stage=="compute"){
@@ -343,6 +451,11 @@ bool ShaderBackend::emitWgsl(const Program& program,
             <<"  let i = id.x;\n"
             <<"  if (i >= arrayLength(&input_pixels) || i >= arrayLength(&output_pixels)) { return; }\n"
             <<"  output_pixels[i] = noqeri_shade(input_pixels[i]);\n"
+            <<"}\n";
+    }else if(*resultType==Scalar::Vec4){
+        wgsl<<"@fragment\n"
+            <<"fn main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {\n"
+            <<"  return clamp(noqeri_shade(position.x, position.y), vec4<f32>(0.0), vec4<f32>(1.0));\n"
             <<"}\n";
     }else if(*resultType==Scalar::U32){
         wgsl<<"@fragment\n"
