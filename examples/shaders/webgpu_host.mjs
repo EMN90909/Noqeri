@@ -350,7 +350,7 @@ export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, posit
  * renderer so the depth surface cannot silently mismatch the canvas.
  */
 export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgsl,
-                                                  suppliedGpu = null, maxVertices = 4095) {
+                                                  suppliedGpu = null, maxVertices = 4095, options = {}) {
   if(!canvas?.getContext || !Number.isSafeInteger(canvas.width) ||
      !Number.isSafeInteger(canvas.height) ||
      canvas.width<1 || canvas.height<1 || canvas.width>4096 || canvas.height>4096)
@@ -362,10 +362,19 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
      !vertexWgsl.includes('@builtin(position)')||
      typeof fragmentWgsl!=='string'||!fragmentWgsl.includes('@fragment'))
     throw new TypeError('3D renderer requires Noqeri vertex and fragment WGSL.')
+  if(!options || typeof options!=='object' || Array.isArray(options))
+    throw new TypeError('3D renderer options must be an object.')
+  const sampleCount=options.sampleCount ?? 1
+  if(sampleCount!==1 && sampleCount!==4)
+    throw new RangeError('3D multisample count must be 1 or 4.')
   let width=canvas.width,height=canvas.height
+  // 4x sampling doubles attachment allocations and increases transient GPU
+  // memory significantly; never allocate an unrestricted MSAA framebuffer.
+  if(sampleCount===4 && width*height>2073600)
+    throw new RangeError('4x MSAA is limited to 1920x1080 pixels.')
   const gpu=requireGpu(suppliedGpu)
   const device=await getDevice(gpu)
-  let context,configured=false,vertexBuffer,depthTexture,disposed=false,busy=false
+  let context,configured=false,vertexBuffer,depthTexture,msaaColor,disposed=false,busy=false
   let submittedSinceFence=0
   let lossMessage=null
   if(device.lost && typeof device.lost.then==='function'){
@@ -383,6 +392,7 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
     disposed=true
     if(configured){context.unconfigure();configured=false}
     depthTexture?.destroy()
+    msaaColor?.destroy()
     vertexBuffer?.destroy()
     device.destroy()
   }
@@ -408,15 +418,21 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
       }]},
       fragment:{module:fragment,entryPoint:'main',targets:[{format}]},
       primitive:{topology:'triangle-list',cullMode:'none'},
+      multisample:{count:sampleCount},
       depthStencil:{format:'depth24plus',depthWriteEnabled:true,depthCompare:'less'}
     })
     vertexBuffer=device.createBuffer({
       size:maxVertices*16,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST
     })
     depthTexture=device.createTexture({
-      size:[width,height,1],format:'depth24plus',
+      size:[width,height,1],format:'depth24plus',sampleCount,
       usage:GPUTextureUsage.RENDER_ATTACHMENT
     })
+    if(sampleCount===4)
+      msaaColor=device.createTexture({
+        size:[width,height,1],format,sampleCount,
+        usage:GPUTextureUsage.RENDER_ATTACHMENT
+      })
     async function drawFrame(input,fast){
         if(lossMessage)throw new Error(lossMessage)
         if(disposed)throw new Error('3D renderer is disposed.')
@@ -430,12 +446,15 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
         try{
           device.queue.writeBuffer(vertexBuffer,0,vertices)
           const encoder=device.createCommandEncoder()
+          const swapView=context.getCurrentTexture().createView()
+          const colorAttachment={
+            view:msaaColor ? msaaColor.createView() : swapView,
+            clearValue:{r:0.05,g:0.05,b:0.07,a:1},
+            loadOp:'clear',storeOp:'store'
+          }
+          if(msaaColor)colorAttachment.resolveTarget=swapView
           const pass=encoder.beginRenderPass({
-            colorAttachments:[{
-              view:context.getCurrentTexture().createView(),
-              clearValue:{r:0.05,g:0.05,b:0.07,a:1},
-              loadOp:'clear',storeOp:'store'
-            }],
+            colorAttachments:[colorAttachment],
             depthStencilAttachment:{
               view:depthTexture.createView(),
               depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'
@@ -485,19 +504,32 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
           throw new RangeError('3D resize dimensions exceed supported device limits.')
         if(canvas.width!==newWidth||canvas.height!==newHeight)
           throw new Error('Resize the canvas backing dimensions before the renderer.')
+        if(sampleCount===4 && newWidth*newHeight>2073600)
+          throw new RangeError('4x MSAA is limited to 1920x1080 pixels.')
         if(newWidth===width&&newHeight===height)return
-        let next
+        let nextDepth, nextColor
         try{
-          next=device.createTexture({
-            size:[newWidth,newHeight,1],format:'depth24plus',
+          nextDepth=device.createTexture({
+            size:[newWidth,newHeight,1],format:'depth24plus',sampleCount,
             usage:GPUTextureUsage.RENDER_ATTACHMENT
           })
-        }catch(error){ throw new Error('Could not allocate resized 3D depth attachment: '+String(error)) }
-        const previous=depthTexture
-        depthTexture=next
+          if(sampleCount===4)
+            nextColor=device.createTexture({
+              size:[newWidth,newHeight,1],format,sampleCount,
+              usage:GPUTextureUsage.RENDER_ATTACHMENT
+            })
+        }catch(error){
+          nextDepth?.destroy()
+          nextColor?.destroy()
+          throw new Error('Could not allocate resized 3D attachments: '+String(error))
+        }
+        const previousDepth=depthTexture,previousColor=msaaColor
+        depthTexture=nextDepth
+        msaaColor=nextColor
         width=newWidth
         height=newHeight
-        previous.destroy()
+        previousDepth.destroy()
+        previousColor?.destroy()
       },
       render(input){return drawFrame(input,false)},
       // Low-latency mode: batch up to three submitted frames per GPU fence.
