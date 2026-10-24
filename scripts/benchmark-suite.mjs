@@ -75,6 +75,7 @@ const commandsPath = resolve(root, arg('commands', 'Benchmarks/commands.json'))
 const outputPath = resolve(root, arg('output', 'build/benchmarks/latest.json'))
 const timeout = Math.max(100, Number(arg('timeout', '120000')))
 const only = new Set(arg('only', '').split(',').filter(Boolean))
+const required = new Set(arg('require-workloads', '').split(',').filter(Boolean))
 const suite = readJson(suitePath)
 if (!existsSync(commandsPath)) {
   console.error(`benchmark-suite: ${commandsPath} is missing. Copy Benchmarks/commands.example.json and point commands only at equivalent workload implementations.`)
@@ -234,6 +235,13 @@ for (const workload of suite.workloads || []) {
   }
 }
 
+// Report mode tolerates missing commands, but a release gate cannot.
+for (const id of required) {
+  if (!results.some(result => result.id === id && result.evidence === 'measured-local')) {
+    failures.push(failResult('coverage', id, null, `required benchmark ${id} was not measured`, 'coverage'))
+  }
+}
+
 const report = {
   schema: 3,
   generated_at: new Date().toISOString(),
@@ -251,7 +259,7 @@ const report = {
     safety_mode: process.env.NOQERI_SAFETY_MODE || 'default',
     checked_overflow: process.env.NOQERI_CHECKED_OVERFLOW === '1'
   },
-  policy: { warmups, samples, timeout_ms: timeout, noqeri_runtime_requires: 'native-aot' },
+  policy: { warmups, samples, timeout_ms: timeout, noqeri_runtime_requires: 'native-aot', required_workloads: [...required] },
   results,
   failures
 }

@@ -188,6 +188,21 @@ bool safeInlineAsm(const std::string& text){if(text.empty())return false;if(text
 bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns,const std::map<std::string,std::string>&strings,Diagnostics&diagnostics){
     if(fn.isExtern)return true;
     auto l=layoutFor(fn,returns);const char*args[]={"rdi","rsi","rdx","rcx","r8","r9"};
+    // Physically allocate NIR registers while reserving volatile rax/r10/r11
+    // for instruction lowering. Disable allocation around unmodelled inline-asm
+    // clobbers, until inline-asm constraints are implemented.
+    std::unordered_map<Reg,std::string> physical;
+    std::vector<std::string> saved;
+    const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
+        [](const NirInstruction& i){return i.op==NirOp::InlineAsm;});
+    if(!hasInlineAsm){
+        const auto plan=LinearScanRegisterAllocator{}.allocate(fn,{"r12","r13","r14","r15"});
+        for(const auto& loc:plan.locations)
+            if(!loc.spilled&&!loc.physical.empty())physical.emplace(loc.value,loc.physical);
+        for(const auto* reg:{"r12","r13","r14","r15"})
+            if(std::any_of(physical.begin(),physical.end(),
+                [&](const auto& entry){return entry.second==reg;}))saved.emplace_back(reg);
+    }
     if(fn.params.size()>6){diagnostics.error("NQR-N5004",{},"Noqeri x86-64 calling convention currently supports at most 6 parameters");return false;}
     std::string symbol=fn.isExport?safe(fn.name):internalSymbol(fn.name);
     if(fn.isExport)out<<"\n.global "<<symbol<<"\n";
@@ -203,10 +218,30 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             fixedStorage[pc]=frameBytes;
         }
     }
-    std::size_t frame=align16(frameBytes);
+    // Saved register slots follow all fixed objects without shifting the
+    // rbp-relative locations of address-taken variables or slices.
+    const std::size_t saveBase=align16(frameBytes);
+    const std::size_t frame=align16(saveBase+8*saved.size());
+    const auto savedSlot=[&](std::size_t n){
+        return "QWORD PTR [rbp-"+std::to_string(saveBase+8*(n+1))+"]";
+    };
     out<<"\n"<<symbol<<":\n    push rbp\n    mov rbp, rsp\n";if(frame)out<<"    sub rsp, "<<frame<<"\n";
+    for(std::size_t n=0;n<saved.size();++n)out<<"    mov "<<savedSlot(n)<<", "<<saved[n]<<"\n";
+    const auto restoreSaved=[&](){
+        for(std::size_t n=saved.size();n-->0;)
+            out<<"    mov "<<saved[n]<<", "<<savedSlot(n)<<"\n";
+    };
     for(std::size_t i=0;i<fn.params.size();++i)out<<"    mov "<<varSlot(fn,l,fn.params[i])<<", "<<args[i]<<"\n";
-    auto load=[&](Reg r,const char*cpu){out<<"    mov "<<cpu<<", "<<regSlot(r)<<"\n";};auto store=[&](Reg r,const char*cpu){out<<"    mov "<<regSlot(r)<<", "<<cpu<<"\n";};
+    const auto load=[&](Reg r,const char*cpu){
+        auto it=physical.find(r);
+        const std::string source=it==physical.end()?regSlot(r):it->second;
+        if(source!=cpu)out<<"    mov "<<cpu<<", "<<source<<"\n";
+    };
+    const auto store=[&](Reg r,const char*cpu){
+        auto it=physical.find(r);
+        const std::string target=it==physical.end()?regSlot(r):it->second;
+        if(target!=cpu)out<<"    mov "<<target<<", "<<cpu<<"\n";
+    };
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];out<<pcLabel(fn,pc)<<":\n";switch(i.op){
         case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<varSlot(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
@@ -214,7 +249,12 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitLoadWidth(out,i.width);store(*i.dest,"rax");}break;
         case NirOp::StoreMemory:if(i.args.size()==2){load(i.args[0],"rax");load(i.args[1],"r10");emitStoreWidth(out,i.width);}break;
-        case NirOp::PtrOffset:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width!=1)out<<"    imul r10, "<<i.width<<"\n";out<<"    add rax, r10\n";}else if(i.target)out<<"    add rax, "<<i.target<<"\n";store(*i.dest,"rax");}break;
+        case NirOp::PtrOffset:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
+                        out<<"    lea rax, [rax + r10*"<<i.width<<"]\n";
+                    else{
+                        out<<"    imul r10, "<<i.width<<"\n";
+                        out<<"    add rax, r10\n";
+                    }}else if(i.target)out<<"    add rax, "<<i.target<<"\n";store(*i.dest,"rax");}break;
         case NirOp::StackAlloc:if(i.dest){if(pc>=fixedStorage.size()||fixedStorage[pc]==0){diagnostics.error("NQR-N5024",{},"internal native stack-allocation layout error");return false;}out<<"    lea rax, [rbp-"<<fixedStorage[pc]<<"]\n";store(*i.dest,"rax");}break;
         case NirOp::MakeSlice:if(i.dest&&i.args.size()==2){if(pc>=fixedStorage.size()||fixedStorage[pc]<16){diagnostics.error("NQR-N5025",{},"internal native slice layout error");return false;}out<<"    lea r11, [rbp-"<<fixedStorage[pc]<<"]\n";load(i.args[0],"rax");out<<"    mov QWORD PTR [r11], rax\n";load(i.args[1],"rax");out<<"    mov QWORD PTR [r11+8], rax\n    mov rax, r11\n";store(*i.dest,"rax");}break;
         case NirOp::SliceData:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax]\n";store(*i.dest,"rax");}break;
@@ -243,15 +283,15 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::AtomicFence:out<<"    mfence\n";break;
         case NirOp::Intrinsic:{if(i.text=="x86.pause")out<<"    pause\n    xor eax, eax\n";else if(i.text=="x86.rdtsc")out<<"    rdtsc\n    shl rdx, 32\n    or rax, rdx\n";else if(i.text=="x86.halt")out<<"    hlt\n    xor eax, eax\n";else if(i.text=="compiler.fence")out<<"    mfence\n    xor eax, eax\n";else{diagnostics.error("NQR-N5020",{},"unsupported native intrinsic '"+i.text+"'");return false;}if(i.dest)store(*i.dest,"rax");break;}
         case NirOp::InlineAsm:if(!safeInlineAsm(i.text)){diagnostics.error("NQR-N5021",{},"inline asm must be one instruction and may not contain labels or assembler directives");return false;}out<<"    "<<i.text<<"\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}break;
-        case NirOp::Try:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");auto ok=localLabel(fn,pc,"try_ok");out<<"    test rax, rax\n    jns "<<ok<<"\n    leave\n    ret\n"<<ok<<":\n";store(*i.dest,"rax");}break;
-        case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n    leave\n    ret\n";}break;
+        case NirOp::Try:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");auto ok=localLabel(fn,pc,"try_ok");out<<"    test rax, rax\n    jns "<<ok<<"\n";restoreSaved();out<<"    leave\n    ret\n"<<ok<<":\n";store(*i.dest,"rax");}break;
+        case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n";restoreSaved();out<<"    leave\n    ret\n";}break;
         case NirOp::Cast:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitCast(out,i.text);store(*i.dest,"rax");}break;
         case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-")out<<"    neg rax\n";else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;
         case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}load(i.args[0],"rax");load(i.args[1],"r10");if(i.text=="+")out<<"    add rax, r10\n";else if(i.text=="-")out<<"    sub rax, r10\n";else if(i.text=="*")out<<"    imul rax, r10\n";else if(i.text=="/"||i.text=="%"){out<<"    cqo\n    idiv r10\n";if(i.text=="%")out<<"    mov rax, rdx\n";}else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<"    setl al\n";else if(i.text=="<=")out<<"    setle al\n";else if(i.text==">")out<<"    setg al\n";else if(i.text==">=")out<<"    setge al\n";else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}store(*i.dest,"rax");break;}
         case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float printing is not implemented yet");return false;}else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
-        case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";out<<"    leave\n    ret\n";break;
+        case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
         case NirOp::Nop:break;
     }}return true;
 }

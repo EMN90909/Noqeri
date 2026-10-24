@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, basename, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,7 +52,7 @@ function version(command) {
 
 const positional = process.argv.slice(2).filter(arg => !arg.startsWith('--'))
 if (positional.length !== 2) {
-  fail('usage: node scripts/native-build.mjs <source.noqeri> <output> [--compiler=build/noqeri] [--cxx=c++] [--opt=-O3]')
+  fail('usage: node scripts/native-build.mjs <source.noqeri> <output> [--compiler=build/noqeri] [--cxx=c++] [--opt=-O3] [--keep-asm]')
 }
 if (process.platform !== 'linux' || process.arch !== 'x64') {
   fail('qualified native AOT builds currently require Linux x86-64; other targets must not be labelled native-qualified yet')
@@ -64,6 +64,7 @@ const compiler = option('compiler', process.env.NOQERI_COMPILER || 'build/noqeri
 const compilerPath = compiler.includes('/') || compiler.includes('\\') ? resolve(root, compiler) : compiler
 const cxx = option('cxx', process.env.CXX || 'c++')
 const optimization = option('opt', '-O3')
+const keepAsm = process.argv.includes('--keep-asm')
 
 if (!existsSync(source)) fail(`source does not exist: ${relative(root, source)}`)
 if (!source.endsWith('.noqeri')) fail('source must use the .noqeri extension')
@@ -98,6 +99,7 @@ try {
 
   if (!existsSync(output) || statSync(output).size === 0) fail('native executable was not produced')
   chmodSync(output, 0o755)
+  if (keepAsm) copyFileSync(assembly, `${output}.s`)
 
   const provenance = {
     schema: 1,
@@ -110,6 +112,7 @@ try {
     artifact_sha256: sha256File(output),
     artifact_bytes: statSync(output).size,
     assembly_sha256: sha256File(assembly),
+    assembly_artifact: keepAsm ? relative(root, `${output}.s`) : null,
     compiler: compiler,
     compiler_version: version(compilerPath),
     compiler_sha256: existsSync(compilerPath) ? sha256File(compilerPath) : null,

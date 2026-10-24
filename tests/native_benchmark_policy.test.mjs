@@ -75,3 +75,23 @@ test('compiler timing is explicitly separated from runtime timing', () => {
   assert.equal(noqeri.compilation?.execution_model, 'compiler-stage0')
   assert.ok(noqeri.compilation?.command?.includes('check'))
 })
+
+test('strict benchmark coverage rejects an unmeasured required workload', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'noqeri-required-workload-'))
+  try {
+    const commandsPath = join(temp, 'commands.json')
+    const reportPath = join(temp, 'report.json')
+    writeFileSync(commandsPath, JSON.stringify({ schema: 2, implementations: {} }))
+    const result = spawnSync(process.execPath, [
+      'scripts/benchmark-suite.mjs', `--root=${root}`,
+      `--commands=${commandsPath}`, `--output=${reportPath}`,
+      '--only=startup', '--require-workloads=noqeri:startup'
+    ], { cwd: root, encoding: 'utf8' })
+    assert.equal(result.status, 1)
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'))
+    assert.ok(report.failures.some(row => row.phase === 'coverage' &&
+      row.reason.includes('noqeri:startup')))
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
+  }
+})
