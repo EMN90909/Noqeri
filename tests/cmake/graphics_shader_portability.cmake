@@ -6,16 +6,7 @@ if(NOT DEFINED NOQERI_COMPILER OR NOT DEFINED SOURCE_ROOT OR NOT DEFINED OUTPUT_
 endif()
 set(out_dir "${OUTPUT_ROOT}/noqeri-cross-platform-wgsl")
 file(MAKE_DIRECTORY "${out_dir}")
-foreach(fixture IN ITEMS "color_gradient;fragment;@fragment"
-                         "invert_compute;compute;@compute"
-                         "vertex3d;vertex;@vertex"
-                         "vector_lighting_fragment;fragment;cross(")
- # Delimit manually because cmake loops semicolon-separated values.
- string(REPLACE ";" "|" joined "${fixture}")
- string(REPLACE "|" ";" fields "${joined}")
- list(GET fields 0 name)
- list(GET fields 1 stage)
- list(GET fields 2 expected)
+function(check_shader name stage expected)
  set(input "${SOURCE_ROOT}/examples/shaders/${name}.noqeri")
  set(output "${out_dir}/${name}.wgsl")
  execute_process(
@@ -29,7 +20,8 @@ foreach(fixture IN ITEMS "color_gradient;fragment;@fragment"
  if(index EQUAL -1)
   message(FATAL_ERROR "${name} shader missing expected WGSL stage/intrinsic")
  endif()
- if(NOT first MATCHES "fn noqeri_shade\\(")
+ string(FIND "${first}" "fn noqeri_shade(" function_index)
+ if(function_index EQUAL -1)
   message(FATAL_ERROR "${name} shader missing typed Noqeri function")
  endif()
  execute_process(
@@ -43,7 +35,11 @@ foreach(fixture IN ITEMS "color_gradient;fragment;@fragment"
   message(FATAL_ERROR "${name} shader generation nondeterministic")
  endif()
  message(STATUS "Noqeri portable WGSL: PASS ${name} (${stage})")
-endforeach()
+endfunction()
+check_shader(color_gradient fragment "@fragment")
+check_shader(invert_compute compute "@compute")
+check_shader(vertex3d vertex "@vertex")
+check_shader(vector_lighting_fragment fragment "cross(")
 set(bad "${out_dir}/reject.noqeri")
 set(output "${out_dir}/retain.wgsl")
 file(WRITE "${bad}" "export function shade(value: vec4): vec4 { return sampleTexture(value.xy) }\n")
