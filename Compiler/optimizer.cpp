@@ -1119,6 +1119,132 @@ bool lowerStraightDiamondPhi(NirFunction& fn){
     }
     return false;
 }
+// Executable loop-carried scalar Phi for a single canonical loop. Entry
+// fallthrough initializes the Phi; its only backedge updates the Phi and
+// jumps PAST initialization. More complex CFGs stay in named-local memory.
+bool lowerSingleLoopPhi(NirFunction& fn){
+    const auto n=fn.code.size();
+    if(n<7||n>8192)return false;
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    std::size_t back=n;
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Try||in.op==NirOp::Throw||
+           in.op==NirOp::InlineAsm)return false;
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+           in.target<pc){
+            if(in.op!=NirOp::Jump||back!=n)return false;
+            back=pc;
+        }
+    }
+    if(back==n)return false;
+    const auto header=fn.code[back].target;
+    if(!header||header>=back||back+1>=n)return false;
+    const auto& init=fn.code[header-1];
+    const auto& load=fn.code[header];
+    const auto& update=fn.code[back-1];
+    if(init.op!=NirOp::Store||load.op!=NirOp::Load||
+       update.op!=NirOp::Store||!load.dest||load.isVolatile||
+       init.isVolatile||update.isVolatile||
+       init.text.empty()||init.text!=load.text||
+       update.text!=load.text||init.args.size()!=1||
+       update.args.size()!=1)return false;
+    const auto headBlock=g.owner[header];
+    if(g.spans[headBlock].first!=header||
+       g.preds[headBlock].size()!=2)return false;
+    bool preheader=false,backedge=false;
+    for(const auto p:g.preds[headBlock]){
+        const auto tail=g.spans[p].second-1;
+        if(tail==header-1)preheader=true;
+        else if(tail==back)backedge=true;
+        else return false;
+    }
+    if(!preheader||!backedge)return false;
+    const auto kind=operandType(fn,*load.dest);
+    const char* cast=nullptr;
+    switch(kind){
+        case TypeKind::Int:cast="int";break;
+        case TypeKind::I64:cast="i64";break;
+        case TypeKind::U64:cast="u64";break;
+        case TypeKind::Usize:cast="usize";break;
+        case TypeKind::Isize:cast="isize";break;
+        case TypeKind::Bool:cast="bool";break;
+        default:return false;
+    }
+    if(operandType(fn,init.args[0])!=kind||
+       operandType(fn,update.args[0])!=kind)return false;
+    const auto id=g.definitions.find(init.args[0]);
+    const auto ud=g.definitions.find(update.args[0]);
+    if(id==g.definitions.end()||id->second>=header||
+       ud==g.definitions.end()||ud->second>=back)return false;
+    std::size_t guards=0,stores=0;
+    for(std::size_t pc=header;pc<back;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Store&&in.text==load.text){
+            if(pc!=back-1)return false;
+            ++stores;
+        }
+        if(in.op==NirOp::JumpIfFalse){
+            if(in.target!=back+1||in.args.size()!=1)return false;
+            ++guards;
+        }else if(in.op==NirOp::Jump||in.op==NirOp::Return||
+                 in.op==NirOp::Call||in.op==NirOp::Intrinsic||
+                 in.op==NirOp::StoreMemory||in.op==NirOp::AtomicStore||
+                 in.op==NirOp::AtomicExchange||
+                 in.op==NirOp::AtomicCompareExchange||
+                 in.op==NirOp::AtomicFence)return false;
+    }
+    if(stores!=1||guards!=1)return false;
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::AddressOf&&in.text==load.text)return false;
+        if(pc==back)continue;
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+           in.target>=header&&in.target<=back)return false;
+    }
+    if(*load.dest>=fn.registerTypes.size())return false;
+    Reg next=std::max(fn.nextReg,
+        static_cast<Reg>(fn.registerTypes.size()));
+    for(const auto& in:fn.code)if(in.dest){
+        if(*in.dest==std::numeric_limits<Reg>::max())return false;
+        next=std::max(next,static_cast<Reg>(*in.dest+1));
+    }
+    if(next==std::numeric_limits<Reg>::max())return false;
+    const Reg phi=next,previous=*load.dest;
+    const Type type=fn.registerTypes[previous];
+    NirInstruction entry,step;
+    entry.op=step.op=NirOp::Cast;
+    entry.dest=step.dest=phi;
+    entry.args={init.args[0]};
+    step.args={update.args[0]};
+    entry.text=step.text=cast;
+    entry.type=step.type=type;
+    for(auto& in:fn.code)
+        for(auto& arg:in.args)if(arg==previous)arg=phi;
+    fn.code[header].op=NirOp::Nop;
+    fn.code[header].dest.reset();
+    fn.code[header].args.clear();
+    std::vector<NirInstruction> out;
+    out.reserve(n+2);
+    std::vector<std::size_t> remap(n+1,0);
+    for(std::size_t pc=0;pc<=n;++pc){
+        if(pc==header)out.push_back(entry);
+        if(pc==back)out.push_back(step);
+        remap[pc]=out.size();
+        if(pc<n)out.push_back(std::move(fn.code[pc]));
+    }
+    // backedge is remapped to the old header instruction, skipping the
+    // Phi initialization that is located directly BEFORE the header.
+    for(auto& in:out)
+        if(in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)
+            in.target=remap[std::min(in.target,n)];
+    fn.registerTypes.resize(static_cast<std::size_t>(phi)+1);
+    fn.registerTypes[phi]=type;
+    fn.nextReg=phi+1;
+    fn.code=std::move(out);
+    return true;
+}
 // 2x guarded loop unrolling. Every half still executes its original exit
 // condition, so zero/odd trip counts, side effects and safety traps retain
 // their exact evaluation order. Only single-entry, one-backedge structured
@@ -1288,7 +1414,10 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     // optimizer passes have finished. Any later unique-def analysis must
     // first rebuild actual SSA from these lowered edge definitions.
     if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
-       level==OptimizationLevel::Oz)lowerStraightDiamondPhi(fn);
+       level==OptimizationLevel::Oz){
+        // Both transforms lower Phi values into edge copies; run LAST.
+        if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
+    }
 }
 }
 NirScalarSsa analyzeScalarSsa(const NirFunction& fn){
