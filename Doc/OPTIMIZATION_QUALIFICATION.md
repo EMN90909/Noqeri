@@ -153,10 +153,15 @@ Those timings do not establish a cross-workload or cross-target speedup.
 - **PR #72:** transitive NIR DCE register liveness uses a dependency worklist,
   conservatively combining operands from repeated definitions. A 2,048-link
   live chain and 512-link dead chain are regression-tested.
-- **PR #71 remains a separate correctness effort:** typed narrow integer
-  arithmetic must preserve its declared width; array and field values must
-  retain TypeChecker metadata in NIR. Do not claim this fixed on main until
-  full matrix parity and Linux/Windows qualification succeed.
+- **PR #71:** Stage-0 native arithmetic now normalizes u8/i8/u16/i16
+  and u32/i32 signedness and wrapping at operation boundaries, matched by
+  typed optimizer constant folding. The TypeChecker's declared array,
+  field and pointer element types now reach the NIR LoadMemory instruction:
+  generic StackAlloc byte pointers no longer mislabel 64-bit indexed loads
+  as u8. O0 and O3 narrow-integer and 64-bit matrix results agree with
+  expected outputs; Linux/Windows bootstrap and independent GCC/Clang
+  Stage-1 seed reproducibility passed. This is not cross-target or
+  self-hosted Stage-2 native instruction-selection parity.
 
 These changes reduce repeated compiler analyses but provide no universal
 end-to-end compiler speedup guarantee. Neither full SSA/Phi, general loop
