@@ -1,0 +1,48 @@
+import "../Lib/std/render2d.noqeri"
+import "../Lib/std/render3d.noqeri"
+
+// CPU software 3D demo. SDL2 (or a headless host) only presents finished pixels.
+extern function nq_os_renderer_present(pixels: *u32, pixel_count: usize, width: u32, height: u32): int
+extern function nq_os_renderer_pump(duration_ms: u32): int
+extern function nq_os_renderer_close(): int
+
+let framebuffer: [u32; 4096]
+let zbuffer: [u32; 4096]
+let colors: []u32 = slice(framebuffer)
+let depths: []u32 = slice(zbuffer)
+
+if nqRenderClear(colors, 4279308578 as u32) && nqDepthClear3D(depths, 64 as usize, 64 as usize) {
+    let far: [i64; 9]
+    far[0] = 5 as i64
+    far[1] = 5 as i64
+    far[2] = 700 as i64
+    far[3] = 60 as i64
+    far[4] = 5 as i64
+    far[5] = 700 as i64
+    far[6] = 32 as i64
+    far[7] = 59 as i64
+    far[8] = 700 as i64
+
+    let near: [i64; 9]
+    near[0] = 10 as i64
+    near[1] = 12 as i64
+    near[2] = 200 as i64
+    near[3] = 54 as i64
+    near[4] = 12 as i64
+    near[5] = 200 as i64
+    near[6] = 32 as i64
+    near[7] = 55 as i64
+    near[8] = 200 as i64
+
+    let farDrawn: bool = nqRasterTriangle3D(colors, depths, 64 as usize, 64 as usize, slice(far), 4294901760 as u32)
+    let nearDrawn: bool = nqRasterTriangle3D(colors, depths, 64 as usize, 64 as usize, slice(near), 4278255360 as u32)
+    if farDrawn && nearDrawn {
+        nq_os_renderer_present(&framebuffer[0], len(colors), 64 as u32, 64 as u32)
+        nq_os_renderer_pump(500 as u32)
+    } else {
+        print("Noqeri 3D: invalid triangle")
+    }
+} else {
+    print("Noqeri 3D: invalid render target")
+}
+nq_os_renderer_close()
