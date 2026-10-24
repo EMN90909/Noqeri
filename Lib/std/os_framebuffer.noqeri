@@ -1,23 +1,26 @@
 module noqeri.std.os_framebuffer
 
-// Noqeri kernel/OS framebuffer rasterizer. The OS maps a valid framebuffer
-// into memory; all drawing loops are in Noqeri. These functions never create
-// a mapping, discover PCI/GPU devices or manage a display controller.
-// Pixel format is caller-owned packed 32-bit ARGB; pitch is in pixels.
-// Raw pointers must point to writable memory covering height * pitch.
+// Kernel/OS framebuffer rasterizer. The OS owns mapping/presentation;
+// pixel writes remain volatile and are never replaced by nonvolatile memset.
+// ARGB8888 is caller-owned and pitch counts pixels (not bytes).
+// Callers must provide a writable mapping covering height * pitch pixels.
 
 export function nqOsFbClear(pixels: *volatile u32, width: usize, height: usize, pitch: usize, color: u32): bool {
     if pixels == null { return false }
     if width == 0 as usize || height == 0 as usize { return false }
     if pitch < width || width > 4096 as usize || height > 4096 as usize { return false }
     if pitch > 65536 as usize { return false }
+    // Row bases are advanced once per row, not multiplied per pixel.
+    // Width <= pitch, and height <= 4096, so these indexes cannot overflow.
+    let rowBase: usize = 0 as usize
     let y: usize = 0 as usize
     while y < height {
         let x: usize = 0 as usize
         while x < width {
-            unsafe { pixels[y * pitch + x] = color }
+            unsafe { pixels[rowBase + x] = color }
             x = x + 1 as usize
         }
+        rowBase = rowBase + pitch
         y = y + 1 as usize
     }
     return true
@@ -28,19 +31,35 @@ export function nqOsFbChecker(pixels: *volatile u32, width: usize, height: usize
     if width == 0 as usize || height == 0 as usize || cell == 0 as usize { return false }
     if pitch < width || width > 4096 as usize || height > 4096 as usize { return false }
     if pitch > 65536 as usize { return false }
+    // No per-pixel division or multiplication. Paint each same-color tile run
+    // and toggle row parity only after 'cell' complete scanlines.
+    let rowBase: usize = 0 as usize
     let y: usize = 0 as usize
+    let rowParity: bool = false
+    let rowsRemaining: usize = cell
     while y < height {
         let x: usize = 0 as usize
+        let columnParity: bool = false
         while x < width {
-            let pattern: usize = ((x / cell) + (y / cell)) % 2 as usize
-            if pattern == 0 as usize {
-                unsafe { pixels[y * pitch + x] = 4278255360 as u32 }
-            } else {
-                unsafe { pixels[y * pitch + x] = 4294901760 as u32 }
+            let run: usize = cell
+            if run > width - x { run = width - x }
+            let endX: usize = x + run
+            let color: u32 = 4278255360 as u32
+            if rowParity != columnParity { color = 4294901760 as u32 }
+            while x < endX {
+                unsafe { pixels[rowBase + x] = color }
+                x = x + 1 as usize
             }
-            x = x + 1 as usize
+            columnParity = !columnParity
         }
+        rowBase = rowBase + pitch
         y = y + 1 as usize
+        if rowsRemaining == 1 as usize {
+            rowsRemaining = cell
+            rowParity = !rowParity
+        } else {
+            rowsRemaining = rowsRemaining - 1 as usize
+        }
     }
     return true
 }

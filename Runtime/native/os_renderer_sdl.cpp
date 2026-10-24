@@ -98,10 +98,14 @@ int nq_os_renderer_present(const uint32_t*argb,size_t pixel_count,uint32_t w,uin
     if(nq_os_renderer_fit_viewport(w,h,static_cast<uint32_t>(outputWidth),
           static_cast<uint32_t>(outputHeight),scale_mode,&fitted)!=0)return -ERANGE;
     const SDL_Rect destination{fitted.x,fitted.y,fitted.width,fitted.height};
-    // Black letterboxing eliminates stretched aspect ratios on resize.
-    if(SDL_SetRenderDrawColor(renderer,0,0,0,255)!=0 ||
-       SDL_RenderClear(renderer)!=0 ||
-       SDL_RenderCopy(renderer,texture,nullptr,&destination)!=0)return -EIO;
+    // The full-viewport blit overwrites every output pixel. Only clear when
+    // letterbox bars remain; skip a redundant full-surface fill otherwise.
+    const bool letterboxed=fitted.x!=0 || fitted.y!=0 ||
+        fitted.width!=outputWidth || fitted.height!=outputHeight;
+    if(letterboxed &&
+       (SDL_SetRenderDrawColor(renderer,0,0,0,255)!=0 ||
+        SDL_RenderClear(renderer)!=0))return -EIO;
+    if(SDL_RenderCopy(renderer,texture,nullptr,&destination)!=0)return -EIO;
     SDL_RenderPresent(renderer);
     first_pixel=argb[0];last_pixel=argb[static_cast<size_t>(w)*h-1];
     presented=true;

@@ -152,10 +152,15 @@ function checkedTexture(source) {
     throw new TypeError('Texture must contain bounded width, height, and tightly packed RGBA8 Uint8Array pixels.')
   return source
 }
-export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, textureSource = null) {
+export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, textureSource = null, options = {}) {
   if (!canvas?.getContext) throw new TypeError('A WebGPU canvas is required.')
   if (typeof wgsl !== 'string' || !wgsl.includes('@fragment'))
     throw new TypeError('Expected a Noqeri fragment WGSL shader.')
+  if (!options || typeof options !== 'object' || Array.isArray(options))
+    throw new TypeError('Fragment texture options must be an object.')
+  const textureFilter = options.textureFilter ?? 'nearest'
+  if (textureFilter !== 'nearest' && textureFilter !== 'linear')
+    throw new RangeError('Texture filter must be nearest or linear.')
   const requiresTexture = /var\s+nq_texture\s*:\s*texture_2d<f32>\s*;/.test(wgsl)
   const inputTexture = requiresTexture ? checkedTexture(textureSource) : null
   if (!requiresTexture && textureSource !== null)
@@ -198,7 +203,9 @@ export async function renderNoqeriFragment(canvas, wgsl, suppliedGpu = null, tex
         {bytesPerRow: inputTexture.width * 4, rowsPerImage: inputTexture.height},
         [inputTexture.width, inputTexture.height, 1]
       )
-      const sampler = device.createSampler({magFilter: 'linear', minFilter: 'linear'})
+      // Nearest preserves source texels at magnification. Linear is opt-in for
+      // smoothly sampled illustrations; no extra mip chain is allocated.
+      const sampler = device.createSampler({magFilter: textureFilter, minFilter: textureFilter})
       bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [{binding: 0, resource: gpuTexture.createView()}, {binding: 1, resource: sampler}]
@@ -316,7 +323,7 @@ export async function renderNoqeriMesh3D(canvas, vertexWgsl, fragmentWgsl, posit
       }],
       depthStencilAttachment:{
         view:depthTexture.createView(),
-        depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'
+        depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'discard'
       }
     })
     pass.setPipeline(pipeline)
@@ -450,14 +457,16 @@ export async function createNoqeriMeshRenderer3D(canvas, vertexWgsl, fragmentWgs
           const colorAttachment={
             view:msaaColor ? msaaColor.createView() : swapView,
             clearValue:{r:0.05,g:0.05,b:0.07,a:1},
-            loadOp:'clear',storeOp:'store'
+            // Only resolved color is displayed. Multisampled attachment
+            // contents and cleared depth are not needed after this pass.
+            loadOp:'clear',storeOp:msaaColor ? 'discard' : 'store'
           }
           if(msaaColor)colorAttachment.resolveTarget=swapView
           const pass=encoder.beginRenderPass({
             colorAttachments:[colorAttachment],
             depthStencilAttachment:{
               view:depthTexture.createView(),
-              depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'
+              depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'discard'
             }
           })
           pass.setPipeline(pipeline)

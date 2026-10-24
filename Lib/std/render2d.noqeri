@@ -16,16 +16,20 @@ export function nqRenderClear(pixels: []u32, color: u32): bool {
     // Four stores per branch; the remainder is checked using count-i so the
     // loop guard cannot overflow even for a very large valid slice length.
     let count: usize = len(pixels)
+    if count == 0 as usize { return true }
+    // The visible range is exactly [0, count). Check once, then write
+    // through a local pointer without per-store dynamic slice checks.
+    let storage: *u32 = &pixels[0]
     let i: usize = 0 as usize
     while i < count && count - i >= 4 as usize {
-        pixels[i] = color
-        pixels[i + 1 as usize] = color
-        pixels[i + 2 as usize] = color
-        pixels[i + 3 as usize] = color
+        unsafe { storage[i] = color }
+        unsafe { storage[i + 1 as usize] = color }
+        unsafe { storage[i + 2 as usize] = color }
+        unsafe { storage[i + 3 as usize] = color }
         i = i + 4 as usize
     }
     while i < count {
-        pixels[i] = color
+        unsafe { storage[i] = color }
         i = i + 1 as usize
     }
     return true
@@ -39,6 +43,9 @@ export function nqRenderGradient(pixels: []u32, width: usize, height: usize): bo
     if width == 0 as usize || height == 0 as usize { return false }
     if width > 4096 as usize || height > 4096 as usize { return false }
     if height > len(pixels) / width { return false }
+    // width > 0 and height <= len/width prove every output pixel lies
+    // in the allocated slice. No buffer growth is permitted during drawing.
+    let storage: *u32 = &pixels[0]
 
     let redDenominator: usize = 1 as usize
     let greenDenominator: usize = 1 as usize
@@ -68,7 +75,7 @@ export function nqRenderGradient(pixels: []u32, width: usize, height: usize): bo
         let red: usize = 0 as usize
         let redCarry: usize = 0 as usize
         while x < width {
-            pixels[index] = rowBaseColor + (red as u32) * 65536 as u32
+            unsafe { storage[index] = rowBaseColor + (red as u32) * 65536 as u32 }
             index = index + 1 as usize
             x = x + 1 as usize
             red = red + redStep
@@ -94,6 +101,8 @@ export function nqRenderGradient(pixels: []u32, width: usize, height: usize): bo
 export function nqRenderChecker(pixels: []u32, width: usize, height: usize, cell: usize, first: u32, second: u32): bool {
     if width == 0 as usize || height == 0 as usize || cell == 0 as usize { return false }
     if height > len(pixels) / width { return false }
+    // Validate the entire raster range before storing via a local pointer.
+    let storage: *u32 = &pixels[0]
 
     let index: usize = 0 as usize
     let y: usize = 0 as usize
@@ -109,7 +118,7 @@ export function nqRenderChecker(pixels: []u32, width: usize, height: usize, cell
             let color: u32 = first
             if rowParity != columnParity { color = second }
             while x < endX {
-                pixels[index] = color
+                unsafe { storage[index] = color }
                 index = index + 1 as usize
                 x = x + 1 as usize
             }

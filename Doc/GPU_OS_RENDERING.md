@@ -227,3 +227,41 @@ end-to-end FPS, device memory and image-quality qualification still
 requires a physical GPU, driver/version inventory, and captured test
 frames. These optimizations must not be described as measured hardware
 speedups without that evidence.
+
+
+## Lightweight framebuffer and GPU texture profiles (2026-10-25)
+
+The native kernel framebuffer checker now fills solid horizontal tile runs
+and advances tile-row parity with a counter. Its hot pixel path no longer
+divides by the tile size or multiplies by the stride. The volatile pointer
+and every required pixel write are preserved: no nonvolatile memset,
+cache assumptions, or SIMD writes are used on memory-mapped framebuffer
+surfaces. The corresponding native C++ oracle validates multiple pitches,
+row padding, odd cells, invalid dimensions, and guard sentinels.
+
+The SDL2 bridge skips clearing the window when the centered destination
+covers the entire render output. It still clears black letterbox bars when
+the aspect ratios differ, preserving sharp nearest-neighbor scaling.
+
+Textured WebGPU fragments accept an optional fifth parameter:
+
+```js
+const release = await renderNoqeriFragment(canvas, wgsl, gpu, rgbaTexture,
+  {textureFilter: 'nearest'}) // default, preserves hard pixel boundaries
+// or {textureFilter: 'linear'} for photographs and smooth illustrations
+```
+
+Texture sampling remains explicitly selectable: nearest is now the default
+to prevent unintended texture blur. This setting changes sampling quality,
+not resolution or actual source detail. The 3D WebGPU paths also discard
+cleared depth attachments after each pass, and 4x MSAA resolves the
+multisampled color and discards its temporary sample surface. Because the
+next frame always clears depth, storing it is unnecessary. This can reduce
+transient memory bandwidth on tile-based GPUs, but **GPU speedup has not
+been measured on physical hardware**.
+
+Run the graphics workflow for compiler/native qualification; it archives
+raw 30-sample native volatile checker frame timings as
+`os-framebuffer-native.csv`. These timings exclude the SDL presenter and
+WebGPU GPU completion. Compare results on the same hardware before
+claiming a performance improvement.

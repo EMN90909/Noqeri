@@ -113,3 +113,35 @@ is a modest improvement: the optimized Noqeri clear remained roughly
 **33× slower** than its C reference on the same runner. A truly
 optimized nonvolatile bulk-fill implementation, with volatile MMIO
 isolation and full semantics verification, remains outstanding.
+
+
+## Volatile OS framebuffer follow-up (2026-10-25)
+
+`Lib/std/os_framebuffer.noqeri` uses stride-aware, volatile ARGB8888
+writes that cannot be bulk-filled with a normal `memset`. Clear computes
+the row offset once per scanline; checker uses bounded solid-color runs
+and toggles parity at tile boundaries, removing per-pixel division.
+
+`tests/cpp/os_framebuffer_differential.cpp` independently checks full
+frames, odd dimensions, pitch padding, sentinel guards and malformed
+arguments against the literal division-based definition. Its optional
+`--bench` mode records thirty native checker samples per cell size on a
+512x512 pitched framebuffer. This is a CPU timing probe only, with no
+measured before/after ratios or GPU assertions.
+
+
+## Checked-once nonvolatile raster stores (2026-10-25)
+
+After validating the entire destination slice, `nqRenderClear`,
+`nqRenderGradient`, and `nqRenderChecker` now store through a local
+`*u32` pointer. Clear explicitly returns for an empty slice before
+taking `&pixels[0]`; gradient and checker reject zero dimensions and
+truncated buffers before taking the pointer. Existing pixel count and
+loop-tail bounds remain unchanged.
+
+This removes repeated dynamic slice-header bounds checks at each pixel,
+a known overhead of the native raster path. It does **not** weaken
+input validation, turn volatile framebuffer IO into nonvolatile memory,
+or promise compiler autovectorization. The independent 4,657-case native
+raster differential and same-run A/B benchmark are the release gates.
+No speedup is attributed to this change until CI has measured it.
