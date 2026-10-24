@@ -1,0 +1,55 @@
+name: Native typed arithmetic and bounds qualification
+on:
+  pull_request:
+    paths:
+      - 'Compiler/**'
+      - 'Include/noqeri/**'
+      - 'tests/native_unsigned_arithmetic.noqeri'
+      - 'tests/native_bounds_*.noqeri'
+      - '.github/workflows/native-typed-arithmetic.yml'
+permissions:
+  contents: read
+jobs:
+  compiler-native-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Stage-0 compiler
+        run: cmake -S . -B build-typed -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_WARNINGS_AS_ERRORS=ON
+      - name: Compile compiler and optimizer tests
+        run: cmake --build build-typed --target noqeri noqeri-optimizer-test --parallel 2
+      - name: Native optimizer unit tests
+        run: ctest --test-dir build-typed --output-on-failure -R '^noqeri-optimizer-liveness$'
+      - name: Build and validate unsigned/signed arithmetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/native_unsigned_arithmetic.noqeri build-typed/unsigned-O3 --compiler=build-typed/noqeri --opt=-O3 --keep-asm
+          expected="$(printf '%s\n' true false 190172619316593315 60 0 -13 -2 13 -2 -95086309658296657 -79)"
+          actual="$(build-typed/unsigned-O3)"
+          test "$actual" = "$expected" || { printf 'Expected:\n%s\nActual:\n%s\n' "$expected" "$actual"; exit 1; }
+          grep -q 'mul r10' build-typed/unsigned-O3.s
+          grep -Eq 'seta al|setb al' build-typed/unsigned-O3.s
+          node scripts/native-build.mjs tests/native_unsigned_arithmetic.noqeri build-typed/unsigned-O0 --compiler=build-typed/noqeri --opt=-O0
+          test "$(build-typed/unsigned-O0)" = "$expected"
+      - name: Bounds proof and OOB trap preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/native_bounds_guard.noqeri build-typed/bounds-O0 --compiler=build-typed/noqeri --opt=-O0 --keep-asm
+          node scripts/native-build.mjs tests/native_bounds_guard.noqeri build-typed/bounds-O3 --compiler=build-typed/noqeri --opt=-O3 --keep-asm
+          test "$(build-typed/bounds-O0)" = "$(printf '%s\n' 0 21)"
+          test "$(build-typed/bounds-O3)" = "$(printf '%s\n' 0 21)"
+          python3 - <<'PY'
+          from pathlib import Path
+          old = Path("build-typed/bounds-O0.s").read_text().count("    ud2\n")
+          new = Path("build-typed/bounds-O3.s").read_text().count("    ud2\n")
+          print(f"Bound-trap instruction count O0={old}, O3={new}")
+          if new >= old:
+              raise SystemExit("O3 failed to eliminate a provably redundant loop bound check")
+          PY
+          for source in native_bounds_mutation_trap native_bounds_oob_trap; do
+            node scripts/native-build.mjs "tests/$source.noqeri" "build-typed/$source" --compiler=build-typed/noqeri --opt=-O3
+            (ulimit -c 0; "build-typed/$source") && { echo "$source failed to trap" >&2; exit 1; } || true
+          done
