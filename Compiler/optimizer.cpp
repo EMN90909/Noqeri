@@ -913,6 +913,56 @@ bool memoryClobber(const NirInstruction& in){
         default:return false;
     }
 }
+bool eliminateRepeatedStackLoads(NirFunction& fn){
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    if(std::any_of(fn.code.begin(),fn.code.end(),
+        [](const NirInstruction& in){
+            return in.op==NirOp::Try||in.op==NirOp::InlineAsm;
+        }))return false;
+    const auto memory=analyzeMemorySsa(fn);
+    if(!memory.valid)return false;
+    const NirAliasAnalysis alias(fn);
+    std::unordered_map<Reg,std::vector<std::size_t>> candidates;
+    std::unordered_map<Reg,Reg> replace;
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        if(!in.dest||in.op!=NirOp::LoadMemory||in.isVolatile||
+           in.args.size()!=1||!g.reachable[g.owner[pc]])continue;
+        const Reg ptr=in.args[0];
+        if(alias.escapes(ptr))continue;
+        for(const auto previous:candidates[ptr]){
+            const auto& first=fn.code[previous];
+            if(memory.beforeInstruction[pc]!=
+               memory.beforeInstruction[previous]||
+               in.width!=first.width||in.type!=first.type)continue;
+            if(g.owner[pc]==g.owner[previous]?previous>=pc:
+               !g.dominates[g.owner[pc]][g.owner[previous]])continue;
+            replace.emplace(*in.dest,*first.dest);
+            break;
+        }
+        if(!replace.count(*in.dest))candidates[ptr].push_back(pc);
+    }
+    if(replace.empty())return false;
+    const auto resolve=[&](Reg reg){
+        for(std::size_t n=0;n<replace.size();++n){
+            const auto it=replace.find(reg);
+            if(it==replace.end()||it->second==reg)break;
+            reg=it->second;
+        }
+        return reg;
+    };
+    for(auto& in:fn.code){
+        for(auto& arg:in.args)arg=resolve(arg);
+        if(in.op==NirOp::LoadMemory&&in.dest&&
+           replace.count(*in.dest)){
+            in.op=NirOp::Nop;
+            in.args.clear();
+            in.dest.reset();
+        }
+    }
+    return true;
+}
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -1046,56 +1096,6 @@ NirMemorySsa analyzeMemorySsa(const NirFunction& fn){
 // loads of the SAME pointer register from a NONESCAPING stack allocation.
 // Same-version dominance guarantees that no intervening write, alias-unknown
 // call, atomic/fence or divergent memory-Phi has invalidated the first load.
-bool eliminateRepeatedStackLoads(NirFunction& fn){
-    const Graph g=graphOf(fn);
-    if(!g.uniqueDefs||!g.validDominance)return false;
-    if(std::any_of(fn.code.begin(),fn.code.end(),
-        [](const NirInstruction& in){
-            return in.op==NirOp::Try||in.op==NirOp::InlineAsm;
-        }))return false;
-    const auto memory=analyzeMemorySsa(fn);
-    if(!memory.valid)return false;
-    const NirAliasAnalysis alias(fn);
-    std::unordered_map<Reg,std::vector<std::size_t>> candidates;
-    std::unordered_map<Reg,Reg> replace;
-    for(std::size_t pc=0;pc<fn.code.size();++pc){
-        const auto& in=fn.code[pc];
-        if(!in.dest||in.op!=NirOp::LoadMemory||in.isVolatile||
-           in.args.size()!=1||!g.reachable[g.owner[pc]])continue;
-        const Reg ptr=in.args[0];
-        if(alias.escapes(ptr))continue;
-        for(const auto previous:candidates[ptr]){
-            const auto& first=fn.code[previous];
-            if(memory.beforeInstruction[pc]!=
-               memory.beforeInstruction[previous]||
-               in.width!=first.width||in.type!=first.type)continue;
-            if(g.owner[pc]==g.owner[previous]?previous>=pc:
-               !g.dominates[g.owner[pc]][g.owner[previous]])continue;
-            replace.emplace(*in.dest,*first.dest);
-            break;
-        }
-        if(!replace.count(*in.dest))candidates[ptr].push_back(pc);
-    }
-    if(replace.empty())return false;
-    const auto resolve=[&](Reg reg){
-        for(std::size_t n=0;n<replace.size();++n){
-            const auto it=replace.find(reg);
-            if(it==replace.end()||it->second==reg)break;
-            reg=it->second;
-        }
-        return reg;
-    };
-    for(auto& in:fn.code){
-        for(auto& arg:in.args)arg=resolve(arg);
-        if(in.op==NirOp::LoadMemory&&in.dest&&
-           replace.count(*in.dest)){
-            in.op=NirOp::Nop;
-            in.args.clear();
-            in.dest.reset();
-        }
-    }
-    return true;
-}
 NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
     const auto cfg=graphOf(fn);
     if(!cfg.uniqueDefs||!cfg.validDominance)return;
