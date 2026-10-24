@@ -39,9 +39,20 @@ export function nqDepthClear3D(depth: []u32, width: usize, height: usize): bool 
     if width > 4096 as usize || height > 4096 as usize { return false }
     if height > len(depth) / width { return false }
     let count: usize = width * height
+    // Safe after count <= len(depth) and count > 0. Each store is below count.
+    // A single pointer avoids redundant dynamic slice-header bounds checks.
+    let storage: *u32 = &depth[0]
     let i: usize = 0 as usize
+    // Four bounded stores per loop; no overflow-prone i+4 guard.
+    while i < count && count - i >= 4 as usize {
+        unsafe { storage[i] = 4294967295 as u32 }
+        unsafe { storage[i + 1 as usize] = 4294967295 as u32 }
+        unsafe { storage[i + 2 as usize] = 4294967295 as u32 }
+        unsafe { storage[i + 3 as usize] = 4294967295 as u32 }
+        i = i + 4 as usize
+    }
     while i < count {
-        depth[i] = 4294967295 as u32
+        unsafe { storage[i] = 4294967295 as u32 }
         i = i + 1 as usize
     }
     return true
@@ -58,6 +69,11 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
     if len(vertices) < 9 as usize { return false }
     if height > len(pixels) / width { return false }
     if height > len(depth) / width { return false }
+    // Proof: all raster indexes lie within [0,width*height); the two
+    // checked slice lengths are each at least that many u32 elements.
+    // Input slices must not be concurrently resized or invalidated.
+    let pixelMemory: *u32 = &pixels[0]
+    let depthMemory: *u32 = &depth[0]
 
     let x0: i64 = vertices[0]
     let y0: i64 = vertices[1]
@@ -123,6 +139,8 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
     // Incremental depth numerator avoids three multiplies per pixel.
     // Its maximum magnitude is bounded below 3 * 2^30 * 65535.
     let depthX: i64 = dx0 * z0 + dx1 * z1 + dx2 * z2
+    let depthY: i64 = dy0 * z0 + dy1 * z1 + dy2 * z2
+    let rowNumerator: i64 = e0 * z0 + e1 * z1 + e2 * z2
     let flatDepth: bool = z0 == z1 && z1 == z2
     let y: i64 = minY
     let row: usize = (minY as usize) * width
@@ -130,16 +148,20 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
         let w0: i64 = e0
         let w1: i64 = e1
         let w2: i64 = e2
-        let numerator: i64 = e0 * z0 + e1 * z1 + e2 * z2
+        let numerator: i64 = rowNumerator
         let x: i64 = minX
         let index: usize = row + (minX as usize)
         while x <= maxX {
             if w0 >= 0 as i64 && w1 >= 0 as i64 && w2 >= 0 as i64 {
                 let z: u32 = z0 as u32
                 if !flatDepth { z = (numerator / area) as u32 }
-                if z < depth[index] {
-                    depth[index] = z
-                    pixels[index] = color
+                let oldDepth: u32 = 0 as u32
+                unsafe { oldDepth = depthMemory[index] }
+                if z < oldDepth {
+                    unsafe {
+                        depthMemory[index] = z
+                        pixelMemory[index] = color
+                    }
                 }
             }
             w0 = w0 + dx0
@@ -152,6 +174,7 @@ export function nqRasterTriangle3D(pixels: []u32, depth: []u32, width: usize, he
         e0 = e0 + dy0
         e1 = e1 + dy1
         e2 = e2 + dy2
+        rowNumerator = rowNumerator + depthY
         y = y + 1 as i64
         row = row + width
     }

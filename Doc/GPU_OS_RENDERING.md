@@ -158,3 +158,12 @@ flipping, permissions, input and lifecycle management.
   presentation pacing and driver/device-loss recovery
 
 These remain explicit rather than described as production-ready.
+
+## Experimental GPU firmware development
+
+Noqeri also provides a restricted, x86-64 simulator-only profile for
+firmware experiments with bounded volatile register operations, polling,
+toy mailbox execution and checksum-verified offline development artifacts.
+This **does not** program a physical GPU or generate vendor GPU microcode.
+See [GPU firmware development](GPU_FIRMWARE_DEVELOPMENT.md) and the
+[3D rendering qualification](RENDER3D_QUALIFICATION.md).

@@ -11,7 +11,7 @@ if(lines.shift()!=='scene,resolution,engine,sample,render_ns')
 const result=new Map()
 for(const line of lines){
   const [scene,resolution,engine,index,ns,...extra]=line.split(',')
-  if(extra.length || !['flat-z','interpolated-z'].includes(scene) ||
+  if(extra.length || !['flat-z','interpolated-z','depth-clear'].includes(scene) ||
       resolution!=='256x256' || !['noqeri','c'].includes(engine) ||
       !/^(?:\d|[12]\d)$/.test(index) ||
       !Number.isFinite(Number(ns)) || Number(ns)<=0)
@@ -21,14 +21,14 @@ for(const line of lines){
   if(result.get(key).has(Number(index)))throw Error('Duplicate sample '+key+':'+index)
   result.get(key).set(Number(index),Number(ns))
 }
-if(result.size!==4||[...result.values()].some(a=>a.size!==30))
+if(result.size!==6||[...result.values()].some(a=>a.size!==30))
   throw Error('Expected 4 groups of 30 complete timing samples')
 function stats(series){
   const data=[...series.values()].sort((a,b)=>a-b)
   return {median_ns:(data[14]+data[15])/2,p95_ns:data[28]}
 }
 const summary={}
-for(const scene of ['flat-z','interpolated-z']){
+for(const scene of ['flat-z','interpolated-z','depth-clear']){
   const native=stats(result.get(scene+':noqeri'))
   const cpp=stats(result.get(scene+':c'))
   summary[scene]={

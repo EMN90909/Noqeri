@@ -1,0 +1,12 @@
+import "../Lib/std/gpu_firmware.noqeri"
+
+// A developer simulator entry. The host passes a mapped RAM page as
+// *volatile u32. Never call this with guessed physical GPU addresses.
+extern function nq_gpu_mock_registers(): *volatile u32
+
+let registers: *volatile u32 = nq_gpu_mock_registers()
+if nqGpuFwSimStep(registers, 4 as usize) {
+    print("Noqeri simulated GPU command complete")
+} else {
+    print("Noqeri simulated GPU command rejected")
+}

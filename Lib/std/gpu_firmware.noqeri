@@ -1,0 +1,71 @@
+module noqeri.std.gpu_firmware
+
+// EXPERIMENTAL developer-facing memory-mapped GPU control stub.
+// A privileged platform driver MUST provide a mapped, device-owned window.
+// This does not discover PCI BARs, perform DMA, handle interrupts, flash
+// firmware or produce microcode for any commercial GPU ISA.
+// Register offsets are 32-bit WORD indices, not untrusted byte addresses.
+
+// Volatile loads/stores have observable side effects. No unsafe address
+// arithmetic is permitted except indexing within the caller-declared window.
+export function nqGpuFwRead32(registers: *volatile u32, words: usize, index: usize, output: *u32): bool {
+    if registers == null || output == null { return false }
+    if words == 0 as usize || words > 4096 as usize || index >= words { return false }
+    let value: u32 = 0 as u32
+    unsafe { value = registers[index] }
+    unsafe { output[0] = value }
+    return true
+}
+
+export function nqGpuFwWrite32(registers: *volatile u32, words: usize, index: usize, value: u32): bool {
+    if registers == null { return false }
+    if words == 0 as usize || words > 4096 as usize || index >= words { return false }
+    unsafe { registers[index] = value }
+    return true
+}
+
+// Bounded busy polling for device-managed status words. No timeouts in
+// milliseconds are implied; callers must provide their own watchdog,
+// concurrency and hardware memory-barrier policy.
+export function nqGpuFwPollEqual32(registers: *volatile u32, words: usize, index: usize, expected: u32, attempts: usize): bool {
+    if registers == null { return false }
+    if words == 0 as usize || words > 4096 as usize || index >= words { return false }
+    if attempts == 0 as usize || attempts > 4096 as usize { return false }
+    let count: usize = 0 as usize
+    while count < attempts {
+        let value: u32 = 0 as u32
+        unsafe { value = registers[index] }
+        if value == expected { return true }
+        count = count + 1 as usize
+    }
+    return false
+}
+
+// Mock command mailbox protocol (registers 0..3):
+// [magic=0x4e514657, status, command, payload]. Commands 1 and 2
+// are deterministic toy functions used only by the simulator.
+// They are NOT device-vendor command opcodes.
+export function nqGpuFwSimStep(registers: *volatile u32, words: usize): bool {
+    if registers == null || words < 4 as usize || words > 4096 as usize { return false }
+    let magic: u32 = 0 as u32
+    let command: u32 = 0 as u32
+    let payload: u32 = 0 as u32
+    unsafe {
+        magic = registers[0]
+        command = registers[2]
+        payload = registers[3]
+    }
+    if magic != 1313949271 as u32 { return false }
+    if command != 1 as u32 && command != 2 as u32 { return false }
+    let response: u32 = payload
+    if command == 1 as u32 {
+        response = payload + 1 as u32
+    } else {
+        response = 4294967295 as u32 - payload
+    }
+    unsafe {
+        registers[3] = response
+        registers[1] = 1 as u32
+    }
+    return true
+}

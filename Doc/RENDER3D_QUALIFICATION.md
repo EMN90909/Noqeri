@@ -167,3 +167,80 @@ from missing assembler metadata. The 2D and 3D native test harnesses
 fail if `readelf -W -l` reports an executable `GNU_STACK` segment
 or no such segment. This is an important defense-in-depth property,
 not a proof that all native memory operations are memory-safe.
+
+## Subsequent 3D and browser compatibility work
+
+The edge interpolation path now advances its depth numerator along both
+horizontal pixels and scanline rows, replacing three multiplications per
+raster row with a precomputed signed step. The paired same-compiler
+benchmark compares against the pinned `tests/fixtures/render3d_baseline.txt`
+and rejects a greater-than-25% median slowdown.
+
+The WebGPU host now offers
+`inspectNoqeriGpuCompatibility(gpu?)` to report adapter features,
+limits and preferred surface format **without allocating a device**.
+The renderer tries a high-performance adapter and falls back to the
+browser's default adapter when needed. Persistent rendering listens
+to `GPUDevice.lost`, invalidates the previous resources, and requires
+the caller to create a new renderer rather than trying to use a dead
+pipeline. Per WebGPU's device model, lost-device resources must be
+recreated. No vendor-specific GPU driver or command submission bypass
+is involved.
+
+For hands-on GPU qualification, compile these additional shader files:
+
+```sh
+build/noqeri shader examples/shaders/vector_compute.noqeri build/noqeri-vector-compute.wgsl --stage=compute
+build/noqeri shader examples/shaders/texture_fragment.noqeri build/noqeri-texture-fragment.wgsl --stage=fragment
+build/noqeri shader examples/shaders/vertex3d.noqeri build/noqeri-vertex3d.wgsl --stage=vertex
+build/noqeri shader examples/shaders/fragment3d.noqeri build/noqeri-fragment3d.wgsl --stage=fragment
+```
+
+Run `examples/shaders/physical_qualification.html` from localhost or
+HTTPS. The browser harness exercises vector compute, textured fragments
+and a two-triangle 3D depth path while preserving results for manual
+inspection. It deliberately reports `hardwareQualified: false`;
+real driver certification still requires a trusted adapter/driver
+inventory, framebuffer readback assertions, device-loss/resize testing
+on named hardware and GPU timestamp evidence.
+
+## 3D depth-clear optimization acceptance
+
+`nqDepthClear3D` now uses four checked u32 stores per iteration and a
+scalar remainder. This does not relax dimension validation and never
+writes beyond the visible `width * height` pixels. The full-buffer
+reference check includes truncated slices and untouched tail sentinels.
+
+The independent 3D benchmark records three scenes: flat-depth triangles,
+interpolated-depth triangles and depth-buffer clear at 256×256. Each
+scene is tested with thirty native Noqeri and C++ samples. The A/B
+comparison builds the pinned original `render3d.noqeri` with the
+**same** compiler and reference driver as the updated source. CI gates
+a median regression above 25%. This is native CPU performance evidence,
+not GPU shader execution or frame rate qualification.
+
+## New guarded-pointer 3D performance evidence
+
+The rasterizer and depth clear now validate framebuffer slice lengths
+before deriving native nonvolatile pointers, and then use those pointers
+only for indexes proven below `width * height`. This removes dynamic
+slice-header checks from the hot loop while retaining the C++ full-buffer
+oracle and no-write invalid-input tests. External code must not mutate
+or invalidate the buffers during rendering.
+
+GitHub Actions [run 40127662918](https://github.com/EMN90909/Noqeri/actions/runs/40127662918)
+passed native correctness, shader validation, the GPU firmware simulator
+and a 30-sample same-host A/B comparison against the pinned previous
+Noqeri source:
+
+| 256×256 native CPU operation | Previous median | Candidate median | Speedup |
+|---|---:|---:|---:|
+| Flat-depth triangle | 0.470 ms | 0.424 ms | 1.109× |
+| Interpolated-depth triangle | 0.455 ms | 0.433 ms | 1.053× |
+| Clear Z-buffer | 0.129 ms | 0.103 ms | 1.254× |
+
+The results reflect the complete candidate optimization relative to the
+pinned Noqeri implementation, not individual instruction attribution.
+CI runner results vary with host loading; speedups require continued
+same-run regression monitoring. These are CPU benchmarks only and do not
+qualify GPU/driver performance or physical firmware execution.

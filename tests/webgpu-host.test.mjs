@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D, createNoqeriMeshRenderer3D} from '../examples/shaders/webgpu_host.mjs'
+import {runNoqeriCompute, renderNoqeriFragment, renderNoqeriMesh3D, createNoqeriMeshRenderer3D, inspectNoqeriGpuCompatibility} from '../examples/shaders/webgpu_host.mjs'
 
 globalThis.GPUBufferUsage = {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, MAP_READ: 8, VERTEX: 16}
 globalThis.GPUMapMode = {READ: 1}
@@ -74,7 +74,7 @@ function gpuMock({compileError = false, limits = {}} = {}) {
   return {
     events,context,device,
     gpu:{getPreferredCanvasFormat(){return 'bgra8unorm'},
-      async requestAdapter(){return {async requestDevice(){return device}}}}
+      async requestAdapter(){return {limits:device.limits,features:new Set(),async requestDevice(){return device}}}}
   }
 }
 function computeWgsl(size=64,kind='u32'){
@@ -272,4 +272,47 @@ test('persistent 3D detects canvas resize and oversized mesh; GPU submission err
   await assert.rejects(bad.render(meshPixels().slice(0,12)),/device lost/)
   assert.equal(damaged.events.destroyed,1)
   assert.ok(damaged.events.buffers[0].destroyed && damaged.events.textures[0].destroyed)
+})
+
+test('WebGPU compatibility inspection reports capabilities without opening a device',async()=>{
+  const {gpu,events,device}=gpuMock()
+  const base=await inspectNoqeriGpuCompatibility(gpu)
+  assert.equal(base.available,true)
+  assert.equal(base.limits.maxBufferSize,device.limits.maxBufferSize)
+  assert.equal(base.format,'bgra8unorm')
+  assert.equal(events.destroyed,0)
+  const noGpu=await inspectNoqeriGpuCompatibility({requestAdapter:async()=>null})
+  assert.equal(noGpu.available,false)
+  let calls=0
+  const integrated=await inspectNoqeriGpuCompatibility({
+    requestAdapter:async options=>{
+      calls++
+      return options?.powerPreference ? null : {
+        info:{vendor:'mock-integrated'},
+        features:new Set(['timestamp-query']),
+        limits:{maxTextureDimension2D:2048},
+        isFallbackAdapter:false
+      }
+    },
+    getPreferredCanvasFormat:()=> 'rgba8unorm'
+  })
+  assert.equal(calls,2)
+  assert.equal(integrated.adapter.vendor,'mock-integrated')
+  assert.deepEqual(integrated.features,['timestamp-query'])
+})
+test('persistent renderer releases resources and rejects future frames on device loss',async()=>{
+  const {gpu,device,context,events}=gpuMock()
+  let triggerLoss
+  device.lost=new Promise(resolve=>{triggerLoss=resolve})
+  const canvas={width:64,height:64,getContext(){return context}}
+  const renderer=await createNoqeriMeshRenderer3D(canvas,vertexWgsl(),fragmentWgsl(),gpu,3)
+  await renderer.render(meshPixels().slice(0,12))
+  triggerLoss({reason:'unknown',message:'mock device removed'})
+  await device.lost
+  await Promise.resolve()
+  assert.equal(events.destroyed,1)
+  assert.equal(events.unconfigured,1)
+  assert.ok(events.buffers[0].destroyed)
+  assert.ok(events.textures[0].destroyed)
+  await assert.rejects(renderer.render(meshPixels().slice(0,12)),/mock device removed/)
 })
