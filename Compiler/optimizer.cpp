@@ -953,9 +953,8 @@ bool eliminateRepeatedStackLoads(NirFunction& fn){
         [](const NirInstruction& in){
             return in.op==NirOp::Try||in.op==NirOp::InlineAsm;
         }))return false;
-    const auto memory=analyzeMemorySsa(fn);
-    if(!memory.valid)return false;
     const NirAliasAnalysis alias(fn);
+    std::unordered_map<Reg,NirMemorySsa> objectVersions;
     std::unordered_map<Reg,std::vector<std::size_t>> candidates;
     std::unordered_map<Reg,Reg> replace;
     for(std::size_t pc=0;pc<fn.code.size();++pc){
@@ -970,6 +969,11 @@ bool eliminateRepeatedStackLoads(NirFunction& fn){
              kind==TypeKind::Bool))continue;
         const Reg ptr=in.args[0];
         if(alias.escapes(ptr))continue;
+        const auto stored=objectVersions.find(ptr);
+        const NirMemorySsa& memory=stored==objectVersions.end()?
+            objectVersions.emplace(ptr,analyzeMemorySsaForPointer(fn,ptr)).first->second:
+            stored->second;
+        if(!memory.valid)continue;
         for(const auto previous:candidates[ptr]){
             const auto& first=fn.code[previous];
             if(memory.beforeInstruction[pc]!=
@@ -1287,6 +1291,90 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
        level==OptimizationLevel::Oz)lowerStraightDiamondPhi(fn);
 }
 }
+NirScalarSsa analyzeScalarSsa(const NirFunction& fn){
+    NirScalarSsa result;
+    const Graph g=graphOf(fn);
+    const std::size_t n=fn.code.size(),blocks=g.spans.size();
+    if(!g.uniqueDefs||!g.validDominance)return result;
+    // No modelled exceptional edge exists for Try. Address-taken locals
+    // can be changed by aliasing writes that Store versions do not see.
+    std::unordered_set<std::string> excluded;
+    std::set<std::string> names;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Try||in.op==NirOp::InlineAsm)return result;
+        if(in.op==NirOp::AddressOf)
+            excluded.insert(in.text);
+        if((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile)
+            excluded.insert(in.text);
+        if((in.op==NirOp::Load||in.op==NirOp::Store)&&
+           !in.text.empty())names.insert(in.text);
+    }
+    for(const auto& name:excluded)names.erase(name);
+    if(names.size()>512||n>1000000)return result;
+    result.variables.assign(names.begin(),names.end());
+    const std::size_t count=result.variables.size();
+    result.blockEntry.assign(blocks,std::vector<std::size_t>(count,0));
+    result.blockExit.assign(blocks,std::vector<std::size_t>(count,0));
+    if(!count){result.valid=true;return result;}
+    std::unordered_map<std::string,std::size_t> nameIndex;
+    for(std::size_t i=0;i<count;++i)nameIndex.emplace(result.variables[i],i);
+    const auto phiVersion=[&](std::size_t block,std::size_t v){
+        return n+1+block*count+v;
+    };
+    // Every named local is a distinct conservative scalar partition.
+    // A Store creates a stable version; equal predecessor versions pass
+    // through a join, and unequal versions construct a stable Phi.
+    bool changed=true;
+    std::size_t iteration=0;
+    const std::size_t limit=std::max<std::size_t>(8,blocks*8+8);
+    while(changed&&iteration++<limit){
+        changed=false;
+        for(std::size_t b=0;b<blocks;++b){
+            if(!g.reachable[b])continue;
+            std::vector<std::size_t> in(count,0);
+            if(b!=0){
+                bool first=true;
+                for(const auto pred:g.preds[b]){
+                    if(!g.reachable[pred])continue;
+                    if(first){in=result.blockExit[pred];first=false;}
+                    else for(std::size_t v=0;v<count;++v)
+                        if(in[v]!=result.blockExit[pred][v])
+                            in[v]=phiVersion(b,v);
+                }
+            }
+            auto out=in;
+            for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc){
+                const auto& ins=fn.code[pc];
+                if(ins.op!=NirOp::Store)continue;
+                const auto it=nameIndex.find(ins.text);
+                if(it!=nameIndex.end())out[it->second]=pc+1;
+            }
+            if(in!=result.blockEntry[b]||out!=result.blockExit[b]){
+                result.blockEntry[b]=std::move(in);
+                result.blockExit[b]=std::move(out);
+                changed=true;
+            }
+        }
+    }
+    if(changed)return result; // fail closed on nonconvergent cyclic CFG
+    for(std::size_t b=1;b<blocks;++b){
+        if(!g.reachable[b])continue;
+        for(std::size_t v=0;v<count;++v){
+            if(result.blockEntry[b][v]!=phiVersion(b,v))continue;
+            NirScalarPhi phi;
+            phi.block=static_cast<BlockId>(b);
+            phi.variable=result.variables[v];
+            phi.version=phiVersion(b,v);
+            for(const auto pred:g.preds[b])
+                if(g.reachable[pred])
+                    phi.incoming.emplace_back(
+                        static_cast<BlockId>(pred),result.blockExit[pred][v]);
+            result.phis.push_back(std::move(phi));
+        }
+    }
+    result.valid=true;
+    return result;
+}
 NirMemorySsa analyzeMemorySsa(const NirFunction& fn){
     NirMemorySsa result;
     const Graph g=graphOf(fn);
@@ -1358,6 +1446,88 @@ NirMemorySsa analyzeMemorySsa(const NirFunction& fn){
 // loads of the SAME pointer register from a NONESCAPING stack allocation.
 // Same-version dominance guarantees that no intervening write, alias-unknown
 // call, atomic/fence or divergent memory-Phi has invalidated the first load.
+NirMemorySsa analyzeMemorySsaForPointer(const NirFunction& fn,Reg pointer){
+    NirMemorySsa result;
+    const Graph g=graphOf(fn);
+    const std::size_t n=fn.code.size(),blocks=g.spans.size();
+    result.beforeInstruction.assign(n,0);
+    result.afterInstruction.assign(n,0);
+    result.blockEntry.assign(blocks,0);
+    result.blockExit.assign(blocks,0);
+    if(!g.uniqueDefs||!g.validDominance)return result;
+    if(std::any_of(fn.code.begin(),fn.code.end(),
+       [](const NirInstruction& in){
+           return in.op==NirOp::Try||in.op==NirOp::InlineAsm;
+       }))return result;
+    const NirAliasAnalysis alias(fn);
+    if(alias.escapes(pointer))return result;
+    const auto invalidates=[&](const NirInstruction& in){
+        // Volatile writes are ordering barriers even if a separate address
+        // partition is provably disjoint from this stack allocation.
+        if(in.isVolatile)return true;
+        if(in.op==NirOp::StoreMemory){
+            if(in.args.empty())return true;
+            // NoAlias is strong only for two distinct, nonescaping stack
+            // allocation roots and on an acyclic graph. Otherwise retain
+            // the conservative generic write barrier.
+            return alias.query(pointer,in.args[0])!=AliasRelation::NoAlias;
+        }
+        return memoryClobber(in);
+    };
+    const auto phiVersion=[&](std::size_t b){return n+1+b;};
+    const auto entryFor=[&](std::size_t b){
+        if(b==0)return std::size_t{0};
+        bool first=true;
+        std::size_t version=0;
+        for(const auto pred:g.preds[b]){
+            if(!g.reachable[pred])continue;
+            if(first){version=result.blockExit[pred];first=false;}
+            else if(version!=result.blockExit[pred])
+                return phiVersion(b);
+        }
+        return first?std::size_t{0}:version;
+    };
+    bool changed=true;
+    std::size_t iterations=0;
+    while(changed&&iterations++<blocks*8+8){
+        changed=false;
+        for(std::size_t b=0;b<blocks;++b){
+            if(!g.reachable[b])continue;
+            const auto incoming=entryFor(b);
+            auto outgoing=incoming;
+            for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc)
+                if(invalidates(fn.code[pc]))outgoing=pc+1;
+            if(incoming!=result.blockEntry[b]||
+               outgoing!=result.blockExit[b]){
+                result.blockEntry[b]=incoming;
+                result.blockExit[b]=outgoing;
+                changed=true;
+            }
+        }
+    }
+    if(changed)return result;
+    for(std::size_t b=0;b<blocks;++b){
+        if(!g.reachable[b])continue;
+        if(b!=0&&result.blockEntry[b]==phiVersion(b)){
+            NirMemoryPhi phi;
+            phi.block=static_cast<BlockId>(b);
+            phi.version=phiVersion(b);
+            for(const auto pred:g.preds[b])
+                if(g.reachable[pred])
+                    phi.incoming.push_back({
+                        static_cast<BlockId>(pred),result.blockExit[pred]});
+            result.phis.push_back(std::move(phi));
+        }
+        auto current=result.blockEntry[b];
+        for(std::size_t pc=g.spans[b].first;pc<g.spans[b].second;++pc){
+            result.beforeInstruction[pc]=current;
+            if(invalidates(fn.code[pc]))current=pc+1;
+            result.afterInstruction[pc]=current;
+        }
+    }
+    result.valid=true;
+    return result;
+}
 NirAliasAnalysis::NirAliasAnalysis(const NirFunction& fn) {
     const auto cfg=graphOf(fn);
     if(!cfg.uniqueDefs||!cfg.validDominance)return;

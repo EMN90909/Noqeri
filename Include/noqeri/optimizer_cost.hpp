@@ -57,6 +57,27 @@ struct NirMemorySsa {
     std::vector<NirMemoryPhi> phis;
 };
 NirMemorySsa analyzeMemorySsa(const NirFunction& fn);
+// Local scalar SSA analysis for named mutable variables. Stable Store
+// versions join at Phi nodes, including loop headers with backedges.
+// This represents construction/renaming facts, NOT general executable
+// Phi destruction; lowerStraightDiamondPhi remains separately gated.
+struct NirScalarPhi {
+    std::string variable;
+    BlockId block=0;
+    std::size_t version=0;
+    std::vector<std::pair<BlockId,std::size_t>> incoming;
+};
+struct NirScalarSsa {
+    bool valid=false;
+    std::vector<std::string> variables;
+    std::vector<std::vector<std::size_t>> blockEntry,blockExit;
+    std::vector<NirScalarPhi> phis;
+};
+NirScalarSsa analyzeScalarSsa(const NirFunction& fn);
+// Alias-partitioned version graph for a proven nonescaping StackAlloc root.
+// Retains every unknown barrier, but an independent NoAlias StoreMemory
+// cannot invalidate the root's data. Invalid/escaping roots fail closed.
+NirMemorySsa analyzeMemorySsaForPointer(const NirFunction& fn,Reg pointer);
 // MustAlias means the *same virtual pointer value*, not that two different
 // pointer expressions happen to have the same address. Distinct, nonescaping
 // StackAlloc roots permit NoAlias only in acyclic NIR. Everything else is May.
