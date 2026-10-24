@@ -299,6 +299,62 @@ Graph graphOf(const NirFunction& fn) {
     }
     return g;
 }
+// Local mem2reg for values of the same, known NIR type. A Store already
+// produced a virtual register value. A subsequent Load in the SAME straight-
+// line block is redundant unless the variable is address-taken/volatile.
+// Do not rewrite successors, call sites or Phi-like joins without real SSA.
+bool promoteLocalLoads(NirFunction& fn){
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
+    std::unordered_set<std::string> addressTaken;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::InlineAsm)return false;
+        if(in.op==NirOp::AddressOf)addressTaken.insert(in.text);
+    }
+    std::unordered_map<Reg,std::size_t> finalUseBlock;
+    for(std::size_t pc=0;pc<fn.code.size();++pc)
+        for(Reg arg:fn.code[pc].args)
+            finalUseBlock[arg]=std::max(finalUseBlock[arg],g.owner[pc]);
+    bool changed=false;
+    for(std::size_t block=0;block<g.spans.size();++block){
+        std::unordered_map<std::string,Reg> values;
+        const auto span=g.spans[block];
+        for(std::size_t pc=span.first;pc<span.second;++pc){
+            auto& in=fn.code[pc];
+            if(in.op==NirOp::Store&&!in.args.empty()){
+                if(!addressTaken.count(in.text))values[in.text]=in.args[0];
+                else values.erase(in.text);
+                continue;
+            }
+            if(in.op!=NirOp::Load||!in.dest||in.isVolatile||
+               addressTaken.count(in.text))continue;
+            const auto previous=values.find(in.text);
+            if(previous==values.end())continue;
+            const Reg source=previous->second,loaded=*in.dest;
+            if(source==loaded||source>=fn.registerTypes.size()||
+               loaded>=fn.registerTypes.size())
+                continue;
+            const auto kind=fn.registerTypes[source].kind;
+            // Use only primitive scalar types: full Type equality requires
+            // the type engine, which is not linked into optimizer-only tests.
+            // Pointers, aggregates and floats remain in memory.
+            if(kind!=fn.registerTypes[loaded].kind||
+               !(signedIndexType(kind)||unsignedType(kind)||
+                 kind==TypeKind::Bool))
+                continue;
+            const auto last=finalUseBlock.find(loaded);
+            if(last!=finalUseBlock.end()&&last->second>block)continue;
+            for(std::size_t later=pc+1;later<span.second;++later)
+                for(auto& arg:fn.code[later].args)
+                    if(arg==loaded)arg=source;
+            in.op=NirOp::Nop;
+            in.dest.reset();
+            in.args.clear();
+            changed=true;
+        }
+    }
+    return changed;
+}
 bool safeIntResult(const NirInstruction& i) {
     // No CSE for floats (NaNs, signed zero), pointers, volatile loads or
     // operations that might trap on a changed evaluation schedule.
@@ -702,7 +758,10 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     // Eliminate duplicate expressions before conventional DCE discards their
     // first (temporarily unused) producer. Pass order is observable here.
     if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
-       level==OptimizationLevel::Oz) localGvn(fn);
+       level==OptimizationLevel::Oz){
+        promoteLocalLoads(fn);
+        localGvn(fn);
+    }
     const int rounds = level == OptimizationLevel::O3 ? 3 :
                        level == OptimizationLevel::O2 ? 2 : 1;
     for (int r = 0; r < rounds; ++r) {
