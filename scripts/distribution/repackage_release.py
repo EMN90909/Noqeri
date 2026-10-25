@@ -53,6 +53,10 @@ def extract_sdk(archive, target, dest):
 
     def extract_one(name, size, open_file, directory=False):
         nonlocal entries, consumed
+        # cmake -E tar includes the stage/ root directory itself. Accept it
+        # only as an actual directory; reject a stage file or out-of-root path.
+        if directory and name in ("stage", "stage/"):
+            return
         parts=checked_path(name)
         if directory: return
         entries+=1
