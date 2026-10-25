@@ -406,6 +406,105 @@ jobs:
         shell: bash
         run: python3 -m unittest discover -s tests/scripts -p repackage_archive_test.py -v
 
+  publish-available:
+    name: Publish verified desktop and Android downloads
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+    needs: [native, android, android-app, packaging-tests]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: noqeri-*
+          merge-multiple: true
+      - name: Verify all desktop and Android assets before making a prerelease
+        id: verify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)"
+          test -n "$version"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" ]] || exit 1
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"
+          fi
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$release_tag" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ -n "$existing" && "$existing" != "$GITHUB_SHA" ]]; then
+            echo "Tag already points to a different source commit" >&2; exit 1
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          require() {
+            [[ -s "artifacts/$1" ]] || { echo "Missing verified installer or binary: $1" >&2; exit 1; }
+          }
+          for target in linux-x86 linux-x86_64 linux-aarch64 macos-x86_64 macos-aarch64 \
+                        windows-x86 windows-x86_64 windows-aarch64 \
+                        android-armv7 android-aarch64 android-x86 android-x86_64; do
+            case "$target" in
+              windows-*)
+                require "noqeri-v$version-$target.zip"
+                require "noqeri-v$version-$target.exe"
+                require "noqeri-$version-$target-setup.exe"
+                case "$target" in
+                  windows-x86|windows-x86_64) require "noqeri-$version-$target.msi" ;;
+                esac
+                ;;
+              *)
+                require "noqeri-v$version-$target.tar.gz"
+                require "noqeri-v$version-$target.bin"
+                ;;
+            esac
+            case "$target" in
+              linux-*) require "noqeri-$version-$target.deb"; require "noqeri-$version-$target.rpm" ;;
+              macos-*) require "noqeri-$version-$target.pkg" ;;
+              android-*) require "noqeri-$version-$target-termux.deb" ;;
+            esac
+          done
+          require "noqeri-$version-android-universal-debug.apk"
+          (cd artifacts && sha256sum noqeri-* > SHA256SUMS-available && sha256sum -c SHA256SUMS-available)
+      - name: Publish verified desktop and Android targets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.verify.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Noqeri ${{ steps.verify.outputs.tag }} (platform preview)
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Experimental Noqeri Stage-0 toolchain prerelease, with
+            verified CI-built Windows, Linux, macOS and Android targets.
+            Android APK is debug signed; installers are not production signed.
+            FreeBSD and OpenBSD assets may be added once their VM builds pass.
+            Binary downloads require the matching host OS and CPU architecture.
+          files: artifacts/*
+      - name: Verify published early download assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > uploaded.txt
+          for file in artifacts/*; do
+            test -f "$file"
+            grep -Fxq "$(basename "$file")" uploaded.txt || {
+              echo "Release missing $(basename "$file")" >&2
+              exit 1
+            }
+          done
+          echo "Verified initial Noqeri Release downloads at $RELEASE_TAG"
+
   publish:
     name: Publish OS installers, binaries, APK and checksums
     if: >-
@@ -440,7 +539,7 @@ jobs:
           else
             # Automatic and explicitly dispatched releases are prereleases.
             # Do not hijack a pre-existing stable version tag.
-            release_tag="v$version-platform-preview.1"
+            release_tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"
           fi
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
