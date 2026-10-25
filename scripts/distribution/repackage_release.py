@@ -95,6 +95,45 @@ def extract_sdk(archive, target, dest):
         fail("SDK archive missing public C/C++ ABI headers")
     return stage,compiler
 
+def include_native_installers(source_dir, release_dir, version, target):
+    """Only accept the exact installer names qualified by the native matrix."""
+    os_name,_=target.split("-",1)
+    assets=[]
+    base=f"noqeri-{version}-{target}"
+    if os_name=="linux":
+        assets=[(base+".deb","deb"),(base+".rpm","rpm")]
+    elif os_name=="windows":
+        assets=[(base+"-setup.exe","setup.exe")]
+        if target in ("windows-x86","windows-x86_64"):
+            assets.append((base+".msi","msi"))
+    elif os_name in ("macos","freebsd"):
+        assets=[(base+".pkg","pkg")]
+    elif os_name=="openbsd":
+        assets=[(base+".pkg.tgz","pkg.tgz")]
+    elif os_name=="android":
+        assets=[(base+"-termux.deb","termux.deb"),
+                (f"noqeri-{version}-android-universal-debug.apk","apk")]
+    if not assets:
+        fail("no native installers expected for "+target)
+    manifest=release_dir/"fragment.json"
+    fragment=json.loads(manifest.read_text(encoding="utf-8"))
+    for name,fmt in assets:
+        file=source_dir/name
+        if not file.is_file() or file.is_symlink() or not 0<file.stat().st_size<=MAX_FILE:
+            fail("missing, empty or unsafe native installer: "+name)
+        copied=release_dir/name
+        if copied.exists(): fail("installer file would overwrite a compiler artifact")
+        shutil.copyfile(file,copied)
+        digest=hashlib.sha256()
+        with copied.open("rb") as stream:
+            for chunk in iter(lambda:stream.read(1024*1024),b""):
+                digest.update(chunk)
+        fragment["assets"].append({
+            "filename":name,"format":fmt,
+            "bytes":copied.stat().st_size,"sha256":digest.hexdigest()
+        })
+    manifest.write_text(json.dumps(fragment,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
@@ -103,6 +142,8 @@ def main():
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--license", default="LICENSE")
     parser.add_argument("--targets", default=",".join(TARGETS))
+    parser.add_argument("--include-installers", action="store_true",
+                        help="Require and hash actual OS-native package artifacts too")
     args=parser.parse_args()
     root=Path(args.input).resolve()
     output=Path(args.output).resolve()
@@ -125,6 +166,8 @@ def main():
                 "--qualification","build-only","--gpu-backend","cpu-fallback",
             ]
             subprocess.run(cmd,check=True)
+            if args.include_installers:
+                include_native_installers(root,output/(os_name+"-"+ARCH.get(cpu,cpu)),args.version,target)
     print("Repackaged real native SDKs, in 5 formats each: "+", ".join(expected))
 
 if __name__=="__main__":

@@ -448,7 +448,7 @@ jobs:
           # succeeded. The repacker refuses missing, symlinked or unsafe SDKs.
           python3 scripts/distribution/repackage_release.py \
             --input artifacts --output dist --version "$version" \
-            --source-commit "$GITHUB_SHA" --license LICENSE
+            --source-commit "$GITHUB_SHA" --license LICENSE --include-installers
           python3 scripts/distribution.py combine --input dist \
             --version "$version" --source-commit "$GITHUB_SHA" \
             --require linux-x86,linux-x86_64,linux-arm64,windows-x86,windows-x86_64,windows-arm64,macos-x86_64,macos-arm64,android-armv7,android-arm64,android-x86,android-x86_64,freebsd-x86_64,freebsd-arm64,openbsd-x86_64,openbsd-arm64
