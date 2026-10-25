@@ -1,0 +1,70 @@
+name: Noqeri actual GPU 2D and 3D images and timing
+on:
+  push:
+    branches: [benchmark/noqeri-gpu-2d3d-20261025]
+    paths:
+      - 'Benchmarks/gpu-headless/**'
+      - '.github/workflows/noqeri-gpu-headless-2d3d.yml'
+permissions:
+  contents: read
+jobs:
+  offscreen-gpu-qualification:
+    name: "Noqeri Stage-0 shader -> WGSL -> Vulkan software GPU"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install software Vulkan GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-tools
+          lvp="$(find /usr/share/vulkan/icd.d -maxdepth 1 -iname '*lvp*json' | head -n 1)"
+          if [[ -z "$lvp" ]]; then echo "FAIL: lavapipe software Vulkan driver not present" >&2; exit 1; fi
+          echo "VK_ICD_FILENAMES=$lvp" >> "$GITHUB_ENV"
+          export VK_ICD_FILENAMES="$lvp"
+          echo "Selected Vulkan ICD: $lvp"
+          vulkaninfo --summary | head -n 95
+      - name: Build real Noqeri Stage-0 compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-gpu-compiler -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-gpu-compiler --target noqeri -j 2
+          build-gpu-compiler/noqeri --version
+      - name: Compile Noqeri 2D and 3D shaders and Naga validate
+        run: python3 Benchmarks/gpu-headless/prepare.py
+      - name: Build GPU renderer through native wgpu/Vulkan
+        run: cargo build --release --manifest-path Benchmarks/gpu-headless/Cargo.toml
+      - name: Execute GPU rendering and readback of real 2D and depth-tested 3D images
+        shell: bash
+        env:
+          WGPU_BACKEND: vulkan
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set -euo pipefail
+          cargo run --release --quiet --manifest-path Benchmarks/gpu-headless/Cargo.toml -- build-gpu-wgsl
+          python3 - <<'PY'
+          import json,pathlib
+          r=json.loads(pathlib.Path("build-gpu-wgsl/gpu-results.json").read_text())
+          assert len(r['scenes'])==6, "missing 2D/3D GPU scenes"
+          for row in r["scenes"]:
+            assert row["comparison"]["changed_channels_over_2"]==0,row
+            assert pathlib.Path(row["nq_png"]).stat().st_size>128,row
+            assert len(row["noqeri"]["samples_ms"])==25,row
+          print("GPU_REAL_IMAGE_AND_TIMING_QUALIFIED",r["adapter_name"],len(r["scenes"]),flush=True)
+          PY
+      - name: Existing Noqeri native 3D CPU correctness qualification
+        run: bash tests/scripts/render3d-native-e2e.sh build-gpu-compiler/noqeri
+      - name: Upload raw samples, shader files and actual 2D/3D PNG screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-real-gpu-shader-2d-3d-evidence
+          if-no-files-found: warn
+          path: |
+            build-gpu-wgsl/
+            Benchmarks/gpu-headless/Cargo.toml
+            Benchmarks/gpu-headless/prepare.py
+            Benchmarks/gpu-headless/src/main.rs
