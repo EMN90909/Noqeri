@@ -353,10 +353,19 @@ jobs:
           path: artifacts/*
           if-no-files-found: error
 
+  packaging-tests:
+    name: Installer and binary packaging unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test artifact creation, SDK archives and CPack DEB metadata
+        shell: bash
+        run: bash tests/scripts/distribution_package_test.sh
+
   publish:
     name: Publish OS installers, binaries, APK and checksums
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [native, android, android-app, freebsd, openbsd]
+    needs: [native, android, android-app, freebsd, openbsd, packaging-tests]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
