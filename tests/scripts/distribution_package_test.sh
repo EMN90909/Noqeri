@@ -18,7 +18,7 @@ printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/render2d.noqeri"
 printf '// fixture\n' > "$tmp/stage/include/noqeri/abi.h"
 (
   cd "$tmp"
-  export NOQERI_RELEASE_TARGET=linux-x86 GITHUB_REF_NAME="v$version"
+  export NOQERI_RELEASE_TARGET=linux-x86 GITHUB_REF_NAME="main"
   bash "$root/scripts/distribution/archive-sdk.sh"
   test -s "artifacts/noqeri-v$version-linux-x86.tar.gz"
   test -s "artifacts/noqeri-v$version-linux-x86.bin"
