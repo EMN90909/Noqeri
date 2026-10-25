@@ -9,7 +9,8 @@ NOQERI_RELEASE_TARGET="${NOQERI_RELEASE_TARGET:-${RELEASE_TARGET:-}}"
 # GitHub workflow_dispatch and one-shot main-branch release runs have
 # GITHUB_REF_NAME=main, but artifacts must always identify the compiler's
 # actual source version. The final publisher enforces tag/source consistency.
-version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)"
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' "$project_root/CMakeLists.txt")"
 test -n "$version" || { echo "Noqeri CMake project version missing" >&2; exit 1; }
 ref="v$version"
 target="${NOQERI_RELEASE_TARGET}"
