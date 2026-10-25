@@ -1,0 +1,101 @@
+name: Verified Noqeri archive formats
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/distribution.py
+      - tests/test_distribution.py
+      - .github/workflows/distribution-packager.yml
+  pull_request:
+    paths:
+      - scripts/distribution.py
+      - tests/test_distribution.py
+      - .github/workflows/distribution-packager.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p test_distribution.py -v
+      - run: python3 -m unittest discover -s tests -p test_repackage_release.py -v
+
+  native-packages:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, os: linux, cpu: x86_64}
+          - {runner: ubuntu-24.04-arm, os: linux, cpu: arm64}
+          - {runner: windows-2022, os: windows, cpu: x86_64}
+          - {runner: macos-15, os: macos, cpu: arm64}
+          - {runner: macos-15-intel, os: macos, cpu: x86_64}
+    runs-on: ${ matrix.runner }
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Compile actual Noqeri Stage-0 binary
+        shell: bash
+        run: |
+          cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF
+          cmake --build build-release --config Release --target noqeri noqeri-nqri --parallel 2
+          cmake --install build-release --config Release --prefix stage
+      - name: Smoke test real CLI and shader compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=stage/bin/noqeri
+          if [[ "${ matrix.os }" == windows ]]; then bin=stage/bin/noqeri.exe; fi
+          "$bin" --version > compiler-smoke.log
+          "$bin" check examples/hello.noqeri >> compiler-smoke.log 2>&1
+          "$bin" shader examples/shaders/vector_fragment.noqeri build-release/vector.wgsl --stage=fragment >> compiler-smoke.log 2>&1
+          test -s build-release/vector.wgsl
+          vm=stage/bin/noqeri-nqri
+          if [[ "${{ matrix.os }}" == windows ]]; then vm=stage/bin/noqeri-nqri.exe; fi
+          "$vm" --selftest >> compiler-smoke.log 2>&1
+          test -d stage/include/noqeri
+          test -s stage/share/noqeri/Lib/std/render2d.noqeri
+      - name: Make binary, gz, tar, tar.gz and zip (SHA-256)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=stage/bin/noqeri
+          if [[ "${ matrix.os }" == windows ]]; then bin=stage/bin/noqeri.exe; fi
+          version="$(python3 -c "import re;print(re.search(r'project\(noqeri VERSION ([0-9.]+)',open('CMakeLists.txt').read()).group(1))")"
+          python3 scripts/distribution.py bundle --binary "$bin" --version "$version" \
+            --os "${ matrix.os }" --cpu "${ matrix.cpu }" \
+            --source-commit "$GITHUB_SHA" --qualification executed --smoke-evidence compiler-smoke.log \
+            --gpu-backend wgsl-emitter --sdk-root stage --license LICENSE --output dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${ matrix.os }-${ matrix.cpu }
+          path: dist/${ matrix.os }-${ matrix.cpu }/
+          if-no-files-found: error
+          retention-days: 20
+
+  validate-matrix:
+    needs: native-packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {path: dist}
+      - name: Validate full SHA-256 evidence matrix
+        shell: bash
+        run: |
+          version="$(python3 -c "import re;print(re.search(r'project\(noqeri VERSION ([0-9.]+)',open('CMakeLists.txt').read()).group(1))")"
+          python3 scripts/distribution.py combine --input dist --version "$version" \
+            --source-commit "$GITHUB_SHA" \
+            --require linux-x86_64,linux-arm64,windows-x86_64,macos-x86_64,macos-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-verified-formats
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
