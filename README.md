@@ -1,173 +1,242 @@
-<p align="center"><img src="Brand/noqeri-icon.svg" alt="Noqeri fox icon" width="560"></p>
+<p align="center">
+  <img src="Brand/noqeri-logo.webp" width="210" alt="Noqeri logo">
+</p>
+
 <h1 align="center">Noqeri</h1>
 
-**Version on `main`: 0.1.3 (development, not production-qualified).** The `1.0.0` proposal is **not** a published stable compiler version. `CMakeLists.txt`, `Include/noqeri/version.hpp`, and `project.nqon` report 0.1.3. The checksum-pinned Stage-1 bootstrap seed and its Noqeri driver remain at historical 0.7.0 until a separately verified seed rotation. Do not claim `v1.0.0` solely from documentation. Release readiness requires native Stage-2 parity, reviewed bootstrap provenance, a passing platform matrix, and actual NoeSQL/Registry cross-repository tests.
-<p align="center"><strong>A general-purpose, statically typed language moving to a Noqeri-owned self-hosted compiler.</strong></p>
+<p align="center">
+  <strong>A general-purpose language with simple syntax and explicit systems control.</strong><br>
+  Statically typed. C++-bootstrapped. Growing toward a Noqeri-owned compiler.
+</p>
 
-Noqeri active source files use `.noqeri`, project metadata uses portable `project.nqon`, and portable compiler bytecode uses `.nqri`. **NoeSQL** is the canonical planned database engine with `.noedb` storage. Old NoqeriDB/NoqeriSQL host code and `.nqd/.nqdb` formats remain compatibility/migration surfaces, **not** a second recommended database platform. Noqeri main uses version **0.1.3**; a v1.0.0 stabilization candidate exists but native cross-repository release qualification is incomplete.
+<p align="center">
+  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.3 development" src="https://img.shields.io/badge/version-0.1.3%20development-F59E0B"></a>
+  <a href="LICENSE"><img alt="GPL-3.0-only license" src="https://img.shields.io/badge/license-GPL--3.0--only-2563EB"></a>
+  <a href="Doc/PRODUCTION_READINESS.md"><img alt="Experimental development" src="https://img.shields.io/badge/readiness-experimental-64748B"></a>
+</p>
 
-## Distributed PGAS (experimental)
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-works-today">Capabilities</a> ·
+  <a href="#toolchain-and-self-hosting">Toolchain</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="#project-status">Project status</a>
+</p>
 
-PGAS has authenticated TLS node clients, durable i64 WAL storage, a limited
-sandboxed remote bytecode VM, an optional real Linux libibverbs provider and a
-fail-closed two-node mirror with WAL epochs. The Stage-0 compiler also accepts
-and typechecks `@partition` declarations and retains placement metadata in
-NIR, but deliberately rejects native/NQRI/interpreter execution until complete
-distributed-address lowering is verified. Physical two-host and RDMA fabric
-qualification, consensus auto-failover, secure RDMA descriptor exchange and
-full self-host parity remain outstanding. See
-[PGAS acceptance and remaining gates](Doc/PGAS_DISTRIBUTED_ACCEPTANCE.md).
+---
 
-## Reactive web development (experimental, implemented on `main`)
+Noqeri is an evolving **statically typed, general-purpose programming language** developed by [Noethric](https://noethric.xyz). It combines inferred local variables and a compact application-oriented syntax with lower-level capabilities such as fixed-width integers, pointers, slices, atomics, native interfaces and explicit compiler targets.
 
-Build a simple application in **one Noqeri source** with markup, reactive state, components, optional CSS, JavaScript interop and local Noqeri UI packages:
+This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.3`, a development version, not a production-qualified release.**
+
+## A first look
 
 ```noqeri
-let count = 0
-view {
-    h1 { "Hello from Noqeri" }
-    button on.click { count = count + 1 } { "Count: " + count }
+function add(a: int, b: int): int {
+    return a + b
+}
+
+let language = "Noqeri"
+
+if language == "Noqeri" {
+    print("Hello from Noqeri")
+    print(add(10, 20))
 }
 ```
+
+Local values can infer their types, semicolons are optional, and `if` / `while` conditions do not require parentheses. Functions, fixed-size arrays, slices, records, generics and imports are part of the language surface. See the [language reference](Doc/LANGUAGE_REFERENCE.md) and the checked-in [hello-world example](examples/hello.noqeri).
+
+## Quick start
+
+**Prerequisites:** Git, CMake **3.16+**, and a **C++17 compiler**. The following configuration builds the real Stage-0 `noqeri` CLI while omitting optional mailbox/PGAS services and their platform-specific dependencies.
+
+**Linux / macOS**
 
 ```sh
-node Runtime/web-project.mjs examples/web_view dist-web
-node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
+git clone https://github.com/EMN90909/Noqeri.git
+cd Noqeri
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+cmake --build build --config Release --target noqeri
+
+./build/noqeri --version
+./build/noqeri check examples/hello.noqeri
+./build/noqeri run examples/hello.noqeri
 ```
 
-The web builder creates a minimal `index.html`, ES modules and a browser DOM runtime. `import js "gsap" as gsap` requires an explicit local ES module or import map, while `import ui/badge as ui` resolves a local `ui/badge.noqeri` package. See [Web Views](Doc/WEB_VIEWS_V1.md).
+**Windows (PowerShell, Visual Studio multi-config generator)**
 
-**Important:** This is a separately tested restricted web-view compiler, **not** the typed self-hosted Stage-2 NIR backend, and not production-qualified SSR, hydration, routing, or a universal JavaScript replacement. Existing HTML/CSS/JS web projects continue to build through the original compatibility path.
+```powershell
+git clone https://github.com/EMN90909/Noqeri.git
+cd Noqeri
 
-## Database and Registry integration
+cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+cmake --build build --config Release --target noqeri
 
-The private NoeSQL repository has migrated 21 language sources to `.noqeri`, and the public Registry repository now has a NoeSQL-backed HTTP v1 service. Those repositories **do not yet provide a proven production-ready native compiler/database integration**. The default CLI still uses the historical GitHub-content adapter. `Runtime/package-manager-v1.mjs` provides the experimental Registry v1 API client, but enabling that as default before deploying the NoeSQL-backed service would break existing package installs. Both paths must not be described as one production-integrated implementation. Do not label a changed protocol file as a completed production migration.
-
-## Migration status (verified on `main`, October 21, 2026)
-
-| Repository | `.noqeri` | `.nqri` | `.nqr` | `.nqo` |
-| --- | ---: | ---: | ---: | ---: |
-| Noqeri | 320 | 1 | 0 | 0 |
-| NoeSQL | 21 | 0 | 0 | 0 |
-| Registry | 8 | 0 | 425 | 0 |
-| Web | 3 | 0 | 3 | 2 |
-
-Registry's 425 `.nqr` paths are historical package release contents under `packages/`, not active Registry app source. Web's three `.nqr` and two `.nqo` files are segregated under `tests/fixtures/legacy/`. These are **not** equivalent to active compiler source needing in-place rename. Mutating immutable release bytes would change checksums and break pinned consumers; publish migrated package versions instead.
-
-Noqeri still contains deprecated NoqeriDB/NoqeriSQL compatibility code in `Database/` and `Compiler/bootstrap/noqeridb_host.cpp`. **NoeSQL is canonical**, but the old runtime has not been fully removed or bridged to the qualified native NoeSQL engine. Registry `runtime/server.mjs` / `runtime/catalog.mjs` use the `.noedb` reference path, while `src/registry.noqeri` is still a native host shim. Web chooses the Registry HTTP API only when `NOQERI_REGISTRY_API_URL` is configured, otherwise using a legacy GitHub source adapter. These are live migration boundaries, not a completed end-to-end production deployment.
-
-See [web view docs](Doc/WEB_VIEWS_V1.md), [self-hosting](Doc/SELF_HOSTING.md), and [database history](Database/README.md).
-
-## Beginner surface
-
-A single file needs no project ceremony:
-
-```noqeri
-let name = "Noqeri"
-
-if name == "Noqeri" {
-    print("Hello")
-}
+.\build\Release\noqeri.exe --version
+.\build\Release\noqeri.exe check examples\hello.noqeri
+.\build\Release\noqeri.exe run examples\hello.noqeri
 ```
 
-Types are inferred for initialized local values, semicolons are optional, and condition parentheses are unnecessary. `noqeri new demo` creates a two-line `project.nqon` plus a one-line starter program. Explicit types remain available where they communicate an API or systems boundary.
+For single-configuration generators, the executable is generally at `build/noqeri` (or `build/noqeri.exe`), rather than under `Release/`. This is a **source build**, not an installer or a signed binary release. The full default CMake configuration additionally builds experimental native components and, on Linux, requires **OpenSSL development libraries**. See [platform support](Doc/PLATFORM_SUPPORT.md) and [graphics build profiles](Doc/GRAPHICS_PLATFORM_SUPPORT.md).
+
+### Try a project
+
+```sh
+./build/noqeri new demo
+./build/noqeri check demo/src/main.noqeri
+```
+
+New projects use `project.nqon`, the portable **Noqeri Object Notation** manifest, rather than JSON or a JavaScript package manifest. For example:
 
 ```nqon
 name = demo
 version = "0.1.0"
 ```
 
-NQON is specified independently of the compiler and can be converted to/from JSON with the standalone reference tooling. See [NQON](Doc/NQON.md) and the [syntax simplicity contract](Doc/SYNTAX_SIMPLICITY.md).
+NQON is a separate text data format, **not** the compiled bytecode format. Read [NQON's specification](Doc/NQON.md) or [Getting started](Doc/GETTING_STARTED.md).
 
-## Compiler optimizer (Stage-0, partially implemented)
+## What works today
 
-The C++ Stage-0 NIR pipeline implements local integer value numbering (GVN), SSA-register dominance verification, sparse constant propagation and Boolean branch pruning (SCCP subset), conservative integer strength reduction, O3 structured hoisting of literals and provably invariant nontrapping Int/I64 arithmetic (LICM subset), and effect-preserving literal instruction scheduling. The register allocator uses CFG liveness over branches and loop backedges. Conservative stack pointer alias/escape inspection and uncalibrated x86-64/ARM64 cost profiles are available for future passes.
+The table describes **code present in this repository**, not a guarantee of production or cross-platform certification.
 
-**Not implemented:** full SSA Phi construction, trip-count loop unrolling, SLP/loop/autovectorization, general memory optimization, full interprocedural specialization, target machine scheduling, LTO or PGO. The proposed vectorizer does not yet emit SIMD; the cost model is not a claim that it does. See [the detailed qualification matrix](Doc/OPTIMIZATION_QUALIFICATION.md).
+| Area | Current implementation | Important boundary |
+| :--- | :--- | :--- |
+| **Language** | Static checking, inferred locals, functions, records, generics, arrays/slices, imports and low-level systems features | Some Stage-2 parity and release conformance gates remain open |
+| **Stage-0 compiler** | C++17 frontend, typed NIR, optimizations, reference execution and freestanding x86-64 assembly generation | Native executable tooling and target support vary by platform |
+| **NQRI bootstrap** | SHA-256-pinned Stage-1 seed; Stage-2/Stage-3 bytecode rebuild and byte-equality check through a C++ NQRI VM | **Not** native self-hosting or independent seed attestation |
+| **Web development** | Experimental Noqeri views, components, reactivity and a restricted web-to-ES-module compiler | Browser runtime and host tooling still use JavaScript; no production SSR/hydration |
+| **Graphics & shaders** | Noqeri-authored CPU raster modules, portable framebuffer fastpaths, and limited vertex/fragment/compute shaders compiled to WGSL | Stage-0 C++ shader backend; GPU drivers and full 3D engine are not qualified |
+| **Packages & data** | Package/lockfile tooling, portable NQON, Registry API experiments and NoeSQL adapters | Canonical NoeSQL and Registry integration is not end-to-end production-verified |
+| **Distributed computing** | Experimental TLS, WAL, bounded remote bytecode execution and optional Linux RDMA provider | Native distributed-address lowering, hardware tests and automatic safe failover remain incomplete |
 
-The native [optimization CI](.github/workflows/advanced-optimizer.yml) builds the complete C++ compiler, executes the optimizer and register allocation tests, and compares O0 versus O3 output for valid Noqeri programs. These are Stage-0 tests, **not** proof of self-hosted Stage-2 backend parity or production-wide performance.
+### Useful compiler commands
 
-## Native runtime benchmarking
+These commands belong to the **Stage-0 `noqeri` executable** built above, not to the restricted self-hosted Stage-2 CLI.
 
-For runtime comparisons, Noqeri now has a fail-closed AOT qualification path on Linux x86-64. Build the Stage-0 native compiler explicitly, then produce the standalone executable:
+| Command | What it does |
+| :--- | :--- |
+| `noqeri check file.noqeri` | Parse and type-check a source/module graph |
+| `noqeri run file.noqeri` | Run through the reference execution path |
+| `noqeri build file.noqeri output.s -O3` | Emit target assembly; **not** automatically a platform executable |
+| `noqeri nqri file.noqeri module.nqri` | Emit portable NQRI bytecode |
+| `noqeri new demo` | Create a starter project |
+| `noqeri format file.noqeri` | Format source in place |
+| `noqeri test tests` | Run the language test command against a directory |
+| `noqeri shader file.noqeri output.wgsl --stage=fragment` | Compile the supported shader subset to WebGPU WGSL |
+
+Other Stage-0 commands include `lex`, `nir`, `web`, `targets`, `manifest`, `lock`, `audit`, `doctor`, `lsp` and explicit assembler/linker adapters. Discover them with `noqeri --help`. The exact interfaces and supported feature sets are still evolving.
+
+## Experimental web and graphics
+
+<details>
+<summary><strong>Browser UI built from Noqeri</strong></summary>
+
+The checked-in web-view example uses `view` blocks, reactive events, local UI components and a small browser DOM runtime. Build it with **Node.js 22+**:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target noqeri --config Release
-node scripts/native-build.mjs Benchmarks/workloads/startup.noqeri build/benchmarks/native/startup --compiler=build/noqeri --opt=-O3
-./build/benchmarks/native/startup
+node Runtime/web-project.mjs examples/web_view dist-web
+node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
 ```
 
-The helper compiles through the Stage-0 native backend, assembles and links a standalone ELF executable with the minimal C ABI host, and writes a `.native.json` provenance record. `scripts/benchmark-suite.mjs` rejects `noqeri run`, `noqeri-nqri`, and `.nqri` artifacts as Noqeri runtime-performance evidence.
+The builder generates HTML and ES modules; it does **not** turn the browser into a JavaScript-free runtime. See [Web Views](Doc/WEB_VIEWS_V1.md), [the example](examples/web_view/main.noqeri), and [web implementation status](Doc/WEB_PROJECT_STATUS.md).
 
-This makes native program comparisons measurable without pretending the compiler is already natively self-hosted. Current provenance explicitly records `self_hosted_compiler: false`. A claim such as "Noqeri is 1.1x C" remains invalid until equivalent C/Noqeri workloads are measured under [the benchmark methodology](Benchmarks/METHODOLOGY.md) and the raw evidence bundle supports that exact statement.
+</details>
 
-## Compiler architecture
+<details>
+<summary><strong>CPU rendering and WebGPU shaders</strong></summary>
 
-`main` uses a staged self-host model. Compiler rules being migrated live in `Compiler/selfhost/*.noqeri`. The pinned self-rebuild path currently produces NQRI bytecode and executes it through the C++ `noqeri-nqri` VM. That is valid NQRI self-reproduction evidence, but it is **not** native-code self-hosting.
-
-The C++17 Stage-0 compiler remains the implementation that owns today's qualified x86-64 AOT code generation. The Noqeri-written backend already owns NIR/target/ABI validation, but its object-format modules do not yet form a complete machine-code, symbol and relocation emitter. See [`Doc/SELF_HOSTING.md`](Doc/SELF_HOSTING.md) for the exact native qualification gate.
-
-## Build locally
-
-A fresh machine can build a C++ Stage-0 compiler to produce a local Stage-1 seed candidate. This enables bootstrapping, but it is not independently attested seed provenance.
-
-Linux/macOS/POSIX:
+`Lib/std/render2d.noqeri` and `Lib/std/render3d.noqeri` contain CPU raster routines with separate native verification fixtures. The optional SDL2 bridge presents rendered frames. The Stage-0 shader backend converts a **restricted** Noqeri shader profile to WGSL:
 
 ```sh
-./bootstrap.sh
+./build/noqeri shader examples/shaders/vector_fragment.noqeri build/vector_fragment.wgsl --stage=fragment
 ```
 
-Windows PowerShell:
+WGSL compilation does not establish physical GPU compatibility. Browser WebGPU demonstrations also use JavaScript for device and resource setup. Read [shader profile v3](Doc/GPU_SHADER_V3.md), [3D qualification](Doc/RENDER3D_QUALIFICATION.md), and [the platform matrix](Doc/GRAPHICS_PLATFORM_SUPPORT.md).
 
-```powershell
-.\bootstrap.ps1
-```
+</details>
 
-A fresh checkout verifies the committed, SHA-256-pinned `Compiler/selfhost/trusted-stage1.nqri`, builds or locates the C++ `noqeri-nqri` VM, then uses Stage 1 to build `noqeri-stage2.nqri` and Stage 2 to rebuild `noqeri-stage3.nqri`. The bootstrap succeeds only when Stage 2 and Stage 3 are byte-identical. Its proof is explicitly marked `execution_model=nqri-vm`, `native_codegen=false`, and `native_selfhost=false`.
+<details>
+<summary><strong>PGAS and native runtime experiments</strong></summary>
 
-An externally audited Stage-1 NQRI artifact can be supplied with both `NOQERI_STAGE1_NQRI` and its independently checked `NOQERI_STAGE1_SHA256`. No independently trusted Stage-1 seed is currently committed. NQRI byte equality does not eliminate the VM/bootstrap trust boundary.
+The repository includes experimental partition annotations, transport/security primitives, WAL-backed state, remote bytecode and an optional `libibverbs` backend. The compiler **rejects executing** partitioned programs through unsupported lowering paths rather than silently treating them as distributed. See [PGAS acceptance](Doc/PGAS_DISTRIBUTED_ACCEPTANCE.md) and [network qualification](Doc/PGAS_NETWORK_QUALIFICATION.md).
 
-`scripts/bootstrap-native.*` intentionally fails until a Noqeri-written backend can produce and execute native Stage-2/Stage-3 compiler artifacts. Use `scripts/bootstrap-nqri.*` for the current self-rebuild proof.
+</details>
 
-Node.js is not part of the compiler self-rebuild executor. It remains in optional ecosystem, benchmark, browser and reference tooling.
-
-## Active Stage-2 CLI commands
+## Toolchain and self-hosting
 
 ```text
-noqeri --version
-noqeri check <file.noqeri>
-noqeri lex-count <file.noqeri>
-noqeri fingerprint <file.noqeri>
-noqeri selftest
+.noqeri source
+    │
+    ├── C++17 Stage-0 frontend → typed NIR → reference run / assembly / NQRI
+    │
+    ├── experimental web compiler → browser ES modules
+    └── experimental shader backend → WGSL
+
+Compiler/selfhost/*.noqeri
+    └── pinned Stage-1 NQRI → C++ NQRI VM
+          └── Stage-2 NQRI → Stage-3 NQRI (byte-equality verification)
 ```
 
-The historical compiler contains additional native/NIR/package/database/formatter/LSP commands. Those subsystems are deliberately not proxied through stage 1 until their Noqeri ports reach parity; silently falling back to C++ would defeat the dependency boundary.
+There are **two different build paths**:
 
-## Language capabilities already present
+1. **`cmake --build build --target noqeri`** builds today's runnable **C++ Stage-0 CLI**.
+2. **`./bootstrap.sh`** (or `.\bootstrap.ps1` on Windows) verifies the **pinned NQRI self-rebuild**. It builds or locates the VM, verifies the Stage-1 SHA-256 pin and compares Stage-2 and Stage-3 bytecode. It does **not** replace the Stage-0 CLI with a proven native self-hosted compiler.
 
-The current language supports fixed-width integers, arrays/slices, records, raw pointers, volatile memory, imports, register-value generics, checked status propagation, atomics, explicit casts, extern/export linkage, target intrinsics and constrained inline assembly. Reusable standard/security/test/database/platform functionality is already implemented under `.noqeri` directories.
+The historical Stage-1 seed predates the `0.1.3` version alignment; its pinned provenance is not the version of the currently shipped CLI. Noqeri's object-format modules and native-code self-hosting work still require validation. See [bootstrap ownership](Compiler/selfhost/BOOTSTRAP.md), [self-hosting model](Doc/SELF_HOSTING.md) and [native targets](Doc/NATIVE_TARGETS.md).
 
-## Optional game development SDK
+## Repository layout
 
-Noqeri is a **general-purpose language**, not a game-specific language or a completed game engine. Optional, experimental source modules under `Lib/game/` provide vector math, bounded fixed-step simulation, button transitions and AABB collision queries. A Node.js OBJ asset validator is available for tooling. None of these features implies that native Noqeri game compilation, input/window adapters or GPU graphics are qualified. See [game SDK docs](Doc/GAME_SDK_API.md) and [the game readiness checklist](Doc/GAME_DEV_READINESS.md).
+```text
+Compiler/       Stage-0 implementation and Noqeri self-hosted compiler sources
+Runtime/        NQRI VM, host adapters, browser tooling and runtime experiments
+Lib/            Noqeri standard and optional game/security libraries
+Include/        Compiler, runtime and embedding interfaces
+Grammar/        Language grammar
+examples/       Language, web, rendering and shader examples
+Doc/            Specifications, qualification status and guides
+tests/          Compiler, conformance, platform and integration tests
+scripts/        Build, verification and benchmarking tools
+Brand/          Project artwork
+```
 
-Use `node scripts/check-game-sdk.mjs --source-only` for a reproducible asset-tool smoke test. It is **not** a compiler test. The stable general-language release gate is independent of the optional full 3D-game certification.
+**File extensions:** `.noqeri` is source, `.nqri` is portable compiler bytecode, and `.nqon` is Noqeri Object Notation. Older `.nqr` and `.nqo` names are legacy migration formats, not the canonical names for new projects.
 
-## Registry and web distribution
+## Testing and release evidence
 
-- Packages: `EMN90909/noqeri-registry` — GPL-3.0-only Noqeri package implementations.
-- Website/source bootstrap: `EMN90909/noqeri-web` — exposes POSIX and PowerShell source-install endpoints in addition to registry downloads.
+For the compiler-focused portable build:
 
-Automatic GitHub Actions workflows are intentionally not required for this migration; local verification is the canonical path.
+```sh
+ctest --test-dir build -C Release --output-on-failure
+```
 
+The full build has additional native test targets and prerequisites. To run the larger release gate, use Node.js and a complete checkout:
 
-## Release readiness
+```sh
+node scripts/qualify-release.mjs
+```
 
-**0.1.3 development, not verified stable:** the repository contains substantial implementations, but no proof of full self-hosting, native-backend parity or end-to-end browser parity. See [current verification and blockers](Doc/RELEASE_VERIFICATION_2026-10-18.md) and [the original compiler audit](Doc/RELEASE_VERIFICATION_2026-10-17.md). Full release qualification: `node scripts/qualify-release.mjs` with a trusted `NOQERI_STAGE0` seed and complete checkout.
+**A failing release gate is meaningful.** It can identify unavailable suites, missing external qualifications or native self-hosting gaps; a passing unit test alone is not evidence of a stable release. Benchmarks similarly must distinguish interpreted/NQRI execution from [verified Linux x86-64 native AOT execution](Benchmarks/METHODOLOGY.md).
 
-## License
+## Project status
 
-Noqeri's project code is distributed under the **GNU General Public License, version 3 only (`GPL-3.0-only`)**, unless a file or component carries a separate license notice. `LICENSE` contains the complete license text. See [`LICENSES.md`](LICENSES.md) for the project licensing guide and third-party component guidance.
+**Development version: `0.1.3`.** The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
 
-Made by [Noethric](https://noethric.xyz).
+Current priorities include native Stage-2 compiler parity, broader conformance and portability evidence, qualified GPU/graphics execution, secure distributed recovery and completed Registry/NoeSQL integration. The repository contains working components and meaningful tests, but that is **not equivalent to a production-certified toolchain**.
+
+Follow [the changelog](CHANGELOG.md), [production-readiness criteria](Doc/PRODUCTION_READINESS.md) and [the roadmap](Doc/ROADMAP.md). For separate ecosystem projects, see [NoeSQL](https://github.com/EMN90909/NoeSQL), [Noqeri Registry](https://github.com/EMN90909/noqeri-registry) and [Noqeri Web](https://github.com/EMN90909/noqeri-web).
+
+## Documentation
+
+- **Start here:** [Getting started](Doc/GETTING_STARTED.md) · [Beginner course](Doc/BEGINNER_COURSE.md) · [Language reference](Doc/LANGUAGE_REFERENCE.md)
+- **Compiler:** [Toolchain](Doc/TOOLCHAIN.md) · [Self-hosting](Doc/SELF_HOSTING.md) · [Optimizer qualification](Doc/OPTIMIZATION_QUALIFICATION.md)
+- **Libraries and targets:** [ABI](Doc/ABI.md) · [Platform support](Doc/PLATFORM_SUPPORT.md) · [FFI](Doc/FFI.md)
+- **Application areas:** [Web views](Doc/WEB_VIEWS_V1.md) · [Graphics](Doc/RENDER3D_QUALIFICATION.md) · [PGAS](Doc/PGAS_DISTRIBUTED_ACCEPTANCE.md) · [NQON](Doc/NQON.md)
+
+## Contributing and license
+
+Contributions and bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), [the code of conduct](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md) before reporting security-sensitive issues.
+
+Noqeri is licensed under **GPL-3.0-only**, except where a component explicitly provides different terms. See [LICENSE](LICENSE) and [LICENSES.md](LICENSES.md) for details.
+
+<p align="center">Built by <a href="https://noethric.xyz"><strong>Noethric</strong></a>.</p>
