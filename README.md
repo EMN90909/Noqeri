@@ -46,19 +46,27 @@ if language == "Noqeri" {
 
 Local values can infer their types, semicolons are optional, and `if` / `while` conditions do not require parentheses. Functions, fixed-size arrays, slices, records, generics and imports are part of the language surface. See the [language reference](Doc/LANGUAGE_REFERENCE.md) and the checked-in [hello-world example](examples/hello.noqeri).
 
-## Platform builds and downloads
+## Native installers and cross-platform binaries
 
-A [cross-platform distribution workflow](.github/workflows/distribution.yml) now
-defines compiler SDK builds for **Android, Linux, Windows, macOS, FreeBSD and
-OpenBSD**, including x86-64 and ARM64 variants. Windows archives use `.zip`;
-other platforms use `.tar.gz`. Each package includes the Stage-0 compiler,
-the NQRI VM, headers and Noqeri source libraries.
+Noqeri defines **16 host builds** for Android, Linux, Windows, macOS,
+FreeBSD and OpenBSD, with **32-bit x86 builds for Linux/Windows**
+and **32-bit ARMv7/x86 builds for Android**. Modern macOS does not run
+32-bit programs; BSD i386 is not in the qualified release matrix.
 
-Run it via [GitHub Actions](https://github.com/EMN90909/Noqeri/actions/workflows/distribution.yml),
-or use a [tagged GitHub Release](https://github.com/EMN90909/Noqeri/releases)
-*after all target builds pass*. The existence of the workflow does **not**
-certify those host platforms or native cross-target executable compilation.
-See [build instructions and qualification status](Doc/DISTRIBUTION.md).
+Distribution artifacts include installable **DEB/RPM**, **Windows
+NSIS setup EXE and x86/x64 MSI**, **macOS PKG**, **FreeBSD pkg**,
+**OpenBSD pkg_add package**, **Termux DEB** and a **debug-signed Android
+APK** containing a basic editor and native reference interpreter.
+Portable `.tar.gz`/`.zip` toolchains and directly downloadable
+OS-specific compiler executables (`.bin`/`.exe`) are also configured.
+
+[Build workflow](https://github.com/EMN90909/Noqeri/actions/workflows/distribution.yml) ·
+[Published release assets](https://github.com/EMN90909/Noqeri/releases) ·
+[Install and platform qualification guide](Doc/DISTRIBUTION.md)
+
+These installer and binary outputs must pass real CI before they can be
+treated as available downloads. Installing a 32-bit **host** compiler
+does not mean Noqeri's native code generator can emit 32-bit programs.
 
 ## Quick start
 
