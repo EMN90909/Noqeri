@@ -26,6 +26,7 @@ SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 OS = {"linux", "windows", "macos", "android", "freebsd", "openbsd"}
 CPU = {"x86_64", "arm64", "armv7", "x86", "riscv64", "ppc64le", "s390x"}
 FORMATS = ("binary", "gz", "tar", "tar.gz", "zip")
+INSTALLERS = ("deb", "rpm", "msi", "setup.exe", "pkg", "pkg.tgz", "termux.deb", "apk")
 MAX_BYTES = 1024 * 1024 * 1024
 
 def fail(message):
@@ -166,7 +167,7 @@ def bundle(args):
 def validate_asset(root, target, item):
     if not isinstance(item, dict) or not isinstance(item.get("filename"), str) or not SAFE_NAME.fullmatch(item["filename"]):
         fail("unsafe asset filename")
-    if item.get("format") not in FORMATS:
+    if item.get("format") not in FORMATS + INSTALLERS:
         fail("invalid asset format")
     path = root / target / item["filename"]
     if path.is_symlink() or not path.is_file() or path.stat().st_size != item.get("bytes"):
