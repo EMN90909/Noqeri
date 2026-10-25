@@ -53,6 +53,21 @@ endfunction()
 noqeri_apply_warnings(noqeri)
 noqeri_apply_warnings(noqeri-nqri)
 noqeri_apply_warnings(noqeri_abi)
+# Android app embedding: native compiler and interpreter run inside an APK
+# via JNI. CLI main() is omitted so a shared library can safely expose the
+# same compiler frontend to the mobile activity.
+option(NOQERI_BUILD_ANDROID_APP "Build Android JNI compiler embedding" OFF)
+if(ANDROID AND NOQERI_BUILD_ANDROID_APP)
+ set(NOQERI_ANDROID_BRIDGE_SOURCES ${NOQERI_SOURCES})
+ list(REMOVE_ITEM NOQERI_ANDROID_BRIDGE_SOURCES Compiler/bootstrap/cli_host.cpp)
+ add_library(noqeri_android SHARED
+  ${NOQERI_ANDROID_BRIDGE_SOURCES} AndroidApp/native_bridge.cpp)
+ target_include_directories(noqeri_android PRIVATE Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri_android PRIVATE cxx_std_17)
+ target_compile_definitions(noqeri_android PRIVATE NOQERI_BOOTSTRAP=1)
+ noqeri_apply_warnings(noqeri_android)
+endif()
+
 # Standalone graphics compiler/renderer qualification avoids platform-specific
 # mailbox/PGAS dependencies. Noqeri shader compilation still uses the REAL
 # compiler executable and the same C++ shader backend on every host.
