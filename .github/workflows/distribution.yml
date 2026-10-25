@@ -161,7 +161,9 @@ jobs:
       matrix:
         include:
           - {abi: arm64-v8a, target: android-aarch64, elf_machine: AArch64}
+          - {abi: armeabi-v7a, target: android-armv7, elf_machine: ARM}
           - {abi: x86_64, target: android-x86_64, elf_machine: X86-64}
+          - {abi: x86, target: android-x86, elf_machine: Intel 80386}
     env:
       RELEASE_REF: ${{ github.ref_name }}
       RELEASE_TARGET: ${{ matrix.target }}
@@ -185,7 +187,7 @@ jobs:
             "-DANDROID_ABI=${ANDROID_ABI}" -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF \
-            -DBUILD_TESTING=OFF
+            "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET" -DBUILD_TESTING=OFF
       - name: Cross-compile Android SDK
         run: cmake --build build-android --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
       - name: Install Android SDK
@@ -196,21 +198,73 @@ jobs:
           set -euo pipefail
           readelf -h stage/bin/noqeri | grep -F "${ELF_MACHINE}"
           readelf -h stage/bin/noqeri-nqri | grep -F "${ELF_MACHINE}"
-          readelf -l stage/bin/noqeri | grep -F '/system/bin/linker64'
+          case "$ANDROID_ABI" in
+            arm64-v8a|x86_64) bits=ELF64; loader='/system/bin/linker64]' ;;
+            armeabi-v7a|x86) bits=ELF32; loader='/system/bin/linker]' ;;
+            *) exit 2 ;;
+          esac
+          readelf -h stage/bin/noqeri | grep -E "Class:.*$bits"
+          readelf -h stage/bin/noqeri-nqri | grep -E "Class:.*$bits"
+          readelf -l stage/bin/noqeri | grep -F "$loader"
           test -s stage/share/noqeri/Lib/std/render2d.noqeri
           test -d stage/include/noqeri
           # Cross-built Android executables are not runnable on the Linux host.
           # Device/emulator execution remains a separate qualification gate.
-      - name: Archive Android SDK
+      - name: Export native Android SDK binaries and archive
+        shell: bash
+        run: bash scripts/distribution/archive-sdk.sh
+      - name: Build installable Termux DEB
         shell: bash
         run: |
           set -euo pipefail
-          ref=${RELEASE_REF//[^a-zA-Z0-9_.-]/-}
-          mkdir -p artifacts
-          cmake -E tar czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" -- stage
+          version=$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          test -n "$version"
+          bash scripts/distribution/termux-deb.sh stage artifacts "$RELEASE_TARGET" "$version"
       - uses: actions/upload-artifact@v4
         with:
           name: noqeri-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  android-app:
+    name: Android APK / 32+64-bit universal app
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Install pinned Android SDK / CMake / NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" \
+            "cmake;3.22.1" "ndk;27.2.12479018"
+      - name: Compile debug-signed installable Noqeri APK
+        shell: bash
+        run: gradle -p AndroidApp :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify APK signature and native ABI coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=AndroidApp/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -l "$apk" | grep -F "lib/$abi/libnoqeri_android.so"
+          done
+          version=$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          grep -F "versionName '$version'" AndroidApp/app/build.gradle
+          mkdir -p artifacts
+          cp "$apk" "artifacts/noqeri-$version-android-universal-debug.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-android-apk
           path: artifacts/*
           if-no-files-found: error
 
