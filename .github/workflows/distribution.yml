@@ -438,8 +438,13 @@ jobs:
           else
             release_tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"
           fi
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$release_tag" --jq '.object.sha' 2>/dev/null || true)"
-          if [[ -n "$existing" && "$existing" != "$GITHUB_SHA" ]]; then
+          # gh api can print 'null' for missing refs even when it fails.
+          # Query explicitly; only a successful lookup can conflict.
+          existing=""
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$release_tag" --jq '.object.sha' > existing-ref.txt 2>/dev/null; then
+            existing="$(cat existing-ref.txt)"
+          fi
+          if [[ -n "$existing" && "$existing" != "null" && "$existing" != "$GITHUB_SHA" ]]; then
             echo "Tag already points to a different source commit" >&2; exit 1
           fi
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
@@ -544,8 +549,11 @@ jobs:
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # Never silently replace another commit's release tag.
-          existing_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$release_tag" --jq '.object.sha' 2>/dev/null || true)"
-          if [[ -n "$existing_tag_sha" && "$existing_tag_sha" != "$GITHUB_SHA" ]]; then
+          existing_tag_sha=""
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$release_tag" --jq '.object.sha' > existing-ref.txt 2>/dev/null; then
+            existing_tag_sha="$(cat existing-ref.txt)"
+          fi
+          if [[ -n "$existing_tag_sha" && "$existing_tag_sha" != "null" && "$existing_tag_sha" != "$GITHUB_SHA" ]]; then
             echo "Refusing to replace existing release $release_tag at a different commit: $existing_tag_sha" >&2
             exit 1
           fi
