@@ -125,7 +125,7 @@ These commands belong to the **Stage-0 `noqeri` executable** built above, not to
 | `noqeri test tests` | Run the language test command against a directory |
 | `noqeri shader file.noqeri output.wgsl --stage=fragment` | Compile the supported shader subset to WebGPU WGSL |
 
-Other Stage-0 commands include `lex`, `nir`, `web`, `targets`, `manifest`, `lock`, `audit`, `doctor`, `lsp` and explicit assembler/linker adapters. Discover them with `noqeri --help`. The exact interfaces and supported feature sets are still evolving.
+Other Stage-0 commands include `lex`, `nir`, `web`, `targets`, `manifest`, `lock`, `audit`, `doctor`, `lsp` and explicit assembler/linker adapters. Run `noqeri` without arguments to display the usage guide. The exact interfaces and supported feature sets are still evolving.
 
 ## Experimental web and graphics
 
