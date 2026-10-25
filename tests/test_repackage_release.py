@@ -60,6 +60,29 @@ class ReleaseRepackingTest(unittest.TestCase):
             self.assertIn("noqeri-v0.1.3-linux-x86_64/bin/noqeri-nqri",contents.namelist())
             self.assertIn("noqeri-v0.1.3-linux-x86_64/include/noqeri/abi.h",contents.namelist())
 
+    def test_native_installers_are_checksums_not_fake_links(self):
+        self.make_tar()
+        target="noqeri-0.1.3-linux-x86_64"
+        (self.root/"artifacts"/(target+".deb")).write_bytes(b"test deb bytes")
+        (self.root/"artifacts"/(target+".rpm")).write_bytes(b"test rpm bytes")
+        result=subprocess.run([sys.executable,str(SCRIPT),
+            "--input",str(self.root/"artifacts"),"--output",str(self.root/"dist"),
+            "--version","0.1.3","--source-commit","a"*40,"--license",str(self.license),
+            "--targets","linux-x86_64","--include-installers"],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        fragment=json.loads((self.root/"dist/linux-x86_64/fragment.json").read_text())
+        types={a["format"] for a in fragment["assets"]}
+        self.assertEqual(types,{"binary","gz","tar","tar.gz","zip","deb","rpm"})
+
+    def test_missing_installers_fail_release(self):
+        self.make_tar()
+        result=subprocess.run([sys.executable,str(SCRIPT),
+            "--input",str(self.root/"artifacts"),"--output",str(self.root/"dist"),
+            "--version","0.1.3","--source-commit","a"*40,"--license",str(self.license),
+            "--targets","linux-x86_64","--include-installers"],capture_output=True,text=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("missing, empty or unsafe native installer",result.stderr)
+
     def test_no_vm_is_rejected(self):
         self.make_tar(no_vm=True)
         self.run_script(False)
