@@ -1,62 +1,233 @@
-name: Noqeri distribution
+name: Noqeri cross-platform distributions
+
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
+
 permissions:
   contents: read
+
 jobs:
-  build:
+  native:
+    name: Native / ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-24.04, target: linux-x86_64}
-          - {os: ubuntu-24.04-arm, target: linux-aarch64}
-          - {os: windows-2022, target: windows-x86_64}
-          - {os: windows-11-arm, target: windows-aarch64}
-          - {os: macos-15-intel, target: macos-x86_64}
-          - {os: macos-15, target: macos-aarch64}
-    runs-on: ${{ matrix.os }}
+          - {runner: ubuntu-24.04, target: linux-x86_64}
+          - {runner: ubuntu-24.04-arm, target: linux-aarch64}
+          - {runner: windows-2022, target: windows-x86_64}
+          - {runner: windows-11-arm, target: windows-aarch64}
+          - {runner: macos-15-intel, target: macos-x86_64}
+          - {runner: macos-15, target: macos-aarch64}
+    env:
+      RELEASE_REF: ${{ github.ref_name }}
+      RELEASE_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
-      - uses: lukka/get-cmake@latest
-      - name: Configure
-        run: cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF -DNOQERI_ENABLE_SDL2=OFF -DCMAKE_BUILD_TYPE=Release
-      - name: Build
-        run: cmake --build build --config Release --target noqeri --parallel 2
-      - name: Install
+      - name: Configure portable compiler and runtime
+        run: cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build toolchain and portability test
+        run: cmake --build build --config Release --target noqeri noqeri-nqri noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
+      - name: Portable graphics and shader tests
+        run: ctest --test-dir build -C Release --output-on-failure -R '^noqeri-graphics-'
+      - name: Install SDK
         run: cmake --install build --config Release --prefix stage
-      - name: Smoke test (Unix)
+      - name: Validate installed SDK (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          set -euo pipefail
           ./stage/bin/noqeri --version
           ./stage/bin/noqeri check examples/hello.noqeri
-      - name: Smoke test (Windows)
+          ./stage/bin/noqeri-nqri --selftest
+          test -s stage/share/noqeri/Lib/std/render2d.noqeri
+          test -d stage/include/noqeri
+      - name: Validate installed SDK (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./stage/bin/noqeri.exe --version
-          ./stage/bin/noqeri.exe check examples/hello.noqeri
-      - name: Package
+          & ./stage/bin/noqeri.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./stage/bin/noqeri.exe check examples/hello.noqeri
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./stage/bin/noqeri-nqri.exe --selftest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path stage/share/noqeri/Lib/std/render2d.noqeri)) { throw "Standard library missing" }
+          if (!(Test-Path stage/include/noqeri)) { throw "Public headers missing" }
+      - name: Archive Unix SDK
+        if: runner.os != 'Windows'
         shell: bash
         run: |
+          set -euo pipefail
+          ref=${RELEASE_REF//[^a-zA-Z0-9_.-]/-}
           mkdir -p artifacts
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cmake -E tar cf "artifacts/noqeri-${{ github.ref_name }}-${{ matrix.target }}.zip" --format=zip -- stage
-          else
-            cmake -E tar czf "artifacts/noqeri-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" -- stage
-          fi
+          cmake -E tar czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" -- stage
+      - name: Archive Windows SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $refName = $env:RELEASE_REF -replace '[^a-zA-Z0-9_.-]', '-'
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          cmake -E tar cf "artifacts/noqeri-$refName-$env:RELEASE_TARGET.zip" --format=zip -- stage
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: noqeri-${{ matrix.target }}
           path: artifacts/*
           if-no-files-found: error
+
+  android:
+    name: Android NDK / ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {abi: arm64-v8a, target: android-aarch64, elf_machine: AArch64}
+          - {abi: x86_64, target: android-x86_64, elf_machine: X86-64}
+    env:
+      RELEASE_REF: ${{ github.ref_name }}
+      RELEASE_TARGET: ${{ matrix.target }}
+      ANDROID_ABI: ${{ matrix.abi }}
+      ELF_MACHINE: ${{ matrix.elf_machine }}
+      NDK_VERSION: '27.2.12479018'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android NDK
+        shell: bash
+        run: sdkmanager --install "ndk;${NDK_VERSION}"
+      - name: Configure Android CLI toolchain (API 24+)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_HOME}/ndk/${NDK_VERSION}"
+          test -f "${ndk}/build/cmake/android.toolchain.cmake"
+          cmake -S . -B build-android -G Ninja \
+            "-DCMAKE_TOOLCHAIN_FILE=${ndk}/build/cmake/android.toolchain.cmake" \
+            "-DANDROID_ABI=${ANDROID_ABI}" -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
+            -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF \
+            -DBUILD_TESTING=OFF
+      - name: Cross-compile Android SDK
+        run: cmake --build build-android --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
+      - name: Install Android SDK
+        run: cmake --install build-android --prefix stage
+      - name: Verify Android binaries and SDK files
+        shell: bash
+        run: |
+          set -euo pipefail
+          readelf -h stage/bin/noqeri | grep -F "${ELF_MACHINE}"
+          readelf -h stage/bin/noqeri-nqri | grep -F "${ELF_MACHINE}"
+          readelf -l stage/bin/noqeri | grep -F '/system/bin/linker64'
+          test -s stage/share/noqeri/Lib/std/render2d.noqeri
+          test -d stage/include/noqeri
+          # Cross-built Android executables are not runnable on the Linux host.
+          # Device/emulator execution remains a separate qualification gate.
+      - name: Archive Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref=${RELEASE_REF//[^a-zA-Z0-9_.-]/-}
+          mkdir -p artifacts
+          cmake -E tar czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" -- stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  freebsd:
+    name: FreeBSD VM / ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: freebsd-x86_64}
+          - {arch: aarch64, target: freebsd-aarch64}
+    env:
+      RELEASE_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, run and package in FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: '14.3'
+          arch: ${{ matrix.arch }}
+          envs: RELEASE_TARGET
+          prepare: |
+            pkg install -y cmake
+          run: |
+            set -eu
+            cmake -S . -B build-freebsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+            cmake --build build-freebsd --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
+            cmake --install build-freebsd --prefix stage
+            ./stage/bin/noqeri --version
+            ./stage/bin/noqeri check examples/hello.noqeri
+            ./stage/bin/noqeri-nqri --selftest
+            test -s stage/share/noqeri/Lib/std/render2d.noqeri
+            test -d stage/include/noqeri
+            ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')
+            mkdir -p artifacts
+            tar -czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" stage
+            rm -rf build-freebsd stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  openbsd:
+    name: OpenBSD VM / ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: openbsd-x86_64}
+          - {arch: aarch64, target: openbsd-aarch64}
+    env:
+      RELEASE_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, run and package in OpenBSD
+        uses: vmactions/openbsd-vm@v1
+        with:
+          release: '7.8'
+          arch: ${{ matrix.arch }}
+          envs: RELEASE_TARGET
+          prepare: |
+            pkg_add -I cmake
+          run: |
+            set -eu
+            cmake -S . -B build-openbsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+            cmake --build build-openbsd --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
+            cmake --install build-openbsd --prefix stage
+            ./stage/bin/noqeri --version
+            ./stage/bin/noqeri check examples/hello.noqeri
+            ./stage/bin/noqeri-nqri --selftest
+            test -s stage/share/noqeri/Lib/std/render2d.noqeri
+            test -d stage/include/noqeri
+            ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')
+            mkdir -p artifacts
+            tar -czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" stage
+            rm -rf build-openbsd stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
   publish:
+    name: Publish verified archives
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [native, android, freebsd, openbsd]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -64,8 +235,20 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: SHA256 manifest
-        run: cd artifacts && sha256sum * > SHA256SUMS
+      - name: Check archive coverage and generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for target in linux-x86_64 linux-aarch64 windows-x86_64 windows-aarch64 macos-x86_64 macos-aarch64 android-aarch64 android-x86_64 freebsd-x86_64 freebsd-aarch64 openbsd-x86_64 openbsd-aarch64; do
+            archives=(noqeri-*-"$target".tar.gz noqeri-*-"$target".zip)
+            found=0
+            for archive in "${archives[@]}"; do
+              if [[ -f "$archive" && -s "$archive" ]]; then found=$((found + 1)); fi
+            done
+            if [[ "$found" -ne 1 ]]; then echo "Expected one archive for $target, found $found" >&2; exit 1; fi
+          done
+          sha256sum noqeri-* > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
