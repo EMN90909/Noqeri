@@ -507,3 +507,22 @@ jobs:
           fail_on_unmatched_files: true
           files: artifacts/*
           generate_release_notes: true
+      - name: Confirm the release exposes every downloadable file
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > published-assets.txt
+          count=0
+          for file in artifacts/*; do
+            test -f "$file"
+            grep -Fxq "$(basename "$file")" published-assets.txt || {
+              echo "GitHub Release is missing $(basename "$file")" >&2
+              exit 1
+            }
+            count=$((count + 1))
+          done
+          if (( count < 16 )); then echo "Unexpectedly few files on Release" >&2; exit 1; fi
+          echo "Confirmed $count downloadable assets on $RELEASE_TAG"
