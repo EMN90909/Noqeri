@@ -1,0 +1,83 @@
+name: Add verified BSD ARM64 assets to Noqeri Release
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/publish-bsd-arm64.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  upload-bsd-arm64:
+    name: Attach verified FreeBSD and OpenBSD ARM64 downloads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SOURCE_RUN_ID: '40208251967'
+      SOURCE_SHA: '951a8a50d29a1e18c96d4bb75e62cfc38058cc73'
+      RELEASE_TAG: 'v0.1.3-platform-preview.10'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the provenance of the completed native BSD ARM64 jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" --jq .head_sha)"
+          test "$run_sha" = "$SOURCE_SHA"
+          release_sha="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .target_commitish)"
+          test "$release_sha" = "$SOURCE_SHA"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" \
+            --jq '.jobs[] | [.name, .conclusion] | @tsv' > qualified-jobs.tsv
+          grep -Fxq $'FreeBSD VM / freebsd-aarch64\tsuccess' qualified-jobs.tsv
+          grep -Fxq $'OpenBSD VM / openbsd-aarch64\tsuccess' qualified-jobs.tsv
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 40208251967
+          github-token: ${{ github.token }}
+          pattern: noqeri-?*bsd-aarch64
+          merge-multiple: true
+          path: artifacts
+      - name: Validate SDK, native installers, direct binaries and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.1.3
+          cd artifacts
+          for target in freebsd-aarch64 openbsd-aarch64; do
+            test -s "noqeri-v$version-$target.bin"
+            test -s "noqeri-nqri-v$version-$target.bin"
+            test -s "noqeri-v$version-$target.tar.gz"
+            tar -tzf "noqeri-v$version-$target.tar.gz" | grep -F 'stage/bin/noqeri'
+            file "noqeri-v$version-$target.bin" | grep -Ei '(aarch64|arm64)'
+            case "$target" in
+              freebsd-*)
+                test -s "noqeri-$version-$target.pkg"
+                file "noqeri-v$version-$target.bin" | grep -F 'FreeBSD'
+                ;;
+              openbsd-*)
+                test -s "noqeri-$version-$target.pkg.tgz"
+                tar -tzf "noqeri-$version-$target.pkg.tgz" | grep -F 'bin/noqeri'
+                ;;
+            esac
+          done
+          sha256sum noqeri-* > SHA256SUMS-bsd-arm64
+          sha256sum -c SHA256SUMS-bsd-arm64
+      - name: Upload all eight built BSD ARM64 files and their SHA-256 sums
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Confirm downloads are visible on the existing GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' > release-assets.txt
+          for asset in artifacts/*; do
+            grep -Fxq "$(basename "$asset")" release-assets.txt
+          done
+          echo "FreeBSD and OpenBSD ARM64 downloads are published in $RELEASE_TAG"
