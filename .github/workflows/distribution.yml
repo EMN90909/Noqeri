@@ -57,13 +57,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          extra=()
+          # Bash 3.2 on macOS treats an empty array expansion under set -u
+          # as unbound. Keep the array nonempty for every host.
+          cmake_args=(
+            -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+            -DNOQERI_ENABLE_SDL2=OFF
+            -DBUILD_TESTING=ON
+            -DCMAKE_BUILD_TYPE=Release
+            "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
+          )
           if [[ "$RELEASE_TARGET" == "linux-x86" ]]; then
-            extra+=("-DCMAKE_CXX_FLAGS=-m32" "-DCMAKE_EXE_LINKER_FLAGS=-m32" "-DCMAKE_SHARED_LINKER_FLAGS=-m32")
+            cmake_args+=("-DCMAKE_CXX_FLAGS=-m32" "-DCMAKE_EXE_LINKER_FLAGS=-m32" "-DCMAKE_SHARED_LINKER_FLAGS=-m32")
           fi
-          cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON \
-            -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release \
-            "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET" "${extra[@]}"
+          cmake -S . -B build "${cmake_args[@]}"
       - name: Configure portable toolchain (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -189,7 +195,7 @@ jobs:
       NDK_VERSION: '27.2.12479018'
     steps:
       - uses: actions/checkout@v4
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Install pinned Android NDK
         shell: bash
         run: sdkmanager --install "ndk;${NDK_VERSION}"
@@ -252,7 +258,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
