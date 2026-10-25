@@ -18,9 +18,11 @@ jobs:
       matrix:
         include:
           - {runner: ubuntu-24.04, target: linux-x86_64}
+          - {runner: ubuntu-24.04, target: linux-x86}
           - {runner: ubuntu-24.04-arm, target: linux-aarch64}
           - {runner: windows-2022, target: windows-x86_64}
-          - {runner: windows-11-arm, target: windows-aarch64}
+          - {runner: windows-2022, target: windows-x86}
+          - {runner: windows-11-vs2026-arm, target: windows-aarch64}
           - {runner: macos-15-intel, target: macos-x86_64}
           - {runner: macos-15, target: macos-aarch64}
     env:
@@ -28,8 +30,43 @@ jobs:
       RELEASE_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
-      - name: Configure portable compiler and runtime
-        run: cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Install Linux packaging and 32-bit toolchains
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y rpm dpkg-dev file
+          if [[ "$RELEASE_TARGET" == "linux-x86" ]]; then
+            sudo apt-get install -y g++-multilib gcc-multilib libc6-dev-i386
+          fi
+      - name: Configure portable toolchain (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ "$RELEASE_TARGET" == "linux-x86" ]]; then
+            extra+=("-DCMAKE_CXX_FLAGS=-m32" "-DCMAKE_EXE_LINKER_FLAGS=-m32" "-DCMAKE_SHARED_LINKER_FLAGS=-m32")
+          fi
+          cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON \
+            -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release \
+            "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET" "${extra[@]}"
+      - name: Configure portable toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $architecture = 'x64'
+          $generator = 'Visual Studio 17 2022'
+          if ($env:RELEASE_TARGET -eq 'windows-x86') { $architecture = 'Win32' }
+          if ($env:RELEASE_TARGET -eq 'windows-aarch64') {
+            $architecture = 'ARM64'
+            $generator = 'Visual Studio 18 2026'
+          }
+          cmake -S . -B build -G $generator -A $architecture `
+            -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF `
+            -DBUILD_TESTING=ON "-DNOQERI_PACKAGE_TARGET=$env:RELEASE_TARGET"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build toolchain and portability test
         run: cmake --build build --config Release --target noqeri noqeri-nqri noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
       - name: Portable graphics and shader tests
@@ -46,6 +83,11 @@ jobs:
           ./stage/bin/noqeri-nqri --selftest
           test -s stage/share/noqeri/Lib/std/render2d.noqeri
           test -d stage/include/noqeri
+          case "$RELEASE_TARGET" in
+            linux-x86) file stage/bin/noqeri | grep -F 'ELF 32-bit' ;;
+            linux-x86_64|linux-aarch64) file stage/bin/noqeri | grep -F 'ELF 64-bit' ;;
+            macos-*) file stage/bin/noqeri | grep -F 'Mach-O 64-bit' ;;
+          esac
       - name: Validate installed SDK (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -58,22 +100,53 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path stage/share/noqeri/Lib/std/render2d.noqeri)) { throw "Standard library missing" }
           if (!(Test-Path stage/include/noqeri)) { throw "Public headers missing" }
-      - name: Archive Unix SDK
-        if: runner.os != 'Windows'
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path 'stage/bin/noqeri.exe'))
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          $expected = switch ($env:RELEASE_TARGET) {
+            'windows-x86' { 0x14c }
+            'windows-x86_64' { 0x8664 }
+            'windows-aarch64' { 0xaa64 }
+          }
+          if ($machine -ne $expected) { throw "Incorrect Windows PE machine type: $machine (expected $expected)" }
+      - name: Export portable archives and native executables
+        shell: bash
+        run: bash scripts/distribution/archive-sdk.sh
+      - name: Generate Linux DEB / RPM installers
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          ref=${RELEASE_REF//[^a-zA-Z0-9_.-]/-}
-          mkdir -p artifacts
-          cmake -E tar czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" -- stage
-      - name: Archive Windows SDK
+          cpack --config build/CPackConfig.cmake -G DEB -B artifacts
+          cpack --config build/CPackConfig.cmake -G RPM -B artifacts
+          for pkg in artifacts/*.deb; do dpkg-deb --info "$pkg"; done
+          for pkg in artifacts/*.rpm; do rpm -qpi "$pkg"; done
+      - name: Generate macOS native PKG installer
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpack --config build/CPackConfig.cmake -G productbuild -B artifacts
+          for pkg in artifacts/*.pkg; do
+            pkgutil --expand "$pkg" package-expanded
+            test -f package-expanded/Distribution
+            rm -rf package-expanded
+          done
+      - name: Generate Windows native NSIS setup and MSI installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $refName = $env:RELEASE_REF -replace '[^a-zA-Z0-9_.-]', '-'
-          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          cmake -E tar cf "artifacts/noqeri-$refName-$env:RELEASE_TARGET.zip" --format=zip -- stage
+          $match = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(noqeri VERSION ([0-9.]+)')
+          if (!$match.Success) { throw 'Noqeri project version not found' }
+          $base = "noqeri-$($match.Groups[1].Value)-$($env:RELEASE_TARGET)"
+          cpack --config build/CPackConfig.cmake -G NSIS -B artifacts -D "CPACK_PACKAGE_FILE_NAME=$base-setup"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "artifacts/$base-setup.exe")) { throw 'NSIS setup installer missing' }
+          if ($env:RELEASE_TARGET -ne 'windows-aarch64') {
+            cpack --config build/CPackConfig.cmake -G WIX -B artifacts
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (!(Test-Path "artifacts/$base.msi")) { throw 'MSI installer missing' }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: noqeri-${{ matrix.target }}
