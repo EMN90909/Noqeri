@@ -60,6 +60,9 @@ elseif(WIN32)
   set(CPACK_NSIS_MODIFY_PATH ON)
   set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
   set(CPACK_WIX_VERSION "3")
+  # WiX requires an RTF license; the generic CPack LICENSE is plain text.
+  # This is the complete GPL-3.0 text, converted to RTF for installer UI.
+  set(CPACK_WIX_LICENSE_RTF "${CMAKE_SOURCE_DIR}/cmake/NoqeriLicense.rtf")
   if(NOQERI_PACKAGE_TARGET MATCHES "windows-x86$")
     set(CPACK_WIX_ARCHITECTURE "x86")
     set(CPACK_WIX_UPGRADE_GUID "e7f99213-cb9a-4d25-b36c-b027ff11d024")
