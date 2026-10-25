@@ -1,0 +1,72 @@
+name: Noqeri distribution
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, target: linux-x86_64}
+          - {os: ubuntu-24.04-arm, target: linux-aarch64}
+          - {os: windows-2022, target: windows-x86_64}
+          - {os: windows-11-arm, target: windows-aarch64}
+          - {os: macos-15-intel, target: macos-x86_64}
+          - {os: macos-15, target: macos-aarch64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Configure
+        run: cmake -S . -B build -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF -DNOQERI_ENABLE_SDL2=OFF -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --target noqeri --parallel 2
+      - name: Install
+        run: cmake --install build --config Release --prefix stage
+      - name: Smoke test (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./stage/bin/noqeri --version
+          ./stage/bin/noqeri check examples/hello.noqeri
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./stage/bin/noqeri.exe --version
+          ./stage/bin/noqeri.exe check examples/hello.noqeri
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake -E tar cf "artifacts/noqeri-${{ github.ref_name }}-${{ matrix.target }}.zip" --format=zip -- stage
+          else
+            cmake -E tar czf "artifacts/noqeri-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" -- stage
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: SHA256 manifest
+        run: cd artifacts && sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
