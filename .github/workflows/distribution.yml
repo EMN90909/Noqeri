@@ -284,14 +284,15 @@ jobs:
       - name: Build, run and package in FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
-          release: '14.3'
+          release: '14.4'
+          usesh: true
           arch: ${{ matrix.arch }}
           envs: RELEASE_TARGET
           prepare: |
-            pkg install -y cmake
+            pkg install -y cmake bash
           run: |
             set -eu
-            cmake -S . -B build-freebsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+            cmake -S . -B build-freebsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
             cmake --build build-freebsd --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
             cmake --install build-freebsd --prefix stage
             ./stage/bin/noqeri --version
@@ -299,9 +300,9 @@ jobs:
             ./stage/bin/noqeri-nqri --selftest
             test -s stage/share/noqeri/Lib/std/render2d.noqeri
             test -d stage/include/noqeri
-            ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')
-            mkdir -p artifacts
-            tar -czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" stage
+            bash scripts/distribution/archive-sdk.sh
+            cpack --config build-freebsd/CPackConfig.cmake -G FREEBSD -B artifacts
+            for pkgfile in artifacts/*.pkg; do pkg info -F "$pkgfile"; done
             rm -rf build-freebsd stage
       - uses: actions/upload-artifact@v4
         with:
@@ -325,14 +326,15 @@ jobs:
       - name: Build, run and package in OpenBSD
         uses: vmactions/openbsd-vm@v1
         with:
-          release: '7.8'
+          release: '7.9'
+          usesh: true
           arch: ${{ matrix.arch }}
           envs: RELEASE_TARGET
           prepare: |
-            pkg_add -I cmake
+            pkg_add -I cmake bash
           run: |
             set -eu
-            cmake -S . -B build-openbsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+            cmake -S . -B build-openbsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
             cmake --build build-openbsd --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
             cmake --install build-openbsd --prefix stage
             ./stage/bin/noqeri --version
@@ -340,9 +342,10 @@ jobs:
             ./stage/bin/noqeri-nqri --selftest
             test -s stage/share/noqeri/Lib/std/render2d.noqeri
             test -d stage/include/noqeri
-            ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9_.-' '-')
-            mkdir -p artifacts
-            tar -czf "artifacts/noqeri-${ref}-${RELEASE_TARGET}.tar.gz" stage
+            bash scripts/distribution/archive-sdk.sh
+            version=$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+            test -n "$version"
+            sh scripts/distribution/openbsd-package.sh stage artifacts "$RELEASE_TARGET" "$version"
             rm -rf build-openbsd stage
       - uses: actions/upload-artifact@v4
         with:
