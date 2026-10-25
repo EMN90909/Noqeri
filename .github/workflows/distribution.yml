@@ -262,6 +262,17 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
           for abi in armeabi-v7a arm64-v8a x86 x86_64; do
             unzip -l "$apk" | grep -F "lib/$abi/libnoqeri_android.so"
+            native="$(mktemp)"
+            unzip -p "$apk" "lib/$abi/libnoqeri_android.so" > "$native"
+            case "$abi" in
+              armeabi-v7a) bits=ELF32; machine=ARM ;;
+              arm64-v8a) bits=ELF64; machine=AArch64 ;;
+              x86) bits=ELF32; machine='Intel 80386' ;;
+              x86_64) bits=ELF64; machine=X86-64 ;;
+            esac
+            readelf -h "$native" | grep -E "Class:.*$bits"
+            readelf -h "$native" | grep -F "$machine"
+            rm -f "$native"
           done
           version=$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
           grep -F "versionName '$version'" AndroidApp/app/build.gradle
