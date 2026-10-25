@@ -1,0 +1,33 @@
+name: Noqeri real graphics benchmarks 2026-10-25
+on:
+  push:
+    branches: [benchmark/noqeri-graphics-20261025]
+    paths:
+      - 'Benchmarks/graphics/**'
+      - '.github/workflows/noqeri-graphics-performance.yml'
+permissions:
+  contents: read
+jobs:
+  cpu-raster-and-shaders:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure real Noqeri C++ Stage-0 native compiler
+        run: cmake -S . -B build-graphics -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - name: Build real Noqeri compiler
+        run: cmake --build build-graphics --target noqeri -j 2
+      - name: Existing Noqeri native graphics correctness tests
+        run: |
+          timeout 90s bash tests/scripts/graphics-native-e2e.sh build-graphics/noqeri
+      - name: Native CPU raster performance and WGSL shader qualification
+        run: python3 Benchmarks/graphics/benchmark.py --compiler build-graphics/noqeri
+      - name: Retain measurements and actual rendered images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-native-graphics-performance-20261025
+          if-no-files-found: warn
+          path: |
+            build-graphics/benchmark/
+            Benchmarks/graphics/generated/
