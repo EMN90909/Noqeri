@@ -106,7 +106,21 @@ endif()
 # runtime even on BSD/Android, where networking services differ. A full native
 # Noqeri executable/linker for each target is a separate qualification gate.
 if(NOQERI_GRAPHICS_PORTABLE_BUILD)
- install(TARGETS noqeri RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ # The portable profile deliberately omits Linux-specific mailbox/PGAS services,
+ # but its installed SDK must still contain the bytecode VM, public headers,
+ # and Noqeri-owned standard/runtime source modules.
+ install(TARGETS noqeri noqeri-nqri RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri
+  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+ foreach(component IN ITEMS Lib Modules Objects Database Runtime Parser)
+  install(DIRECTORY ${component}/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/${component}
+   FILES_MATCHING PATTERN "*.noqeri")
+ endforeach()
+ install(DIRECTORY Platforms/ PC/ Mac/ Android/
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/platforms
+  FILES_MATCHING PATTERN "*.noqeri")
+ install(FILES Brand/noqeri-logo.webp Brand/noqeri-mark.png
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/brand)
  return()
 endif()
 if(BUILD_TESTING)
