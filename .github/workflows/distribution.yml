@@ -438,6 +438,28 @@ jobs:
           require "noqeri-$version-android-universal-debug.apk"
           sha256sum noqeri-* > SHA256SUMS
           sha256sum -c SHA256SUMS
+      - name: Repackage all real SDKs as verified binary, gz, tar, tar.gz and zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)"
+          test -n "$version"
+          # Every one of the 16 native/NDK/VM build jobs must already have
+          # succeeded. The repacker refuses missing, symlinked or unsafe SDKs.
+          python3 scripts/distribution/repackage_release.py \
+            --input artifacts --output dist --version "$version" \
+            --source-commit "$GITHUB_SHA" --license LICENSE
+          python3 scripts/distribution.py combine --input dist \
+            --version "$version" --source-commit "$GITHUB_SHA" \
+            --require linux-x86,linux-x86_64,linux-arm64,windows-x86,windows-x86_64,windows-arm64,macos-x86_64,macos-arm64,android-armv7,android-arm64,android-x86,android-x86_64,freebsd-x86_64,freebsd-arm64,openbsd-x86_64,openbsd-arm64
+          # The standardized formats become real release assets; release
+          # manifest paths remain stable inside dist, URLs use flat filenames.
+          cp dist/release-manifest.json artifacts/release-manifest.json
+          while IFS= read -r -d '' file; do
+            cp -f "$file" "artifacts/$(basename "$file")"
+          done < <(find dist -mindepth 2 -maxdepth 2 -type f ! -name fragment.json -print0)
+          (cd artifacts && sha256sum noqeri-* > SHA256SUMS && sha256sum -c SHA256SUMS)
+          cp artifacts/SHA256SUMS artifacts/checksums.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
