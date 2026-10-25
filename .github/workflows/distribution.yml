@@ -311,8 +311,8 @@ jobs:
 
   freebsd:
     name: FreeBSD VM / ${{ matrix.target }}
-    # Match guest and runner CPU so BSD AArch64 compilation avoids x86 emulation.
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    # vmactions recommends x86_64 hosts for its QEMU AArch64 guests.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -355,8 +355,8 @@ jobs:
 
   openbsd:
     name: OpenBSD VM / ${{ matrix.target }}
-    # Match guest and runner CPU so BSD AArch64 compilation avoids x86 emulation.
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    # vmactions recommends x86_64 hosts for its QEMU AArch64 guests.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
