@@ -502,6 +502,17 @@ jobs:
           tag_name: ${{ steps.verify.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: Noqeri ${{ steps.verify.outputs.tag }} (platform preview)
+          body: |
+            Experimental Stage-0 compiler and NQRI runtime downloads.
+            Includes x86/ARM64 Linux, Windows, macOS, FreeBSD and OpenBSD;
+            four Android CLI ABIs, a debug-signed Android APK, installers,
+            standalone host binaries, portable SDK archives and SHA256SUMS.
+            Match your operating system AND CPU architecture when downloading.
+            These are unsigned preview installers, not production-qualified.
+            Android APK is debug signed; device testing and GPU driver
+            qualification remain outstanding. Noqeri native code generation
+            is not automatically 32-bit or cross-OS just because its compiler
+            runs on additional host architectures.
           prerelease: true
           make_latest: false
           fail_on_unmatched_files: true
