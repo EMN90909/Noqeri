@@ -514,13 +514,124 @@ jobs:
           done
           echo "Verified initial Noqeri Release downloads at $RELEASE_TAG"
 
+
+  publish-openbsd:
+    name: Attach verified OpenBSD packages
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+    needs: [openbsd, publish-available]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: noqeri-openbsd-*
+          merge-multiple: true
+          path: bsd-assets
+      - name: Check both OpenBSD architecture archives, packages and binaries
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^project\\(noqeri VERSION ([0-9]+\\.[0-9]+\\.[0-9]+).*/\\1/p' CMakeLists.txt)"
+          test -n "$version"
+          for arch in x86_64 aarch64; do
+            prefix="noqeri-v$version-openbsd-$arch"
+            test -s "bsd-assets/$prefix.tar.gz"
+            test -s "bsd-assets/$prefix.bin"
+            test -s "bsd-assets/noqeri-nqri-v$version-openbsd-$arch.bin"
+            test -s "bsd-assets/noqeri-$version-openbsd-$arch.pkg.tgz"
+          done
+          (cd bsd-assets && sha256sum noqeri-* > SHA256SUMS-openbsd && sha256sum -c SHA256SUMS-openbsd)
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Upload verified OpenBSD ARM64 and x86-64 artifacts
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.verify.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: bsd-assets/*
+      - name: Verify published OpenBSD package downloads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > remote-files.txt
+          for file in bsd-assets/*; do
+            grep -Fxq "$(basename "$file")" remote-files.txt
+          done
+
+  publish-freebsd:
+    name: Attach verified FreeBSD packages
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+    needs: [freebsd, publish-available, publish-openbsd]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: noqeri-freebsd-*
+          merge-multiple: true
+          path: bsd-assets
+      - name: Check both FreeBSD architecture archives, packages and binaries
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^project\\(noqeri VERSION ([0-9]+\\.[0-9]+\\.[0-9]+).*/\\1/p' CMakeLists.txt)"
+          test -n "$version"
+          for arch in x86_64 aarch64; do
+            prefix="noqeri-v$version-freebsd-$arch"
+            test -s "bsd-assets/$prefix.tar.gz"
+            test -s "bsd-assets/$prefix.bin"
+            test -s "bsd-assets/noqeri-nqri-v$version-freebsd-$arch.bin"
+            test -s "bsd-assets/noqeri-$version-freebsd-$arch.pkg"
+          done
+          (cd bsd-assets && sha256sum noqeri-* > SHA256SUMS-freebsd && sha256sum -c SHA256SUMS-freebsd)
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Upload verified FreeBSD ARM64 and x86-64 artifacts
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.verify.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: bsd-assets/*
+      - name: Verify published FreeBSD package downloads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > remote-files.txt
+          for file in bsd-assets/*; do
+            grep -Fxq "$(basename "$file")" remote-files.txt
+          done
+
   publish:
     name: Publish OS installers, binaries, APK and checksums
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-    needs: [native, android, android-app, freebsd, openbsd, packaging-tests]
+    needs: [native, android, android-app, freebsd, openbsd, packaging-tests, publish-openbsd, publish-freebsd]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
