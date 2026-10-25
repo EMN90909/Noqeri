@@ -121,6 +121,7 @@ jobs:
           cpack --config build/CPackConfig.cmake -G RPM -B artifacts
           for pkg in artifacts/*.deb; do dpkg-deb --info "$pkg"; done
           for pkg in artifacts/*.rpm; do rpm -qpi "$pkg"; done
+          rm -rf artifacts/_CPack_Packages
       - name: Generate macOS native PKG installer
         if: runner.os == 'macOS'
         shell: bash
@@ -132,6 +133,7 @@ jobs:
             test -f package-expanded/Distribution
             rm -rf package-expanded
           done
+          rm -rf artifacts/_CPack_Packages
       - name: Generate Windows native NSIS setup and MSI installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -146,6 +148,9 @@ jobs:
             cpack --config build/CPackConfig.cmake -G WIX -B artifacts
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if (!(Test-Path "artifacts/$base.msi")) { throw 'MSI installer missing' }
+          }
+          if (Test-Path 'artifacts/_CPack_Packages') {
+            Remove-Item -Recurse -Force 'artifacts/_CPack_Packages'
           }
       - uses: actions/upload-artifact@v4
         with:
@@ -303,7 +308,7 @@ jobs:
             bash scripts/distribution/archive-sdk.sh
             cpack --config build-freebsd/CPackConfig.cmake -G FREEBSD -B artifacts
             for pkgfile in artifacts/*.pkg; do pkg info -F "$pkgfile"; done
-            rm -rf build-freebsd stage
+            rm -rf artifacts/_CPack_Packages build-freebsd stage
       - uses: actions/upload-artifact@v4
         with:
           name: noqeri-${{ matrix.target }}
