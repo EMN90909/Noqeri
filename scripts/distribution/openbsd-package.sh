@@ -34,10 +34,8 @@ pkg_create -B "$work/root" -p /usr/local -f "$work/PLIST" \
   -d "$work/DESCR" "$work/noqeri-$version.tgz"
 dest="$artifacts/noqeri-$version-$target.pkg.tgz"
 mv "$work/noqeri-$version.tgz" "$dest"
-# Verify the pkg_add archive's actual payload rather than running pkg_info,
-# which can treat unsigned archive paths as installed package names.
+# Validate the real unsigned pkg_add archive without treating it as an
+# installed package name, which pkg_info does not do reliably.
 test -s "$dest"
-tar -tzf "$dest" | grep -E '(^|/)bin/noqeri
-echo "Created native OpenBSD pkg_add package: $dest"
- > /dev/null
+tar -tzf "$dest" | grep -F "bin/noqeri" > /dev/null
 echo "Created native OpenBSD pkg_add package: $dest"
