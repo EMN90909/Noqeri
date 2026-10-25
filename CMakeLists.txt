@@ -102,6 +102,9 @@ if(NOQERI_ENABLE_SDL2)
  endif()
 endif()
 
+# Supply the project's GPL license within both archives and native installers.
+install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
+
 # This opt-in mode isolates portable shader generation and native framebuffer
 # runtime even on BSD/Android, where networking services differ. A full native
 # Noqeri executable/linker for each target is a separate qualification gate.
@@ -121,6 +124,7 @@ if(NOQERI_GRAPHICS_PORTABLE_BUILD)
   FILES_MATCHING PATTERN "*.noqeri")
  install(FILES Brand/noqeri-logo.webp Brand/noqeri-mark.png
   DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/brand)
+ include(cmake/NoqeriPackaging.cmake)
  return()
 endif()
 if(BUILD_TESTING)
@@ -315,3 +319,6 @@ if(UNIX AND NOT APPLE)
  endif()
 endif()
 
+
+# Full builds use the same native packaging metadata as the portable SDK.
+include(cmake/NoqeriPackaging.cmake)
