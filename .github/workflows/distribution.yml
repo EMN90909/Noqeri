@@ -17,6 +17,13 @@ on:
     # GitHub does not apply paths filters to tag pushes.
     paths:
       - '.github/workflows/distribution.yml'
+      - 'cmake/**'
+      - 'scripts/distribution/**'
+      - 'scripts/distribution.py'
+      - 'AndroidApp/**'
+      - 'CMakeLists.txt'
+      - 'tests/scripts/distribution_package_test.sh'
+      - 'tests/scripts/repackage_archive_test.py'
 
 permissions:
   contents: read
