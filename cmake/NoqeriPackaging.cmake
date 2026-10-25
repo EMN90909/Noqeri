@@ -7,7 +7,11 @@ set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Noqeri compiler, NQRI virtual machine and source SDK")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/EMN90909/Noqeri")
 set(CPACK_PACKAGE_CONTACT "Noethric contributors")
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+# Apple productbuild requires license resources to have a recognized suffix
+# (.txt/.rtf/.html), while the repository's canonical file is LICENSE.
+configure_file("${CMAKE_SOURCE_DIR}/LICENSE"
+ "${CMAKE_CURRENT_BINARY_DIR}/NoqeriLicense.txt" COPYONLY)
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_BINARY_DIR}/NoqeriLicense.txt")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "Noqeri")
 set(CPACK_VERBATIM_VARIABLES ON)
 
