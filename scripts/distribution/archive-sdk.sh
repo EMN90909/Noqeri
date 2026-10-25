@@ -2,7 +2,8 @@
 # Creates a portable SDK archive and directly downloadable native executables.
 # Native installer generation is separate, and always uses the SAME build tree.
 set -euo pipefail
-: "${NOQERI_RELEASE_TARGET:?set NOQERI_RELEASE_TARGET}"
+NOQERI_RELEASE_TARGET="${NOQERI_RELEASE_TARGET:-${RELEASE_TARGET:-}}"
+: "${NOQERI_RELEASE_TARGET:?set NOQERI_RELEASE_TARGET or RELEASE_TARGET}"
 : "${NOQERI_ARTIFACT_DIR:=artifacts}"
 : "${NOQERI_STAGE_DIR:=stage}"
 ref="${GITHUB_REF_NAME:-development}"
