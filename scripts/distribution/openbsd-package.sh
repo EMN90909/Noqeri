@@ -30,8 +30,14 @@ printf '%s\n' "Noqeri Stage-0 compiler, portable NQRI runtime and source SDK." >
 pkg_create -B "$work/root" -p /usr/local -f "$work/PLIST" \
   -D 'COMMENT=Noqeri compiler and runtime' \
   -D 'FULLPKGPATH=devel/noqeri' \
+  -D 'MAINTAINER=Noethric contributors' \
   -d "$work/DESCR" "$work/noqeri-$version.tgz"
 dest="$artifacts/noqeri-$version-$target.pkg.tgz"
 mv "$work/noqeri-$version.tgz" "$dest"
-pkg_info -f "$dest" >/dev/null
+# Verify the pkg_add archive's actual payload rather than running pkg_info,
+# which can treat unsigned archive paths as installed package names.
+test -s "$dest"
+tar -tzf "$dest" | grep -E '(^|/)bin/noqeri
+echo "Created native OpenBSD pkg_add package: $dest"
+ > /dev/null
 echo "Created native OpenBSD pkg_add package: $dest"
