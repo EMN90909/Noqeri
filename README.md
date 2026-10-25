@@ -46,6 +46,20 @@ if language == "Noqeri" {
 
 Local values can infer their types, semicolons are optional, and `if` / `while` conditions do not require parentheses. Functions, fixed-size arrays, slices, records, generics and imports are part of the language surface. See the [language reference](Doc/LANGUAGE_REFERENCE.md) and the checked-in [hello-world example](examples/hello.noqeri).
 
+## Platform builds and downloads
+
+A [cross-platform distribution workflow](.github/workflows/distribution.yml) now
+defines compiler SDK builds for **Android, Linux, Windows, macOS, FreeBSD and
+OpenBSD**, including x86-64 and ARM64 variants. Windows archives use `.zip`;
+other platforms use `.tar.gz`. Each package includes the Stage-0 compiler,
+the NQRI VM, headers and Noqeri source libraries.
+
+Run it via [GitHub Actions](https://github.com/EMN90909/Noqeri/actions/workflows/distribution.yml),
+or use a [tagged GitHub Release](https://github.com/EMN90909/Noqeri/releases)
+*after all target builds pass*. The existence of the workflow does **not**
+certify those host platforms or native cross-target executable compilation.
+See [build instructions and qualification status](Doc/DISTRIBUTION.md).
+
 ## Quick start
 
 **Prerequisites:** Git, CMake **3.16+**, and a **C++17 compiler**. The following configuration builds the real Stage-0 `noqeri` CLI while omitting optional mailbox/PGAS services and their platform-specific dependencies.
