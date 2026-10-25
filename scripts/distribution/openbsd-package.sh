@@ -20,7 +20,8 @@ mkdir -p "$work/root/usr/local"
 cp -R "$stage/." "$work/root/usr/local/"
 printf '%s\n' "Noqeri Stage-0 compiler, portable NQRI runtime and source SDK." > "$work/DESCR"
 {
-  printf '@name noqeri-%s\n' "$version"
+  # pkg_create supplies @name from the package output filename.
+  # Writing it again in PLIST causes "Duplicate name in plist".
   printf '%s\n' '@cwd /usr/local'
   (cd "$stage" && find . -type f | sed 's#^./##' | LC_ALL=C sort)
 } > "$work/PLIST"
