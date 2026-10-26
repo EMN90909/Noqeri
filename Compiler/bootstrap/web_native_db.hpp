@@ -1,27 +1,6 @@
 // Native web DB boundary. All engines are opt-in; NoeSQL owns .noedb.
 // No implicit NoqeriDB/NoeSQL format conversion and no SQL source interpolation.
 #pragma once
-#if !defined(_WIN32)
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <cerrno>
-#endif
-#ifdef NOQERI_WEB_SQLITE
-#include <sqlite3.h>
-#endif
-#ifdef NOQERI_WEB_POSTGRES
-#include <libpq-fe.h>
-#endif
-#ifdef NOQERI_WEB_DUCKDB
-#include <duckdb.h>
-#endif
-#ifdef NOQERI_WEB_MYSQL
-#include <mysql.h>
-#endif
-
-struct DbConfiguration {
-    std::string engine="noesql", path, dsnEnvironment, binaryEnvironment="NOESQL_BIN";
-};
 struct DbParameter {
     std::string name, value;
 };
