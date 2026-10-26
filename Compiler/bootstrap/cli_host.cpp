@@ -345,6 +345,22 @@ int main(int argc, char** argv) {
     // Keep AI as an optional native runner: no Python, Node, remote API or
     // ambient shell command needed. Argument forwarding does not invoke a shell.
     if (cmd == "ai") {
+#if defined(_WIN32)
+        // The MSVC spawn argument encoder does not preserve every control
+        // character across its command-line serialization. Fail closed,
+        // rather than silently changing an AI prompt or filesystem path.
+        for (int i=2; i<argc; ++i) {
+            for (const unsigned char* p =
+                     reinterpret_cast<const unsigned char*>(argv[i]); *p; ++p) {
+                if (*p < 32 || *p == 127) {
+                    std::cerr<<"NQR-AI1002: Windows AI CLI arguments may not "
+                                "contain control characters; use native APIs "
+                                "for multi-line prompts\n";
+                    return 2;
+                }
+            }
+        }
+#endif
         const char* configured=std::getenv("NOQERI_AI_BIN");
         std::filesystem::path sibling=std::filesystem::absolute(argv[0]).parent_path()
                                        / "noqeri-ai";

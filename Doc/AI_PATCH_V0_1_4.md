@@ -83,3 +83,7 @@ original v0.1.4 tag and existing AI assets without overwriting either.
 Windows CRLF text files are normalized to LF on corpus input; bare CR and
 nonprintable control bytes remain invalid. This gives identical ASCII training
 text semantics on Windows, Linux, macOS and BSD targets.
+
+On Windows, `noqeri ai` rejects control characters in CLI arguments before
+process forwarding, because the platform C runtime may otherwise change them.
+Call the library API to supply multi-line prompts on that platform.

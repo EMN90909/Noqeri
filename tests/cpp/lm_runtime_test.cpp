@@ -72,6 +72,7 @@ int main(int argc,char** argv) {
            generate_language(loaded,"world",12,0.7,25));
     assert(rejects([&]{generate_language(loaded,"hello",257);}));
     assert(rejects([&]{generate_language(loaded,"héllo",2);}));
+    assert(rejects([&]{generate_language(loaded,"hi\t",2);}));
     assert(rejects([&]{generate_language(loaded,"hello",2,-1);}));
     assert(rejects([&]{train_language("tiny",opt);}));
     { std::ofstream out(root/"bad.nqlm");out<<"NQLM1 64 65\n"; }
