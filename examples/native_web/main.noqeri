@@ -1,0 +1,47 @@
+// A complete web application authored in Noqeri. No handwritten JS, HTML or CSS.
+import noqeri/ui as ui
+
+let count = 0
+
+theme {
+    primary: "#304ac0"
+    accent: "#0f8466"
+    background: "#f5f6fb"
+    surface: "#ffffff"
+    text: "#202439"
+    radius: 14
+}
+
+route "/" {
+    main class: "nq-page" {
+        nav class: "nq-navbar" {
+            a href: "/" { "Home" }
+            a href: "/about" { "About" }
+        }
+        ui.Heading("Build the web with Noqeri")
+        ui.Lead("Pages, components, design tokens and routing: one language.")
+        ui.Card("Native components", "This card is implemented in a .noqeri library, without React or npm.")
+        p { "Clicks: " + count }
+        button type: "button" class: "nq-button" on.click { count = count + 1 } { "Count up" }
+        ui.Badge("Noqeri Web")
+    }
+}
+
+route "/about" {
+    main class: "nq-page" {
+        nav class: "nq-navbar" {
+            a href: "/" { "Home" }
+            a href: "/about" { "About" }
+        }
+        ui.Heading("About Noqeri Web")
+        ui.Notice("Noqeri generates standard browser assets from native Noqeri declarations.")
+        ui.LinkButton("Back home", "/")
+    }
+}
+
+view {
+    main class: "nq-page" {
+        h1 { "404 — page not found" }
+        a href: "/" { "Return home" }
+    }
+}
