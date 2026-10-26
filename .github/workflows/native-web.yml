@@ -51,6 +51,8 @@ jobs:
         run: python3 tests/native_web_bundle.py ./build-native-web/noqeri-web examples/native_web_fullstack
       - name: Qualify native HTTP concurrency, Basic authentication and secure cookies
         run: python3 tests/native_web_auth.py ./build-native-web/noqeri-web examples/native_web_fullstack
+      - name: Qualify strict HTTP Origin and bounded session expiry
+        run: python3 tests/native_web_session_expiry.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Test native web database adapters without changing NoeSQL
         run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
       - name: Qualify one Noqeri compiler CLI for static and native full-stack apps
