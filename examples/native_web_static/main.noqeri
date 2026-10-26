@@ -20,9 +20,12 @@ route "/" {
         }
         ui.Heading("Build websites with Noqeri")
         ui.Lead(tagline)
+        ui.PageHeader("Frameworks", "Noqeri UI v2", "Native and browser themes share semantic components.")
         ui.Card("Native compilation", "Pages are rendered to real HTML and CSS by the Noqeri web executable.")
         ui.Badge("Zero-JavaScript")
         ui.LinkButton("Learn about the framework", "/about")
+        ui.EmptyState("No third-party framework", "No external UI dependency required.")
+        ui.FooterNote("Built with native Noqeri components.")
     }
 }
 
@@ -35,7 +38,8 @@ route "/about" {
         ui.Heading("Independent web pages")
         ui.Notice("Noqeri compiles a static website. Links work without a script engine.")
         ui.Card("Security by default", "Text and attributes are escaped. Unsafe events and URL schemes are rejected.")
-        ui.LinkButton("Return home", "/")
+        ui.SecondaryLink("Return home", "/")
+        ui.Panel("Semantic UI", "Native layout cards use the same class contract as browser views.")
     }
 }
 

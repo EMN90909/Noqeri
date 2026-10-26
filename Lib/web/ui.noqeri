@@ -49,3 +49,59 @@ component Statistic(label: string, value: string) {
         p class: "nq-stat-label" { label }
     }
 }
+
+component PageHeader(eyebrow: string, title: string, summary: string) {
+    header class: "nq-page-header" {
+        p class: "nq-eyebrow" { eyebrow }
+        h1 class: "nq-title" { title }
+        p class: "nq-lead" { summary }
+    }
+}
+
+component SectionHeading(title: string, subtitle: string) {
+    header class: "nq-section-header" {
+        h2 class: "nq-section-title" { title }
+        p class: "nq-muted" { subtitle }
+    }
+}
+
+component Panel(title: string, detail: string) {
+    section class: "nq-panel" {
+        h2 class: "nq-section-title" { title }
+        p { detail }
+    }
+}
+
+component EmptyState(title: string, message: string) {
+    section class: "nq-empty" role: "status" {
+        h2 class: "nq-section-title" { title }
+        p class: "nq-muted" { message }
+    }
+}
+
+component FieldHint(message: string) {
+    small class: "nq-field-help" { message }
+}
+
+component FieldError(message: string) {
+    p class: "nq-field-error" role: "alert" { message }
+}
+
+component SecondaryLink(label: string, href: string) {
+    a class: "nq-button nq-button-secondary" href: href { label }
+}
+
+component FooterNote(message: string) {
+    footer class: "nq-footer" { message }
+}
+
+component SubmitButton(label: string) {
+    button type: "submit" class: "nq-button" { label }
+}
+
+component TextAreaField(labelText: string, fieldId: string, hint: string) {
+    div class: "nq-field" {
+        label for: fieldId { labelText }
+        textarea id: fieldId name: fieldId placeholder: hint {}
+    }
+}

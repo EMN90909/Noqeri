@@ -22,6 +22,8 @@ export function websocket_frame_valid(op: u8, finalFrame: bool, payloadLength: u
 export function websocket_close_code_valid(code: int): bool {
     if code < 1000 || code >= 5000 { return false }
     if code == 1004 || code == 1005 || code == 1006 || code == 1015 { return false }
+    // 1016..2999 are reserved until registered; 3000..4999 are app/library use.
+    if code >= 1016 && code < 3000 { return false }
     return true
 }
 
@@ -32,3 +34,13 @@ export function websocket_send_binary(socket: usize, data: []u8): isize { return
 export function websocket_receive_text(socket: usize): string { return websocketReceiveText(socket) }
 export function websocket_close_normal(socket: usize): isize { return websocketClose(socket, 1000, "") }
 export function websocket_close_with(socket: usize, code: int, reason: string): isize { if !websocket_close_code_valid(code) { return -2 as isize } return websocketClose(socket, code, reason) }
+
+export function websocket_max_frame_bytes(): usize { return 1048576 as usize }
+export function websocket_client_frame_valid(op: u8, finalFrame: bool, masked: bool, payloadLength: usize): bool {
+    if !masked || payloadLength > websocket_max_frame_bytes() { return false }
+    return websocket_frame_valid(op, finalFrame, payloadLength)
+}
+export function websocket_server_frame_valid(op: u8, finalFrame: bool, masked: bool, payloadLength: usize): bool {
+    if masked || payloadLength > websocket_max_frame_bytes() { return false }
+    return websocket_frame_valid(op, finalFrame, payloadLength)
+}

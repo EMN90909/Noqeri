@@ -89,3 +89,23 @@ test('build emits standalone deep-link pages, native component module and CSS',a
     assert.match(JSON.stringify(compiled.render()),/Home/)
   }finally{await rm(temp,{recursive:true,force:true})}
 })
+
+test('expanded Noqeri UI compiles consistently for browser views',async()=>{
+  const temp=await mkdtemp(join(tmpdir(),'noqeri-ui-v2-'))
+  try{
+    const src=join(temp,'src'),out=join(temp,'dist')
+    await mkdir(src)
+    await writeFile(join(src,'main.noqeri'),
+      'import noqeri/ui as ui\nroute "/" { main { ui.PageHeader("Library", "Hello UI", "Semantic components") ui.EmptyState("Empty", "No items") ui.SecondaryLink("More", "/more") ui.FooterNote("Noqeri") } }')
+    await buildWebProject({source:src,out})
+    const main=await import(pathToFileURL(join(out,'main.mjs')).href)
+    const text=JSON.stringify(main.render())
+    assert.match(text,/nq-page-header/)
+    assert.match(text,/nq-empty/)
+    assert.match(text,/nq-button-secondary/)
+    assert.match(text,/nq-footer/)
+    const css=await readFile(join(out,'__noqeri/theme.css'),'utf8')
+    for(const selector of ['.nq-page-header','.nq-empty','.nq-button-secondary','.nq-field-error','.nq-footer'])
+      assert.ok(css.includes(selector),'missing browser styling '+selector)
+  }finally{await rm(temp,{recursive:true,force:true})}
+})
