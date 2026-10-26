@@ -1,5 +1,14 @@
 # Changelog
 
+### Post-tag v0.1.4: optional AI framework and registry package
+
+- Add reverse-mode dense 2D tensor autodiff with a gradient-checked tape, softmax/cross-entropy, embedding row gathering and causal masks.
+- Train a bounded single-layer causal attention + feed-forward neural language model, including deterministic byte-pair subword merges and `.nqtf` save/load.
+- Add reference scalar, cache-tiled and SSE2 CPU tensor backends, exact backend selection and parity tests. No GPU acceleration claimed.
+- Publish the Noqeri source package `noqeri/ai-framework@0.1.4` through the separate source-index-backed registry repository.
+- No compiler grammar changes; the native C++ SDK is not automatically linked by a Noqeri import. Experimental, not production-qualified.
+
+
 ### Post-tag v0.1.4: lightweight neural language-model research add-on
 
 - Add a bounded, dependency-free C++17 CPU numerical SDK (matrix multiplication,

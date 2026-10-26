@@ -32,6 +32,16 @@ check_numeric=subprocess.run([str(compiler),"check",str(numeric_example)],
                              text=True,capture_output=True,timeout=20)
 assert check_numeric.returncode==0,(check_numeric.stdout,check_numeric.stderr)
 
+
+framework_example=example.parent/"framework_basics.noqeri"
+framework_checked=subprocess.run([str(compiler),"check",str(framework_example)],
+                                 text=True,capture_output=True,timeout=20)
+assert framework_checked.returncode==0,(framework_checked.stdout,framework_checked.stderr)
+framework_run=subprocess.run([str(compiler),"run",str(framework_example)],
+                             text=True,capture_output=True,timeout=20)
+assert framework_run.returncode==0 and "0" in framework_run.stdout,(
+    framework_run.stdout,framework_run.stderr)
+
 with tempfile.TemporaryDirectory() as temp:
     root=Path(temp)
     train=root/"training.csv"
@@ -84,4 +94,19 @@ with tempfile.TemporaryDirectory() as temp:
     bad_corpus.write_bytes(b"test"*10+b"\x00")
     cli("lm","train",bad_corpus,root/"bad.nqlm",success=False)
 
-print("PASS: typed .noqeri AI modules, SGD classifier, bounded agent and small CPU text-model training")
+
+    transformer_model=root/"small.nqtf"
+    trial=cli("transformer","train",corpus,transformer_model,"--steps","100",
+              "--context","3","--hidden","6","--merges","3","--seed","7")
+    assert transformer_model.is_file() and "trailing_loss=" in trial.stdout
+    generated=cli("transformer","generate",transformer_model,"hello","--tokens","12")
+    deterministic=cli("transformer","generate",transformer_model,"hello","--tokens","12")
+    assert generated.stdout==deterministic.stdout and generated.stdout.startswith("generated=")
+    cli("transformer","generate",transformer_model,"hello","--tokens","100000",success=False)
+    cli("transformer","train",corpus,root/"failed.nqtf","--steps","0",success=False)
+    cli("transformer","generate",transformer_model,"bad\t","--tokens","2",success=False)
+    wrong=root/"bad.nqtf"
+    wrong.write_text("NQTF1 8 8 1000\n",encoding="ascii")
+    cli("transformer","generate",wrong,"hello",success=False)
+
+print("PASS: Noqeri framework source, autodiff, transformer train/generate and bounded agent")

@@ -4,13 +4,6 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/release-llm-v014-patch.yml'
-      - 'Runtime/native/lm_runtime.cpp'
-      - 'Include/noqeri/lm.hpp'
-      - 'Tools/ai/noqeri_ai.cpp'
-      - 'tests/cpp/lm_runtime_test.cpp'
-      - 'tests/native_ai.py'
-      - 'Lib/std/numeric.noqeri'
-      - 'CMakeLists.txt'
   workflow_dispatch:
 permissions:
   contents: read

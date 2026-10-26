@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+import "../../Lib/ai/framework.noqeri"
+function main(): int {
+    let weight: float = 0.0
+    let bias: float = 0.0
+    let before: float = ai_framework_loss(weight,bias,2.0,4.0)
+    let nextWeight: float = ai_framework_sgd_weight(weight,bias,2.0,4.0,0.1)
+    let nextBias: float = ai_framework_sgd_bias(weight,bias,2.0,4.0,0.1)
+    if ai_framework_loss(nextWeight,nextBias,2.0,4.0) >= before { return 1 }
+    if ai_framework_grad_weight(0.0,0.0,2.0,4.0) != -8.0 { return 2 }
+    if ai_framework_grad_bias(0.0,0.0,2.0,4.0) != -4.0 { return 3 }
+    let bytes: [u8; 5] = [65 as u8,66 as u8,65 as u8,66 as u8,67 as u8]
+    if ai_framework_pair_count(slice(bytes),65 as u8,66 as u8) != 2 { return 4 }
+    let short: [u8; 1] = [65 as u8]
+    if ai_framework_pair_count(slice(short),65 as u8,66 as u8) != 0 { return 5 }
+    let q: [float; 2] = [2.0,3.0]
+    let k: [float; 2] = [4.0,5.0]
+    if ai_framework_attention_score(slice(q),slice(k)) != 23.0 { return 6 }
+    if !ai_framework_can_run(3,5) || ai_framework_can_run(5,5) { return 7 }
+    if ai_framework_can_call(0,1,false) || !ai_framework_can_call(0,1,true) { return 8 }
+    return 0
+}
+print(main())

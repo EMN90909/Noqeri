@@ -2,6 +2,7 @@
 // Native Noqeri AI development host. The reusable runtime library is Apache-2.0.
 #include "noqeri/ai.hpp"
 #include "noqeri/lm.hpp"
+#include "noqeri/ai_framework.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <exception>
@@ -26,6 +27,14 @@ double decimal(const std::string& value) {
     if(end!=value.size()||!std::isfinite(number))throw std::runtime_error("nonfinite numeric option");
     return number;
 }
+noqeri_ai::framework::Backend backend_name(const std::string& name) {
+    using noqeri_ai::framework::Backend;
+    if(name=="auto")return Backend::Auto;
+    if(name=="scalar")return Backend::Scalar;
+    if(name=="tiled")return Backend::Tiled;
+    if(name=="simd")return Backend::Simd;
+    throw std::runtime_error("invalid tensor backend: "+name);
+}
 void help() {
     std::cout <<
       "noqeri-ai 0.1.4 (offline CPU-only patch)\n"
@@ -34,6 +43,8 @@ void help() {
       "  agent <model.nqai> <numeric-observations.csv> [--max-steps N] [--allow-emit]\n"
       "  lm train <ascii-corpus.txt> <model.nqlm> [--steps N] [--context N] [--hidden N] [--rate LR] [--seed N]\n"
       "  lm generate <model.nqlm> <prompt> [--tokens N] [--temperature X] [--seed N]\n"
+      "  transformer train <text.txt> <model.nqtf> [--steps N] [--context N] [--hidden N] [--merges N] [--backend auto|scalar|tiled|simd]\n"
+      "  transformer generate <model.nqtf> <prompt> [--tokens N] [--temperature X] [--seed N] [--backend auto|scalar|tiled|simd]\n"
       "  --version\n"
       "Training CSV has numeric features then a binary 0/1 label, without a header.\n"
       "Agent tools are default-denied; --allow-emit permits stdout only.\n";
@@ -46,6 +57,61 @@ int main(int argc,char** argv) {
         }
         if(argc<2) {help();return 2;}
         const std::string command=argv[1];
+
+        if(command=="transformer") {
+            using namespace noqeri_ai::framework;
+            if(argc<4)throw std::runtime_error("usage: transformer train|generate ...");
+            const std::string action=argv[2];
+            if(action=="train") {
+                if(argc<5)throw std::runtime_error("usage: transformer train <corpus> <model.nqtf>");
+                TransformerOptions options;
+                for(int i=5;i<argc;++i) {
+                    const std::string flag=argv[i];
+                    if(i+1>=argc)throw std::runtime_error("missing transformer train option");
+                    const std::string value=argv[++i];
+                    if(flag=="--steps")options.steps=natural(value,10000);
+                    else if(flag=="--context")options.context=natural(value,16);
+                    else if(flag=="--hidden")options.hidden=natural(value,24);
+                    else if(flag=="--merges")options.merges=natural(value,32);
+                    else if(flag=="--rate")options.learning_rate=decimal(value);
+                    else if(flag=="--seed")options.seed=static_cast<std::uint32_t>(natural(value,4294967295ULL));
+                    else if(flag=="--backend")options.backend=backend_name(value);
+                    else throw std::runtime_error("unknown transformer train flag "+flag);
+                }
+                const auto corpus=noqeri_ai::read_language_corpus(argv[3]);
+                double training_loss=0;
+                auto model=train_transformer(corpus,options,&training_loss);
+                save_transformer(model,argv[4]);
+                std::cout<<std::setprecision(9)
+                         <<"transformer_tokens="<<model.tokenizer.encode(corpus).size()
+                         <<" vocab="<<model.tokenizer.vocab_size()
+                         <<" steps="<<options.steps
+                         <<" trailing_loss="<<training_loss<<"\n";
+                return 0;
+            }
+            if(action=="generate") {
+                if(argc<5)throw std::runtime_error("usage: transformer generate <model.nqtf> <prompt>");
+                std::size_t count=24;
+                double temperature=0.0;
+                std::uint32_t seed=42;
+                Backend backend=Backend::Auto;
+                for(int i=5;i<argc;++i) {
+                    const std::string flag=argv[i];
+                    if(i+1>=argc)throw std::runtime_error("missing transformer generate option");
+                    const std::string value=argv[++i];
+                    if(flag=="--tokens")count=natural(value,64);
+                    else if(flag=="--temperature")temperature=decimal(value);
+                    else if(flag=="--seed")seed=static_cast<std::uint32_t>(natural(value,4294967295ULL));
+                    else if(flag=="--backend")backend=backend_name(value);
+                    else throw std::runtime_error("unknown transformer generate flag "+flag);
+                }
+                const auto model=load_transformer(argv[3]);
+                const auto output=generate_transformer(model,argv[4],count,temperature,seed,backend);
+                std::cout<<"generated="<<output<<"\n";
+                return 0;
+            }
+            throw std::runtime_error("unknown transformer command: "+action);
+        }
         if(command=="lm") {
             if(argc<4)throw std::runtime_error("usage: lm train|generate ...");
             const std::string task=argv[2];

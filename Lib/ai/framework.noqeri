@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: Apache-2.0
+module noqeri.ai.framework
+
+// Portable, dependency-free Noqeri layer of the AI framework.
+// Heavy tensor/autodiff/BPE/transformer operations are implemented in
+// the separately linked Apache-2.0 libnoqeri_ai native SDK.
+// These native routines are NOT implicitly available to imports yet.
+
+// Squared-error gradients are an analytic scalar reverse pass for the
+// affine prediction y = weight * feature + bias.
+export function ai_framework_predict(weight: float, bias: float,
+                                     feature: float): float {
+    return weight * feature + bias
+}
+export function ai_framework_loss(weight: float, bias: float,
+                                  feature: float, expected: float): float {
+    let error: float = ai_framework_predict(weight,bias,feature)-expected
+    return 0.5 * error * error
+}
+export function ai_framework_grad_weight(weight: float, bias: float,
+                                         feature: float, expected: float): float {
+    let error: float = ai_framework_predict(weight,bias,feature)-expected
+    return error * feature
+}
+export function ai_framework_grad_bias(weight: float, bias: float,
+                                       feature: float, expected: float): float {
+    return ai_framework_predict(weight,bias,feature)-expected
+}
+export function ai_framework_clamp(value: float, limit: float): float {
+    if limit <= 0.0 { return 0.0 }
+    if value > limit { return limit }
+    if value < -limit { return -limit }
+    return value
+}
+export function ai_framework_sgd_weight(weight: float, bias: float,
+                                        feature: float, expected: float,
+                                        rate: float): float {
+    if rate <= 0.0 || rate > 0.2 { return weight }
+    return weight - rate * ai_framework_clamp(
+        ai_framework_grad_weight(weight,bias,feature,expected),5.0)
+}
+export function ai_framework_sgd_bias(weight: float, bias: float,
+                                      feature: float, expected: float,
+                                      rate: float): float {
+    if rate <= 0.0 || rate > 0.2 { return bias }
+    return bias - rate * ai_framework_clamp(
+        ai_framework_grad_bias(weight,bias,feature,expected),5.0)
+}
+export function ai_framework_pair_count(input: []u8, left: u8, right: u8): int {
+    if len(input) < 2 as usize { return 0 }
+    let count: int = 0
+    let i: usize = 1 as usize
+    while i < len(input) {
+        if input[i - 1 as usize] == left && input[i] == right {
+            count = count + 1
+        }
+        i = i + 1 as usize
+    }
+    return count
+}
+export function ai_framework_attention_score(query: []float,
+                                             key: []float): float {
+    if len(query) != len(key) { return 0.0 }
+    let dot: float = 0.0
+    let i: usize = 0 as usize
+    while i < len(query) {
+        dot = dot + query[i] * key[i]
+        i = i + 1 as usize
+    }
+    return dot
+}
+// Capability limits are enforced by the embedding host; a library cannot
+// authorize a shell, network request or filesystem operation on its own.
+export function ai_framework_can_run(steps: int, limit: int): bool {
+    return steps >= 0 && limit > 0 && limit <= 10000 && steps < limit
+}
+export function ai_framework_can_call(calls: int, limit: int,
+                                      authorized: bool): bool {
+    return authorized && calls >= 0 && limit >= 0 && calls < limit
+}

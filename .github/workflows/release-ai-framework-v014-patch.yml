@@ -1,0 +1,237 @@
+name: Noqeri v0.1.4 AI framework verified native patch
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-ai-framework-v014-patch.yml'
+      - 'Runtime/native/lm_runtime.cpp'
+      - 'Include/noqeri/lm.hpp'
+      - 'Tools/ai/noqeri_ai.cpp'
+      - 'tests/cpp/lm_runtime_test.cpp'
+      - 'tests/native_ai.py'
+      - 'Lib/std/numeric.noqeri'
+      - 'CMakeLists.txt'
+      - 'Lib/ai/framework.noqeri'
+      - 'Doc/AI_FRAMEWORK.md'
+      - 'tests/cpp/ai_framework_test.cpp'
+      - 'Runtime/native/ai_framework_tensor.cpp'
+      - 'Runtime/native/ai_framework_transformer.cpp'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, target: linux-x86_64, extension: tar.gz}
+          - {runner: ubuntu-24.04-arm, target: linux-aarch64, extension: tar.gz}
+          - {runner: windows-2022, target: windows-x86_64, extension: zip}
+          - {runner: macos-15-intel, target: macos-x86_64, extension: tar.gz}
+          - {runner: macos-15, target: macos-aarch64, extension: tar.gz}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Build native compiler and standalone AI runtime
+        shell: bash
+        run: |
+          cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-ai --config Release --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test noqeri-ai-framework-test --parallel 2
+      - name: Qualify training, prediction, agent tools and typed Noqeri modules
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          ctest --test-dir build-ai -C Release -R '^noqeri-(ai|lm)-runtime$|^noqeri-ai-framework --output-on-failure
+          ext=''
+          binarydir='./build-ai'
+          if [[ "$TARGET" == windows-* ]]; then
+            ext='.exe'
+            binarydir='./build-ai/Release'
+          fi
+          python3 tests/native_ai.py "$binarydir/noqeri$ext" "$binarydir/noqeri-ai$ext" examples/ai/online_learning.noqeri
+      - name: Package additive CPU AI SDK without changing v0.1.4 tag
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          cmake --install build-ai --config Release --prefix "$PWD/stage"
+          mkdir -p patch/bin patch/lib patch/include/noqeri patch/share/noqeri/Lib/ai patch/share/noqeri/Lib/std patch/licenses artifacts
+          suffix=''
+          if [[ "$TARGET" == windows-* ]]; then suffix='.exe'; fi
+          cp "stage/bin/noqeri$suffix" "patch/bin/noqeri$suffix"
+          cp "stage/bin/noqeri-ai$suffix" "patch/bin/noqeri-ai$suffix"
+          cp Include/noqeri/ai.hpp Include/noqeri/lm.hpp Include/noqeri/ai_framework.hpp patch/include/noqeri/
+          cp Lib/ai/*.noqeri patch/share/noqeri/Lib/ai/
+          cp Lib/std/numeric.noqeri patch/share/noqeri/Lib/std/
+          if [[ "$TARGET" == windows-* ]]; then cp stage/lib/noqeri_ai.lib patch/lib/; else cp stage/lib/libnoqeri_ai.a patch/lib/; fi
+          cp LICENSE patch/licenses/GPL-3.0-only.txt
+          cp LICENSES/Apache-2.0.txt patch/licenses/Apache-2.0.txt
+          cp Doc/AI_FRAMEWORK.md patch/README-AI-FRAMEWORK.md
+          printf '%s\n' "$GITHUB_SHA" > patch/PATCH_SOURCE_SHA
+          printf '%s\n' '50606b6c491dfde2c8a9f4db624a82f8839621b3' > patch/ORIGINAL_V014_TAG_SHA
+          output="artifacts/noqeri-v0.1.4-ai-framework-$TARGET.$EXTENSION"
+          if [[ "$EXTENSION" == zip ]]; then cmake -E tar cf "$output" --format=zip -- patch
+          else cmake -E tar czf "$output" -- patch; fi
+          test -s "$output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v014-framework-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.1.4
+      ORIGINAL_SHA: 50606b6c491dfde2c8a9f4db624a82f8839621b3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v014-framework-*
+          merge-multiple: true
+          path: artifacts
+      - name: Verify original tag and all CPU-specific packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$ORIGINAL_SHA"
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq 'select(.isDraft==false and .isPrerelease==true) | .isPrerelease' | grep -Fx true
+          python3 scripts/distribution/verify_ai_framework_patch.py artifacts "$GITHUB_SHA"
+          (cd artifacts && sha256sum -c SHA256SUMS-v014-framework-foundation)
+      - name: Upload unique verified files to existing public release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > old-assets.txt
+          mkdir -p previous
+          for file in artifacts/*; do
+            name="$(basename "$file")"
+            if grep -Fxq "$name" old-assets.txt; then
+              gh release download "$RELEASE_TAG" --pattern "$name" --dir previous
+              cmp -s "previous/$name" "$file" || { echo "Refusing asset replacement: $name" >&2; exit 1; }
+            else
+              gh release upload "$RELEASE_TAG" "$file" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > final-assets.txt
+          for file in artifacts/*; do grep -Fxq "$(basename "$file")" final-assets.txt; done
+      - name: Append documented post-tag patch provenance to release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json body --jq .body > release-notes.md
+          if ! grep -Fq '<!-- NOQERI_AI_FRAMEWORK -->' release-notes.md; then
+            printf '\n%s\n' '<!-- NOQERI_AI_FRAMEWORK -->' '### Experimental AI framework add-on (post-tag)' >> release-notes.md
+            printf '%s\n' 'Native CPU reverse-mode tensor autodiff, trainable one-layer causal attention with byte-pair tokenization, and scalar/tiled/SSE2 backends. The registry publishes an optional source-only Noqeri package. Not GPU-accelerated or production LLM pretraining.' >> release-notes.md
+            printf 'Patch source commit %s; original tag commit %s (tag unchanged).\n' "$GITHUB_SHA" "$ORIGINAL_SHA" >> release-notes.md
+            printf '%s\n' 'Check the v0.1.4-ai-framework-manifest.json and SHA256SUMS-v014-framework-foundation release assets.' >> release-notes.md
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
+          fi
+ --output-on-failure
+          ext=''
+          binarydir='./build-ai'
+          if [[ "$TARGET" == windows-* ]]; then
+            ext='.exe'
+            binarydir='./build-ai/Release'
+          fi
+          python3 tests/native_ai.py "$binarydir/noqeri$ext" "$binarydir/noqeri-ai$ext" examples/ai/online_learning.noqeri
+      - name: Package additive CPU AI SDK without changing v0.1.4 tag
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          cmake --install build-ai --config Release --prefix "$PWD/stage"
+          mkdir -p patch/bin patch/lib patch/include/noqeri patch/share/noqeri/Lib/ai patch/share/noqeri/Lib/std patch/licenses artifacts
+          suffix=''
+          if [[ "$TARGET" == windows-* ]]; then suffix='.exe'; fi
+          cp "stage/bin/noqeri$suffix" "patch/bin/noqeri$suffix"
+          cp "stage/bin/noqeri-ai$suffix" "patch/bin/noqeri-ai$suffix"
+          cp Include/noqeri/ai.hpp Include/noqeri/lm.hpp Include/noqeri/ai_framework.hpp patch/include/noqeri/
+          cp Lib/ai/*.noqeri patch/share/noqeri/Lib/ai/
+          cp Lib/std/numeric.noqeri patch/share/noqeri/Lib/std/
+          if [[ "$TARGET" == windows-* ]]; then cp stage/lib/noqeri_ai.lib patch/lib/; else cp stage/lib/libnoqeri_ai.a patch/lib/; fi
+          cp LICENSE patch/licenses/GPL-3.0-only.txt
+          cp LICENSES/Apache-2.0.txt patch/licenses/Apache-2.0.txt
+          cp Doc/AI_FRAMEWORK.md patch/README-AI-FRAMEWORK.md
+          printf '%s\n' "$GITHUB_SHA" > patch/PATCH_SOURCE_SHA
+          printf '%s\n' '50606b6c491dfde2c8a9f4db624a82f8839621b3' > patch/ORIGINAL_V014_TAG_SHA
+          output="artifacts/noqeri-v0.1.4-ai-framework-$TARGET.$EXTENSION"
+          if [[ "$EXTENSION" == zip ]]; then cmake -E tar cf "$output" --format=zip -- patch
+          else cmake -E tar czf "$output" -- patch; fi
+          test -s "$output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v014-framework-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.1.4
+      ORIGINAL_SHA: 50606b6c491dfde2c8a9f4db624a82f8839621b3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v014-framework-*
+          merge-multiple: true
+          path: artifacts
+      - name: Verify original tag and all CPU-specific packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$ORIGINAL_SHA"
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq 'select(.isDraft==false and .isPrerelease==true) | .isPrerelease' | grep -Fx true
+          python3 scripts/distribution/verify_ai_framework_patch.py artifacts "$GITHUB_SHA"
+          (cd artifacts && sha256sum -c SHA256SUMS-v014-framework-foundation)
+      - name: Upload unique verified files to existing public release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > old-assets.txt
+          mkdir -p previous
+          for file in artifacts/*; do
+            name="$(basename "$file")"
+            if grep -Fxq "$name" old-assets.txt; then
+              gh release download "$RELEASE_TAG" --pattern "$name" --dir previous
+              cmp -s "previous/$name" "$file" || { echo "Refusing asset replacement: $name" >&2; exit 1; }
+            else
+              gh release upload "$RELEASE_TAG" "$file" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > final-assets.txt
+          for file in artifacts/*; do grep -Fxq "$(basename "$file")" final-assets.txt; done
+      - name: Append documented post-tag patch provenance to release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json body --jq .body > release-notes.md
+          if ! grep -Fq '<!-- NOQERI_AI_FRAMEWORK -->' release-notes.md; then
+            printf '\n%s\n' '<!-- NOQERI_AI_FRAMEWORK -->' '### Small neural language-model and tensor foundations (post-tag add-on)' >> release-notes.md
+            printf '%s\n' 'Additive CPU matrix operations, forward-only causal attention, and a tiny trainable next-character neural model through noqeri ai lm train/generate. The existing bounded agent and classifier remain. Not a transformer, full LLM trainer or GPU-accelerated runtime.' >> release-notes.md
+            printf 'Patch source commit %s; original tag commit %s (tag unchanged).\n' "$GITHUB_SHA" "$ORIGINAL_SHA" >> release-notes.md
+            printf '%s\n' 'Check the v0.1.4-ai-framework-manifest.json and SHA256SUMS-v014-framework-foundation release assets.' >> release-notes.md
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
+          fi
