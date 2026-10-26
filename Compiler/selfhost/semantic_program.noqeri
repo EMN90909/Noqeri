@@ -453,7 +453,7 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             if leftNode.tag == nqAstInteger() && rightNode.tag != nqAstInteger() { result = rightNode.typeCode }
             else if rightNode.tag == nqAstInteger() && leftNode.tag != nqAstInteger() { result = leftNode.typeCode }
         }
-        if result == nqAstTypeUnknown() { context.errorStart = node.start return nqSemanticInvalidBinary() }
+        if result == nqAstTypeUnknown() { print(7777) print(op) print(leftNode.typeCode) print(rightNode.typeCode) context.errorStart = node.start return nqSemanticInvalidBinary() }
         node.typeCode = result
         return nqSemanticOk()
     }
