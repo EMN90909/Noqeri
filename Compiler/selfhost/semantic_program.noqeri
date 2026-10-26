@@ -323,6 +323,9 @@ function nqSemanticMarkGrowableListBindings(source: []u8, nodes: []NqAstNode, fi
         }
         binding = node.next
     }
+    // An explicit exit prevents a compiler-lowered trailing loop jump from
+    // being mistaken for the function's terminating instruction.
+    return
 }
 
 function nqSemanticCopySymbolType(node: *NqAstNode, symbol: *NqSymbol): void {
