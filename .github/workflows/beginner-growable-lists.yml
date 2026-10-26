@@ -47,6 +47,13 @@ jobs:
           # integer return value (0), unlike the Stage-0 run command.
           test "$output" = "$(printf '3\n0\n0')"
 
+      - name: Native Linux AOT auto links owned storage with no special flags
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/beginner_growable_lists.noqeri build-beginner-list/lists-native --compiler=build-beginner-list/noqeri
+          output=$(./build-beginner-list/lists-native)
+          echo "Native AOT: $output"
+          test "$output" = "$(printf '3\n0')"
       - name: Self-hosted Stage-2 compiler accepts and executes beginner list source
         run: |
           set -euo pipefail
@@ -61,13 +68,6 @@ jobs:
           result=$(./build-beginner-list/noqeri-nqri build-beginner-list/selfhost-lists.nqri verify)
           echo "Self-hosted Stage-2 list verification: $result"
           test "$result" = "0"
-      - name: Native Linux AOT auto links owned storage with no special flags
-        run: |
-          set -euo pipefail
-          node scripts/native-build.mjs tests/beginner_growable_lists.noqeri build-beginner-list/lists-native --compiler=build-beginner-list/noqeri
-          output=$(./build-beginner-list/lists-native)
-          echo "Native AOT: $output"
-          test "$output" = "$(printf '3\n0')"
       - name: Reject mismatched, fixed and aliased mutable collections
         run: |
           set -euo pipefail
