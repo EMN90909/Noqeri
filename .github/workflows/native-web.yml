@@ -19,7 +19,7 @@ jobs:
       - name: Configure native C++ bootstrap
         run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
       - name: Build Noqeri native web and WebSocket frame validator
-        run: cmake --build build-native-web --target noqeri-web noqeri-websocket-frame-test -j2
+        run: cmake --build build-native-web --target noqeri noqeri-web noqeri-websocket-frame-test -j2
       - name: Native static web and RFC6455 frame regression tests
         run: ctest --test-dir build-native-web -R '^(noqeri-native-web|noqeri-websocket-frame)$' --output-on-failure
       - name: Ensure static site uses HTML/CSS only
