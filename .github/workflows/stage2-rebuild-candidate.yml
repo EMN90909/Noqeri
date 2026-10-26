@@ -7,6 +7,7 @@ on:
       - 'Compiler/selfhost/**'
       - 'Compiler/bootstrap/**'
       - 'Compiler/type_checker.cpp'
+      - 'Compiler/core.cpp'
       - 'Compiler/nir.cpp'
       - 'Include/noqeri/**'
       - '.github/workflows/stage2-rebuild-candidate.yml'
