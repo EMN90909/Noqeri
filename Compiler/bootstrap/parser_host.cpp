@@ -344,7 +344,22 @@ bool Parser::check(TokenKind kind)const{return peek().kind==kind;}
 const Token& Parser::advance(){if(!check(TokenKind::Eof))++current_;return previous();}
 const Token& Parser::previous()const{return tokens_[current_-1];}
 const Token& Parser::peek()const{return tokens_[current_];}
-const Token& Parser::consume(TokenKind kind,const std::string& message){if(check(kind))return advance();diagnostics_.error("NOE-P2000",peek().span,message);throw ParseError("parse");}
+const Token& Parser::consume(TokenKind kind,const std::string& message){
+    if(check(kind))return advance();
+    std::string help;
+    switch(kind){
+        case TokenKind::RParen: help="add ')' to close the opening '('";break;
+        case TokenKind::RBrace: help="add '}' to close the opening '{'";break;
+        case TokenKind::RBracket: help="add ']' to close the opening '['";break;
+        case TokenKind::LBrace: help="add '{' to start a block";break;
+        case TokenKind::LParen: help="add '(' before the parameters";break;
+        case TokenKind::Colon: help="add ':' between the name and its type";break;
+        case TokenKind::Equal: help="add '=' before the value";break;
+        default: break;
+    }
+    diagnostics_.error("NOE-P2000",peek().span,message,help);
+    throw ParseError("parse");
+}
 const Token& Parser::consumeName(const std::string& message){if(isNameKind(peek().kind))return advance();diagnostics_.error("NOE-P2000",peek().span,message);throw ParseError("parse");}
 void Parser::synchronize(){if(!check(TokenKind::Eof))advance();while(!check(TokenKind::Eof)){if(previous().kind==TokenKind::Semicolon)return;switch(peek().kind){case TokenKind::Function:case TokenKind::Record:case TokenKind::Module:case TokenKind::Import:case TokenKind::Extern:case TokenKind::Export:case TokenKind::Let:case TokenKind::Const:case TokenKind::If:case TokenKind::While:case TokenKind::Repeat:case TokenKind::Return:case TokenKind::Throw:case TokenKind::Unsafe:return;default:break;}advance();}}
 } // namespace noe
