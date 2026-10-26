@@ -95,11 +95,17 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
         if (!n.actionId.empty()) {
             std::size_t databaseCalls=0;
             for(const auto& mutation:n.mutations)if(mutation.op=="db")++databaseCalls;
-            if(databaseCalls>0&&n.mutations.size()!=1)
+            std::size_t mutatingCalls=0;
+            for(const auto& mutation:n.mutations)if(mutation.op!="validate")++mutatingCalls;
+            if(databaseCalls>0&&mutatingCalls!=1)
                 throw std::runtime_error("database actions require one independently committed statement");
             if (!actions.emplace(n.actionId,&n).second)
                 throw std::runtime_error("duplicate native action ID");
             for(const auto& mutation:n.mutations) {
+                if(mutation.op=="validate") {
+                    if(n.eventName!="submit")throw std::runtime_error("field validation requires on.submit");
+                    continue;
+                }
                 if(mutation.op=="db") {
                     if(!p.databaseConfigured)throw std::runtime_error("db.execute requires database declaration");
                     if(mutation.query.empty())throw std::runtime_error("empty native DB action");
@@ -140,10 +146,15 @@ struct AppRenderContext {
 };
 std::string renderApp(const std::vector<Node>& nodes,const Project& p,
                       const AppRenderContext& ctx,
-                      const std::map<std::string,std::string>& locals={},int depth=0,bool inForm=false) {
+                      const std::map<std::string,std::string>& locals={},int depth=0,bool inForm=false,
+                      const std::vector<Node>* slotNodes=nullptr) {
     if (depth>32) throw std::runtime_error("component recursion limit");
     std::string result;
     for(const auto& n:nodes) {
+        if(n.kind=="slot") {
+            if(!slotNodes)throw std::runtime_error("slot outside layout");
+            result+=renderApp(*slotNodes,p,ctx,locals,depth+1,inForm,nullptr);continue;
+        }
         if (n.kind=="text") {
             result+=escaped(evaluate(n.text,locals,p.globals)); continue;
         }
@@ -160,7 +171,7 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
             std::map<std::string,std::string> args;
             for(std::size_t i=0;i<n.args.size();++i)
                 args[it->second.params[i]]=evaluate(n.args[i],locals,p.globals);
-            result+=renderApp(it->second.children,p,ctx,args,depth+1,inForm);
+            result+=renderApp(it->second.children,p,ctx,args,depth+1,inForm,slotNodes);
             continue;
         }
         if (!allowedTag(n.tag)) throw std::runtime_error("unsafe native element");
@@ -198,7 +209,7 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
         if(n.tag=="input"||n.tag=="img"||n.tag=="br"||n.tag=="hr") {
             if(!n.children.empty())throw std::runtime_error("void element has children");
         }else{
-            result+=renderApp(n.children,p,ctx,locals,depth+1,inForm||n.tag=="form");
+            result+=renderApp(n.children,p,ctx,locals,depth+1,inForm||n.tag=="form",slotNodes);
             result+="</"+n.tag+">";
         }
         if(n.eventName=="click")result+="</form>";
@@ -395,6 +406,58 @@ std::map<std::string,std::string> currentValues(const AppStore& app,const AppSes
     for(const auto& [k,v]:app.persisted)result[k]=v;
     return result;
 }
+
+struct RouteSelection {
+    const std::vector<Node>* nodes=nullptr;
+    std::map<std::string,std::string> params;
+};
+std::vector<std::string> splitRoute(const std::string& path) {
+    std::vector<std::string> result;
+    if(path=="/")return result;
+    std::stringstream ss(path.substr(1));std::string item;
+    while(std::getline(ss,item,'/'))result.push_back(item);
+    return result;
+}
+bool routePatternsOverlap(const std::string& one,const std::string& two) {
+    const auto a=splitRoute(one),b=splitRoute(two);
+    if(a.size()!=b.size())return false;
+    for(std::size_t i=0;i<a.size();++i) {
+        if(a[i]==b[i]||a[i][0]==':'||b[i][0]==':')continue;
+        return false;
+    }
+    return true;
+}
+RouteSelection matchAppRoute(const Project& project,const std::string& path) {
+    const auto direct=project.routes.find(path);
+    if(direct!=project.routes.end())return {&direct->second,{}};
+    const auto parts=splitRoute(path);
+    for(const auto& [pattern,nodes]:project.routes) {
+        if(!dynamicRoute(pattern))continue;
+        const auto segments=splitRoute(pattern);
+        if(parts.size()!=segments.size())continue;
+        std::map<std::string,std::string> params;
+        bool matches=true;
+        for(std::size_t i=0;i<segments.size();++i) {
+            if(segments[i][0]==':') {
+                if(parts[i].empty()||parts[i].size()>64||
+                   !std::all_of(parts[i].begin(),parts[i].end(),[](unsigned char ch){
+                       return std::isalnum(ch)||ch=='_'||ch=='-';
+                   })) {matches=false;break;}
+                params.emplace(segments[i].substr(1),parts[i]);
+            }else if(segments[i]!=parts[i]) {matches=false;break;}
+        }
+        if(matches)return {&nodes,std::move(params)};
+    }
+    return {};
+}
+std::size_t layoutSlotCount(const std::vector<Node>& nodes) {
+    std::size_t count=0;
+    for(const auto& n:nodes) {
+        if(n.kind=="slot")++count;
+        count+=layoutSlotCount(n.children);
+    }
+    return count;
+}
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
     AppStore app;
@@ -420,6 +483,26 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             auto pos=statement.find_first_not_of(" \t\r\n");
             if(pos==std::string::npos||lower(statement.substr(pos,6))!="select")
                 throw std::runtime_error("SQL view query must use SELECT");
+        }
+    }
+    if(app.project.hasLayout) {
+        if(layoutSlotCount(app.project.layout)!=1)
+            throw std::runtime_error("native layout must contain exactly one slot {}");
+        std::map<std::string,const Node*> found;
+        validateActions(app.project.layout,app.project,found);
+        if(!found.empty())throw std::runtime_error("actions in layout are unsupported");
+    }
+    for(const auto& [route,nodes]:app.project.routes) {
+        if(!dynamicRoute(route))continue;
+        for(const auto& [other,_]:app.project.routes) {
+            if(other==route||!dynamicRoute(other))continue;
+            if(routePatternsOverlap(route,other))
+                throw std::runtime_error("ambiguous dynamic route patterns: "+route+" and "+other);
+        }
+        for(const auto& seg:splitRoute(route))if(!seg.empty()&&seg[0]==':') {
+            const auto name=seg.substr(1);
+            if(app.project.globals.count(name)||app.project.queries.count(name))
+                throw std::runtime_error("route parameter conflicts with application state: "+name);
         }
     }
     app.styles=css(app.project.theme);
@@ -462,10 +545,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             if(path=="/theme.css"&&req.method!="POST") {
                 appReply(client,200,app.styles,"","",head,"text/css; charset=utf-8");
             } else {
-                const auto page=app.project.routes.find(path);
-                if(page==app.project.routes.end()) {
+                const auto page=matchAppRoute(app.project,path);
+                if(!page.nodes) {
                     const auto content=app.project.hasFallback?
-                        htmlPage(render(app.project.fallback,app.project),"theme.css"):"Page not found";
+                        htmlPage(app.project.hasLayout?
+                            render(app.project.layout,app.project,{},0,&app.project.fallback):
+                            render(app.project.fallback,app.project),"/theme.css"):"Page not found";
                     appReply(client,404,content,"","",head);
                 } else if(req.method=="POST") {
                     auto session=app.sessions.find(getSid(req.cookie));
@@ -479,12 +564,13 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         const auto action=fields.find("_nq_action");
                         const auto csrf=fields.find("_nq_csrf");
                         std::map<std::string,const Node*> actions;
-                        validateActions(page->second,app.project,actions);
+                        validateActions(*page.nodes,app.project,actions);
                         const auto specified=action==fields.end()?actions.end():actions.find(action->second);
                         if(specified==actions.end()||csrf==fields.end()||csrf->second!=session->second.csrf)
                             appReply(client,403,"Invalid native action");
                         else {
                             auto updated=currentValues(app,session->second);
+                            for(const auto& [name,value]:page.params)updated[name]=value;
                             bool hasDb=false,hasPersist=false;
                             for(const auto& mutation:specified->second->mutations) {
                                 if(mutation.op=="db")hasDb=true;
@@ -492,6 +578,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             }
                             if(hasDb&&hasPersist)throw std::runtime_error("cannot atomically mix DB writes and .nqkv persist");
                             for(const auto& mutation:specified->second->mutations) {
+                                if(mutation.op=="validate")continue;
                                 if(mutation.op=="db") {
                                     std::vector<DbParameter> params;
                                     for(const auto& param:mutation.dbParams) {
@@ -543,10 +630,13 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     session->second.seen=std::chrono::steady_clock::now();
                     Project rendered=app.project;
                     rendered.globals=currentValues(app,session->second);
+                    for(const auto& [name,value]:page.params)rendered.globals[name]=value;
                     for(const auto& [name,statement]:app.project.queries)
                         rendered.globals[name]=executeDatabase(app.project.database,statement,{});
                     const AppRenderContext context{path,session->second.csrf};
-                    const auto body=renderApp(page->second,rendered,context);
+                    const auto body=rendered.hasLayout?
+                        renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
+                        renderApp(*page.nodes,rendered,context);
                     if(body.size()>1024*1024)throw std::runtime_error("generated HTML too large");
                     appReply(client,200,htmlPage(body,"/theme.css"),newCookie,"",head);
                 }
