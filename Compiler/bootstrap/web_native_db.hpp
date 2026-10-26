@@ -22,21 +22,6 @@ std::string dbJsonQuote(const std::string& value) {
     }
     return out+"\"";
 }
-std::string dbRowsJson(const std::vector<std::string>& fields,
-                       const std::vector<std::vector<std::string>>& rows) {
-    std::string out="[";
-    for(const auto& row:rows) {
-        if(out.size()>65536)throw std::runtime_error("database output exceeds limit");
-        if(out!="[")out+=",";
-        out+="{";
-        for(std::size_t col=0;col<row.size();++col) {
-            if(col)out+=",";
-            out+=dbJsonQuote(fields.at(col))+":"+dbJsonQuote(row[col]);
-        }
-        out+="}";
-    }
-    return out+"]";
-}
 // Convert known native numeric and boolean types to valid JSON primitives;
 // unrecognized database types remain escaped JSON strings.
 std::string dbTypedPrimitive(const std::string& value,unsigned type,bool postgres) {
