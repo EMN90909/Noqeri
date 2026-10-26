@@ -653,7 +653,8 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
                 value.arrayLength != 0 as usize) ||
                node.extra >= 0 as isize { return nqSemanticFail(context,node,nqSemanticTypeMismatch()) }
             node.typeCode = nqAstTypeOwnedIntList()
-            node.elementTypeCode = value.arrayLength == 0 as usize ? nqAstTypeInt() : value.elementTypeCode
+            node.elementTypeCode = value.elementTypeCode
+            if value.arrayLength == 0 as usize { node.elementTypeCode = nqAstTypeInt() }
         }
         let declared: NqTypeRef
         if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
