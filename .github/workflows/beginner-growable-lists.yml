@@ -42,7 +42,9 @@ jobs:
           ./build-beginner-list/noqeri nqri tests/beginner_growable_lists.noqeri build-beginner-list/lists.nqri
           output=$(./build-beginner-list/noqeri-nqri build-beginner-list/lists.nqri __entry)
           echo "NQRI: $output"
-          test "$output" = "$(printf '3\n0')"
+          # The standalone NQRI CLI also prints the invoked entry's
+          # integer return value (0), unlike the Stage-0 run command.
+          test "$output" = "$(printf '3\n0\n0')"
       - name: Native Linux AOT auto links owned storage with no special flags
         run: |
           set -euo pipefail
