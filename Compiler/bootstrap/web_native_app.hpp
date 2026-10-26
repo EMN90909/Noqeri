@@ -351,8 +351,15 @@ AppRequest receiveAppRequest(int fd) {
         (req.type!="application/x-www-form-urlencoded"&&
          req.type!="application/x-www-form-urlencoded; charset=utf-8")))
         throw std::runtime_error("unsupported POST encoding");
-    if(req.method=="POST" && (!req.hasOrigin || req.origin.empty()))
-        throw std::runtime_error("POST requires Origin for CSRF protection");
+    if(req.method=="POST" && req.hasOrigin && req.origin.empty())
+        throw std::runtime_error("empty Origin is not valid");
+    // Older same-origin clients may omit Origin. Enable strict mode when the
+    // application can guarantee standards-compliant browser-only POSTs.
+    if(req.method=="POST" && !req.hasOrigin) {
+        const char* strict=std::getenv("NOQERI_WEB_REQUIRE_ORIGIN");
+        if(strict && std::string(strict)=="1")
+            throw std::runtime_error("POST requires Origin in strict mode");
+    }
     if(req.method!="POST"&&length!=0)throw std::runtime_error("unexpected request body");
     req.body=received.substr(at+4);
     if(req.body.size()>length)throw std::runtime_error("excess request body");
