@@ -96,6 +96,17 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
             if (!actions.emplace(n.actionId,&n).second)
                 throw std::runtime_error("duplicate native action ID");
             for(const auto& mutation:n.mutations) {
+                if(mutation.op=="db") {
+                    if(!p.databaseConfigured)throw std::runtime_error("db.execute requires database declaration");
+                    if(mutation.query.empty())throw std::runtime_error("empty native DB action");
+                    for(const auto& param:mutation.dbParams) {
+                        if(!validName(param.name))throw std::runtime_error("invalid database bind name");
+                        if(param.value.atoms.size()==1&&param.value.atoms[0].variable&&
+                           param.value.atoms[0].value.rfind("form.",0)==0&&n.eventName!="submit")
+                            throw std::runtime_error("form values require on.submit");
+                    }
+                    continue;
+                }
                 if (!p.mutableState.count(mutation.target) &&
                     !p.persistentState.count(mutation.target))
                     throw std::runtime_error("action can only mutate let/persist variables: "+mutation.target);
@@ -372,6 +383,21 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     if(!app.project.uiAlias.empty())
         Parser(readText(uiSource(executable)),app.project,true).parse();
     if(app.project.routes.empty())throw std::runtime_error("serve-app requires routes");
+    if(app.project.databaseConfigured)verifyDbConfig(app.project.database);
+    if(!app.project.queries.empty()&&!app.project.databaseConfigured)
+        throw std::runtime_error("queries require database declaration");
+    for(const auto& [name,statement]:app.project.queries) {
+        if(app.project.globals.count(name))throw std::runtime_error("query name conflicts with state: "+name);
+        if(statement.empty())throw std::runtime_error("empty query");
+        // These values are injected into escaped HTML and may never be used for writes.
+        if(app.project.database.engine=="noesql") {
+            if(statement.find(" get ")==std::string::npos)throw std::runtime_error("NoeSQL view query must use get");
+        }else {
+            auto pos=statement.find_first_not_of(" \t\r\n");
+            if(pos==std::string::npos||lower(statement.substr(pos,6))!="select")
+                throw std::runtime_error("SQL view query must use SELECT");
+        }
+    }
     app.styles=css(app.project.theme);
     for(const auto& [name,_]:app.project.components) {
         std::map<std::string,const Node*> found;
@@ -431,10 +457,33 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             appReply(client,403,"Invalid native action");
                         else {
                             auto updated=currentValues(app,session->second);
+                            bool hasDb=false,hasPersist=false;
                             for(const auto& mutation:specified->second->mutations) {
-                                auto value=applyMutation(mutation,updated,fields);
-                                if(value.size()>512)throw std::runtime_error("action result too long");
-                                updated[mutation.target]=std::move(value);
+                                if(mutation.op=="db")hasDb=true;
+                                if(app.project.persistentState.count(mutation.target))hasPersist=true;
+                            }
+                            if(hasDb&&hasPersist)throw std::runtime_error("cannot atomically mix DB writes and .nqkv persist");
+                            for(const auto& mutation:specified->second->mutations) {
+                                if(mutation.op=="db") {
+                                    std::vector<DbParameter> params;
+                                    for(const auto& param:mutation.dbParams) {
+                                        std::string value;
+                                        if(param.value.atoms.size()==1&&param.value.atoms[0].variable&&
+                                           param.value.atoms[0].value.rfind("form.",0)==0) {
+                                            const auto field=param.value.atoms[0].value.substr(5);
+                                            const auto data=fields.find(field);
+                                            if(data==fields.end())throw std::runtime_error("missing bound form field");
+                                            value=data->second;
+                                        }else value=evaluate(param.value,{},updated);
+                                        if(value.size()>512)throw std::runtime_error("database binding too long");
+                                        params.push_back({param.name,std::move(value)});
+                                    }
+                                    (void)executeDatabase(app.project.database,mutation.query,params);
+                                }else {
+                                    auto value=applyMutation(mutation,updated,fields);
+                                    if(value.size()>512)throw std::runtime_error("action result too long");
+                                    updated[mutation.target]=std::move(value);
+                                }
                             }
                             auto nextPersist=app.persisted;
                             for(const auto& name:app.project.persistentState)
@@ -466,6 +515,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     session->second.seen=std::chrono::steady_clock::now();
                     Project rendered=app.project;
                     rendered.globals=currentValues(app,session->second);
+                    for(const auto& [name,statement]:app.project.queries)
+                        rendered.globals[name]=executeDatabase(app.project.database,statement,{});
                     const AppRenderContext context{path,session->second.csrf};
                     const auto body=renderApp(page->second,rendered,context);
                     if(body.size()>1024*1024)throw std::runtime_error("generated HTML too large");
