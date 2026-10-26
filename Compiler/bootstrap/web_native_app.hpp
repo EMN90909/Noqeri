@@ -377,7 +377,8 @@ std::string getSid(const std::string& cookie) {
 void appReply(int fd,int status,const std::string& data,const std::string& cookie="",
               const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
-        status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":"Internal Server Error";
+        status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
+        status==422?"Unprocessable Content":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
@@ -569,6 +570,25 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         if(specified==actions.end()||csrf==fields.end()||csrf->second!=session->second.csrf)
                             appReply(client,403,"Invalid native action");
                         else {
+                            std::string validationError;
+                            for(const auto& mutation:specified->second->mutations) {
+                                if(mutation.op!="validate")continue;
+                                const auto supplied=fields.find(mutation.field);
+                                const auto length=supplied==fields.end()?0:supplied->second.size();
+                                if(length<mutation.minLength||length>mutation.maxLength) {
+                                    validationError="Invalid length for "+mutation.field+
+                                        " (expected "+std::to_string(mutation.minLength)+
+                                        ".."+std::to_string(mutation.maxLength)+" bytes)";
+                                    break;
+                                }
+                            }
+                            if(!validationError.empty()) {
+                                const auto content=htmlPage(
+                                    "<main class=\"nq-page\"><h1>Input validation failed</h1><p role=\"alert\">"+
+                                    escaped(validationError)+"</p><a href=\""+escaped(path)+"\">Return</a></main>",
+                                    "/theme.css");
+                                appReply(client,422,content);
+                            } else {
                             auto updated=currentValues(app,session->second);
                             for(const auto& [name,value]:page.params)updated[name]=value;
                             bool hasDb=false,hasPersist=false;
@@ -610,6 +630,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             session->second.csrf=randomToken(); // invalidate replayed form posts
                             session->second.seen=std::chrono::steady_clock::now();
                             appReply(client,303,"","",path);
+                            }
                         }
                     }
                 } else {
