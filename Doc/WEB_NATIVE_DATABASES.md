@@ -2,6 +2,8 @@
 
 **NoeSQL is the canonical native Noqeri database**. Noqeri compiles/serves the web pages, but database statements are delegated to the actual NoeSQL engine from [EMN90909/NoeSQL](https://github.com/EMN90909/NoeSQL). SQLite, PostgreSQL, DuckDB and MySQL are explicit, optional native backend adapters. No browser JavaScript or Node.js is needed.
 
+The compiler CLI `noqeri sql <NoeSQL-subcommand> [...]` now forwards to the real native NoeSQL executable selected by `NOESQL_BIN`. `noqeri db` remains **legacy NoqeriDB**, and does not read `.noedb` files.
+
 ## NoeSQL: default and authoritative syntax
 
 Use the NoeSQL Rust/Zig runtime built from its own repository with the Zig pager enabled. Its canonical store is `.noedb` and its schema scripts use `.noe`. **Do not rename** legacy NoqeriDB `.nqdb`/`.nqd` or SQLite files.
