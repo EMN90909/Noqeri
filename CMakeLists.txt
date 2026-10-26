@@ -192,6 +192,9 @@ if(NOQERI_ENABLE_SDL2)
  endif()
 endif()
 
+install(TARGETS noqeri-ai RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
 # Supply the project's GPL license within both archives and native installers.
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
 
@@ -331,8 +334,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
-install(TARGETS noqeri-ai RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(TARGETS noqeri noqeri-nqri noqeri-web noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Header installed through existing public include/noqeri rule.
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
