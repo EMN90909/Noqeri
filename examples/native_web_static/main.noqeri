@@ -1,0 +1,47 @@
+// Fully Noqeri-authored pages. No Node.js or JavaScript at build or runtime.
+import noqeri/ui as ui
+
+theme {
+    primary: "#304ac0"
+    accent: "#0f8466"
+    background: "#f5f6fb"
+    surface: "#ffffff"
+    text: "#202439"
+    radius: 14
+}
+
+const tagline = "One language. A native renderer. No JavaScript."
+
+route "/" {
+    main class: "nq-page" {
+        nav class: "nq-navbar" {
+            a href: "/" { "Home" }
+            a href: "/about" { "About" }
+        }
+        ui.Heading("Build websites with Noqeri")
+        ui.Lead(tagline)
+        ui.Card("Native compilation", "Pages are rendered to real HTML and CSS by the Noqeri web executable.")
+        ui.Badge("Zero-JavaScript")
+        ui.LinkButton("Learn about the framework", "/about")
+    }
+}
+
+route "/about" {
+    main class: "nq-page" {
+        nav class: "nq-navbar" {
+            a href: "/" { "Home" }
+            a href: "/about" { "About" }
+        }
+        ui.Heading("Independent web pages")
+        ui.Notice("Noqeri compiles a static website. Links work without a script engine.")
+        ui.Card("Security by default", "Text and attributes are escaped. Unsafe events and URL schemes are rejected.")
+        ui.LinkButton("Return home", "/")
+    }
+}
+
+view {
+    main class: "nq-page" {
+        h1 { "404 — Noqeri route not found" }
+        a href: "/" { "Go home" }
+    }
+}
