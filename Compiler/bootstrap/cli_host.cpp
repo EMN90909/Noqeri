@@ -348,6 +348,9 @@ int main(int argc, char** argv) {
         const char* configured=std::getenv("NOQERI_AI_BIN");
         std::filesystem::path sibling=std::filesystem::absolute(argv[0]).parent_path()
                                        / "noqeri-ai";
+#if defined(_WIN32)
+        sibling += ".exe";
+#endif
         const std::string executable=configured&&*configured?
             std::string(configured):
             (std::filesystem::exists(sibling)?sibling.string():std::string("noqeri-ai"));
