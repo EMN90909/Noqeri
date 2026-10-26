@@ -81,6 +81,31 @@ def validate_sdk(archive, target):
         if item not in names:
             fail(f"SDK {target} missing {item}")
 
+def installers(target):
+    os_name, arch = target.split("-", 1)
+    base = f"noqeri-0.1.4-{target}"
+    if os_name == "linux":
+        return (base+".deb", base+".rpm")
+    if os_name == "windows":
+        return (base+"-setup.exe",) + ((base+".msi",) if arch!="aarch64" else ())
+    if os_name in ("freebsd", "macos"):
+        return (base+".pkg",)
+    if os_name == "openbsd":
+        return (base+".pkg.tgz",)
+    if os_name == "android":
+        return (base+"-termux.deb",)
+    return ()
+
+def allowed_names():
+    names={"noqeri-0.1.4-android-universal-debug.apk"}
+    for target in TARGETS:
+        prefix=f"noqeri-v0.1.4-{target}"
+        ext=".exe" if target.startswith("windows-") else ".bin"
+        names.update((prefix+(".zip" if target.startswith("windows-") else ".tar.gz"),
+                      prefix+ext, f"noqeri-nqri-v0.1.4-{target}"+ext))
+        names.update(installers(target))
+    return names
+
 def main():
     if len(sys.argv) != 5:
         fail("usage: verify_v014_assets.py ARTIFACTS SOURCE_SHA TAG_SHA RUN_ID")
@@ -91,11 +116,10 @@ def main():
     if not run_id.isdecimal():
         fail("invalid workflow run identifier")
     files = [x for x in directory.iterdir() if x.is_file() and not x.is_symlink()]
+    permitted=allowed_names()
     for file in files:
-        if not file.name.startswith("noqeri-") or not (file.name.startswith("noqeri-v0.1.4-")
-                          or file.name.startswith("noqeri-nqri-v0.1.4-")
-                          or file.name.startswith("noqeri-0.1.4-")):
-            fail("unexpected file in CI output: "+file.name)
+        if file.name not in permitted:
+            fail("unexpected file or unqualified target in CI output: "+file.name)
         if file.stat().st_size < 100 or file.stat().st_size > MAX_FILE_BYTES:
             fail("empty or oversized release file: "+file.name)
     known = {f.name for f in files}
@@ -105,7 +129,7 @@ def main():
         archive=directory/(prefix+(".zip" if target.startswith("windows-") else ".tar.gz"))
         compiler=directory/(prefix+(".exe" if target.startswith("windows-") else ".bin"))
         vm=directory/(f"noqeri-nqri-v0.1.4-{target}"+(".exe" if target.startswith("windows-") else ".bin"))
-        group=(archive,compiler,vm)
+        group=(archive,compiler,vm)+tuple(directory/name for name in installers(target))
         present=[x.exists() for x in group]
         if any(present) and not all(present):
             fail("incomplete OS/CPU SDK group: "+target)
