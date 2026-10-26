@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Noqeri browser runtime: tiny keyed-by-position DOM reconciler, no framework.
 // Text always uses textContent. No innerHTML, eval, or dynamic source execution.
 const safeKey = k => /^[a-z][a-z0-9-]*$/.test(k) && !/^on/i.test(k) && !['constructor','prototype','__proto__','style','srcdoc','innerhtml'].includes(k);
