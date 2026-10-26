@@ -2,6 +2,10 @@
 // This deliberately compiles a *static*, fail-closed subset of Noqeri views.
 // Dynamic events/data loaders require an independently designed native backend.
 #include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <limits>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
