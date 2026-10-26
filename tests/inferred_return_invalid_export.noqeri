@@ -1,0 +1,2 @@
+export function forbidden(x: int) = x * 2
+print(forbidden(1))

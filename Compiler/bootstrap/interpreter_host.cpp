@@ -16,6 +16,9 @@
 namespace noe {
 namespace {
 std::vector<std::unique_ptr<std::uint8_t[]>> allocations;
+// Explicit ownership for typed strings stored in aggregate record fields.
+// Do not dereference untrusted integer pointers as C strings.
+std::unordered_map<std::uintptr_t,std::string> aggregateStrings;
 std::mutex atomicMutex;
 
 bool truthyValue(const NirValue&v){if(auto p=std::get_if<bool>(&v))return*p;if(auto p=std::get_if<std::int64_t>(&v))return*p!=0;if(auto p=std::get_if<double>(&v))return*p!=0.0;if(auto p=std::get_if<std::string>(&v))return!p->empty();return false;}
@@ -171,7 +174,7 @@ std::string Interpreter::valueToString(const NirValue&v)const{if(std::holds_alte
 int Interpreter::run(const NirProgram&p){try{
     if(!p.entry.partitions.empty())throw std::runtime_error("PGAS partitions require a distributed backend; local interpreter is disabled");
     for(const auto&fn:p.functions)if(!fn.partitions.empty())throw std::runtime_error("PGAS partitions require a distributed backend; local interpreter is disabled");
-    allocations.clear();runFunction(p,p.entry,{});allocations.clear();return 0;}catch(const std::exception&e){allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
+    allocations.clear();aggregateStrings.clear();runFunction(p,p.entry,{});aggregateStrings.clear();allocations.clear();return 0;}catch(const std::exception&e){aggregateStrings.clear();allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
 NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const std::vector<NirValue>&argv){
     if(fn.isExtern)throw std::runtime_error("cannot directly interpret extern function "+fn.name);
     std::unordered_map<std::string,NirValue>vars;std::unordered_map<std::string,std::uint64_t>cells;std::unordered_set<std::string>addressTaken;std::vector<NirValue>regs(fn.nextReg);
@@ -187,7 +190,15 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
             case NirOp::LoadMemory:{
                 const auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));
                 const auto bits=rawLoad(address,i.width,i.isVolatile);
-                if(i.type.kind==TypeKind::Float){
+                if(i.type.kind==TypeKind::String){
+                    if(i.width!=sizeof(std::uintptr_t))throw std::runtime_error("unsupported string memory width");
+                    if(bits==0)regs[*i.dest]=std::string{};
+                    else {
+                        const auto owned=aggregateStrings.find(static_cast<std::uintptr_t>(bits));
+                        if(owned==aggregateStrings.end())throw std::runtime_error("string field contains an unmanaged pointer");
+                        regs[*i.dest]=owned->second;
+                    }
+                }else if(i.type.kind==TypeKind::Float){
                     if(i.width!=sizeof(double))throw std::runtime_error("unsupported float memory width");
                     double value=0.0;
                     std::memcpy(&value,&bits,sizeof(value));
@@ -201,7 +212,14 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                 const auto address=static_cast<std::uintptr_t>(asInt(get(i.args[0])));
                 const NirValue& source=get(i.args[1]);
                 std::uint64_t bits=0;
-                if(auto value=std::get_if<double>(&source)){
+                if(auto text=std::get_if<std::string>(&source)){
+                    if(i.width!=sizeof(std::uintptr_t))throw std::runtime_error("unsupported string memory width");
+                    if(text->size()>1024*1024)throw std::runtime_error("string field exceeds the 1 MiB interpreter limit");
+                    const auto owned=allocateBytes(text->size()+1);
+                    std::memcpy(reinterpret_cast<void*>(owned),text->data(),text->size());
+                    aggregateStrings.emplace(owned,*text);
+                    bits=static_cast<std::uint64_t>(owned);
+                }else if(auto value=std::get_if<double>(&source)){
                     if(i.width!=sizeof(double))throw std::runtime_error("unsupported float memory width");
                     std::memcpy(&bits,value,sizeof(bits));
                 }else bits=static_cast<std::uint64_t>(asInt(source));

@@ -1,0 +1,171 @@
+module noqeri.std.native_outcome
+import "result.noqeri"
+import "file.noqeri"
+import "fs.noqeri"
+import "http/client.noqeri"
+import "json.noqeri"
+import "noesql.noqeri"
+import "../ai/native.noqeri"
+
+// Uniform typed success/error surface over the *existing* native host ABIs.
+// Every function initializes the destination on every path. Borrowed native
+// handles must still be closed with the corresponding explicit close routine.
+// A successful HTTP transport response can still be 4xx/5xx.
+export function native_file_open_read(path: string, out: *Outcome<isize>): void {
+    if out == null { return }
+    let handle: isize = file_open_read(path)
+    if handle < 0 as isize { outcome_init_error(out,-1 as isize,handle,"file","opening file failed") }
+    else { outcome_init_ok(out,handle) }
+}
+export function native_file_read(handle: usize, bytes: []u8, out: *Outcome<isize>): void {
+    if out == null { return }
+    let count: isize = file_read_into(handle, bytes)
+    if count < 0 as isize { outcome_init_error(out,-1 as isize,count,"file","reading file failed") }
+    else { outcome_init_ok(out,count) }
+}
+export function native_file_close(handle: usize, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = file_close(handle)
+    if status < 0 as isize { outcome_init_error(out,false,status,"file","closing file failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function native_fs_mkdir(path: string, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = fs_create_directories(path)
+    if status < 0 as isize { outcome_init_error(out,false,status,"fs","creating directory failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function native_http_get(url: string, out: *Outcome<isize>): void {
+    if out == null { return }
+    let handle: isize = http_client_get(url)
+    if handle < 0 as isize { outcome_init_error(out,-1 as isize,handle,"http","HTTP request failed") }
+    else { outcome_init_ok(out,handle) }
+}
+export function native_http_response_status(handle: usize, out: *Outcome<int>): void {
+    if out == null { return }
+    let code: int = http_client_status(handle)
+    // A 404 is a valid response; call http_client_response_ok to require 2xx.
+    if code < 100 || code > 599 { outcome_init_error(out,0,-1 as isize,"http","HTTP status is invalid") }
+    else { outcome_init_ok(out,code) }
+}
+export function native_json_count(bytes: []u8, out: *Outcome<isize>): void {
+    if out == null { return }
+    let count: isize = json_token_count(bytes)
+    if count < 0 as isize { outcome_init_error(out,-1 as isize,count,"json","malformed JSON token stream") }
+    else { outcome_init_ok(out,count) }
+}
+export function native_database_ready(db: *Database, out: *Outcome<bool>): void {
+    if out == null { return }
+    if !database_is_open(db) {
+        outcome_init_error(out,false,-1 as isize,"noesql","database is not open")
+        return
+    }
+    outcome_init_ok(out,true)
+}
+export function native_database_begin(db: *Database, out: *Outcome<bool>): void {
+    if out == null { return }
+    if !database_is_open(db) {
+        outcome_init_error(out,false,-1 as isize,"noesql","database is not open")
+        return
+    }
+    if !database_begin(db) {
+        outcome_init_error(out,false,-2 as isize,"noesql","could not begin native transaction")
+        return
+    }
+    outcome_init_ok(out,true)
+}
+export function native_ai_gemm(request: *AiGemmRequest, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = ai_native_gemm(request)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"ai","native matrix multiplication failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function native_ai_softmax(request: *AiSoftmaxRequest, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = ai_native_softmax(request)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"ai","native softmax failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function native_ai_sgd(request: *AiSgdRequest, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = ai_native_sgd(request)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"ai","native SGD update failed") }
+    else { outcome_init_ok(out,status) }
+}
+// Typed propagation: copy an existing error to a different Outcome's value
+// type without silently losing the original status, domain or message.
+export function native_propagate_error<T,U>(source: *Outcome<T>, destination: *Outcome<U>, fallback: U): bool {
+    if source == null || destination == null { return false }
+    if outcome_is_ok(source) { return false }
+    outcome_init_error(destination,fallback,outcome_error_code(source),outcome_error_domain(source),outcome_error_message(source))
+    return true
+}
+
+// Additional providers share Outcome<T>, including success values that are
+// zero, while retaining an explicit close/release obligation where required.
+export function native_file_write(handle: usize, bytes: []u8, out: *Outcome<isize>): void {
+    if out == null { return }
+    let count: isize = file_write_from(handle,bytes)
+    if count < 0 as isize { outcome_init_error(out,-1 as isize,count,"file","writing file failed") }
+    else { outcome_init_ok(out,count) }
+}
+export function native_fs_remove(path: string, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = fs_remove(path)
+    if status < 0 as isize { outcome_init_error(out,false,status,"fs","removing file failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function native_fs_rename(from: string,to: string,out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = fs_rename(from,to)
+    if status < 0 as isize { outcome_init_error(out,false,status,"fs","renaming file failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function native_http_request(method: string,url: string,body: string,contentType: string,timeoutMillis: i64,out: *Outcome<isize>): void {
+    if out == null { return }
+    let handle: isize = http_client_request(method,url,body,contentType,timeoutMillis)
+    if handle < 0 as isize { outcome_init_error(out,-1 as isize,handle,"http","HTTP request failed") }
+    else { outcome_init_ok(out,handle) }
+}
+export function native_database_commit(db: *Database,out: *Outcome<bool>): void {
+    if out == null { return }
+    if !database_is_open(db) {
+        outcome_init_error(out,false,-1 as isize,"noesql","database is not open")
+        return
+    }
+    if !database_commit(db) {
+        outcome_init_error(out,false,-2 as isize,"noesql","could not commit native transaction")
+        return
+    }
+    outcome_init_ok(out,true)
+}
+export function native_database_rollback(db: *Database,out: *Outcome<bool>): void {
+    if out == null { return }
+    if !database_is_open(db) {
+        outcome_init_error(out,false,-1 as isize,"noesql","database is not open")
+        return
+    }
+    if !database_rollback(db) {
+        outcome_init_error(out,false,-2 as isize,"noesql","could not roll back native transaction")
+        return
+    }
+    outcome_init_ok(out,true)
+}
+export function native_ai_tape(request: *AiTapeRequest,out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = ai_native_tape(request)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"ai","native autodiff tape failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function native_ai_bpe_encode(request: *AiBpeRequest,out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = ai_native_bpe_encode(request)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"ai","native tokenizer failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function native_ai_transformer_train_generate(request: *AiTransformerRequest,out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = ai_native_transformer_train_generate(request)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"ai","native transformer training failed") }
+    else { outcome_init_ok(out,status) }
+}

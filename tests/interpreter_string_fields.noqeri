@@ -1,0 +1,17 @@
+import "../Lib/std/result.noqeri"
+record Message { text: string }
+function verify(): int {
+    let message: Message
+    message.text = "hello"
+    if message.text != "hello" { return 1 }
+    message.text = "again"
+    if message.text != "again" { return 2 }
+    let result: Outcome<int>
+    outcome_init_error(&result,0,-42 as isize,"json","invalid payload")
+    if !outcome_is_error(&result) { return 3 }
+    if outcome_error_code(&result) != -42 as isize { return 4 }
+    if outcome_error_domain(&result) != "json" { return 5 }
+    if outcome_error_message(&result) != "invalid payload" { return 6 }
+    return 0
+}
+print(verify())
