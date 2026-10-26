@@ -543,19 +543,25 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     if node.tag == nqAstExpressionStatement() { let value: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state) if value < 0 as isize { return value } return nqLowerOk() }
     if node.tag == nqAstBinding() {
         if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
+            print(7100)
             if state.ownedCount >= 64 as usize { return nqLowerCapacity() }
             let handle: isize = nqLowerListCall(instructions,state,1,nqNirNoValue(),nqNirNoValue())
             if handle < 0 as isize { return handle }
+            print(7101)
             let ownedSymbol: u64 = nqLowerNodeSymbol(source,nodes,node.left)
             let storeList: isize = nqLowerEmit(instructions,state,nqNirStore(),nqNirNoValue())
             if storeList < 0 as isize { return storeList }
             instructions[storeList as usize].left = handle
             instructions[storeList as usize].symbol = ownedSymbol
+            print(7102)
             state.ownedSymbols[state.ownedCount] = ownedSymbol
             state.ownedCount = state.ownedCount + 1 as usize
+            print(7103)
             let array: *NqAstNode = &nodes[node.right as usize]
+            print(7104)
             let element: isize = array.right
             while element >= 0 as isize {
+                print(7105)
                 let item: isize = nqLowerExpressionInternal(source,nodes,element,instructions,state)
                 if item < 0 as isize { return item }
                 let appended: isize = nqLowerListCall(instructions,state,2,handle,item)
