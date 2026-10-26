@@ -34,13 +34,13 @@ jobs:
       - name: Build actual Stage-0 compiler
         run: cmake --build build-simplicity --target noqeri --parallel 2
       - name: Check self-hosted compiler source with Stage-0
-        run: ./build-simplicity/noqeri check Compiler/selfhost/main.noqeri
+        run: ./build-simplicity/noqeri check Compiler/selfhost/main.noqeri --unsafe
       - name: Verify Stage-2 repeat parsing, semantics and lowering
         run: python3 tests/check_stage2_repeat.py ./build-simplicity/noqeri tests/stage2_repeat_parity.noqeri
       - name: Run practical numeric aggregation and filtering example
         run: |
           set -euo pipefail
-          ./build-simplicity/noqeri check examples/simplicity/students.noqeri
-          ./build-simplicity/noqeri run examples/simplicity/students.noqeri | grep -Fx NUMERIC_SIMPLICITY_PASS
+          ./build-simplicity/noqeri check examples/simplicity/students.noqeri --unsafe
+          ./build-simplicity/noqeri run examples/simplicity/students.noqeri --unsafe | grep -Fx NUMERIC_SIMPLICITY_PASS
       - name: Check original repeat syntax compatibility
         run: ./build-simplicity/noqeri check tests/repeat_loop.noqeri

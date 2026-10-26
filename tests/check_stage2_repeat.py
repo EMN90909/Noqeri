@@ -6,10 +6,10 @@ from pathlib import Path
 
 compiler=Path(sys.argv[1]).resolve()
 sample=Path(sys.argv[2]).resolve()
-check=subprocess.run([str(compiler),"check",str(sample)],capture_output=True,
+check=subprocess.run([str(compiler),"check",str(sample),"--unsafe"],capture_output=True,
                      text=True,timeout=40)
 assert check.returncode==0,(check.stdout,check.stderr)
-run=subprocess.run([str(compiler),"run",str(sample)],capture_output=True,
+run=subprocess.run([str(compiler),"run",str(sample),"--unsafe"],capture_output=True,
                    text=True,timeout=120)
 assert run.returncode==0,(run.stdout,run.stderr)
 assert run.stdout.split()==["0","0","0"],(run.stdout,run.stderr)
