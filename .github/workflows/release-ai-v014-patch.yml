@@ -37,8 +37,12 @@ jobs:
           set -euo pipefail
           ctest --test-dir build-ai -C Release -R '^noqeri-ai-runtime$' --output-on-failure
           ext=''
-          if [[ "$TARGET" == windows-* ]]; then ext='.exe'; fi
-          python3 tests/native_ai.py "./build-ai/noqeri$ext" "./build-ai/noqeri-ai$ext" examples/ai/online_learning.noqeri
+          binarydir='./build-ai'
+          if [[ "$TARGET" == windows-* ]]; then
+            ext='.exe'
+            binarydir='./build-ai/Release'
+          fi
+          python3 tests/native_ai.py "$binarydir/noqeri$ext" "$binarydir/noqeri-ai$ext" examples/ai/online_learning.noqeri
       - name: Package additive CPU AI SDK without changing v0.1.4 tag
         shell: bash
         env:
