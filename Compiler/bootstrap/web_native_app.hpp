@@ -379,15 +379,22 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
               const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
         status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
-        status==422?"Unprocessable Content":"Internal Server Error";
+        status==422?"Unprocessable Content":status==503?"Service Unavailable":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
         "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\r\n";
-    if(!cookie.empty())header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict\r\n";
+    if(!cookie.empty()) {
+        const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
+        header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
+        if(secure&&std::string(secure)=="1")header+="; Secure";
+        header+="\r\n";
+    }
     if(!redirect.empty())header+="Location: "+redirect+"\r\n";
     sendAll(fd,header+"\r\n");
     if(!head)sendAll(fd,data);
+    // No user-controlled path or request body enters structured access logs.
+    std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"http_response\",\"status\":"<<status<<"}\n";
 }
 void sessionPrune(AppStore& app) {
     const auto now=std::chrono::steady_clock::now();
@@ -533,11 +540,24 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     ::signal(SIGPIPE,SIG_IGN);
     std::cout<<"noqeri-web: server-rendered app at http://127.0.0.1:"<<port
              <<" (no Node or JavaScript; local development only)\n"<<std::flush;
+    std::mutex stateGuard;
+    std::atomic<unsigned> activeClients{0};
+    constexpr unsigned maxConcurrentClients=32;
     for (;;) {
         const int client=::accept(server,nullptr,nullptr);
         if(client<0)continue;
+        if(activeClients.fetch_add(1)>=maxConcurrentClients) {
+            appReply(client,503,"Server at capacity");
+            ::close(client);
+            activeClients.fetch_sub(1);
+            continue;
+        }
+        std::thread([&,client] {
         try {
             const AppRequest req=receiveAppRequest(client);
+            // Session/persisted map and synchronous database connections use one
+            // state lock. I/O framing is concurrent; actions remain serialized.
+            std::lock_guard<std::mutex> locked(stateGuard);
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
             if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB)
@@ -669,6 +689,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             appReply(client,400,"Bad Request");
         }
         ::close(client);
+        activeClients.fetch_sub(1);
+        }).detach();
     }
 }
 #endif
