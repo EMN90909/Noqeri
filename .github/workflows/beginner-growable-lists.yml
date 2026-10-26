@@ -5,6 +5,7 @@ on:
     paths:
       - 'Compiler/selfhost/**'
       - 'Compiler/type_checker.cpp'
+      - 'Compiler/lifetime.cpp'
       - 'Compiler/nir.cpp'
       - 'Compiler/core.cpp'
       - 'Compiler/bootstrap/interpreter_host.cpp'
