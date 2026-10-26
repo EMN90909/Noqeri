@@ -3,11 +3,6 @@
 // Deliberately localhost-only; not a production HTTP stack.
 #pragma once
 #if !defined(_WIN32)
-#include <array>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <random>
 
 struct AppSession {
     std::map<std::string,std::string> values;
