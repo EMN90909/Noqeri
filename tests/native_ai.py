@@ -33,6 +33,12 @@ check_numeric=subprocess.run([str(compiler),"check",str(numeric_example)],
 assert check_numeric.returncode==0,(check_numeric.stdout,check_numeric.stderr)
 
 
+float_fixture=example.parent.parent.parent/"tests"/"float_array_runtime.noqeri"
+float_run=subprocess.run([str(compiler),"run",str(float_fixture)],
+                         text=True,capture_output=True,timeout=20)
+assert float_run.returncode==0 and "FLOAT_ARRAY_PASS" in float_run.stdout,(
+    float_run.stdout,float_run.stderr)
+
 framework_example=example.parent/"framework_basics.noqeri"
 framework_checked=subprocess.run([str(compiler),"check",str(framework_example)],
                                  text=True,capture_output=True,timeout=20)
