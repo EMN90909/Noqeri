@@ -28,7 +28,9 @@ NirProgram Lowerer::lower(const Program&program){
             // independent. Never let a callee's local list names leak into
             // entry cleanup, particularly with mixed top-level statements.
             const auto entryOwnedLists=ownedListVariables_;
+            const auto entryLoopBoundaries=loopOwnedBoundaries_;
             ownedListVariables_.clear();
+            loopOwnedBoundaries_.clear();
             NirFunction nf;nf.name=f->name;nf.genericParams=f->genericParams;nf.isExtern=f->isExtern||f->isForward;nf.isExport=f->isExport;for(const auto&p:f->params)nf.params.push_back(p.name);
             if(!f->isExtern&&!f->isForward){
                 ownedListVariables_.clear();
@@ -38,6 +40,7 @@ NirProgram Lowerer::lower(const Program&program){
             }
             out.functions.push_back(std::move(nf));
             ownedListVariables_=entryOwnedLists;
+            loopOwnedBoundaries_=entryLoopBoundaries;
         }else if(!std::dynamic_pointer_cast<RecordStmt>(s)&&!std::dynamic_pointer_cast<ImportStmt>(s)&&!std::dynamic_pointer_cast<ModuleStmt>(s))lowerStmt(out.entry,s);
     }
     closeOwnedLists(out.entry,0);
@@ -85,16 +88,28 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
         closeOwnedLists(fn,0);
         emit(fn,std::move(i));return;
     }
-    if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){NirInstruction i;i.op=NirOp::Throw;i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
+    if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){
+        NirInstruction i;i.op=NirOp::Throw;i.args={lowerExpr(fn,s->value)};
+        closeOwnedLists(fn,0);
+        emit(fn,std::move(i));return;
+    }
     if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){Reg c=lowerExpr(fn,s->condition);NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};auto jp=fn.code.size();emit(fn,std::move(j));lowerStmt(fn,s->thenBranch);if(s->elseBranch){NirInstruction end;end.op=NirOp::Jump;auto ep=fn.code.size();emit(fn,std::move(end));fn.code[jp].target=fn.code.size();lowerStmt(fn,s->elseBranch);fn.code[ep].target=fn.code.size();}else fn.code[jp].target=fn.code.size();return;}
-    if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!breakJumps_.empty())breakJumps_.back().push_back(pos);return;}
-    if(auto s=std::dynamic_pointer_cast<ContinueStmt>(stmt)){NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!continueJumps_.empty())continueJumps_.back().push_back(pos);return;}
+    if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){
+        if(!loopOwnedBoundaries_.empty())
+            closeOwnedLists(fn,loopOwnedBoundaries_.back());
+        NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!breakJumps_.empty())breakJumps_.back().push_back(pos);return;}
+    if(auto s=std::dynamic_pointer_cast<ContinueStmt>(stmt)){
+        if(!loopOwnedBoundaries_.empty())
+            closeOwnedLists(fn,loopOwnedBoundaries_.back());
+        NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!continueJumps_.empty())continueJumps_.back().push_back(pos);return;}
     if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){
         const auto start=fn.code.size();
         Reg c=lowerExpr(fn,s->condition);
         NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};const auto exitJump=fn.code.size();emit(fn,std::move(j));
         breakJumps_.push_back({});continueJumps_.push_back({});
+        loopOwnedBoundaries_.push_back(ownedListVariables_.size());
         lowerStmt(fn,s->body);
+        loopOwnedBoundaries_.pop_back();
         for(const auto pos:continueJumps_.back())fn.code[pos].target=start;
         NirInstruction back;back.op=NirOp::Jump;back.target=start;emit(fn,std::move(back));
         const auto end=fn.code.size();
