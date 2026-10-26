@@ -399,7 +399,9 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
     if(!cookie.empty()) {
         const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
         header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
-        if(secure&&std::string(secure)=="1")header+="; Secure";
+        if((secure&&std::string(secure)=="1")||
+           (std::getenv("NOQERI_WEB_PUBLIC_ORIGIN")!=nullptr))
+            header+="; Secure";
         header+="\r\n";
     }
     if(!redirect.empty())header+="Location: "+redirect+"\r\n";
@@ -535,6 +537,30 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         throw std::runtime_error("Basic credentials may not be empty");
     const std::string basicExpected=configuredUser?
         std::string(configuredUser)+":"+configuredPassword:"";
+    // TLS terminates at a separately configured loopback reverse proxy. Never
+    // trust X-Forwarded-* from arbitrary callers as an origin authority.
+    std::string publicOrigin;
+    if(const char* configured=std::getenv("NOQERI_WEB_PUBLIC_ORIGIN")) {
+        publicOrigin=configured;
+        constexpr const char* scheme="https://";
+        if(publicOrigin.rfind(scheme,0)!=0||publicOrigin.size()<=8||
+           publicOrigin.size()>256)
+            throw std::runtime_error("public origin must be https://hostname[:port]");
+        const auto authority=publicOrigin.substr(8);
+        if(authority.front()=='.'||authority.back()=='.'||authority.front()=='-'||
+           authority.find("..")!=std::string::npos||
+           !std::all_of(authority.begin(),authority.end(),[](unsigned char ch){
+               return std::isalnum(ch)||ch=='.'||ch=='-'||ch==':';
+           }))
+            throw std::runtime_error("invalid public HTTPS origin authority");
+        if(authority.find(':')!=std::string::npos) {
+            const auto portText=authority.substr(authority.find(':')+1);
+            if(portText.empty()||portText.size()>5||
+               !std::all_of(portText.begin(),portText.end(),[](char ch){return ch>='0'&&ch<='9';})||
+               std::stoul(portText)==0||std::stoul(portText)>65535)
+                throw std::runtime_error("invalid HTTPS origin port");
+        }
+    }
     // Explicit TTL supports short-lived sessions without changing the cookie
     // format; this is also used to test expiry without waiting an hour.
     std::chrono::seconds sessionTtl{3600};
@@ -640,8 +666,10 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
-            if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB)
-                throw std::runtime_error("Host is not the native loopback origin");
+            const auto allowedPublicHost=publicOrigin.empty()?std::string{}:publicOrigin.substr(8);
+            if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB&&
+               (allowedPublicHost.empty()||req.host!=allowedPublicHost))
+                throw std::runtime_error("Host is not a configured native origin");
             auto path=req.path.substr(0,req.path.find('?'));
             if(path.size()>1&&path.back()=='/')path.pop_back();
             const bool head=req.method=="HEAD";
@@ -661,8 +689,10 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     if(session==app.sessions.end() ||
                        std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
                         appReply(client,403,"Session expired");
-                    } else if(req.origin!="http://127.0.0.1:"+std::to_string(port)&&
-                              req.origin!="http://localhost:"+std::to_string(port)) {
+                    } else if(!publicOrigin.empty() ?
+                              req.origin!=publicOrigin :
+                              (req.origin!="http://127.0.0.1:"+std::to_string(port)&&
+                               req.origin!="http://localhost:"+std::to_string(port))) {
                         appReply(client,403,"Invalid origin");
                     } else {
                         const auto fields=parseFormBody(req.body);
