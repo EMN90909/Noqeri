@@ -62,6 +62,7 @@ struct Mutation {
     std::vector<DbParameterExpr> dbParams;
     std::string target, source, op, field;
     Expr value;
+    std::size_t minLength=0,maxLength=0;
 };
 struct Node {
     std::string actionId, eventName;
@@ -84,6 +85,8 @@ struct Project {
     std::map<std::string,Component> components;
     std::map<std::string,std::vector<Node>> routes;
     std::vector<Node> fallback;
+    std::vector<Node> layout;
+    bool hasLayout=false;
     std::string uiAlias;
     bool hasFallback = false;
 };
@@ -222,7 +225,21 @@ class Parser {
         while (!take("}")) {
             if (list.size()>=8) fail("too many mutations in event");
             Mutation m; m.target=identifier();
-            if(m.target=="db") {
+            if(m.target=="validate") {
+                expect("(");m.field=identifier();expect(",");
+                if(peek().quoted||peek().value.empty()||
+                   !std::all_of(peek().value.begin(),peek().value.end(),
+                     [](char c){return c>='0'&&c<='9';}))fail("validation minimum must be an integer");
+                m.minLength=static_cast<std::size_t>(std::stoul(tokens.at(pos++).value));
+                expect(",");
+                if(peek().quoted||peek().value.empty()||
+                   !std::all_of(peek().value.begin(),peek().value.end(),
+                     [](char c){return c>='0'&&c<='9';}))fail("validation maximum must be an integer");
+                m.maxLength=static_cast<std::size_t>(std::stoul(tokens.at(pos++).value));
+                expect(")");
+                if(m.maxLength>256||m.minLength>m.maxLength)fail("invalid validation length bounds");
+                m.op="validate";
+            } else if(m.target=="db") {
                 expect("."); expect("execute"); expect("(");
                 m.op="db"; m.query=literalString();
                 while(take(",")) {
@@ -270,7 +287,9 @@ class Parser {
             else {
                 std::string name=identifier();
                 if (take(".")) name+="."+identifier();
-                if (take("(")) {
+                if (name=="slot"&&peek().value=="{") {
+                    n.kind="slot";expect("{");expect("}");
+                } else if (take("(")) {
                     n.kind="component"; n.tag=name;
                     if (!take(")")) {
                         do { n.args.push_back(expression()); } while (take(","));
@@ -378,6 +397,9 @@ public:
                         fail("duplicate theme token");
                     take(","); take(";");
                 }
+            } else if (!library && take("layout")) {
+                if(p.hasLayout)fail("duplicate layout");
+                p.hasLayout=true;p.layout=children();
             } else if (!library && take("route")) {
                 const auto path=literalString();
                 if (!p.routes.emplace(path,children()).second) fail("duplicate route");
@@ -405,15 +427,26 @@ std::string escaped(const std::string& in) {
     return out;
 }
 bool validRoute(const std::string& route) {
-    if (route.empty()||route[0]!='/'||route.find("//")!=std::string::npos) return false;
-    if (route=="/") return true;
-    if (route.back()=='/') return false;
-    for (std::size_t i=1;i<route.size();++i) {
-        const char c=route[i];
-        if (!(std::isalnum(static_cast<unsigned char>(c))||c=='_'||c=='-'||c=='/')) return false;
+    if(route.empty()||route[0]!='/'||route.find("//")!=std::string::npos||
+       (route.size()>1&&route.back()=='/')||route.size()>256)return false;
+    if(route=="/")return true;
+    std::stringstream stream(route.substr(1));std::string segment;
+    std::set<std::string> params;std::size_t segments=0;
+    while(std::getline(stream,segment,'/')) {
+        if(++segments>16||segment.empty()||segment.size()>64)return false;
+        if(segment[0]==':') {
+            const auto name=segment.substr(1);
+            if(!validName(name)||!params.insert(name).second)return false;
+        }else if(!std::all_of(segment.begin(),segment.end(),[](unsigned char c){
+            return std::isalnum(c)||c=='_'||c=='-';
+        }))return false;
     }
     return true;
 }
+bool dynamicRoute(const std::string& route) {
+    return route.size()>1&&(route[1]==':'||route.find("/:")!=std::string::npos);
+}
+
 bool allowedTag(const std::string& tag) {
     static const std::set<std::string> tags={
         "a","abbr","article","aside","b","blockquote","br","button","caption","code",
@@ -453,10 +486,15 @@ bool safeUrl(const std::string& value) {
         value.find('\r')==std::string::npos && value.find('\n')==std::string::npos;
 }
 std::string render(const std::vector<Node>& nodes,const Project& p,
-                   const std::map<std::string,std::string>& locals={},int depth=0) {
+                   const std::map<std::string,std::string>& locals={},int depth=0,
+                   const std::vector<Node>* slotNodes=nullptr) {
     if (depth>32) throw std::runtime_error("component recursion limit exceeded");
     std::string result;
     for (const auto& n:nodes) {
+        if(n.kind=="slot") {
+            if(!slotNodes)throw std::runtime_error("layout slot used outside a layout");
+            result+=render(*slotNodes,p,locals,depth+1,nullptr);continue;
+        }
         if (n.kind=="text") {
             result+=escaped(evaluate(n.text,locals,p.globals));
             continue;
@@ -475,7 +513,7 @@ std::string render(const std::vector<Node>& nodes,const Project& p,
             std::map<std::string,std::string> arguments;
             for (std::size_t i=0;i<n.args.size();++i)
                 arguments[component->second.params[i]]=evaluate(n.args[i],locals,p.globals);
-            result+=render(component->second.children,p,arguments,depth+1);
+            result+=render(component->second.children,p,arguments,depth+1,slotNodes);
             continue;
         }
         if (!allowedTag(n.tag)) throw std::runtime_error("unsafe or unsupported HTML element "+n.tag);
@@ -503,7 +541,7 @@ std::string render(const std::vector<Node>& nodes,const Project& p,
         if (n.tag=="input"||n.tag=="img"||n.tag=="br"||n.tag=="hr") {
             if (!n.children.empty()) throw std::runtime_error("void HTML element cannot have children");
         } else {
-            result+=render(n.children,p,locals,depth+1);
+            result+=render(n.children,p,locals,depth+1,slotNodes);
             result+="</"+n.tag+">";
         }
     }
@@ -612,6 +650,8 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     if (!project.uiAlias.empty()) Parser(readText(uiSource(executable)),project,true).parse();
     for (const auto& [route,_]:project.routes)
         if (!validRoute(route)) throw std::runtime_error("unsafe static route: "+route);
+    for(const auto& [route,_]:project.routes)
+        if(dynamicRoute(route))throw std::runtime_error("parameterized routes require serve-app, not static build");
     // Validate ALL routes and fallback before creating any output files.
     std::map<fs::path,std::string> pages;
     for (const auto& [route,nodes]:project.routes) {
@@ -625,9 +665,11 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
         std::string cssPath;
         for(int d=0;d<depth;++d)cssPath+="../";
         cssPath+="theme.css";
-        pages.emplace(relative,htmlPage(render(nodes,project),cssPath));
+        pages.emplace(relative,htmlPage(project.hasLayout?
+            render(project.layout,project,{},0,&nodes):render(nodes,project),cssPath));
     }
-    if (project.hasFallback) pages.emplace("404.html",htmlPage(render(project.fallback,project),"theme.css"));
+    if (project.hasFallback) pages.emplace("404.html",htmlPage(project.hasLayout?
+        render(project.layout,project,{},0,&project.fallback):render(project.fallback,project),"theme.css"));
     const auto styles=css(project.theme);
     fs::create_directories(dest);
     for (const auto& [name,html]:pages) writeText(dest/name,html);
