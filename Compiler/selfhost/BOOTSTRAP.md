@@ -41,8 +41,8 @@ The Stage-0 C++ backend can already emit Linux x86-64 assembly for supported pro
 The canonical Stage-1 pin currently identifies:
 
 ```text
-sha256 b13adf83d8c27dddfdaea73d72d5053b318b2e595af38c43746825ab58a059a5
-bytes  4517344
+sha256 77b0c51f42c055834b143d5698e8388065d955702872b1f5cb67f94ff6c394e4
+bytes  4748580
 ```
 
 That exact seed was reproduced by both GCC-built and Clang-built Stage-0 compilers in GitHub Actions run `39585410281`. In the same accepted run, Stage 2 and Stage 3 were byte-identical and both hashed to `7fed1cfc89ae551c3c2eaa5b3309311ddbfe7a075d890e7df5ef06c9e7a0a409`.
