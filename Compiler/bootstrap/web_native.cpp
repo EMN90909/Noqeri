@@ -561,7 +561,7 @@ button,input{font:inherit}a{color:var(--nq-primary)}
 .nq-navbar{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;padding:.8rem 0;border-bottom:1px solid var(--nq-border)}
 .nq-navbar a{font-weight:600;text-decoration:none}
 .nq-field{display:grid;gap:.3rem;margin-bottom:1rem}.nq-field label{font-weight:600}
-.nq-field input{width:100%;min-height:2.6rem;padding:.5rem .75rem;border:1px solid var(--nq-border);border-radius:var(--nq-radius);color:var(--nq-text);background:var(--nq-surface)}
+.nq-field input,.nq-field textarea{width:100%;min-height:2.6rem;padding:.5rem .75rem;border:1px solid var(--nq-border);border-radius:var(--nq-radius);color:var(--nq-text);background:var(--nq-surface)}
 .nq-stat-value{font-size:2rem;font-weight:750;line-height:1.2}
 .nq-stat-label{font-size:.9rem;color:var(--nq-muted)}
 )CSS";
