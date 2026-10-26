@@ -52,7 +52,7 @@ def verify(root, sha):
             with zipfile.ZipFile(archive) as z:
                 assert z.testzip() is None,filename
                 entries={info.filename:info for info in z.infolist()}
-                assert all(not (info.external_attr>>16)&0o120000 for info in entries.values())
+                assert all(((info.external_attr>>16)&0o170000)!=0o120000 for info in entries.values()), "ZIP contains symlink"
                 def read(name):return z.read(name)
                 checked_entries(archive,target,entries,read,sha)
         else:
