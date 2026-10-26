@@ -8,6 +8,14 @@ function verify(): int {
         i = i + 1
     }
     if owned_list_length(&list) != 3000 as isize { return 3 }
+    let changed: Outcome<bool>
+    owned_list_append_result(&list,3000,&changed)
+    if !outcome_is_ok(&changed) { return 20 }
+    let count: Outcome<isize>
+    owned_list_length_result(&list,&count)
+    if !outcome_is_ok(&count) || outcome_value_or(&count,-1 as isize) != 3001 as isize { return 21 }
+    owned_list_remove_result(&list,3000,&changed)
+    if !outcome_is_ok(&changed) { return 22 }
     let value: Outcome<int>
     owned_list_get(&list, 2999, &value)
     if !outcome_is_ok(&value) || outcome_value_or(&value, -1) != 2999 { return 4 }
@@ -17,6 +25,10 @@ function verify(): int {
     owned_list_get(&list,0,&value)
     if outcome_value_or(&value,-1) != 1 { return 7 }
     if owned_list_close(&list) < 0 as isize { return 8 }
+    owned_list_append_result(&list,42,&changed)
+    if !outcome_is_error(&changed) || outcome_error_domain(&changed) != "collections" { return 23 }
+    owned_list_length_result(&list,&count)
+    if !outcome_is_error(&count) { return 24 }
 
     let map: OwnedIntMap
     if owned_map_open(&map) < 0 as isize { return 9 }
@@ -28,6 +40,12 @@ function verify(): int {
     owned_map_get(&map,42,&value)
     if outcome_value_or(&value,-1) != 126 { return 11 }
     if owned_map_length(&map) != 2000 as isize { return 12 }
+    owned_map_put_result(&map,42,777,&changed)
+    if !outcome_is_ok(&changed) { return 25 }
+    owned_map_get(&map,42,&value)
+    if outcome_value_or(&value,-1) != 777 { return 26 }
+    owned_map_remove_result(&map,99999,&changed)
+    if !outcome_is_error(&changed) || outcome_error_code(&changed) != -4 as isize { return 27 }
     if owned_map_close(&map) < 0 as isize { return 13 }
 
     let set: OwnedIntSet
@@ -39,6 +57,10 @@ function verify(): int {
         i = i + 1
     }
     if owned_set_length(&set) != 1000 as isize { return 17 }
+    owned_set_add_result(&set,999,&changed)
+    if !outcome_is_ok(&changed) { return 28 }
+    owned_set_length_result(&set,&count)
+    if outcome_value_or(&count,-1 as isize) != 1000 as isize { return 29 }
     owned_set_get(&set,99,&value)
     if outcome_value_or(&value,-1) != 99 { return 18 }
     if owned_set_close(&set) < 0 as isize { return 19 }
