@@ -95,10 +95,9 @@ function nqLowerCloseOwnedLists(instructions: []NqNirInstruction,state: *NqLower
     let cursor: usize = state.ownedCount
     while cursor > boundary {
         cursor = cursor - 1 as usize
-        let reg: isize = nqLowerAllocRegister(state)
-        let load: isize = nqLowerEmit(instructions,state,nqNirLoad(),reg)
-        if load < 0 as isize { return load }
-        instructions[load as usize].symbol = nqLowerOwnedSymbol(state,cursor)
+        // Owner slots hold the allocation's SSA register, never a local
+        // name that a nested scope could shadow.
+        let reg: isize = nqLowerOwnedSymbol(state,cursor) as isize
         let closed: isize = nqLowerListCall(instructions,state,4,reg,nqNirNoValue())
         if closed < 0 as isize { return closed }
     }
@@ -424,7 +423,29 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         if node.flags == 45 as u32 { opcode = nqNirNeg() }
         else if node.flags == 33 as u32 { opcode = nqNirNot() }
         else if node.flags == 43 as u32 { return operand }
-        else if node.flags == 0x747279 as u32 { opcode = nqNirTry() }
+        else if node.flags == 0x747279 as u32 {
+            if state.ownedCount > 0 as usize {
+                let zero: isize = nqLowerEmitConst(instructions,state,0 as i64,nqAstTypeInt())
+                if zero < 0 as isize { return zero }
+                let flag: isize = nqLowerAllocRegister(state)
+                let less: isize = nqLowerEmit(instructions,state,nqNirLt(),flag)
+                if less < 0 as isize { return less }
+                instructions[less as usize].left = operand
+                instructions[less as usize].right = zero
+                instructions[less as usize].typeCode = nqAstTypeBool()
+                let skip: isize = nqLowerEmit(instructions,state,nqNirBranch(),nqNirNoValue())
+                if skip < 0 as isize { return skip }
+                instructions[skip as usize].left = flag
+                let clean: isize = nqLowerCloseOwnedLists(instructions,state,0 as usize)
+                if clean < 0 as isize { return clean }
+                let ret: isize = nqLowerEmit(instructions,state,nqNirReturn(),nqNirNoValue())
+                if ret < 0 as isize { return ret }
+                instructions[ret as usize].left = operand
+                instructions[skip as usize].immediate = state.instructionCount as i64
+                return operand
+            }
+            opcode = nqNirTry()
+        }
         else { return nqLowerUnsupported() }
         let reg: isize = nqLowerAllocRegister(state)
         let emitted: isize = nqLowerEmit(instructions, state, opcode, reg)
@@ -582,7 +603,7 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
             if storeList < 0 as isize { return storeList }
             instructions[storeList as usize].left = handle
             instructions[storeList as usize].symbol = ownedSymbol
-            if !nqLowerSetOwnedSymbol(state,state.ownedCount,ownedSymbol) { return nqLowerCapacity() }
+            if !nqLowerSetOwnedSymbol(state,state.ownedCount,handle as u64) { return nqLowerCapacity() }
             state.ownedCount = state.ownedCount + 1 as usize
             let array: *NqAstNode = &nodes[node.right as usize]
             let element: isize = array.right
@@ -617,6 +638,8 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     if node.tag == nqAstThrow() {
         let value: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
         if value < 0 as isize { return value }
+        let clean: isize = nqLowerCloseOwnedLists(instructions,state,0 as usize)
+        if clean < 0 as isize { return clean }
         let emitted: isize = nqLowerEmit(instructions, state, nqNirThrow(), nqNirNoValue())
         if emitted < 0 as isize { return emitted }
         instructions[emitted as usize].left = value

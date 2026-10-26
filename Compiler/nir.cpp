@@ -13,10 +13,11 @@ std::string calleeName(const ExprPtr&expr){if(auto n=std::dynamic_pointer_cast<N
 Reg Lowerer::emit(NirFunction&fn,NirInstruction ins){if(ins.dest)fn.nextReg=std::max(fn.nextReg,Reg(*ins.dest+1));fn.code.push_back(std::move(ins));return fn.code.back().dest.value_or(0);}
 void Lowerer::closeOwnedLists(NirFunction&fn,std::size_t boundary){
     for(std::size_t index=ownedListVariables_.size();index>boundary;--index){
-        NirInstruction load;load.op=NirOp::Load;load.dest=fn.nextReg++;
-        load.text=ownedListVariables_[index-1];emit(fn,load);
+        // Close the original SSA handle, not whatever a shadowed local
+        // variable of the same name happens to reference now.
         NirInstruction close;close.op=NirOp::Call;close.dest=fn.nextReg++;
-        close.text="nq_list_close";close.args={*load.dest};emit(fn,close);
+        close.text="nq_list_close";close.args={ownedListVariables_[index-1]};
+        emit(fn,close);
     }
 }
 NirProgram Lowerer::lower(const Program&program){
@@ -65,7 +66,7 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
             open.text="nq_list_new";emit(fn,open);
             NirInstruction bind;bind.op=NirOp::Store;bind.text=s->name;
             bind.args={*open.dest};emit(fn,bind);
-            ownedListVariables_.push_back(s->name);
+            ownedListVariables_.push_back(*open.dest);
             for(const auto& element:literal->elements){
                 const Reg value=lowerExpr(fn,element);
                 NirInstruction append;append.op=NirOp::Call;append.dest=fn.nextReg++;
@@ -179,11 +180,35 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
             load.args={*valPtr.dest};load.width=e->tryValueWidth;emit(fn,load);
             NirInstruction skip;skip.op=NirOp::Jump;const auto skipIndex=fn.code.size();emit(fn,skip);
             fn.code[badIndex].target=fn.code.size();
-            NirInstruction propagate;propagate.op=NirOp::Return;propagate.args={base};emit(fn,propagate);
+            closeOwnedLists(fn,0);
+            NirInstruction propagate;propagate.op=NirOp::Return;propagate.args={base};
+            emit(fn,propagate);
             fn.code[skipIndex].target=fn.code.size();
             return *load.dest;
         }
-        if(e->op==TokenKind::Try){Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Try;i.dest=fn.nextReg++;i.args={a};emit(fn,i);return*i.dest;}
+        if(e->op==TokenKind::Try){
+            Reg status=lowerExpr(fn,e->operand);
+            if(ownedListVariables_.empty()){
+                NirInstruction i;i.op=NirOp::Try;i.dest=fn.nextReg++;
+                i.args={status};emit(fn,i);return *i.dest;
+            }
+            // The legacy Try opcode returns immediately on a negative status.
+            // Make that path explicit when owned lists are alive, so cleanup
+            // executes before the failed status escapes to the caller.
+            NirInstruction zero;zero.op=NirOp::Const;zero.dest=fn.nextReg++;
+            zero.literal=std::int64_t{0};emit(fn,zero);
+            NirInstruction less;less.op=NirOp::Binary;less.dest=fn.nextReg++;
+            less.text="<";less.args={status,*zero.dest};
+            less.type.kind=TypeKind::Bool;emit(fn,less);
+            NirInstruction success;success.op=NirOp::JumpIfFalse;
+            success.args={*less.dest};const auto successIndex=fn.code.size();
+            emit(fn,success);
+            closeOwnedLists(fn,0);
+            NirInstruction failed;failed.op=NirOp::Return;failed.args={status};
+            emit(fn,failed);
+            fn.code[successIndex].target=fn.code.size();
+            return status;
+        }
         Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Unary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={a};emit(fn,i);return*i.dest;
     }
     if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->fieldSize?e->fieldSize:8;i.isVolatile=e->volatileAccess;i.type=e->fieldType;emit(fn,i);return*i.dest;}

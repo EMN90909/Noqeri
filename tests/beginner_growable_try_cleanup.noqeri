@@ -1,0 +1,20 @@
+// Integer-status postfix propagation must close owned list on both paths.
+function fail(): isize { return -17 as isize }
+function ok(): isize { return 41 as isize }
+function early(value: int): isize {
+    let numbers = [5, 10]
+    numbers.append(15)
+    if value == 0 {
+        let a: isize = ok()?
+        if a != 41 as isize { return -2 as isize }
+        return numbers.length() as isize
+    }
+    let failed: isize = fail()?
+    return failed
+}
+function verify(): int {
+    if early(0) != 3 as isize { return 1 }
+    if early(1) != -17 as isize { return 2 }
+    return 0
+}
+print(verify())

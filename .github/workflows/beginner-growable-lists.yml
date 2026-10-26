@@ -76,3 +76,13 @@ jobs:
               echo "unexpectedly accepted $path"; exit 1
             fi
           done
+
+      - name: Owned list cleanup executes before integer-status early propagation
+        run: |
+          set -euo pipefail
+          ./build-beginner-list/noqeri check tests/beginner_growable_try_cleanup.noqeri
+          test "$(./build-beginner-list/noqeri run tests/beginner_growable_try_cleanup.noqeri)" = "0"
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri tests/beginner_growable_try_cleanup.noqeri build-beginner-list/try-cleanup.nqri 3
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/try-cleanup.nqri verify)" = "0"
+          node scripts/native-build.mjs tests/beginner_growable_try_cleanup.noqeri build-beginner-list/try-cleanup-native --compiler=build-beginner-list/noqeri
+          test "$(./build-beginner-list/try-cleanup-native)" = "0"

@@ -52,3 +52,14 @@ exceptional/control-flow escape, or support for aliases, generic types,
 indexing, list iteration, nested append expressions, and full Stage-2
 inference until corresponding tests exist. This change requires CI before
 it can be marked as qualified.
+
+## Owned list cleanup on early returns
+
+The compiler now uses the allocation's SSA handle to close an owned
+`List<int>`, rather than reloading a local variable by name. This protects
+cleanup from local shadowing and reassignment hazards. Integer-status
+postfix `?` expands to an explicit negative-status branch while a list
+is live: it releases the owned allocations before returning the failure.
+Stage-2 uses the same NIR branch/close/return sequence. Validation is
+tracked by `tests/beginner_growable_try_cleanup.noqeri`; the feature is
+not qualified until the native/reference/selfhost CI is green.
