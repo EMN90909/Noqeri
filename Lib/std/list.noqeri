@@ -20,7 +20,7 @@ export function list_remaining<T>(list: *List<T>): usize { if list.length >= lis
 // Reference access works for scalars and aggregate records alike; callers can
 // mutate record fields in place without forcing an unsupported aggregate copy.
 export function list_ref<T>(list: *List<T>, index: usize): *T {
-    if index >= list.length || list.data == null { return null as *T }
+    if index >= list.length || list.data == null { return null }
     return &list.data[index]
 }
 

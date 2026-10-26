@@ -48,25 +48,25 @@ export function iterator_invariant<T>(iterator: *Iterator<T>): bool {
 }
 
 export function iterator_peek_ref<T>(iterator: *Iterator<T>): *T {
-    if iterator_empty(iterator) || iterator.data == null { return null as *T }
+    if iterator_empty(iterator) || iterator.data == null { return null }
     unsafe { return &iterator.data[iterator.front] }
 }
 
 export function iterator_peek_back_ref<T>(iterator: *Iterator<T>): *T {
-    if iterator_empty(iterator) || iterator.data == null { return null as *T }
+    if iterator_empty(iterator) || iterator.data == null { return null }
     unsafe { return &iterator.data[iterator.back - 1 as usize] }
 }
 
 export function iterator_next_ref<T>(iterator: *Iterator<T>): *T {
     let value: *T = iterator_peek_ref(iterator)
-    if value == null { return null as *T }
+    if value == null { return null }
     iterator.front = iterator.front + 1 as usize
     return value
 }
 
 export function iterator_next_back_ref<T>(iterator: *Iterator<T>): *T {
     let value: *T = iterator_peek_back_ref(iterator)
-    if value == null { return null as *T }
+    if value == null { return null }
     iterator.back = iterator.back - 1 as usize
     return value
 }
@@ -173,7 +173,7 @@ export function iterator_last<T>(items: []T): T { return items[len(items)-1] }
 export function iterator_from_slice<T>(cursor: *Iterator<T>,
                                       values: []T): bool {
     if len(values) == 0 as usize {
-        return iterator_init(cursor, null as *T, 0 as usize)
+        return iterator_init(cursor, null, 0 as usize)
     }
     return iterator_init(cursor, &values[0 as usize], len(values))
 }
