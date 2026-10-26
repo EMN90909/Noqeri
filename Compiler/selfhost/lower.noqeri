@@ -530,7 +530,10 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
             if list < 0 as isize { return list }
             let index: isize = nqLowerExpressionInternal(source,nodes,node.right,instructions,state)
             if index < 0 as isize { return index }
-            return nqLowerListCall(instructions,state,5,list,index)
+            let fetched: isize = nqLowerListCall(instructions,state,5,list,index)
+            if fetched < 0 as isize { return fetched }
+            instructions[state.instructionCount - 1 as usize].typeCode = node.typeCode
+            return fetched
         }
         let address: isize = nqLowerAddress(source, nodes, nodeIndex, instructions, state)
         if address < 0 as isize { return address }
@@ -595,7 +598,10 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
                source[method.start] == 112 as u8 &&
                source[method.start+1 as usize] == 111 as u8 &&
                source[method.start+2 as usize] == 112 as u8 {
-                return nqLowerListCall(instructions,state,7,receiver,nqNirNoValue())
+                let popped: isize = nqLowerListCall(instructions,state,7,receiver,nqNirNoValue())
+                if popped < 0 as isize { return popped }
+                instructions[state.instructionCount - 1 as usize].typeCode = node.typeCode
+                return popped
             }
             if method.end-method.start == 5 as usize &&
                source[method.start] == 99 as u8 &&
