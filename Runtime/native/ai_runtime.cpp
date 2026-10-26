@@ -98,7 +98,8 @@ std::vector<Sample> read_csv(const std::string& filename, bool has_label, std::s
         }
         samples.push_back(std::move(row));
     }
-    require(!input.bad() && !input.fail() && !samples.empty(),"CSV read failure, oversized line or no data");
+    require(!input.bad() && !(input.fail()&&!input.eof()) && !samples.empty(),
+            "CSV read failure, oversized line or no data");
     return samples;
 }
 Model train(const std::vector<Sample>& samples,const Options& options,TrainingReport* report) {
