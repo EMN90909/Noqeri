@@ -295,13 +295,24 @@ AppRequest receiveAppRequest(int fd) {
        req.path.find('\\')!=std::string::npos)
         throw std::runtime_error("unsafe HTTP path");
     std::string line;std::size_t length=0;bool hasLength=false;
+    std::set<std::string> singletonHeaders;
     while(std::getline(head,line)) {
         if(!line.empty()&&line.back()=='\r')line.pop_back();
         if(line.empty())continue;
         const auto split=line.find(':');
         if(split==std::string::npos)throw std::runtime_error("invalid HTTP header");
         auto name=lower(line.substr(0,split));
+        if(name.empty()||!std::all_of(name.begin(),name.end(),[](unsigned char c){
+            return std::isalnum(c)!=0||c=='-';
+        }))throw std::runtime_error("invalid HTTP header name");
         std::string val=line.substr(split+1);
+        if(std::any_of(val.begin(),val.end(),[](unsigned char c){
+            return c==0||c==127||(c<32&&c!=9);
+        }))throw std::runtime_error("control byte in HTTP header");
+        if((name=="host"||name=="origin"||name=="cookie"||name=="content-type"||
+            name=="content-length"||name=="transfer-encoding") &&
+           !singletonHeaders.insert(name).second)
+            throw std::runtime_error("duplicate HTTP routing or framing header");
         while(!val.empty()&&(val.front()==' '||val.front()=='\t'))val.erase(val.begin());
         if(name=="transfer-encoding"||name=="expect")throw std::runtime_error("unsupported HTTP transfer mode");
         if(name=="content-length") {
@@ -316,6 +327,8 @@ AppRequest receiveAppRequest(int fd) {
         if(name=="origin")req.origin=val;
         if(name=="host")req.host=val;
     }
+    if(protocol=="HTTP/1.1"&&req.host.empty())
+        throw std::runtime_error("missing HTTP Host header");
     if(req.method=="POST"&&(!hasLength||
         (req.type!="application/x-www-form-urlencoded"&&
          req.type!="application/x-www-form-urlencoded; charset=utf-8")))
@@ -332,9 +345,12 @@ AppRequest receiveAppRequest(int fd) {
 }
 std::string getSid(const std::string& cookie) {
     std::istringstream in(cookie);std::string part;
+    bool seen=false;
     while(std::getline(in,part,';')) {
         while(!part.empty()&&part.front()==' ')part.erase(part.begin());
         if(part.rfind("_nq_sid=",0)!=0)continue;
+        if(seen)return ""; // duplicated authentication cookie is ambiguous
+        seen=true;
         const auto sid=part.substr(8);
         if(sid.size()!=48 ||
            !std::all_of(sid.begin(),sid.end(),[](char c){return std::isxdigit(static_cast<unsigned char>(c))!=0;}))
@@ -432,6 +448,10 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         if(client<0)continue;
         try {
             const AppRequest req=receiveAppRequest(client);
+            const auto allowedHostA="127.0.0.1:"+std::to_string(port);
+            const auto allowedHostB="localhost:"+std::to_string(port);
+            if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB)
+                throw std::runtime_error("Host is not the native loopback origin");
             auto path=req.path.substr(0,req.path.find('?'));
             if(path.size()>1&&path.back()=='/')path.pop_back();
             const bool head=req.method=="HEAD";
