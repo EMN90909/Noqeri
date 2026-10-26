@@ -37,6 +37,21 @@ std::string dbRowsJson(const std::vector<std::string>& fields,
     }
     return out+"]";
 }
+std::string dbTypedRowsJson(const std::vector<std::string>& columns,
+                            const std::vector<std::vector<std::string>>& jsonValues) {
+    std::string out="[";
+    for(const auto& row:jsonValues) {
+        if(out!="[")out+=",";
+        out+="{";
+        for(std::size_t i=0;i<row.size();++i) {
+            if(i)out+=",";
+            out+=dbJsonQuote(columns.at(i))+":"+row[i];
+        }
+        out+="}";
+        if(out.size()>65536)throw std::runtime_error("database JSON exceeds 64 KiB");
+    }
+    return out+"]";
+}
 void verifyDbConfig(const DbConfiguration& config) {
     if(config.engine!="noesql"&&config.engine!="sqlite"&&config.engine!="postgresql"&&
        config.engine!="duckdb"&&config.engine!="mysql")
@@ -192,11 +207,25 @@ std::string querySqlite(const DbConfiguration& config,const SqlPrepared& sql) {
             const auto* bytes=sqlite3_column_text(statement,i);
             const int size=sqlite3_column_bytes(statement,i);
             if(size>4096)throw std::runtime_error("SQLite column too large");
-            row.emplace_back(bytes?std::string(reinterpret_cast<const char*>(bytes),size):"");
+            const auto type=sqlite3_column_type(statement,i);
+            if(type==SQLITE_NULL)row.emplace_back("null");
+            else if(type==SQLITE_INTEGER)
+                row.emplace_back(std::to_string(sqlite3_column_int64(statement,i)));
+            else if(type==SQLITE_FLOAT) {
+                const double value=sqlite3_column_double(statement,i);
+                if(!std::isfinite(value))throw std::runtime_error("nonfinite SQLite value");
+                std::ostringstream num;
+                num<<std::setprecision(17)<<value;
+                row.push_back(num.str());
+            } else if(type==SQLITE_TEXT) {
+                row.push_back(dbJsonQuote(bytes?
+                    std::string(reinterpret_cast<const char*>(bytes),size):""));
+            } else throw std::runtime_error("binary SQLite results require explicit conversion");
+
         }
         rows.push_back(std::move(row));
     }
-    return count?dbRowsJson(columns,rows):"affected="+std::to_string(sqlite3_changes(handle));
+    return count?dbTypedRowsJson(columns,rows):"affected="+std::to_string(sqlite3_changes(handle));
 }
 #endif
 #ifdef NOQERI_WEB_POSTGRES
