@@ -74,7 +74,7 @@ run without dynamic allocations and can be used with the existing
 The following remain **design targets, not implemented syntax**:
 
 - `function add(a,b) = a+b`: sound cross-call inference requires compiler-wide type inference, ABI and Stage-2 work. Typed expression bodies, such as `function add(a: int, b: int): int = a + b`, are supported in both parsers.
-- `for item in items` now lowers arrays and slices in both frontends. The iterable is evaluated once; `continue` advances; the Stage-2 NIR path guards bounds. Strings, growable lists and custom iterator objects are **not yet supported** by this syntax and require a common iterator protocol.
+- `for item in items` lowers arrays, slices, and contextually growable `List<int>` in both frontends. The iterable is evaluated once; `continue` advances; bounds checks apply. Strings, `List<T>` for arbitrary element types and custom iterator objects are **not yet supported** by this syntax.
 - Growable `List` literals and anonymous record literals: lifetime,
   allocation, structural field identity and ABI need design and tests.
 - `"Hello {name}"`: requires typed string formatting, escaping and safe
@@ -117,8 +117,9 @@ buffer rebind. `Utf8Iterator` reads validated **Unicode scalar values**,
 not raw UTF-8 bytes, and reports end-of-input separately from malformed
 sequences. The regression is `tests/collection_growth_unicode.noqeri`.
 
-These additions do not yet implement allocator-owned list literals,
-automatic growth, `for-in` on `List<T>`, or automatic custom iterator
+These additions now have a qualified **`List<int>` subset** with contextual
+owned literals, automatic growth, safe indexed reads and direct `for-in`.
+Generic `List<T>` and automatic custom iterator
 dispatch in the compiler.
 
 ## Private parameters constrained by literal calls (experimental)
@@ -156,3 +157,28 @@ proof of all Stage-2 semantics, native selfhosting, or unimplemented features.
 The [postfix status propagation gate](https://github.com/EMN90909/Noqeri/actions/runs/40401036299)
 passed across the same three execution paths for integer-status `?`.
 Full typed `Result<T,E>` and optional chaining `?.` are still outstanding.
+
+## Beginner-owned integer lists (qualified subset)
+
+```noqeri
+let numbers = [5, 10]
+numbers.append(15)
+print(numbers[2])        // 15
+
+let empty = []
+empty.append(31)
+
+for number in numbers {
+    print(number)
+}
+```
+
+No preallocated buffers, imports, or explicit native linker flags are needed
+on the qualified Linux x86-64 AOT path. A mutable, unannotated local literal
+is promoted to `List<int>` only after a direct same-scope `.append()`.
+Fixed arrays with explicit annotations retain fixed-length semantics.
+Lists cannot currently be copied, returned by value, indexed for assignment,
+or borrowed by address. The compiler closes them on ordinary lexical exits
+and tested integer-status early propagation; it is **not** a fully general
+owned/generic collection with guaranteed cleanup on every exceptional exit.
+[Stage-0/Stage-2/NQRI/native differential gate](https://github.com/EMN90909/Noqeri/actions/runs/40413683668).

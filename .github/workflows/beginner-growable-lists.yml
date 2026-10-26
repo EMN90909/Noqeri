@@ -95,3 +95,20 @@ jobs:
           test "$(./build-beginner-list/noqeri-nqri build-beginner-list/try-cleanup.nqri verify)" = "0"
           node scripts/native-build.mjs tests/beginner_growable_try_cleanup.noqeri build-beginner-list/try-cleanup-native --compiler=build-beginner-list/noqeri
           test "$(./build-beginner-list/try-cleanup-native)" = "0"
+
+      - name: Out-of-range growable index rejects at runtime in all three engines
+        run: |
+          set -euo pipefail
+          ./build-beginner-list/noqeri check tests/beginner_growable_out_of_bounds.noqeri
+          if ./build-beginner-list/noqeri run tests/beginner_growable_out_of_bounds.noqeri; then
+            echo "Reference silently accepted an out-of-bounds list read"; exit 1
+          fi
+          ./build-beginner-list/noqeri nqri tests/beginner_growable_out_of_bounds.noqeri build-beginner-list/bad-index.nqri
+          if ./build-beginner-list/noqeri-nqri build-beginner-list/bad-index.nqri verify; then
+            echo "NQRI silently accepted an out-of-bounds list read"; exit 1
+          fi
+          node scripts/native-build.mjs tests/beginner_growable_out_of_bounds.noqeri build-beginner-list/bad-index-native --compiler=build-beginner-list/noqeri
+          ulimit -c 0
+          if ./build-beginner-list/bad-index-native; then
+            echo "Native AOT silently accepted an out-of-bounds list read"; exit 1
+          fi
