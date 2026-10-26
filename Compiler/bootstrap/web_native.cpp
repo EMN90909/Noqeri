@@ -723,6 +723,31 @@ void serve(const fs::path& input,int port) {
 } // namespace
 int main(int argc,char** argv) {
     try {
+        if (argc==2 && std::string(argv[1])=="drivers") {
+            const char* noesql=std::getenv("NOESQL_BIN");
+            std::cout<<"noesql: "<<(noesql&&*noesql?"configured":"requires NOESQL_BIN")<<" (external native NoeSQL engine)\n";
+#ifdef NOQERI_WEB_SQLITE
+            std::cout<<"sqlite: compiled\n";
+#else
+            std::cout<<"sqlite: not compiled\n";
+#endif
+#ifdef NOQERI_WEB_POSTGRES
+            std::cout<<"postgresql: compiled (requires live connection)\n";
+#else
+            std::cout<<"postgresql: not compiled\n";
+#endif
+#ifdef NOQERI_WEB_DUCKDB
+            std::cout<<"duckdb: compiled\n";
+#else
+            std::cout<<"duckdb: not compiled\n";
+#endif
+#ifdef NOQERI_WEB_MYSQL
+            std::cout<<"mysql: compiled (requires live connection)\n";
+#else
+            std::cout<<"mysql: not compiled\n";
+#endif
+            return 0;
+        }
         if (argc>=2 && std::string(argv[1])=="serve-app" && (argc==3||argc==4||argc==5)) {
 #if !defined(_WIN32)
             int port=8080;
@@ -757,7 +782,8 @@ int main(int argc,char** argv) {
         }
         std::cerr<<"Usage: noqeri-web build <project-dir> <output-dir>\n"
                  <<"       noqeri-web serve <output-dir> [port]  (localhost-only, POSIX)\n"
-                 <<"       noqeri-web serve-app <source-dir> [port] [state-file]  (server actions, POSIX)\n";
+                 <<"       noqeri-web serve-app <source-dir> [port] [state-file]  (server actions, POSIX)\n"
+                 <<"       noqeri-web drivers      show available external DB provider status\n";
         return 2;
     } catch (const std::exception& e) {
         std::cerr<<"noqeri-web: "<<e.what()<<"\n";
