@@ -1,0 +1,19 @@
+// Uses the actual native NoeSQL .noedb engine; NOESQL_BIN required.
+database {
+  engine: "noesql"
+  path: "noqeri-data/visitors.noedb"
+}
+query visitors = "visitors get id, name sort id take 20"
+route "/" {
+  main class: "nq-page" {
+    h1 { "Visitors — native NoeSQL" }
+    p { visitors }
+    form on.submit {
+      db.execute("visitors add { name: $name }", name: form.name)
+    } {
+      label for: "visitor" { "Visitor name" }
+      input id: "visitor" name: "name" type: "text" {}
+      button type: "submit" { "Save visitor" }
+    }
+  }
+}
