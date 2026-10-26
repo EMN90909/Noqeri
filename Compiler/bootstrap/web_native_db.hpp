@@ -2,6 +2,9 @@
 // Native web DB boundary. All engines are opt-in; NoeSQL owns .noedb.
 // No implicit NoqeriDB/NoeSQL format conversion and no SQL source interpolation.
 #pragma once
+struct NativeDatabaseFailure : std::runtime_error {
+    NativeDatabaseFailure():std::runtime_error("native database operation failed"){}
+};
 struct DbParameter {
     std::string name, value;
 };
@@ -22,22 +25,34 @@ std::string dbJsonQuote(const std::string& value) {
     }
     return out+"\"";
 }
-std::string dbRowsJson(const std::vector<std::string>& fields,
-                       const std::vector<std::vector<std::string>>& rows) {
-    std::string out="[";
-    for(const auto& row:rows) {
-        if(out.size()>65536)throw std::runtime_error("database output exceeds limit");
-        if(out!="[")out+=",";
-        out+="{";
-        for(std::size_t col=0;col<row.size();++col) {
-            if(col)out+=",";
-            out+=dbJsonQuote(fields.at(col))+":"+dbJsonQuote(row[col]);
-        }
-        out+="}";
+// Convert known native numeric and boolean types to valid JSON primitives;
+// unrecognized database types remain escaped JSON strings.
+[[maybe_unused]] std::string dbTypedPrimitive(const std::string& value,unsigned type,bool postgres) {
+    if(postgres && type==16) {
+        if(value=="t")return "true";
+        if(value=="f")return "false";
+        throw std::runtime_error("invalid PostgreSQL boolean value");
     }
-    return out+"]";
+    if(postgres && (type==20 || type==21 || type==23)) {
+        if(value.empty())throw std::runtime_error("invalid PostgreSQL integer value");
+        std::size_t at=value[0]=='-'?1:0;
+        if(at==value.size())throw std::runtime_error("invalid PostgreSQL integer value");
+        for(;at<value.size();++at)if(value[at]<'0'||value[at]>'9')
+            throw std::runtime_error("invalid PostgreSQL integer value");
+        return value;
+    }
+    if(postgres && (type==700 || type==701 || type==1700)) {
+        if(value.size()>64)throw std::runtime_error("PostgreSQL floating value too long");
+        std::size_t consumed=0;
+        try {
+            const auto number=std::stod(value,&consumed);
+            if(consumed==value.size() && std::isfinite(number))return value;
+        } catch(const std::exception&) {}
+        throw std::runtime_error("invalid PostgreSQL numeric JSON value");
+    }
+    return dbJsonQuote(value);
 }
-std::string dbTypedRowsJson(const std::vector<std::string>& columns,
+[[maybe_unused]] std::string dbTypedRowsJson(const std::vector<std::string>& columns,
                             const std::vector<std::vector<std::string>>& jsonValues) {
     std::string out="[";
     for(const auto& row:jsonValues) {
@@ -255,11 +270,13 @@ std::string queryPostgres(const DbConfiguration& config,const SqlPrepared& sql) 
         for(int col=0;col<columns;++col) {
             const auto len=PQgetlength(result,row,col);
             if(len>4096)throw std::runtime_error("PostgreSQL cell too large");
-            valuesRow.emplace_back(PQgetisnull(result,row,col)?"":std::string(PQgetvalue(result,row,col),len));
+            if(PQgetisnull(result,row,col))valuesRow.emplace_back("null");
+            else valuesRow.emplace_back(dbTypedPrimitive(std::string(PQgetvalue(result,row,col),len),
+                                                       PQftype(result,col),true));
         }
         valuesRows.push_back(std::move(valuesRow));
     }
-    return dbRowsJson(headers,valuesRows);
+    return dbTypedRowsJson(headers,valuesRows);
 }
 #endif
 #ifdef NOQERI_WEB_DUCKDB
@@ -296,11 +313,11 @@ std::string queryDuckdb(const DbConfiguration& config,const SqlPrepared& sql) {
             std::string text=value?value:"";
             if(value)duckdb_free(value);
             if(text.size()>4096)throw std::runtime_error("DuckDB cell too large");
-            valuesRow.push_back(std::move(text));
+            valuesRow.push_back(value ? dbJsonQuote(text) : "null");
         }
         valuesRows.push_back(std::move(valuesRow));
     }
-    return cols?dbRowsJson(headers,valuesRows):"affected=0";
+    return cols?dbTypedRowsJson(headers,valuesRows):"affected=0";
 }
 #endif
 #ifdef NOQERI_WEB_MYSQL
@@ -364,11 +381,11 @@ std::string queryMysql(const DbConfiguration& config,const SqlPrepared& sql) {
         std::vector<std::string> row;
         for(unsigned i=0;i<count;++i) {
             if(sizes[i]>4096)throw std::runtime_error("MySQL cell exceeds size limit");
-            row.emplace_back(nulls[i]?"":std::string(buffers[i].data(),sizes[i]));
+            row.emplace_back(nulls[i]?"null":dbJsonQuote(std::string(buffers[i].data(),sizes[i])));
         }
         rows.push_back(std::move(row));
     }
-    return dbRowsJson(headers,rows);
+    return dbTypedRowsJson(headers,rows);
 }
 #endif
 
@@ -383,6 +400,11 @@ std::string invokeNoeSqlSessionV2(const std::string& library,
     // Provider module stays loaded for this process. The Rust callback table
     // owns connection and prepared statement lifetimes; never copy its memory.
     struct Module { void* handle=nullptr; const NqNoeSqlSessionV2* api=nullptr; };
+    // Provider callback tables and the current adapter profile are not
+    // guaranteed thread safe. Serialize loading and session calls until the
+    // canonical provider exposes a concurrency contract.
+    static std::mutex providerMutex;
+    std::lock_guard<std::mutex> lock(providerMutex);
     static std::map<std::string,Module> loaded;
     auto found=loaded.find(library);
     if(found==loaded.end()) {

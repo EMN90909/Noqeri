@@ -283,6 +283,7 @@ std::string lower(std::string text) {
 }
 struct AppRequest {
     std::string method,path,host,origin,body,cookie,type,authorization;
+    bool hasOrigin=false;
 };
 AppRequest receiveAppRequest(int fd) {
     timeval timeout{};timeout.tv_sec=4;
@@ -340,7 +341,7 @@ AppRequest receiveAppRequest(int fd) {
         }
         if(name=="content-type")req.type=lower(val);
         if(name=="cookie")req.cookie=val;
-        if(name=="origin")req.origin=val;
+        if(name=="origin"){req.origin=val;req.hasOrigin=true;}
         if(name=="host")req.host=val;
         if(name=="authorization")req.authorization=val;
     }
@@ -350,6 +351,15 @@ AppRequest receiveAppRequest(int fd) {
         (req.type!="application/x-www-form-urlencoded"&&
          req.type!="application/x-www-form-urlencoded; charset=utf-8")))
         throw std::runtime_error("unsupported POST encoding");
+    if(req.method=="POST" && req.hasOrigin && req.origin.empty())
+        throw std::runtime_error("empty Origin is not valid");
+    // Older same-origin clients may omit Origin. Enable strict mode when the
+    // application can guarantee standards-compliant browser-only POSTs.
+    if(req.method=="POST" && !req.hasOrigin) {
+        const char* strict=std::getenv("NOQERI_WEB_REQUIRE_ORIGIN");
+        if(strict && std::string(strict)=="1")
+            throw std::runtime_error("POST requires Origin in strict mode");
+    }
     if(req.method!="POST"&&length!=0)throw std::runtime_error("unexpected request body");
     req.body=received.substr(at+4);
     if(req.body.size()>length)throw std::runtime_error("excess request body");
@@ -389,7 +399,9 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
     if(!cookie.empty()) {
         const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
         header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
-        if(secure&&std::string(secure)=="1")header+="; Secure";
+        if((secure&&std::string(secure)=="1")||
+           (std::getenv("NOQERI_WEB_PUBLIC_ORIGIN")!=nullptr))
+            header+="; Secure";
         header+="\r\n";
     }
     if(!redirect.empty())header+="Location: "+redirect+"\r\n";
@@ -398,10 +410,10 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
     // No user-controlled path or request body enters structured access logs.
     std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"http_response\",\"status\":"<<status<<"}\n";
 }
-void sessionPrune(AppStore& app) {
+void sessionPrune(AppStore& app,std::chrono::seconds ttl=std::chrono::hours(1)) {
     const auto now=std::chrono::steady_clock::now();
     for(auto i=app.sessions.begin();i!=app.sessions.end();) {
-        if(now-i->second.seen>std::chrono::hours(1))i=app.sessions.erase(i);
+        if(now-i->second.seen>ttl)i=app.sessions.erase(i);
         else ++i;
     }
     while(app.sessions.size()>=256) {
@@ -525,6 +537,43 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         throw std::runtime_error("Basic credentials may not be empty");
     const std::string basicExpected=configuredUser?
         std::string(configuredUser)+":"+configuredPassword:"";
+    // TLS terminates at a separately configured loopback reverse proxy. Never
+    // trust X-Forwarded-* from arbitrary callers as an origin authority.
+    std::string publicOrigin;
+    if(const char* configured=std::getenv("NOQERI_WEB_PUBLIC_ORIGIN")) {
+        publicOrigin=configured;
+        constexpr const char* scheme="https://";
+        if(publicOrigin.rfind(scheme,0)!=0||publicOrigin.size()<=8||
+           publicOrigin.size()>256)
+            throw std::runtime_error("public origin must be https://hostname[:port]");
+        const auto authority=publicOrigin.substr(8);
+        if(authority.front()=='.'||authority.back()=='.'||authority.front()=='-'||
+           authority.find("..")!=std::string::npos||
+           !std::all_of(authority.begin(),authority.end(),[](unsigned char ch){
+               return std::isalnum(ch)||ch=='.'||ch=='-'||ch==':';
+           }))
+            throw std::runtime_error("invalid public HTTPS origin authority");
+        if(authority.find(':')!=std::string::npos) {
+            const auto portText=authority.substr(authority.find(':')+1);
+            if(portText.empty()||portText.size()>5||
+               !std::all_of(portText.begin(),portText.end(),[](char ch){return ch>='0'&&ch<='9';})||
+               std::stoul(portText)==0||std::stoul(portText)>65535)
+                throw std::runtime_error("invalid HTTPS origin port");
+        }
+    }
+    // Explicit TTL supports short-lived sessions without changing the cookie
+    // format; this is also used to test expiry without waiting an hour.
+    std::chrono::seconds sessionTtl{3600};
+    if(const char* setting=std::getenv("NOQERI_WEB_SESSION_TTL_SECONDS")) {
+        const std::string value(setting);
+        if(value.empty()||value.size()>4||
+           !std::all_of(value.begin(),value.end(),[](char c){return c>='0'&&c<='9';}))
+            throw std::runtime_error("session TTL must be 1..3600 seconds");
+        const auto seconds=std::stoi(value);
+        if(seconds<1||seconds>3600)
+            throw std::runtime_error("session TTL must be 1..3600 seconds");
+        sessionTtl=std::chrono::seconds(seconds);
+    }
     AppStore app;
     app.stateFile=fs::absolute(stateFile).lexically_normal();
     Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
@@ -610,16 +659,17 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         std::thread([&,client] {
         try {
             const AppRequest req=receiveAppRequest(client);
-            // Session/persisted map and synchronous database connections use one
-            // state lock. I/O framing is concurrent; actions remain serialized.
-            std::lock_guard<std::mutex> locked(stateGuard);
+            // Authenticate and validate the origin before acquiring the state lock.
+            // GET rendering and independent database reads can now run concurrently.
             if(!nativeBasicAllowed(req.authorization,basicExpected)) {
                 appReply(client,401,"Authentication required");
             } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
-            if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB)
-                throw std::runtime_error("Host is not the native loopback origin");
+            const auto allowedPublicHost=publicOrigin.empty()?std::string{}:publicOrigin.substr(8);
+            if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB&&
+               (allowedPublicHost.empty()||req.host!=allowedPublicHost))
+                throw std::runtime_error("Host is not a configured native origin");
             auto path=req.path.substr(0,req.path.find('?'));
             if(path.size()>1&&path.back()=='/')path.pop_back();
             const bool head=req.method=="HEAD";
@@ -634,11 +684,16 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             render(app.project.fallback,app.project),"/theme.css"):"Page not found";
                     appReply(client,404,content,"","",head);
                 } else if(req.method=="POST") {
+                    std::lock_guard<std::mutex> locked(stateGuard);
                     auto session=app.sessions.find(getSid(req.cookie));
-                    if(session==app.sessions.end()) {
+                    if(session==app.sessions.end() ||
+                       std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
                         appReply(client,403,"Session expired");
-                    } else if(!req.origin.empty()&&req.origin!="http://127.0.0.1:"+std::to_string(port)&&
-                              req.origin!="http://localhost:"+std::to_string(port)) {
+                    } else if(!publicOrigin.empty() ?
+                              req.origin!=publicOrigin :
+                              (!req.origin.empty()&&
+                               req.origin!="http://127.0.0.1:"+std::to_string(port)&&
+                               req.origin!="http://localhost:"+std::to_string(port))) {
                         appReply(client,403,"Invalid origin");
                     } else {
                         const auto fields=parseFormBody(req.body);
@@ -647,7 +702,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         std::map<std::string,const Node*> actions;
                         validateActions(*page.nodes,app.project,actions);
                         const auto specified=action==fields.end()?actions.end():actions.find(action->second);
-                        if(specified==actions.end()||csrf==fields.end()||csrf->second!=session->second.csrf)
+                        if(specified==actions.end()||csrf==fields.end()||!constantTimeEquals(csrf->second,session->second.csrf))
                             appReply(client,403,"Invalid native action");
                         else {
                             std::string validationError;
@@ -693,7 +748,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                                         if(value.size()>512)throw std::runtime_error("database binding too long");
                                         params.push_back({param.name,std::move(value)});
                                     }
-                                    (void)executeDatabase(app.project.database,mutation.query,params);
+                                    try {(void)executeDatabase(app.project.database,mutation.query,params);}
+                                    catch(const std::exception&) {throw NativeDatabaseFailure{};}
                                 }else {
                                     auto value=applyMutation(mutation,updated,fields);
                                     if(value.size()>512)throw std::runtime_error("action result too long");
@@ -714,11 +770,19 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         }
                     }
                 } else {
+                    Project rendered;
+                    std::string newCookie, sessionCsrf;
+                    {
+                    std::lock_guard<std::mutex> locked(stateGuard);
                     auto sid=getSid(req.cookie);
                     auto session=app.sessions.find(sid);
-                    std::string newCookie;
+                    if(session!=app.sessions.end() &&
+                       std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
+                        app.sessions.erase(session);
+                        session=app.sessions.end();
+                    }
                     if(session==app.sessions.end()) {
-                        sessionPrune(app);
+                        sessionPrune(app,sessionTtl);
                         sid=randomToken();
                         AppSession created;
                         created.csrf=randomToken();
@@ -729,12 +793,15 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         newCookie=sid;
                     }
                     session->second.seen=std::chrono::steady_clock::now();
-                    Project rendered=app.project;
+                    rendered=app.project;
                     rendered.globals=currentValues(app,session->second);
                     for(const auto& [name,value]:page.params)rendered.globals[name]=value;
-                    for(const auto& [name,statement]:app.project.queries)
-                        rendered.globals[name]=executeDatabase(app.project.database,statement,{});
-                    const AppRenderContext context{path,session->second.csrf};
+                    sessionCsrf=session->second.csrf;
+                    } // release state lock before slow, read-only database queries and rendering
+                    for(const auto& [name,statement]:rendered.queries)
+                        try {rendered.globals[name]=executeDatabase(rendered.database,statement,{});}
+                        catch(const std::exception&) {throw NativeDatabaseFailure{};}
+                    const AppRenderContext context{path,sessionCsrf};
                     const auto body=rendered.hasLayout?
                         renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
                         renderApp(*page.nodes,rendered,context);
@@ -743,6 +810,9 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                 }
             }
             }
+        } catch(const NativeDatabaseFailure&) {
+            std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"database_failure\"}\n";
+            appReply(client,503,"Database temporarily unavailable");
         } catch(const std::exception& e) {
             std::cerr<<"noqeri-web request error: "<<e.what()<<"\n";
             appReply(client,400,"Bad Request");

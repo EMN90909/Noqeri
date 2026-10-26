@@ -70,6 +70,22 @@ int main(int argc,char** argv) {
     assert(causal.value(attention).at(0,1)==0.0);
     assert(near(causal.value(attention).at(2,2),1.0/3.0));
     assert(rejects([&]{causal.gather_rows(sid,{8});}));
+    // Reusing a tape leaf must accumulate both gradient contributions.
+    Matrix repeatedInput(1,1,2.0);
+    Tape repeatedTape;
+    const auto repeatId=repeatedTape.leaf(repeatedInput);
+    const auto doubled=repeatedTape.add(repeatId,repeatId);
+    repeatedTape.backward(doubled);
+    assert(near(repeatedTape.grad(repeatId).at(0,0),2.0));
+    // Failed optimizer steps must preserve the original weights bit-for-bit.
+    Matrix guarded(1,2);
+    guarded.values={1.0,1e8};
+    Matrix riskyGradient(1,2);
+    riskyGradient.values={1.0,-1e8};
+    const auto before=guarded.values;
+    assert(rejects([&]{sgd_update(guarded,riskyGradient,0.2,100.0);}));
+    assert(guarded.values==before);
+
 
     const std::string corpus=std::string("aba aba aba\n")+
                             "hello world\nhello world\nhello world\n"+

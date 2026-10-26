@@ -25,16 +25,27 @@ int call(void*,void*,void* statement,const std::uint8_t* params,std::size_t n,
         std::ofstream stream(log,std::ios::app);
         stream<<source<<"\n"<<std::string(reinterpret_cast<const char*>(params),n)<<"\n";
     }
+    if(std::string(reinterpret_cast<const char*>(params),n).find("INJECT_FAILURE")!=std::string::npos)
+        return -9;
     const std::string result=source.find(" get ")!=std::string::npos?
         R"([{"name":"native-v2-callback"}])":"affected=1";
     if(result.size()>cap)return -2;
     std::memcpy(out,result.data(),result.size());
     *written=result.size();return 0;
 }
-int tx(void*,void*){return 0;}
+int txEvent(const char* event) {
+    if(const char* log=std::getenv("NOESQL_V2_MOCK_LOG")) {
+        std::ofstream stream(log,std::ios::app);
+        stream<<event<<"\n";
+    }
+    return 0;
+}
+int begin(void*,void*){return txEvent("BEGIN");}
+int commit(void*,void*){return txEvent("COMMIT");}
+int rollback(void*,void*){return txEvent("ROLLBACK");}
 int err(void*,void*,std::uint8_t*,std::size_t,std::size_t* n){*n=0;return 0;}
 const NqNoeSqlSessionV2 api{
-    2,nullptr,open,close,prepare,release,call,call,tx,tx,tx,err
+    2,nullptr,open,close,prepare,release,call,call,begin,commit,rollback,err
 };
 }
 extern "C" const NqNoeSqlSessionV2* noesql_session_v2_get(){return &api;}
