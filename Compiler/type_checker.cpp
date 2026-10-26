@@ -199,7 +199,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         Type element=checkExpr(e->elements.front());for(std::size_t i=1;i<e->elements.size();++i){Type t=checkExpr(e->elements[i]);if(!canAssignValue(element,t,e->elements[i]))diagnostics_.error("NOE-T3035",e->elements[i]->span,"array literal elements must have one compatible type");}
         e->elementSize=std::max<std::size_t>(1,element.size());Type out;out.kind=TypeKind::Array;out.element=std::make_shared<Type>(element);out.count=e->elements.size();return out;
     }
-    if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t)return*t;if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
+    if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t){e->aggregateStorage=t->kind==TypeKind::Array||t->kind==TypeKind::Record||t->kind==TypeKind::Slice;return*t;}if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
         Type t=checkExpr(e->operand);
         if(e->op==TokenKind::Try){if(!insideFunction_)diagnostics_.error("NOE-T3036",e->span,"try is only valid inside a function");if(!t.isInteger()&&t.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3037",e->span,"try expects an integer status value");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3038",e->span,"try propagation requires an integer-returning function");return t;}

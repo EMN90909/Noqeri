@@ -7,6 +7,10 @@ on:
       - 'tests/stage2_ast_smoke.noqeri'
       - 'tests/stage2_repeat_parity.noqeri'
       - 'Compiler/bootstrap/interpreter_host.cpp'
+      - 'Compiler/type_checker.cpp'
+      - 'Compiler/nir.cpp'
+      - 'Include/noqeri/ast.hpp'
+      - 'tests/record_address_storage.noqeri'
       - 'Compiler/selfhost/ast.noqeri'
       - '.github/workflows/stage2-memory.yml'
 permissions:
@@ -23,6 +27,8 @@ jobs:
         run: |
           cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
           cmake --build build-asan --target noqeri --parallel 2
+      - name: Regression - aggregate address is real backing storage
+        run: ./build-asan/noqeri run tests/record_address_storage.noqeri --unsafe
       - name: Minimal AST layout smoke
         run: ./build-asan/noqeri run tests/stage2_ast_smoke.noqeri --unsafe
       - name: Real Stage-2 parser and lowering smoke

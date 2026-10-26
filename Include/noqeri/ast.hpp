@@ -32,7 +32,7 @@ using Literal = std::variant<std::monostate,std::int64_t,double,bool,std::string
 struct Expr { virtual ~Expr()=default; Span span; };
 using ExprPtr = std::shared_ptr<Expr>;
 struct LiteralExpr final : Expr { Literal value; };
-struct NameExpr final : Expr { std::string name; };
+struct NameExpr final : Expr { std::string name; bool aggregateStorage=false; };
 struct UnaryExpr final : Expr { TokenKind op; ExprPtr operand; std::size_t memoryWidth=8; bool volatileAccess=false; Type memoryType{}; };
 struct BinaryExpr final : Expr { ExprPtr left; TokenKind op; ExprPtr right; };
 struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; bool builtinSliceSource=false; std::string builtinText; };

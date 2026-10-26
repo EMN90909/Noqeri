@@ -1,0 +1,21 @@
+// Regression: &record locals must address their full aggregate backing
+// storage, not the eight-byte scalar variable cell in the Stage-0 VM.
+record Pair {
+    first: int
+    second: int
+    third: int
+}
+function assign(p: *Pair): void {
+    p.first = 10
+    p.second = 20
+    p.third = 30
+}
+function verify(): int {
+    let value: Pair
+    assign(&value)
+    if value.first != 10 { return 1 }
+    if value.second != 20 { return 2 }
+    if value.third != 30 { return 3 }
+    return 0
+}
+print(verify())

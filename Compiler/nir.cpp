@@ -58,7 +58,18 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
     }
 }
 Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
-    if(auto n=std::dynamic_pointer_cast<NameExpr>(expr)){NirInstruction i;i.op=NirOp::AddressOf;i.dest=fn.nextReg++;i.text=n->name;emit(fn,i);return*i.dest;}
+    if(auto n=std::dynamic_pointer_cast<NameExpr>(expr)){
+        // Aggregate locals already live in StackAlloc backing storage. The
+        // Store/Load variable carries its address. AddressOf on the VM's
+        // scalar variable cell only gives eight bytes, so accessing any record
+        // field after offset 0 wrote into the host unordered_map node.
+        if(n->aggregateStorage){
+            NirInstruction load;load.op=NirOp::Load;load.dest=fn.nextReg++;
+            load.text=n->name;emit(fn,load);return *load.dest;
+        }
+        NirInstruction i;i.op=NirOp::AddressOf;i.dest=fn.nextReg++;
+        i.text=n->name;emit(fn,i);return *i.dest;
+    }
     if(auto u=std::dynamic_pointer_cast<UnaryExpr>(expr);u&&u->op==TokenKind::Star){Reg base=lowerExpr(fn,u->operand);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={base};emit(fn,check);return base;}
     if(auto x=std::dynamic_pointer_cast<IndexExpr>(expr)){
         Reg base=lowerExpr(fn,x->object);
