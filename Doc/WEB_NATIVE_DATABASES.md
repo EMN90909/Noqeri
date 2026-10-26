@@ -84,3 +84,9 @@ CMake automatically enables native SQLite/libpq/DuckDB/MySQL providers only when
 - The HTTP server remains **localhost-only**. The native `.noqeri` parser is still the current C++ bootstrap rather than full Stage-2 typed NIR compilation.
 
 Further milestones: a direct NoeSQL native session ABI/FFI with bound types, transaction grouping and rollback, migration tooling, row iteration/templates, audited production HTTP/authz, real PostgreSQL/DuckDB/MySQL tests, and full real-NoeSQL integration CI.
+
+## NoeSQL native session-v2 adapter (v0.1.4 developer preview)
+
+Set `NOESQL_NATIVE_PROVIDER=/absolute/path/to/provider.so` to use in-process Rust-compatible session callbacks rather than one subprocess per query. Noqeri requires the provider to export `noesql_session_v2_get` returning the canonical callback table with `abi_version=2`. The adapter uses `open`, `prepare`, `query`, `execute`, `begin`, `commit`, `rollback`, `release` and `close`. Its Noqeri-specific wire profile passes bind values as a bounded UTF-8 JSON object of **text** parameters. An invalid configured provider fails closed; only an application with no provider configured uses the existing native CLI fallback.
+
+The integration test uses a mock callback library to verify ABI calls, marshaling and the no-subprocess path. The separate NoeSQL Rust/Zig repository has not yet delivered a qualified real v2 provider for this profile; **do not assert full NoeSQL WAL/transaction correctness or broad production readiness from the mock**. The canonical NoeSQL engine remains owned by the NoeSQL repository, not the Noqeri web compiler.
