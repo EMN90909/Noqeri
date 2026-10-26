@@ -77,6 +77,14 @@ jobs:
             fi
           done
 
+      - name: Self-hosted Stage-2 rejects invalid owned list operations
+        run: |
+          set -euo pipefail
+          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri; do
+            if ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$path" build-beginner-list/invalid-list.nqri 3; then
+              echo "Stage-2 unexpectedly accepted $path"; exit 1
+            fi
+          done
       - name: Owned list cleanup executes before integer-status early propagation
         run: |
           set -euo pipefail

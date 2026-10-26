@@ -535,6 +535,12 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             let receiverStatus: isize = nqSemanticExpression(source,nodes,callee.left,symbols,context,functions,functionParameters,records,recordCount,fields)
             if receiverStatus < 0 as isize { return receiverStatus }
             let receiver: *NqAstNode = &nodes[callee.left as usize]
+            let memberName: *NqAstNode = &nodes[callee.right as usize]
+            if receiver.typeCode == nqAstTypeArray() &&
+               nqSemanticNameEqual(source,memberName,slice([97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8])) {
+                // Fixed arrays are deliberately not mutable List<int>s.
+                return nqSemanticFail(context,node,nqSemanticBadMember())
+            }
             if receiver.typeCode == nqAstTypeOwnedIntList() {
                 let member: *NqAstNode = &nodes[callee.right as usize]
                 if nqSemanticNameEqual(source,member,slice([97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8])) {

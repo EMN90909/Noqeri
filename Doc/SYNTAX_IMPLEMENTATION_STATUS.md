@@ -11,7 +11,7 @@ stages and supported backends before being considered generally available.
 | Stage-1/Stage-2/Stage-3 reproducible NQRI compiler | **Passed** | [Cross-compiler byte equality](https://github.com/EMN90909/Noqeri/actions/runs/40370068449); trusted Stage-1 pinned with SHA-256 `87575227208576182bcf329ad78340e62e21cda38f74eed63863f3200e40bde2`. This is portable **bytecode** selfhosting through the C++ NQRI VM, not native executable selfhosting. |
 | Stage-2 executable parity for `repeat`, array/slice `for-in`, typed expression-bodied functions | **Passed representative execution** | [Stage-2 NQRI execution](https://github.com/EMN90909/Noqeri/actions/runs/40371256165). An extended [three-backend differential run](https://github.com/EMN90909/Noqeri/actions/runs/40381230860) compares nested loops, break/continue and arrays; a [seeded 20-program corpus](https://github.com/EMN90909/Noqeri/actions/runs/40401405838) adds varied arithmetic, arrays, conditional flow and nested loops across Stage-0 and rebuilt Stage-2, with three native-AOT samples. Does not imply universal semantic or native-selfhost parity. |
 | Private function **parameter and return** type inference | **Partial: qualified scalar literal-callsite inference** | Private unannotated parameters with consistent direct `int`, `float`, `bool` or `string` literal evidence infer exact static types in both compilers; Stage-0, rebuilt Stage-2 NQRI and native AOT agree. Negative tests reject conflicting, missing, and public evidence. [Differential CI](https://github.com/EMN90909/Noqeri/actions/runs/40400201218). General contextual/recursive inference, closures and generic type-parameter inference remain unimplemented. |
-| Allocator-owned growable `List` literals | **Partial: hosted-native integer collections** | `OwnedIntList`, `OwnedIntMap`, `OwnedIntSet` automatically grow and release host-owned storage on explicit close; C++ and actual Noqeri Linux x86-64 native AOT tests pass. Generic allocator-owned `List<T>`, automatic growth of literal `[...]`, and portable NQRI/freestanding parity remain unimplemented. [Qualification](Doc/STAGE2_OWNED_RESULTS.md). |
+| Allocator-owned growable `List` literals | **Partial: verified contextual `List<int>`** | `let numbers = [5, 10]; numbers.append(15)` now auto-promotes a mutable unannotated local integer array to owned growable `List<int>` on a direct same-scope `.append` call; `.length()` works. Stage-0 interpreter, C++ emitted NQRI, rebuilt Stage-2 NQRI and Linux native AOT passed [the multi-path qualification](https://github.com/EMN90909/Noqeri/actions/runs/40411023807). Generic `List<T>`, automatic growth of every literal (without contextual append), indexing/iteration, unlimited Stage-2 owner slots, and all-exit cleanup still remain. |
 | Anonymous record literals with inferred named fields | **Not implemented** | Named records work; structural anonymous layout and ABI remain outstanding. |
 | Typed `"Hello {name}"` interpolation | **Not implemented** | Requires compiler-owned typed formatting, escaping, UTF-8 and string runtime. |
 | Lambda-based `map` and `filter` | **Not implemented** | Bounded numeric collection helper functions exist, but `=>` lambdas and generic method dispatch do not. |
@@ -63,3 +63,17 @@ is live: it releases the owned allocations before returning the failure.
 Stage-2 uses the same NIR branch/close/return sequence. Validation is
 tracked by `tests/beginner_growable_try_cleanup.noqeri`; the feature is
 not qualified until the native/reference/selfhost CI is green.
+
+## Cross-runtime beginner list acceptance
+
+The exact beginner program `let numbers = [5, 10]; numbers.append(15)`
+now executes without imports or buffer mechanics. After bounded semantic
+and lowering fixes, [CI 40411023807](https://github.com/EMN90909/Noqeri/actions/runs/40411023807)
+passed in the Stage-0 interpreter, C++-emitted NQRI, *self-hosted Stage-2-
+emitted* NQRI and Linux native AOT. The Stage-2 implementation uses eight
+checked scalar ownership slots to avoid the VM's embedded-record-array bug.
+The interpreter and native host limit a collection to 1,000,000 items.
+The compiler preserves explicit fixed-array behavior and rejects copying
+or returning an implicitly owned list. Handling negative integer-status
+`?` while lists are live is validated separately; no claim of complete
+exception safety or unconstrained generic ownership is made.
