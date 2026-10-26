@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Native web DB boundary. All engines are opt-in; NoeSQL owns .noedb.
 // No implicit NoqeriDB/NoeSQL format conversion and no SQL source interpolation.
 #pragma once
