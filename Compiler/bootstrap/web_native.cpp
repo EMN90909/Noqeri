@@ -37,7 +37,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <dlfcn.h>
 #endif
+#include "web_native_noesql_v2.hpp"
 #ifdef NOQERI_WEB_SQLITE
 #include <sqlite3.h>
 #endif
