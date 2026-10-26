@@ -25,6 +25,18 @@ add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # Portable native web static compiler/preview server: no Node.js or JavaScript tooling.
 add_executable(noqeri-web Compiler/bootstrap/web_native.cpp)
 target_compile_features(noqeri-web PRIVATE cxx_std_17)
+find_package(Threads REQUIRED)
+target_link_libraries(noqeri-web PRIVATE Threads::Threads)
+# The AOT bundler embeds the GPL bootstrap runtime when producing a standalone
+# app. Package these sources for installed compiler users; no Node.js required.
+install(FILES
+ Compiler/bootstrap/web_native.cpp
+ Compiler/bootstrap/web_native_app.hpp
+ Compiler/bootstrap/web_native_db.hpp
+ Compiler/bootstrap/web_native_bundle.hpp
+ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Compiler/bootstrap)
+install(FILES LICENSES.md LICENSES/Apache-2.0.txt
+ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/licenses)
 # Optional native SQL drivers. NoeSQL is separately built from EMN90909/NoeSQL;
 # unavailable adapters fail explicitly (no engine or file format fallback).
 option(NOQERI_WEB_SQL_DRIVERS "Enable discovered native SQL client libraries" ON)
