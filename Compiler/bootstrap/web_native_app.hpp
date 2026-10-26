@@ -282,7 +282,7 @@ std::string lower(std::string text) {
     return text;
 }
 struct AppRequest {
-    std::string method,path,host,origin,body,cookie,type;
+    std::string method,path,host,origin,body,cookie,type,authorization;
 };
 AppRequest receiveAppRequest(int fd) {
     timeval timeout{};timeout.tv_sec=4;
@@ -326,7 +326,7 @@ AppRequest receiveAppRequest(int fd) {
             return c==0||c==127||(c<32&&c!=9);
         }))throw std::runtime_error("control byte in HTTP header");
         if((name=="host"||name=="origin"||name=="cookie"||name=="content-type"||
-            name=="content-length"||name=="transfer-encoding") &&
+            name=="content-length"||name=="transfer-encoding"||name=="authorization") &&
            !singletonHeaders.insert(name).second)
             throw std::runtime_error("duplicate HTTP routing or framing header");
         while(!val.empty()&&(val.front()==' '||val.front()=='\t'))val.erase(val.begin());
@@ -342,6 +342,7 @@ AppRequest receiveAppRequest(int fd) {
         if(name=="cookie")req.cookie=val;
         if(name=="origin")req.origin=val;
         if(name=="host")req.host=val;
+        if(name=="authorization")req.authorization=val;
     }
     if(protocol=="HTTP/1.1"&&req.host.empty())
         throw std::runtime_error("missing HTTP Host header");
@@ -378,12 +379,13 @@ std::string getSid(const std::string& cookie) {
 void appReply(int fd,int status,const std::string& data,const std::string& cookie="",
               const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
-        status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
+        status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
         status==422?"Unprocessable Content":status==503?"Service Unavailable":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
         "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\r\n";
+    if(status==401)header+="WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
     if(!cookie.empty()) {
         const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
         header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
@@ -470,6 +472,14 @@ std::size_t layoutSlotCount(const std::vector<Node>& nodes) {
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
               const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
+    const char* configuredUser=std::getenv("NOQERI_WEB_BASIC_USER");
+    const char* configuredPassword=std::getenv("NOQERI_WEB_BASIC_PASSWORD");
+    if(bool(configuredUser)!=bool(configuredPassword))
+        throw std::runtime_error("both native Basic environment credentials are required");
+    if(configuredUser&&(!*configuredUser||!*configuredPassword))
+        throw std::runtime_error("Basic credentials may not be empty");
+    const std::string basicExpected=configuredUser?
+        std::string(configuredUser)+":"+configuredPassword:"";
     AppStore app;
     app.stateFile=fs::absolute(stateFile).lexically_normal();
     Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
@@ -558,6 +568,9 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             // Session/persisted map and synchronous database connections use one
             // state lock. I/O framing is concurrent; actions remain serialized.
             std::lock_guard<std::mutex> locked(stateGuard);
+            if(!nativeBasicAllowed(req.authorization,basicExpected)) {
+                appReply(client,401,"Authentication required");
+            } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
             if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB)
@@ -683,6 +696,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     if(body.size()>1024*1024)throw std::runtime_error("generated HTML too large");
                     appReply(client,200,htmlPage(body,"/theme.css"),newCookie,"",head);
                 }
+            }
             }
         } catch(const std::exception& e) {
             std::cerr<<"noqeri-web request error: "<<e.what()<<"\n";
