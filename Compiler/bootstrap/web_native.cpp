@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <cstring>
+#include <type_traits>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -26,6 +28,20 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#endif
+#ifdef NOQERI_WEB_SQLITE
+#include <sqlite3.h>
+#endif
+#ifdef NOQERI_WEB_POSTGRES
+#include <libpq-fe.h>
+#endif
+#ifdef NOQERI_WEB_DUCKDB
+#include <duckdb.h>
+#endif
+#ifdef NOQERI_WEB_MYSQL
+#include <mysql.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -33,7 +49,16 @@ namespace {
 struct Token { std::string value; bool quoted = false; std::size_t line = 1; };
 struct Atom { std::string value; bool variable = false; };
 struct Expr { std::vector<Atom> atoms; };
+struct DbConfiguration {
+    std::string engine="noesql", path, dsnEnvironment, binaryEnvironment="NOESQL_BIN";
+};
+struct DbParameterExpr {
+    std::string name;
+    Expr value;
+};
 struct Mutation {
+    std::string query;
+    std::vector<DbParameterExpr> dbParams;
     std::string target, source, op, field;
     Expr value;
 };
@@ -52,6 +77,9 @@ struct Project {
     std::set<std::string> mutableState, persistentState;
     std::size_t nextActionId = 0;
     std::map<std::string,std::string> theme;
+    DbConfiguration database;
+    bool databaseConfigured=false;
+    std::map<std::string,std::string> queries;
     std::map<std::string,Component> components;
     std::map<std::string,std::vector<Node>> routes;
     std::vector<Node> fallback;
@@ -192,8 +220,24 @@ class Parser {
         std::vector<Mutation> list;
         while (!take("}")) {
             if (list.size()>=8) fail("too many mutations in event");
-            Mutation m; m.target=identifier(); expect("=");
-            if (take("form")) {
+            Mutation m; m.target=identifier();
+            if(m.target=="db") {
+                expect("."); expect("execute"); expect("(");
+                m.op="db"; m.query=literalString();
+                while(take(",")) {
+                    DbParameterExpr param; param.name=identifier(); expect(":");
+                    if(take("form")) {
+                        expect("."); const auto field=identifier();
+                        if(field.rfind("_nq_",0)==0)fail("reserved form field");
+                        param.value.atoms.push_back({"form."+field,true});
+                    } else param.value=expression();
+                    m.dbParams.push_back(std::move(param));
+                    if(m.dbParams.size()>32)fail("too many database binds");
+                }
+                expect(")");
+            } else {
+                expect("=");
+                if (take("form")) {
                 expect("."); m.field=identifier();
                 if (m.field.rfind("_nq_",0)==0) fail("reserved form field");
                 m.op="field";
@@ -206,6 +250,7 @@ class Parser {
                     !m.value.atoms[1].value.empty() &&
                     std::all_of(m.value.atoms[1].value.begin(),m.value.atoms[1].value.end(),
                         [](char c){return c>='0'&&c<='9';})) m.op="add";
+            }
             }
             list.push_back(std::move(m)); take(";");
         }
@@ -304,6 +349,25 @@ public:
                     fail("duplicate global name");
                 if (declaration=="let") p.mutableState.insert(name);
                 if (declaration=="persist") p.persistentState.insert(name);
+            } else if (!library && take("database")) {
+                if(p.databaseConfigured) fail("database may be declared only once");
+                p.databaseConfigured=true;
+                expect("{"); std::set<std::string> fields;
+                while(!take("}")) {
+                    const auto key=identifier();expect(":");
+                    if(!fields.insert(key).second)fail("duplicate database configuration field");
+                    const auto value=evaluate(expression(),{},p.globals);
+                    if(key=="engine")p.database.engine=value;
+                    else if(key=="path")p.database.path=value;
+                    else if(key=="dsn_env")p.database.dsnEnvironment=value;
+                    else if(key=="binary_env")p.database.binaryEnvironment=value;
+                    else fail("unknown database configuration field");
+                    take(",");take(";");
+                }
+            } else if (!library && take("query")) {
+                const auto name=identifier();expect("=");
+                const auto sql=literalString();
+                if(!p.queries.emplace(name,sql).second || p.globals.count(name))fail("duplicate query/global name");
             } else if (!library && take("theme")) {
                 expect("{");
                 while (!take("}")) {
@@ -530,6 +594,8 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     Project project;
     Parser(readText(root/"main.noqeri"),project).parse();
     if (project.routes.empty()) throw std::runtime_error("native web app requires at least one route");
+    if(project.databaseConfigured||!project.queries.empty())
+        throw std::runtime_error("database queries require serve-app, not static build");
     if (!project.uiAlias.empty()) Parser(readText(uiSource(executable)),project,true).parse();
     for (const auto& [route,_]:project.routes)
         if (!validRoute(route)) throw std::runtime_error("unsafe static route: "+route);
@@ -639,6 +705,7 @@ void serve(const fs::path& input,int port) {
     }
 }
 #endif
+#include "web_native_db.hpp"
 #include "web_native_app.hpp"
 } // namespace
 int main(int argc,char** argv) {
