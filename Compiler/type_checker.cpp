@@ -316,6 +316,16 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
             if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");
             define(s->name,declared,s->isConst,s->span);return;
         }
+        if(s->inferredGrowableIntList){
+            if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
+               literal && literal->elements.empty()){
+                // The same-scope append provides the required element context.
+                // This subset is intentionally List<int>, never an implicit
+                // untyped/dynamic collection.
+                define(s->name,simple(TypeKind::List),false,s->span);
+                return;
+            }
+        }
         Type init=checkExpr(s->initializer);
         if(s->inferredGrowableIntList){
             if(init.kind!=TypeKind::Array||!init.element||

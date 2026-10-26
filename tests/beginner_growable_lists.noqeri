@@ -11,6 +11,12 @@ function verify(): int {
     let another = [9]
     another.append(8)
     if another.length() != 2 as usize { return 2 }
+    // Empty literal adopts List<int> only because same-scope append
+    // supplies its missing element type.
+    let empty = []
+    empty.append(31)
+    empty.append(32)
+    if empty.length() != 2 as usize { return 3 }
     return 0
 }
 print(verify())
