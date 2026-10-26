@@ -1,0 +1,6 @@
+// Run with NoeSQL native CLI, not legacy NoqeriDB.
+db visitors
+table visitors {
+  id: int key auto
+  name: text required
+}
