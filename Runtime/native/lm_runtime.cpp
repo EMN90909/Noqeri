@@ -168,8 +168,21 @@ std::string read_language_corpus(const std::string& filename) {
     std::string corpus(static_cast<std::size_t>(size),'\0');
     input.read(&corpus[0],static_cast<std::streamsize>(size));
     check(input.gcount()==static_cast<std::streamsize>(size), "truncated corpus");
-    encode(corpus); // validate the full file before using it
-    return corpus;
+    // Files created in Windows text mode use CRLF. Treat it as the
+    // same LF token without admitting bare carriage returns or NUL bytes.
+    std::string normalized;
+    normalized.reserve(corpus.size());
+    for (std::size_t i=0; i<corpus.size(); ++i) {
+        if (corpus[i]=='\r') {
+            check(i+1 < corpus.size() && corpus[i+1]=='\n',
+                  "bare CR in text corpus");
+            continue;
+        }
+        normalized.push_back(corpus[i]);
+    }
+    check(normalized.size() >= 16, "normalized corpus is too small");
+    encode(normalized); // validate full file before using it
+    return normalized;
 }
 LanguageModel train_language(const std::string& corpus, const LanguageOptions& opt,
                              double* trailing_loss) {

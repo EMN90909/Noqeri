@@ -42,6 +42,20 @@ int main(int argc,char** argv) {
     const auto data_file=root/"corpus.txt";
     { std::ofstream out(data_file,std::ios::binary); out<<corpus; }
     assert(read_language_corpus(data_file.string())==corpus);
+    const auto windows_file=root/"windows-crlf.txt";
+    {
+        std::ofstream out(windows_file,std::ios::binary);
+        for (char c : corpus) {
+            if(c=='\n')out<<"\r\n";
+            else out.put(c);
+        }
+    }
+    assert(read_language_corpus(windows_file.string())==corpus);
+    {
+        std::ofstream out(root/"bare-cr.txt",std::ios::binary);
+        out<<"hello\rworld\rnot-valid";
+    }
+    assert(rejects([&]{read_language_corpus((root/"bare-cr.txt").string());}));
     LanguageOptions opt; opt.steps=2200;opt.seed=7;opt.hidden=12;opt.context=4;
     double trailing_loss=0;
     auto model=train_language(corpus,opt,&trailing_loss);

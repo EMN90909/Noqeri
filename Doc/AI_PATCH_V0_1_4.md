@@ -79,3 +79,7 @@ The checked-in small-model test must not be presented as evidence those exist.
 The additive extension ships as uniquely named
 `noqeri-v0.1.4-llm-foundation-<platform>` patch packages, retaining the
 original v0.1.4 tag and existing AI assets without overwriting either.
+
+Windows CRLF text files are normalized to LF on corpus input; bare CR and
+nonprintable control bytes remain invalid. This gives identical ASCII training
+text semantics on Windows, Linux, macOS and BSD targets.
