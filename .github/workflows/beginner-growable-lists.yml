@@ -95,6 +95,7 @@ jobs:
           test "$(./build-beginner-list/noqeri run "$src")" = "0"
           ./build-beginner-list/noqeri nqri "$src" build-beginner-list/scalar-lists.nqri
           test "$(./build-beginner-list/noqeri-nqri build-beginner-list/scalar-lists.nqri verify)" = "0"
+          test "$(node Runtime/nqri-vm.mjs build-beginner-list/scalar-lists.nqri verify)" = "0"
           ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/stage2-scalar-lists.nqri 3
           test "$(./build-beginner-list/noqeri-nqri build-beginner-list/stage2-scalar-lists.nqri verify)" = "0"
           node scripts/native-build.mjs "$src" build-beginner-list/scalar-lists-native --compiler=build-beginner-list/noqeri
