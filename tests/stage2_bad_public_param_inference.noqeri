@@ -1,0 +1,3 @@
+export function publicIdentity(value): int { return value }
+function verify(): int { return publicIdentity(8) }
+print(verify())

@@ -120,3 +120,15 @@ sequences. The regression is `tests/collection_growth_unicode.noqeri`.
 These additions do not yet implement allocator-owned list literals,
 automatic growth, `for-in` on `List<T>`, or automatic custom iterator
 dispatch in the compiler.
+
+## Private parameters constrained by literal calls (experimental)
+
+A private non-generic function may omit parameter annotations when every
+omitted parameter has at least one direct scalar-literal call site, and all
+such call sites agree exactly (int, bool, float, string). For example,
+`function add(a,b) = a+b` with `add(19,23)` has an unambiguous `int`
+argument pair. Conflicting `add(1,2)` / `add(true,false)` calls or no
+literal evidence are hard compile-time errors with suggested annotations.
+This is deliberately not general Hindley–Milner inference, recursion,
+flow-sensitive inference from variable expressions, inferred public APIs,
+or dynamically typed parameters.

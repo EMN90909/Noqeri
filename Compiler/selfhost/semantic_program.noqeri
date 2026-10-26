@@ -219,6 +219,80 @@ export function nqSemanticBuildFunctions(source: []u8, nodes: []NqAstNode, first
     return nqSemanticOk()
 }
 
+
+function nqSemanticCallLiteralType(nodes: []NqAstNode, index: isize): int {
+    if index < 0 as isize || index as usize >= len(nodes) { return nqAstTypeUnknown() }
+    let node: *NqAstNode = &nodes[index as usize]
+    if node.tag == nqAstInteger() { return nqAstTypeInt() }
+    if node.tag == nqAstFloat() { return nqAstTypeFloat() }
+    if node.tag == nqAstBool() { return nqAstTypeBool() }
+    if node.tag == nqAstString() { return nqAstTypeString() }
+    if node.tag == nqAstUnary() && (node.flags == 45 as u32 || node.flags == 43 as u32) {
+        let inner: int = nqSemanticCallLiteralType(nodes,node.left)
+        if inner == nqAstTypeInt() || inner == nqAstTypeFloat() { return inner }
+    }
+    return nqAstTypeUnknown()
+}
+
+// Infer only private, nongeneric parameters from consistent literal
+// callsite evidence. A missing or conflicting constraint is a static error.
+function nqSemanticInferPrivateParameters(source: []u8, nodes: []NqAstNode, nodeCount: usize, functions: []NqFunctionInfo, functionCount: usize, parameters: []NqFunctionParameterInfo, parameterCount: usize, outErrorStart: *usize): isize {
+    let f: usize = 0 as usize
+    while f < functionCount {
+        let info: *NqFunctionInfo = &functions[f]
+        let owner: *NqAstNode = &nodes[info.astIndex as usize]
+        let paramNode: isize = owner.right
+        let p: usize = 0 as usize
+        while p < info.parameterCount && paramNode >= 0 as isize {
+            let index: usize = info.firstParameter + p
+            if index >= parameterCount { return nqSemanticProgramCapacity() }
+            let param: *NqFunctionParameterInfo = &parameters[index]
+            if param.typeCode == nqAstTypeUnknown() {
+                if owner.flags != 0 as u32 || owner.genericCount != 0 as usize {
+                    if outErrorStart != null { outErrorStart[0] = nodes[paramNode as usize].start }
+                    return nqSemanticBadFunction()
+                }
+                let inferred: int = nqAstTypeUnknown()
+                let n: usize = 0 as usize
+                while n < nodeCount {
+                    let call: *NqAstNode = &nodes[n]
+                    if call.tag == nqAstCall() && call.left >= 0 as isize {
+                        let name: *NqAstNode = &nodes[call.left as usize]
+                        if name.tag == nqAstName() && nqTypeNameSymbol(source,name.start,name.end) == info.symbol {
+                            let arg: isize = call.right
+                            let ordinal: usize = 0 as usize
+                            while ordinal < p && arg >= 0 as isize {
+                                arg = nodes[arg as usize].next
+                                ordinal = ordinal + 1 as usize
+                            }
+                            if arg >= 0 as isize && ordinal == p {
+                                let observed: int = nqSemanticCallLiteralType(nodes,arg)
+                                if observed != nqAstTypeUnknown() {
+                                    if inferred != nqAstTypeUnknown() && inferred != observed {
+                                        if outErrorStart != null { outErrorStart[0] = nodes[paramNode as usize].start }
+                                        return nqSemanticTypeMismatch()
+                                    }
+                                    inferred = observed
+                                }
+                            }
+                        }
+                    }
+                    n = n + 1 as usize
+                }
+                if inferred == nqAstTypeUnknown() {
+                    if outErrorStart != null { outErrorStart[0] = nodes[paramNode as usize].start }
+                    return nqSemanticBadFunction()
+                }
+                param.typeCode = inferred
+            }
+            paramNode = nodes[paramNode as usize].next
+            p = p + 1 as usize
+        }
+        f = f + 1 as usize
+    }
+    return nqSemanticOk()
+}
+
 function nqSemanticCopySymbolType(node: *NqAstNode, symbol: *NqSymbol): void {
     if node == null || symbol == null { return }
     nqAstApplyType(node, symbol.typeCode, symbol.typeSymbol, symbol.elementTypeCode, symbol.elementTypeSymbol, symbol.arrayLength)
@@ -605,6 +679,8 @@ function nqSemanticAnalyzeProgramCore(source: []u8, nodes: []NqAstNode, nodeCoun
     let parameterCount: usize = 0 as usize
     let functionStatus: isize = nqSemanticBuildFunctions(source, nodes, first, slice(functions), &functionCount, slice(parameters), &parameterCount)
     if functionStatus < 0 as isize { return functionStatus }
+    let inferenceStatus: isize = nqSemanticInferPrivateParameters(source,nodes,nodeCount[0],slice(functions),functionCount,slice(parameters),parameterCount,outErrorStart)
+    if inferenceStatus < 0 as isize { return inferenceStatus }
     let symbols: [NqSymbol; 131072]
     let context: NqSemanticContext
     context.symbolCount = 0 as usize

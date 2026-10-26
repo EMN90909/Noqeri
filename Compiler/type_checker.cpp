@@ -57,6 +57,26 @@ bool canAssignValue(const Type& target,const Type& value,const ExprPtr& expr){
 }
 }
 
+
+// Deliberately bounded callsite inference: direct scalar literals only.
+// No guessed dataflow, inferred recursion, promoted mixed numeric types,
+// dynamic typing, or hidden runtime specialization.
+static std::optional<Type> privateLiteralParameterType(const ExprPtr& expression) {
+    if(auto literal=std::dynamic_pointer_cast<LiteralExpr>(expression)){
+        if(std::holds_alternative<std::int64_t>(literal->value))return simple(TypeKind::Int);
+        if(std::holds_alternative<double>(literal->value))return simple(TypeKind::Float);
+        if(std::holds_alternative<bool>(literal->value))return simple(TypeKind::Bool);
+        if(std::holds_alternative<std::string>(literal->value))return simple(TypeKind::String);
+    }
+    if(auto unary=std::dynamic_pointer_cast<UnaryExpr>(expression)){
+        if(unary->op==TokenKind::Minus||unary->op==TokenKind::Plus){
+            auto value=privateLiteralParameterType(unary->operand);
+            if(value&&value->isNumeric())return value;
+        }
+    }
+    return std::nullopt;
+}
+
 TypeChecker::TypeChecker(Diagnostics& diagnostics):diagnostics_(diagnostics){pushScope();currentReturn_=simple(TypeKind::Void);}
 void TypeChecker::pushScope(){scopes_.push_back({});constScopes_.push_back({});}
 void TypeChecker::popScope(){scopes_.pop_back();constScopes_.pop_back();}
@@ -134,6 +154,90 @@ bool TypeChecker::check(const Program&program){
             else diagnostics_.error("NOE-T3021",fn->span,"function '"+fn->name+"' is already declared");
         }
         activeGenericParams_.clear();
+    }
+
+    // Collect all callsites before checking bodies. Missing annotations on
+    // private functions are accepted only with consistent literal evidence.
+    std::vector<std::shared_ptr<CallExpr>> calls;
+    std::function<void(const ExprPtr&)> gatherExpr;
+    std::function<void(const StmtPtr&)> gatherStmt;
+    gatherExpr=[&](const ExprPtr& expr) {
+        if(!expr)return;
+        if(auto call=std::dynamic_pointer_cast<CallExpr>(expr)){
+            calls.push_back(call);gatherExpr(call->callee);
+            for(const auto& arg:call->args)gatherExpr(arg);
+        } else if(auto binary=std::dynamic_pointer_cast<BinaryExpr>(expr)){
+            gatherExpr(binary->left);gatherExpr(binary->right);
+        } else if(auto unary=std::dynamic_pointer_cast<UnaryExpr>(expr)){
+            gatherExpr(unary->operand);
+        } else if(auto cast=std::dynamic_pointer_cast<CastExpr>(expr)){
+            gatherExpr(cast->value);
+        } else if(auto index=std::dynamic_pointer_cast<IndexExpr>(expr)){
+            gatherExpr(index->object);gatherExpr(index->index);
+        } else if(auto member=std::dynamic_pointer_cast<MemberExpr>(expr)){
+            gatherExpr(member->object);
+        } else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(expr)){
+            for(const auto& element:array->elements)gatherExpr(element);
+        }
+    };
+    gatherStmt=[&](const StmtPtr& stmt){
+        if(!stmt)return;
+        if(auto block=std::dynamic_pointer_cast<BlockStmt>(stmt)){
+            for(const auto& item:block->statements)gatherStmt(item);
+        }else if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
+            gatherStmt(fn->body);
+        }else if(auto binding=std::dynamic_pointer_cast<LetStmt>(stmt)){
+            gatherExpr(binding->initializer);
+        }else if(auto expression=std::dynamic_pointer_cast<ExprStmt>(stmt)){
+            gatherExpr(expression->expr);
+        }else if(auto ret=std::dynamic_pointer_cast<ReturnStmt>(stmt)){
+            gatherExpr(ret->value);
+        }else if(auto thrown=std::dynamic_pointer_cast<ThrowStmt>(stmt)){
+            gatherExpr(thrown->value);
+        }else if(auto branch=std::dynamic_pointer_cast<IfStmt>(stmt)){
+            gatherExpr(branch->condition);gatherStmt(branch->thenBranch);gatherStmt(branch->elseBranch);
+        }else if(auto loop=std::dynamic_pointer_cast<WhileStmt>(stmt)){
+            gatherExpr(loop->condition);gatherStmt(loop->body);
+        }
+    };
+    for(const auto& stmt:program.statements)gatherStmt(stmt);
+    for(const auto& stmt:program.statements){
+        auto fn=std::dynamic_pointer_cast<FunctionStmt>(stmt);
+        if(!fn)continue;
+        auto existing=functions_.find(fn->name);
+        if(existing==functions_.end())continue;
+        for(std::size_t i=0;i<fn->params.size();++i){
+            if(fn->params[i].annotation)continue;
+            auto& type=existing->second.params[i];
+            if(fn->isExport||fn->isExtern||fn->isForward||!fn->genericParams.empty()){
+                diagnostics_.error("NQR-T3063",fn->params[i].span,
+                    "public, external, generic or forward parameter '"+fn->params[i].name+"' needs an explicit type",
+                    "write '"+fn->params[i].name+": Type' in the declaration");
+                continue;
+            }
+            std::optional<Type> inferred;
+            bool conflict=false;
+            for(const auto& call:calls){
+                auto name=std::dynamic_pointer_cast<NameExpr>(call->callee);
+                if(!name||name->name!=fn->name||i>=call->args.size())continue;
+                auto evidence=privateLiteralParameterType(call->args[i]);
+                if(!evidence)continue;
+                if(inferred&&*inferred!=*evidence){conflict=true;break;}
+                inferred=evidence;
+            }
+            if(conflict){
+                diagnostics_.error("NQR-T3064",fn->params[i].span,
+                    "conflicting literal call-site types for private parameter '"+fn->params[i].name+"'",
+                    "add an explicit ': Type' annotation and cast incompatible arguments");
+            }else if(!inferred){
+                diagnostics_.error("NQR-T3065",fn->params[i].span,
+                    "cannot infer private parameter '"+fn->params[i].name+"' from literal call sites",
+                    "annotate this parameter explicitly, e.g. '"+fn->params[i].name+": int'");
+            }else{
+                type=*inferred;
+                fn->params[i].annotation=type.name();
+            }
+        }
     }
     for(const auto&stmt:program.statements)checkStmt(stmt);
     return!diagnostics_.hasErrors();

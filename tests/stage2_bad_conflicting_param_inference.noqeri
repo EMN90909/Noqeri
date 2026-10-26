@@ -1,0 +1,7 @@
+function incompatible(value) = value
+function verify(): int {
+    let first: int = incompatible(42)
+    if incompatible(true) { return 1 }
+    return first
+}
+print(verify())
