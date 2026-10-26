@@ -9,13 +9,13 @@ record List<T> {
     capacity: usize
 }
 
-export function list_length<T>(list: *List<T>): usize { return list.length }
-export function list_capacity<T>(list: *List<T>): usize { return list.capacity }
-export function list_empty<T>(list: *List<T>): bool { return list.length == 0 as usize }
-export function list_full<T>(list: *List<T>): bool { return list.length >= list.capacity }
-export function list_invariant<T>(list: *List<T>): bool { return list.length <= list.capacity && (list.capacity == 0 as usize || list.data != null) }
-export function list_index_valid<T>(list: *List<T>, index: usize): bool { return index < list.length }
-export function list_remaining<T>(list: *List<T>): usize { if list.length >= list.capacity { return 0 as usize } return list.capacity - list.length }
+export function list_length<T>(list: *List<T>): usize { unsafe {  return list.length  }}
+export function list_capacity<T>(list: *List<T>): usize { unsafe {  return list.capacity  }}
+export function list_empty<T>(list: *List<T>): bool { unsafe {  return list.length == 0 as usize  }}
+export function list_full<T>(list: *List<T>): bool { unsafe {  return list.length >= list.capacity  }}
+export function list_invariant<T>(list: *List<T>): bool { unsafe {  return list.length <= list.capacity && (list.capacity == 0 as usize || list.data != null)  }}
+export function list_index_valid<T>(list: *List<T>, index: usize): bool { unsafe {  return index < list.length  }}
+export function list_remaining<T>(list: *List<T>): usize { unsafe {  if list.length >= list.capacity { return 0 as usize } return list.capacity - list.length  }}
 
 // Reference access works for scalars and aggregate records alike; callers can
 // mutate record fields in place without forcing an unsupported aggregate copy.
@@ -24,57 +24,57 @@ export function list_ref<T>(list: *List<T>, index: usize): *T {
     return &list.data[index]
 }
 
-export function list_get_or<T: Copy>(list: *List<T>, index: usize, fallback: T): T {
+export function list_get_or<T: Copy>(list: *List<T>, index: usize, fallback: T): T { unsafe { 
     if index >= list.length || list.data == null { return fallback }
     return list.data[index]
-}
+ }}
 
-export function list_set<T: Copy>(list: *List<T>, index: usize, value: T): bool {
+export function list_set<T: Copy>(list: *List<T>, index: usize, value: T): bool { unsafe { 
     if index >= list.length || list.data == null { return false }
     list.data[index] = value
     return true
-}
+ }}
 
-export function list_push<T: Copy>(list: *List<T>, value: T): bool {
+export function list_push<T: Copy>(list: *List<T>, value: T): bool { unsafe { 
     if list.data == null || list.length >= list.capacity { return false }
     list.data[list.length] = value
     list.length = list.length + 1 as usize
     return true
-}
+ }}
 
-export function list_pop_or<T: Copy>(list: *List<T>, fallback: T): T {
+export function list_pop_or<T: Copy>(list: *List<T>, fallback: T): T { unsafe { 
     if list.data == null || list.length == 0 as usize { return fallback }
     list.length = list.length - 1 as usize
     return list.data[list.length]
-}
+ }}
 
-export function list_first_or<T: Copy>(list: *List<T>, fallback: T): T { return list_get_or(list, 0 as usize, fallback) }
-export function list_last_or<T: Copy>(list: *List<T>, fallback: T): T { if list.length == 0 as usize { return fallback } return list_get_or(list, list.length - 1 as usize, fallback) }
+export function list_first_or<T: Copy>(list: *List<T>, fallback: T): T { unsafe {  return list_get_or(list, 0 as usize, fallback)  }}
+export function list_last_or<T: Copy>(list: *List<T>, fallback: T): T { unsafe {  if list.length == 0 as usize { return fallback } return list_get_or(list, list.length - 1 as usize, fallback)  }}
 
-export function list_contains_value<T: Eq + Copy>(list: *List<T>, value: T): bool {
+export function list_contains_value<T: Eq + Copy>(list: *List<T>, value: T): bool { unsafe { 
     if list.data == null { return false }
     let i: usize = 0 as usize
     while i < list.length { if list.data[i] == value { return true } i = i + 1 as usize }
     return false
-}
+ }}
 
-export function list_index_of<T: Eq + Copy>(list: *List<T>, value: T): isize {
+export function list_index_of<T: Eq + Copy>(list: *List<T>, value: T): isize { unsafe { 
     if list.data == null { return -1 as isize }
     let i: usize = 0 as usize
     while i < list.length { if list.data[i] == value { return i as isize } i = i + 1 as usize }
     return -1 as isize
-}
+ }}
 
-export function list_clear<T>(list: *List<T>): void { list.length = 0 as usize }
-export function list_truncate<T>(list: *List<T>, length: usize): bool { if length > list.length { return false } list.length = length return true }
+export function list_clear<T>(list: *List<T>): void { unsafe {  list.length = 0 as usize  }}
+export function list_truncate<T>(list: *List<T>, length: usize): bool { unsafe {  if length > list.length { return false } list.length = length return true  }}
 
-export function list_remove_at<T: Copy>(list: *List<T>, index: usize): bool {
+export function list_remove_at<T: Copy>(list: *List<T>, index: usize): bool { unsafe { 
     if list.data == null || index >= list.length { return false }
     let i: usize = index
     while i + 1 as usize < list.length { list.data[i] = list.data[i + 1 as usize] i = i + 1 as usize }
     list.length = list.length - 1 as usize
     return true
-}
+ }}
 
 // Slice-oriented compatibility helpers retained for existing Noqeri programs.
 export function list_len<T>(items: []T): usize { return len(items) }
@@ -89,17 +89,17 @@ export function list_contains<T: Eq + Copy>(items: []T, value: T): bool { let i:
 // Copying is memmove-ordered for partially overlapping contiguous buffers.
 // Failed requests never change the existing List descriptor or elements.
 export function list_init<T>(list: *List<T>, storage: *T,
-                             length: usize, capacity: usize): bool {
+                             length: usize, capacity: usize): bool { unsafe { 
     if list == null || length > capacity { return false }
     if capacity > 0 as usize && storage == null { return false }
     list.data = storage
     list.length = length
     list.capacity = capacity
     return true
-}
+ }}
 
 export function list_rebind<T: Copy>(list: *List<T>, storage: *T,
-                                   capacity: usize): bool {
+                                   capacity: usize): bool { unsafe { 
     if list == null || !list_invariant(list) || capacity < list.length { return false }
     if capacity > 0 as usize && storage == null { return false }
     if storage != list.data {
@@ -120,11 +120,16 @@ export function list_rebind<T: Copy>(list: *List<T>, storage: *T,
     list.data = storage
     list.capacity = capacity
     return true
-}
+ }}
 
 export function list_grow_into<T: Copy>(list: *List<T>,
                                        larger_storage: *T,
-                                       larger_capacity: usize): bool {
+                                       larger_capacity: usize): bool { unsafe { 
     if list == null || larger_capacity <= list.capacity { return false }
     return list_rebind(list, larger_storage, larger_capacity)
-}
+ }}
+
+// Consistent bounded collection operations; no hidden allocator.
+export function list_size<T>(list: *List<T>): usize { return list_length(list) }
+export function list_has<T: Eq + Copy>(list: *List<T>, value: T): bool { return list_contains_value(list,value) }
+export function list_add<T: Copy>(list: *List<T>, value: T): bool { return list_push(list,value) }

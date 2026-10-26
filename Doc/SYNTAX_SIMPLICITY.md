@@ -55,7 +55,7 @@ function add(a: int, b: int): int {
 }
 ```
 
-Noqeri may infer more function types in a future edition only when inference is deterministic, diagnostics stay clear, recursion/cross-module behavior is defined and the self-host compiler proves the same result across stages. Omitting annotations must never silently turn a statically checked API into dynamic typing.
+The Stage-0 compiler now infers a private function's return type for a single unconditional typed return (or expression body) when parameters are already typed. More complex flow, recursion, public APIs and generic ABI boundaries still need explicit annotations; parameter inference and self-host Stage-2 parity remain unverified. Omitting annotations must never silently turn a statically checked API into dynamic typing.
 
 ## Projects should not look like paperwork
 

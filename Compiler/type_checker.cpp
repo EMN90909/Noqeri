@@ -117,7 +117,11 @@ bool TypeChecker::check(const Program&program){
     for(const auto&stmt:program.statements)if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
         activeGenericParams_.clear();for(const auto&g:fn->genericParams)activeGenericParams_.insert(g);
         std::vector<Type>params;for(const auto&p:fn->params)params.push_back(p.annotation?resolveType(*p.annotation,p.span):simple(TypeKind::Unknown));
-        Type ret=fn->returnType?resolveType(*fn->returnType,fn->span):simple(TypeKind::Void);
+        // Unknown is a temporary placeholder for a private inferred return.
+        // Functions without return values resolve to void in checkStmt.
+        Type ret=fn->returnType?resolveType(*fn->returnType,fn->span):
+            (fn->isExport||fn->isExtern||fn->isForward||!fn->genericParams.empty()?
+             simple(TypeKind::Void):simple(TypeKind::Unknown));
         FunctionType next{params,ret,fn->genericParams,fn->isExtern,fn->isExport,{},fn->isForward};
         auto existing=functions_.find(fn->name);
         if(existing==functions_.end())functions_[fn->name]=next;
@@ -187,7 +191,46 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
         auto sig=functions_[s->name];if(s->isExtern||s->isForward)return;
         Type saved=currentReturn_;bool savedInside=insideFunction_;auto savedGenerics=activeGenericParams_;const auto savedLoopDepth=loopDepth_;
         currentReturn_=sig.result;insideFunction_=true;loopDepth_=0;activeGenericParams_.clear();for(const auto&g:s->genericParams)activeGenericParams_.insert(g);
-        pushScope();for(std::size_t i=0;i<s->params.size();++i)define(s->params[i].name,sig.params[i],false,s->params[i].span);for(const auto&x:s->body->statements)checkStmt(x);popScope();
+        pushScope();for(std::size_t i=0;i<s->params.size();++i)define(s->params[i].name,sig.params[i],false,s->params[i].span);
+        // Only a single unconditional return is inferred. This is deliberately
+        // stricter than flow-sensitive inference; it avoids hidden recursive
+        // type cycles, ambiguous branches and unstable exported signatures.
+        if(!s->returnType) {
+            auto only=s->body->statements.size()==1?
+                std::dynamic_pointer_cast<ReturnStmt>(s->body->statements.front()):nullptr;
+            if(only && only->value) {
+                if(s->isExport || !s->genericParams.empty()) {
+                    diagnostics_.error("NQR-T3061",s->span,
+                        "public or generic function '"+s->name+"' needs an explicit return type",
+                        "add ': Type' after the parameter list to document the API contract");
+                } else if(std::any_of(s->params.begin(),s->params.end(),
+                                  [](const Parameter& p){return !p.annotation;})) {
+                    diagnostics_.error("NQR-T3060",s->span,
+                        "cannot infer the return type of '"+s->name+"' with untyped parameters",
+                        "annotate parameters, for example function add(a: int, b: int) = a + b");
+                } else {
+                    const Type inferred=checkExpr(only->value);
+                    if(inferred.kind==TypeKind::Unknown || inferred.kind==TypeKind::Null ||
+                       inferred.kind==TypeKind::Generic || inferred.kind==TypeKind::Void) {
+                        diagnostics_.error("NQR-T3060",s->span,
+                            "return type of '"+s->name+"' is not unambiguous",
+                            "add ': Type' after the parameter list (required for recursion or unresolved calls)");
+                    } else {
+                        sig.result=inferred;
+                        functions_[s->name].result=inferred;
+                        s->returnType=inferred.name();
+                    }
+                }
+            } else if(sig.result.kind==TypeKind::Unknown) {
+                // The absence of a return expression means a void function.
+                // More complex control flow with value returns must be typed.
+                sig.result=simple(TypeKind::Void);
+                functions_[s->name].result=sig.result;
+            }
+        }
+        currentReturn_=sig.result;
+        for(const auto&x:s->body->statements)checkStmt(x);
+        popScope();
         currentReturn_=saved;insideFunction_=savedInside;loopDepth_=savedLoopDepth;activeGenericParams_=std::move(savedGenerics);return;
     }
 }

@@ -131,3 +131,6 @@ export function json_token_count(value: []u8): isize {
     }
     return count as isize
 }
+// Simple names wrap existing bounded or native-host APIs; no hidden allocation.
+
+export function json_ok(status: isize): bool { return status >= 0 as isize }
