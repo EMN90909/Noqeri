@@ -115,7 +115,12 @@ private:
         if(auto cast=std::dynamic_pointer_cast<CastExpr>(expression))return borrowOf(cast->value);
         return std::nullopt;
     }
-    void checkIndex(const std::shared_ptr<IndexExpr>&index){auto literal=literalInteger(index->index);if(!literal)return;std::optional<std::size_t> count;if(auto name=std::dynamic_pointer_cast<NameExpr>(index->object)){auto it=arraySizes_.find(name->name);if(it!=arraySizes_.end())count=it->second;}else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(index->object))count=array->elements.size();if(count&&(*literal<0||static_cast<std::uint64_t>(*literal)>=static_cast<std::uint64_t>(*count)))diagnostics_.error("NQR-L4104",index->span,"fixed-array index is out of bounds","ordinary fixed-array accesses are checked statically when the index is known");}
+    void checkIndex(const std::shared_ptr<IndexExpr>&index){
+        // The original literal may have begun as [int; N], but the type
+        // checker promoted this local to a growable owned list. Its initial
+        // element count is not a permanent bounds limit.
+        if(index->growableListRead)return;
+        auto literal=literalInteger(index->index);if(!literal)return;std::optional<std::size_t> count;if(auto name=std::dynamic_pointer_cast<NameExpr>(index->object)){auto it=arraySizes_.find(name->name);if(it!=arraySizes_.end())count=it->second;}else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(index->object))count=array->elements.size();if(count&&(*literal<0||static_cast<std::uint64_t>(*literal)>=static_cast<std::uint64_t>(*count)))diagnostics_.error("NQR-L4104",index->span,"fixed-array index is out of bounds","ordinary fixed-array accesses are checked statically when the index is known");}
     void checkEscapingCall(const std::shared_ptr<CallExpr>&call){auto it=summaries_.find(calleeName(call->callee));if(it==summaries_.end())return;for(auto index:it->second.escapeParams)if(index<call->args.size()){auto source=borrowOf(call->args[index]);if(!source)source=sourceOf(call->args[index]);if(source&&!source->parameter)diagnostics_.error("NQR-L4106",call->span,"call may store a borrow of local storage ('"+source->source+"') beyond its safe lifetime","pass caller-owned storage or copy owned data instead");}}
     void expression(const ExprPtr&expr){
         if(!expr)return;
