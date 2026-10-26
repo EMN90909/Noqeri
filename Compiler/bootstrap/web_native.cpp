@@ -777,7 +777,10 @@ int main(int argc,char** argv) {
     try {
         if (argc==2 && std::string(argv[1])=="drivers") {
             const char* noesql=std::getenv("NOESQL_BIN");
-            std::cout<<"noesql: "<<(noesql&&*noesql?"configured":"requires NOESQL_BIN")<<" (external native NoeSQL engine)\n";
+            const char* provider=std::getenv("NOESQL_NATIVE_PROVIDER");
+            std::cout<<"noesql: "<<(provider&&*provider?"session-v2 provider configured":
+                (noesql&&*noesql?"native CLI configured":"requires NOESQL_NATIVE_PROVIDER or NOESQL_BIN"))
+                <<" (NoeSQL owns the engine)\n";
 #ifdef NOQERI_WEB_SQLITE
             std::cout<<"sqlite: compiled\n";
 #else
