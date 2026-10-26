@@ -408,10 +408,10 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
     // No user-controlled path or request body enters structured access logs.
     std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"http_response\",\"status\":"<<status<<"}\n";
 }
-void sessionPrune(AppStore& app) {
+void sessionPrune(AppStore& app,std::chrono::seconds ttl=std::chrono::hours(1)) {
     const auto now=std::chrono::steady_clock::now();
     for(auto i=app.sessions.begin();i!=app.sessions.end();) {
-        if(now-i->second.seen>std::chrono::hours(1))i=app.sessions.erase(i);
+        if(now-i->second.seen>ttl)i=app.sessions.erase(i);
         else ++i;
     }
     while(app.sessions.size()>=256) {
@@ -535,6 +535,19 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         throw std::runtime_error("Basic credentials may not be empty");
     const std::string basicExpected=configuredUser?
         std::string(configuredUser)+":"+configuredPassword:"";
+    // Explicit TTL supports short-lived sessions without changing the cookie
+    // format; this is also used to test expiry without waiting an hour.
+    std::chrono::seconds sessionTtl{3600};
+    if(const char* setting=std::getenv("NOQERI_WEB_SESSION_TTL_SECONDS")) {
+        const std::string value(setting);
+        if(value.empty()||value.size()>4||
+           !std::all_of(value.begin(),value.end(),[](char c){return c>='0'&&c<='9';}))
+            throw std::runtime_error("session TTL must be 1..3600 seconds");
+        const auto seconds=std::stoi(value);
+        if(seconds<1||seconds>3600)
+            throw std::runtime_error("session TTL must be 1..3600 seconds");
+        sessionTtl=std::chrono::seconds(seconds);
+    }
     AppStore app;
     app.stateFile=fs::absolute(stateFile).lexically_normal();
     Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
@@ -646,7 +659,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     std::lock_guard<std::mutex> locked(stateGuard);
                     auto session=app.sessions.find(getSid(req.cookie));
                     if(session==app.sessions.end() ||
-                       std::chrono::steady_clock::now()-session->second.seen>std::chrono::hours(1)) {
+                       std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
                         appReply(client,403,"Session expired");
                     } else if(req.origin!="http://127.0.0.1:"+std::to_string(port)&&
                               req.origin!="http://localhost:"+std::to_string(port)) {
@@ -732,12 +745,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     auto sid=getSid(req.cookie);
                     auto session=app.sessions.find(sid);
                     if(session!=app.sessions.end() &&
-                       std::chrono::steady_clock::now()-session->second.seen>std::chrono::hours(1)) {
+                       std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
                         app.sessions.erase(session);
                         session=app.sessions.end();
                     }
                     if(session==app.sessions.end()) {
-                        sessionPrune(app);
+                        sessionPrune(app,sessionTtl);
                         sid=randomToken();
                         AppSession created;
                         created.csrf=randomToken();
