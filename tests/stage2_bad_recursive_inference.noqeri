@@ -1,0 +1,4 @@
+// A recursive inferred return is not unambiguous.
+function recurse(value: int) = recurse(value)
+function verify(): int { return recurse(1) }
+print(verify())

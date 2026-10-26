@@ -1,0 +1,11 @@
+// Stage-2 private return inference must match Stage-0 and native AOT.
+function add(a: int, b: int) = a + b
+function twice(value: int) { return value * 2 }
+function constant() = 7
+function verify(): int {
+    if add(20,22) != 42 { return 1 }
+    if twice(5) != 10 { return 2 }
+    if constant() != 7 { return 3 }
+    return 0
+}
+print(verify())

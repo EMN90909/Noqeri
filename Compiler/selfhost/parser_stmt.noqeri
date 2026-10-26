@@ -349,9 +349,12 @@ function nqStmtParseFunction(source: []u8, start: usize, nodes: []NqAstNode, cou
         body = nqStmtParseBlock(source, cursor, nodes, count, &end)
         if body < 0 as isize { return nqAstNoNode() }
     } else if bodyToken.kind == nqTokenOperator() && bodyToken.first == 61 as u8 {
-        // Require explicit types until Stage-2 can prove sound private
-        // parameter/return type inference across call sites and recursion.
-        if returnTypeStart == 0 as usize { return nqAstNoNode() }
+        // Infer a private expression-body return only when all input types
+        // are explicit. Public, generic and forward APIs require annotations.
+        if returnTypeStart == 0 as usize {
+            if (modifiers / nqAstFlagExport()) % 2 as u32 != 0 as u32 { return nqAstNoNode() }
+            if maybeGeneric.kind == nqTokenOperator() && maybeGeneric.first == 60 as u8 { return nqAstNoNode() }
+        }
         let parameter: isize = firstParam
         while parameter >= 0 as isize {
             if nodes[parameter as usize].extra < 0 as isize { return nqAstNoNode() }

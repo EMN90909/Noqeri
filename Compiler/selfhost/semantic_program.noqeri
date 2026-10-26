@@ -126,6 +126,26 @@ function nqSemanticFunctionReturnRef(source: []u8, nodes: []NqAstNode, functionI
         return true
     }
     out.code = nqAstTypeVoid()
+    // A private non-generic function whose only statement is a return
+    // can infer the result from that expression when parameters are typed.
+    // The call signature stays Unknown until its body is checked in order;
+    // self recursion and forward unresolved calls fail rather than using
+    // runtime/dynamic inference.
+    if fn.extra >= 0 as isize && fn.genericCount == 0 as usize && fn.flags == 0 as u32 {
+        let body: *NqAstNode = &nodes[fn.extra as usize]
+        if body.tag == nqAstBlock() && body.extra == 1 as isize && body.left >= 0 as isize {
+            let only: *NqAstNode = &nodes[body.left as usize]
+            if only.tag == nqAstReturn() && only.left >= 0 as isize {
+                let typed: bool = true
+                let param: isize = fn.right
+                while param >= 0 as isize {
+                    if nodes[param as usize].extra < 0 as isize { typed = false }
+                    param = nodes[param as usize].next
+                }
+                if typed { out.code = nqAstTypeUnknown() }
+            }
+        }
+    }
     out.nameSymbol = 0 as u64
     out.elementCode = nqAstTypeUnknown()
     out.elementSymbol = 0 as u64
@@ -476,6 +496,24 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
             let status: isize = nqSemanticExpression(source, nodes, node.left, symbols, context, functions, functionParameters, records, recordCount, fields)
             if status < 0 as isize { return status }
             actual = nodes[node.left as usize].typeCode
+        }
+        if context.currentReturnCode == nqAstTypeUnknown() {
+            if node.left < 0 as isize || actual == nqAstTypeUnknown() ||
+               actual == nqAstTypeVoid() || actual == nqAstTypeNull() ||
+               actual == nqAstTypeGeneric() { return nqSemanticInvalidReturn() }
+            if context.currentFunction < 0 as isize { return nqSemanticInvalidReturn() }
+            let functionNode: *NqAstNode = &nodes[context.currentFunction as usize]
+            let functionName: *NqAstNode = &nodes[functionNode.left as usize]
+            let signature: u64 = nqTypeNameSymbol(source,functionName.start,functionName.end)
+            let fi: isize = nqSemanticFunctionFind(functions,context.functionCount,signature)
+            if fi < 0 as isize { return nqSemanticBadFunction() }
+            context.currentReturnCode = actual
+            context.currentReturnSymbol = nodes[node.left as usize].typeSymbol
+            functions[fi as usize].returnCode = actual
+            functions[fi as usize].returnSymbol = nodes[node.left as usize].typeSymbol
+            functions[fi as usize].returnElementCode = nodes[node.left as usize].elementTypeCode
+            functions[fi as usize].returnElementSymbol = nodes[node.left as usize].elementTypeSymbol
+            return nqSemanticOk()
         }
         if !nqSemanticReturnValid(actual, context.currentReturnCode) { return nqSemanticInvalidReturn() }
         return nqSemanticOk()

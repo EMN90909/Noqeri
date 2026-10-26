@@ -1,0 +1,4 @@
+// Public function signatures require explicit return contracts.
+export function public_twice(value: int) = value * 2
+function verify(): int { return public_twice(1) }
+print(verify())
