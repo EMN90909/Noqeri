@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'Compiler/selfhost/**'
       - 'Compiler/type_checker.cpp'
       - 'Compiler/nir.cpp'
       - 'Compiler/core.cpp'
