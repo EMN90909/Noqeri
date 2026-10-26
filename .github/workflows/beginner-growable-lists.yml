@@ -70,19 +70,6 @@ jobs:
           result=$(./build-beginner-list/noqeri-nqri build-beginner-list/selfhost-lists.nqri verify)
           echo "Self-hosted Stage-2 list verification: $result"
           test "$result" = "0"
-      - name: Float and bool list semantics match the compiler and execution engines
-        run: |
-          set -euo pipefail
-          src=tests/beginner_growable_scalar_lists.noqeri
-          ./build-beginner-list/noqeri check "$src"
-          test "$(./build-beginner-list/noqeri run "$src")" = "0"
-          ./build-beginner-list/noqeri nqri "$src" build-beginner-list/scalar-lists.nqri
-          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/scalar-lists.nqri verify)" = "0"
-          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/stage2-scalar-lists.nqri 3
-          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/stage2-scalar-lists.nqri verify)" = "0"
-          node scripts/native-build.mjs "$src" build-beginner-list/scalar-lists-native --compiler=build-beginner-list/noqeri
-          test "$(./build-beginner-list/scalar-lists-native)" = "0"
-
       - name: Reject mismatched, fixed and aliased mutable collections
         run: |
           set -euo pipefail
@@ -100,6 +87,19 @@ jobs:
               echo "Stage-2 unexpectedly accepted $path"; exit 1
             fi
           done
+      - name: Float and bool list semantics match the compiler and execution engines
+        run: |
+          set -euo pipefail
+          src=tests/beginner_growable_scalar_lists.noqeri
+          ./build-beginner-list/noqeri check "$src"
+          test "$(./build-beginner-list/noqeri run "$src")" = "0"
+          ./build-beginner-list/noqeri nqri "$src" build-beginner-list/scalar-lists.nqri
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/scalar-lists.nqri verify)" = "0"
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/stage2-scalar-lists.nqri 3
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/stage2-scalar-lists.nqri verify)" = "0"
+          node scripts/native-build.mjs "$src" build-beginner-list/scalar-lists-native --compiler=build-beginner-list/noqeri
+          test "$(./build-beginner-list/scalar-lists-native)" = "0"
+
       - name: Owned list cleanup executes before integer-status early propagation
         run: |
           set -euo pipefail
