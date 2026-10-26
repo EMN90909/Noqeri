@@ -45,3 +45,79 @@ export function vector_squared_error(left: []float, right: []float): float {
     }
     return total
 }
+
+// Everyday integer aggregation. Imports remain explicit and no runtime
+// allocation is required. Fixed arrays use slice(prices).
+export function sum(values: []int): int {
+    let total: int = 0
+    let i: usize = 0 as usize
+    while i < len(values) {
+        total = total + values[i]
+        i = i + 1 as usize
+    }
+    return total
+}
+
+// Checked alternative: never partially writes out on overflow.
+// This remains useful even when NOQERI_CHECKED_OVERFLOW is disabled.
+export function sum_checked(values: []int, out: *int): bool {
+    if out == null { return false }
+    let total: int = 0
+    let maximum: int = 9223372036854775807
+    let minimum: int = -9223372036854775807 - 1
+    let i: usize = 0 as usize
+    while i < len(values) {
+        let value: int = values[i]
+        if value > 0 && total > maximum - value { return false }
+        if value < 0 && total < minimum - value { return false }
+        total = total + value
+        i = i + 1 as usize
+    }
+    out[0] = total
+    return true
+}
+export function average_or(values: []int, fallback: float): float {
+    if len(values) == 0 as usize { return fallback }
+    // Accumulate into float to avoid integer overflow in the mean.
+    let total: float = 0.0
+    let i: usize = 0 as usize
+    while i < len(values) {
+        total = total + values[i] as float
+        i = i + 1 as usize
+    }
+    return total / len(values) as float
+}
+export function count_at_least(values: []int, threshold: int): usize {
+    let count: usize = 0 as usize
+    let i: usize = 0 as usize
+    while i < len(values) {
+        if values[i] >= threshold { count = count + 1 as usize }
+        i = i + 1 as usize
+    }
+    return count
+}
+// No hidden allocation. Return -1 for insufficient output; validate capacity
+// before mutating destination so callers do not see a partial filter result.
+export function filter_at_least(values: []int, threshold: int, output: []int): isize {
+    let count: usize = count_at_least(values, threshold)
+    if count > len(output) { return -1 as isize }
+    let written: usize = 0 as usize
+    let i: usize = 0 as usize
+    while i < len(values) {
+        if values[i] >= threshold {
+            output[written] = values[i]
+            written = written + 1 as usize
+        }
+        i = i + 1 as usize
+    }
+    return written as isize
+}
+export function map_add(values: []int, offset: int, output: []int): bool {
+    if len(values) > len(output) { return false }
+    let i: usize = 0 as usize
+    while i < len(values) {
+        output[i] = values[i] + offset
+        i = i + 1 as usize
+    }
+    return true
+}

@@ -473,6 +473,18 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
         if context.loopDepth == 0 as usize { return nqSemanticFail(context, node, nqSemanticInvalidLoopControl()) }
         return nqSemanticOk()
     }
+    if node.tag == nqAstRepeat() {
+        let status: isize = nqSemanticExpression(source, nodes, node.left, symbols, context, functions, functionParameters, records, recordCount, fields)
+        if status < 0 as isize { return status }
+        // Match Stage-0's cast-to-int count; reject nonnumeric values instead of
+        // accepting a dynamic truth test or silently interpreting a string.
+        let kind: int = nodes[node.left as usize].typeCode
+        if !nqCompilerTypeIsInteger(kind) && kind != nqAstTypeFloat() { return nqSemanticInvalidCondition() }
+        context.loopDepth = context.loopDepth + 1 as usize
+        let bodyStatus: isize = nqSemanticStatement(source, nodes, node.right, symbols, context, functions, functionParameters, records, recordCount, fields)
+        context.loopDepth = context.loopDepth - 1 as usize
+        return bodyStatus
+    }
     if node.tag == nqAstIf() || node.tag == nqAstWhile() {
         let status: isize = nqSemanticExpression(source, nodes, node.left, symbols, context, functions, functionParameters, records, recordCount, fields)
         if status < 0 as isize { return status }

@@ -1,0 +1,46 @@
+name: Noqeri Stage-2 repeat and everyday numeric helpers
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/ast.noqeri'
+      - 'Compiler/selfhost/parser_stmt.noqeri'
+      - 'Compiler/selfhost/semantic_program.noqeri'
+      - 'Compiler/selfhost/lower.noqeri'
+      - 'Lib/std/numeric.noqeri'
+      - 'tests/stage2_repeat_parity.noqeri'
+      - 'tests/check_stage2_repeat.py'
+      - 'examples/simplicity/**'
+      - '.github/workflows/stage2-simplicity.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/**'
+      - 'Lib/std/numeric.noqeri'
+      - 'tests/stage2_repeat_parity.noqeri'
+      - 'tests/check_stage2_repeat.py'
+      - 'examples/simplicity/**'
+      - '.github/workflows/stage2-simplicity.yml'
+permissions:
+  contents: read
+jobs:
+  stage2-syntax:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure C++ bootstrap compiler
+        run: cmake -S . -B build-simplicity -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF
+      - name: Build actual Stage-0 compiler
+        run: cmake --build build-simplicity --target noqeri --parallel 2
+      - name: Check self-hosted compiler source with Stage-0
+        run: ./build-simplicity/noqeri check Compiler/selfhost/main.noqeri
+      - name: Verify Stage-2 repeat parsing, semantics and lowering
+        run: python3 tests/check_stage2_repeat.py ./build-simplicity/noqeri tests/stage2_repeat_parity.noqeri
+      - name: Run practical numeric aggregation and filtering example
+        run: |
+          set -euo pipefail
+          ./build-simplicity/noqeri check examples/simplicity/students.noqeri
+          ./build-simplicity/noqeri run examples/simplicity/students.noqeri | grep -Fx NUMERIC_SIMPLICITY_PASS
+      - name: Check original repeat syntax compatibility
+        run: ./build-simplicity/noqeri check tests/repeat_loop.noqeri

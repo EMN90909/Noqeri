@@ -45,7 +45,7 @@ repeat 5 {
 }
 ```
 
-The bootstrap compiler supports this spelling. During the 0.7 self-host migration it is not considered release-qualified until Stage-2 parser, semantics and lowering parity tests pass.
+The bootstrap compiler supports this spelling. The Stage-2 parser, semantics and lowering now include a dedicated counted-loop path and focused regression tests. This establishes frontend/NIR coverage but is not proof of full Stage-2 self-host bootstrap, executable parity or a release-qualified compiler.
 
 Functions stay explicit where types communicate an API boundary:
 

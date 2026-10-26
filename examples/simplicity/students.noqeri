@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+import "../../Lib/std/numeric.noqeri"
+
+let scores: [int; 5] = [78,42,91,65,30]
+let passed: [int; 5]
+let howMany: isize = filter_at_least(slice(scores),50,slice(passed))
+if howMany != 3 as isize { throw -1 }
+let total: int = sum(slice(passed,howMany as usize))
+if total != 234 { throw -2 }
+let checked: int = 0
+if !sum_checked(slice(scores),&checked) || checked != 306 { throw -3 }
+let average: float = average_or(slice(passed,howMany as usize),0.0)
+if average != 78.0 { throw -4 }
+if count_at_least(slice(scores),50) != 3 as usize { throw -5 }
+print("NUMERIC_SIMPLICITY_PASS")

@@ -549,6 +549,81 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         } else { instructions[branch as usize].immediate = state.instructionCount as i64 }
         return nqLowerOk()
     }
+    if node.tag == nqAstRepeat() {
+        // The synthetic slot has a distinct 64-bit namespace from ordinary
+        // hashed source identifiers. Neither its spelling nor address can
+        // be provided by a user program.
+        let slot: u64 = 18446744069414584320 as u64 + nodeIndex as u64
+        let rawCount: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
+        if rawCount < 0 as isize { return rawCount }
+        let countValue: isize = nqLowerAllocRegister(state)
+        let cast: isize = nqLowerEmit(instructions, state, nqNirCast(), countValue)
+        if cast < 0 as isize { return cast }
+        instructions[cast as usize].left = rawCount
+        instructions[cast as usize].typeCode = nqAstTypeInt()
+        let initial: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if initial < 0 as isize { return initial }
+        instructions[initial as usize].symbol = slot
+        instructions[initial as usize].left = countValue
+
+        let loopStart: usize = state.instructionCount
+        let remaining: isize = nqLowerAllocRegister(state)
+        let load: isize = nqLowerEmit(instructions, state, nqNirLoad(), remaining)
+        if load < 0 as isize { return load }
+        instructions[load as usize].symbol = slot
+        instructions[load as usize].typeCode = nqAstTypeInt()
+        let zero: isize = nqLowerEmitConst(instructions, state, 0 as i64, nqAstTypeInt())
+        if zero < 0 as isize { return zero }
+        let condition: isize = nqLowerAllocRegister(state)
+        let greater: isize = nqLowerEmit(instructions, state, nqNirGt(), condition)
+        if greater < 0 as isize { return greater }
+        instructions[greater as usize].left = remaining
+        instructions[greater as usize].right = zero
+        instructions[greater as usize].typeCode = nqAstTypeBool()
+        let branch: isize = nqLowerEmit(instructions, state, nqNirBranch(), nqNirNoValue())
+        if branch < 0 as isize { return branch }
+        instructions[branch as usize].left = condition
+
+        // Decrement before the body: continue jumps back to the condition
+        // and cannot skip the decrement. Protect against INT_MIN by reaching
+        // this point only when remaining > 0.
+        let one: isize = nqLowerEmitConst(instructions, state, 1 as i64, nqAstTypeInt())
+        if one < 0 as isize { return one }
+        let nextValue: isize = nqLowerAllocRegister(state)
+        let minus: isize = nqLowerEmit(instructions, state, nqNirSub(), nextValue)
+        if minus < 0 as isize { return minus }
+        instructions[minus as usize].left = remaining
+        instructions[minus as usize].right = one
+        instructions[minus as usize].typeCode = nqAstTypeInt()
+        let decrement: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if decrement < 0 as isize { return decrement }
+        instructions[decrement as usize].symbol = slot
+        instructions[decrement as usize].left = nextValue
+
+        let savedStart: usize = state.loopStart
+        let savedBreakHead: isize = state.breakHead
+        state.loopDepth = state.loopDepth + 1 as usize
+        state.loopStart = loopStart
+        state.breakHead = nqNirNoValue()
+        let bodyStatus: isize = nqLowerStatement(source, nodes, node.right, instructions, state)
+        if bodyStatus < 0 as isize { return bodyStatus }
+        let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
+        if jump < 0 as isize { return jump }
+        instructions[jump as usize].immediate = loopStart as i64
+        let ending: usize = state.instructionCount
+        instructions[branch as usize].immediate = ending as i64
+        let pending: isize = state.breakHead
+        while pending >= 0 as isize {
+            let nextPending: isize = instructions[pending as usize].left
+            instructions[pending as usize].left = nqNirNoValue()
+            instructions[pending as usize].immediate = ending as i64
+            pending = nextPending
+        }
+        state.breakHead = savedBreakHead
+        state.loopStart = savedStart
+        state.loopDepth = state.loopDepth - 1 as usize
+        return nqLowerOk()
+    }
     if node.tag == nqAstWhile() {
         let loopStart: usize = state.instructionCount
         let condition: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
