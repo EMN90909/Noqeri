@@ -35,7 +35,7 @@ struct LiteralExpr final : Expr { Literal value; };
 struct NameExpr final : Expr { std::string name; bool aggregateStorage=false; };
 struct UnaryExpr final : Expr { TokenKind op; ExprPtr operand; std::size_t memoryWidth=8; bool volatileAccess=false; Type memoryType{}; std::size_t tryOkOffset=0,tryValueOffset=0,tryValueWidth=0; };
 struct BinaryExpr final : Expr { ExprPtr left; TokenKind op; ExprPtr right; };
-struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; bool builtinSliceSource=false; std::string builtinText; bool growableListMethod=false; };
+struct CallExpr final : Expr { ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; bool builtinSliceSource=false; std::string builtinText; bool growableListMethod=false; Type builtinResultType{}; };
 struct CastExpr final : Expr { ExprPtr value; std::string typeName; };
 struct IndexExpr final : Expr { ExprPtr object,index; std::size_t elementSize=1; bool volatileAccess=false; bool baseIsSlice=false; bool hasFixedBound=false; std::size_t fixedBound=0; bool growableListRead=false; Type elementType{}; };
 struct MemberExpr final : Expr { ExprPtr object; std::string member; std::size_t offset=0; std::size_t fieldSize=0; bool volatileAccess=false; bool baseIsPointer=false; Type fieldType{}; };
