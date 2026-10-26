@@ -1,0 +1,3 @@
+let value: isize = 42 as isize
+let failed: isize = value?
+print(failed)

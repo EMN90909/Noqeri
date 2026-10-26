@@ -132,3 +132,13 @@ literal evidence are hard compile-time errors with suggested annotations.
 This is deliberately not general Hindley–Milner inference, recursion,
 flow-sensitive inference from variable expressions, inferred public APIs,
 or dynamically typed parameters.
+
+## Postfix status propagation
+
+`value?` is being introduced as the more concise spelling of
+`try value`, **only** for integer status expressions inside functions
+with integer return types. It propagates a negative status early and
+otherwise evaluates to the original value. Boolean, string and
+noninteger expressions are rejected. The syntax is deliberately **not**
+`Option<T>`/`Result<T,E>` propagation and is subject to executable
+Stage-0 / Stage-2 / native AOT qualification.

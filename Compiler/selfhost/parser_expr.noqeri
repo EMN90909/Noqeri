@@ -143,6 +143,15 @@ function nqExprParsePostfix(source: []u8, start: usize, nodes: []NqAstNode, coun
             nodes[access as usize].right = memberName
             value = access
             cursor = member.end
+        } else if token.kind == nqTokenOperator() && token.first == 63 as u8 && token.end - token.start == 1 as usize {
+            // Map the postfix spelling to the existing typed 'try' AST
+            // and NQRI propagation. The two spellings share one semantic path.
+            let propagated: isize = nqExprPush(nodes, count, nqAstUnary(), nodes[value as usize].start, token.end)
+            if propagated < 0 as isize { return propagated }
+            nodes[propagated as usize].left = value
+            nodes[propagated as usize].flags = 0x747279 as u32
+            value = propagated
+            cursor = token.end
         } else { outEnd[0] = cursor return value }
     }
     return value

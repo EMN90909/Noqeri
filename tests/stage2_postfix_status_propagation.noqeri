@@ -1,0 +1,16 @@
+// Postfix ? shares integer-status propagation semantics with prefix try.
+function good(): isize { return 12 as isize }
+function fail(): isize { return -41 as isize }
+function run(value: int): isize {
+    let result: isize = good()?
+    if result != 12 as isize { return -12 as isize }
+    if value == 0 { return 17 as isize }
+    let second: isize = fail()?
+    return second
+}
+function verify(): int {
+    if run(0) != 17 as isize { return 1 }
+    if run(1) != -41 as isize { return 2 }
+    return 0
+}
+print(verify())

@@ -21,6 +21,9 @@ on:
       - 'tests/stage2_bad_conflicting_param_inference.noqeri'
       - 'tests/stage2_bad_missing_param_inference.noqeri'
       - 'tests/stage2_bad_public_param_inference.noqeri'
+      - 'tests/stage2_postfix_status_propagation.noqeri'
+      - 'tests/stage2_bad_postfix_noninteger.noqeri'
+      - 'tests/stage2_bad_postfix_global.noqeri'
       - '.github/workflows/stage2-nqri-execution.yml'
   workflow_dispatch:
 permissions:
@@ -147,6 +150,27 @@ jobs:
               echo "Stage-0 unexpectedly accepted $source"; exit 1
             fi
             if ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri "$source" build-stage2-nqri/bad-infer.nqri 3; then
+              echo "Stage-2 unexpectedly accepted $source"; exit 1
+            fi
+          done
+
+      - name: Postfix status propagation matches prefix try in three runtimes
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri check tests/stage2_postfix_status_propagation.noqeri
+          stage0=$(./build-stage2-nqri/noqeri run tests/stage2_postfix_status_propagation.noqeri)
+          ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri tests/stage2_postfix_status_propagation.noqeri build-stage2-nqri/postfix.nqri 3
+          stage2=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/postfix.nqri verify)
+          node scripts/native-build.mjs tests/stage2_postfix_status_propagation.noqeri build-stage2-nqri/postfix-native --compiler=build-stage2-nqri/noqeri
+          native=$(./build-stage2-nqri/postfix-native)
+          echo "Postfix status: Stage-0 $stage0, Stage-2 $stage2, native $native"
+          test "$stage0" = "0" && test "$stage2" = "0" && test "$native" = "0"
+      - name: Postfix ? rejects invalid boolean types and global propagation
+        run: |
+          set -euo pipefail
+          for source in tests/stage2_bad_postfix_noninteger.noqeri tests/stage2_bad_postfix_global.noqeri; do
+            if ./build-stage2-nqri/noqeri check "$source"; then echo "Stage-0 unexpectedly accepted $source"; exit 1; fi
+            if ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri "$source" build-stage2-nqri/invalid-postfix.nqri 3; then
               echo "Stage-2 unexpectedly accepted $source"; exit 1
             fi
           done

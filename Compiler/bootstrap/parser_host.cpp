@@ -424,6 +424,17 @@ ExprPtr Parser::call(){
         if(match({TokenKind::LParen})){auto c=std::make_shared<CallExpr>();c->callee=e;c->span=previous().span;if(!check(TokenKind::RParen))do{c->args.push_back(expression());}while(match({TokenKind::Comma}));consume(TokenKind::RParen,"expected ')' after arguments");e=c;continue;}
         if(match({TokenKind::LBracket})){auto x=std::make_shared<IndexExpr>();x->object=e;x->index=expression();x->span=previous().span;consume(TokenKind::RBracket,"expected ']' after index");e=x;continue;}
         if(match({TokenKind::Dot})){const auto& m=consumeName("expected field name after '.'");auto x=std::make_shared<MemberExpr>();x->object=e;x->member=m.lexeme;x->span=m.span;e=x;continue;}
+        if(match({TokenKind::Question})){
+            // Postfix integer-status propagation uses the exact same typed
+            // Try AST and lowering as the existing 'try expression' form.
+            const auto suffix=previous();
+            auto propagate=std::make_shared<UnaryExpr>();
+            propagate->op=TokenKind::Try;
+            propagate->operand=e;
+            propagate->span=suffix.span;
+            e=propagate;
+            continue;
+        }
         break;
     }
     return e;

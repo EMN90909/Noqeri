@@ -1,0 +1,6 @@
+function invalid(): bool {
+    let b: bool = true
+    let result: bool = b?
+    return result
+}
+print(invalid())
