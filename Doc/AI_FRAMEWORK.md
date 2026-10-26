@@ -88,3 +88,15 @@ AdamW, mixed precision, quantization, distributed training, accelerator
 kernels, or full Noqeri compiler-level bindings. It is a real but bounded
 foundation for building those features without changing Noqeri's general-
 purpose language grammar.
+
+## Direct native bindings (Linux x86-64 AOT preview)
+
+Ordinary Noqeri programs can import `Lib/ai/native.noqeri` and explicitly
+link `libnoqeri_ai` with `scripts/native-build.mjs --ai-framework`.
+The source API now exposes bounded GEMM, row-wise or causally masked
+softmax, and gradient-clipped SGD through caller-owned buffers. Each
+operation returns a status and rejects invalid dimensions, capacities,
+modes and nonfinite inputs without partially modifying the output.
+These bindings do not yet execute under the Stage-2 NQRI VM or Stage-0
+reference interpreter. Complete autodifferentiation graphs and model
+training still require the native C++ SDK/CLI.

@@ -23,6 +23,24 @@ typedef struct nq_ai_gemm_request {
 // 0 success, negatives for invalid args/shape/capacity/backend/runtime failure.
 // Failures do not modify the output buffer. No C++ exception crosses this ABI.
 int64_t nq_ai_gemm(const nq_ai_gemm_request *request);
+
+typedef struct nq_ai_softmax_request {
+    const double *input;
+    size_t rows, cols;
+    double *output;
+    size_t output_capacity;
+    uint32_t causal;
+} nq_ai_softmax_request;
+int64_t nq_ai_softmax(const nq_ai_softmax_request *request);
+// 0 success; negatives: pointer -1, shape -2, capacity -3, mode -4, runtime -5.
+typedef struct nq_ai_sgd_request {
+    const double *parameters, *gradients;
+    size_t count;
+    double learning_rate, gradient_clip;
+    double *output;
+    size_t output_capacity;
+} nq_ai_sgd_request;
+int64_t nq_ai_sgd(const nq_ai_sgd_request *request);
 #ifdef __cplusplus
 }
 #endif

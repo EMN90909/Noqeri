@@ -23,3 +23,26 @@ extern function nq_ai_gemm(request: *AiGemmRequest): isize
 export function ai_native_gemm(request: *AiGemmRequest): isize {
     return nq_ai_gemm(request)
 }
+
+record AiSoftmaxRequest {
+    input: *float
+    rows: usize
+    cols: usize
+    output: *float
+    output_capacity: usize
+    causal: u32
+}
+extern function nq_ai_softmax(request: *AiSoftmaxRequest): isize
+export function ai_native_softmax(request: *AiSoftmaxRequest): isize { return nq_ai_softmax(request) }
+
+record AiSgdRequest {
+    parameters: *float
+    gradients: *float
+    count: usize
+    learning_rate: float
+    gradient_clip: float
+    output: *float
+    output_capacity: usize
+}
+extern function nq_ai_sgd(request: *AiSgdRequest): isize
+export function ai_native_sgd(request: *AiSgdRequest): isize { return nq_ai_sgd(request) }
