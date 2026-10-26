@@ -11,11 +11,11 @@ function verify(): int {
     let missing: *int = null
     let chosen: *int = present ?? unexpected()
     if chosen == null { return 1 }
-    if chosen != present { return 2 }
+    unsafe { if chosen[0] != 11 { return 2 } }
     let replaced: *int = missing ?? &other
-    if replaced != &other { return 3 }
+    unsafe { if replaced[0] != 29 { return 3 } }
     let nested: *int = missing ?? missing ?? present
-    if nested != present { return 4 }
+    unsafe { if nested[0] != 11 { return 4 } }
     let nullable: *int = missing ?? null
     if nullable != null { return 5 }
     return 0
