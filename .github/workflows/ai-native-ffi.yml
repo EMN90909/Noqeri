@@ -10,6 +10,7 @@ on:
       - 'Lib/ai/native.noqeri'
       - 'tests/cpp/ai_framework_c_test.cpp'
       - 'examples/simplicity/ai_native_gemm.noqeri'
+      - 'examples/simplicity/ai_native_extended.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
       - '.github/workflows/ai-native-ffi.yml'
@@ -46,6 +47,13 @@ jobs:
           node scripts/native-build.mjs tests/native_float_aot.noqeri build-ai-ffi/native-float --compiler=build-ai-ffi/noqeri
           result=$(./build-ai-ffi/native-float)
           echo "Native float arithmetic: $result"
+          test "$result" = "0"
+      - name: Build and run Noqeri AOT softmax and SGD applications
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs examples/simplicity/ai_native_extended.noqeri build-ai-ffi/ai-native-extended --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-extended)
+          echo "Noqeri native AI softmax/SGD check: $result"
           test "$result" = "0"
       - name: Build and run Noqeri AOT app calling native C++ tensor SDK
         run: |

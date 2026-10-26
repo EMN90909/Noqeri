@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: Apache-2.0
+// Prove the softmax and clipped-SGD native operations are callable from
+// ordinary Noqeri source, not only from the C++ SDK tests.
+import "../../Lib/ai/native.noqeri"
+function verify(): int {
+    let scores: [float; 4] = [0.0,0.0,1.0,1.0]
+    let probabilities: [float; 4]
+    let softmax: AiSoftmaxRequest
+    softmax.input = &scores[0]
+    softmax.rows = 2 as usize
+    softmax.cols = 2 as usize
+    softmax.output = &probabilities[0]
+    softmax.output_capacity = 4 as usize
+    softmax.causal = 0 as u32
+    if ai_native_softmax(&softmax) != 0 as isize { return 1 }
+    if probabilities[0] != 0.5 || probabilities[1] != 0.5 { return 2 }
+    if probabilities[2] != 0.5 || probabilities[3] != 0.5 { return 3 }
+
+    let params: [float; 2] = [1.0,2.0]
+    let gradients: [float; 2] = [1.0,-1.0]
+    let updated: [float; 2]
+    let sgd: AiSgdRequest
+    sgd.parameters = &params[0]
+    sgd.gradients = &gradients[0]
+    sgd.count = 2 as usize
+    sgd.learning_rate = 0.1
+    sgd.gradient_clip = 10.0
+    sgd.output = &updated[0]
+    sgd.output_capacity = 2 as usize
+    if ai_native_sgd(&sgd) != 0 as isize { return 4 }
+    if updated[0] < 0.8999 || updated[0] > 0.9001 { return 5 }
+    if updated[1] < 2.0999 || updated[1] > 2.1001 { return 6 }
+
+    // On invalid capacity a rejected operation must leave output intact.
+    updated[0] = -99.0
+    sgd.output_capacity = 1 as usize
+    if ai_native_sgd(&sgd) != -3 as isize || updated[0] != -99.0 { return 7 }
+    return 0
+}
+print(verify())
