@@ -1,0 +1,53 @@
+name: Stage-2 NQRI source execution parity
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/**'
+      - 'Compiler/bootstrap/**'
+      - 'Lib/std/**'
+      - 'examples/simplicity/for_collections.noqeri'
+      - 'examples/simplicity/short_functions.noqeri'
+      - 'tests/repeat_loop.noqeri'
+      - '.github/workflows/stage2-nqri-execution.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stage2-bytecode-execution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build NQRI VM and validate pinned compiler
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-stage2-nqri -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-stage2-nqri --target noqeri-nqri --parallel 2
+          sha256sum -c Compiler/selfhost/trusted-stage1.sha256
+          ./build-stage2-nqri/noqeri-nqri has-export Compiler/selfhost/trusted-stage1.nqri stage2CompileToNqri
+      - name: Rebuild current Stage-2 NQRI module
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri-nqri compile-manifest Compiler/selfhost/trusted-stage1.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-stage2-nqri/stage2.nqri 3
+      - name: Execute counted loops using actual Stage-2 compiler
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri tests/repeat_loop.noqeri build-stage2-nqri/repeat.nqri 3
+          result=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/repeat.nqri main)
+          echo "Stage-2 repeat: $result"
+          test "$result" = "0"
+      - name: Execute array and slice iteration using actual Stage-2 compiler
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri examples/simplicity/for_collections.noqeri build-stage2-nqri/for.nqri 3
+          result=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/for.nqri checkForCollections)
+          echo "Stage-2 for-in: $result"
+          test "$result" = "0"
+      - name: Execute typed expression functions using actual Stage-2 compiler
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri examples/simplicity/short_functions.noqeri build-stage2-nqri/functions.nqri 3
+          result=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/functions.nqri checkShortFunctions)
+          echo "Stage-2 expression functions: $result"
+          test "$result" = "0"
