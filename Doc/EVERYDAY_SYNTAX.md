@@ -53,8 +53,7 @@ run without dynamic allocations and can be used with the existing
 
 The following remain **design targets, not implemented syntax**:
 
-- `function add(a,b) = a+b`: sound cross-call inference and expression
-  bodies require compiler-wide type inference, ABI and Stage-2 work.
+- `function add(a,b) = a+b`: sound cross-call inference requires compiler-wide type inference, ABI and Stage-2 work. Typed expression bodies, such as `function add(a: int, b: int): int = a + b`, are supported in both parsers.
 - `for item in items`: a common iterator protocol and Stage-0/Stage-2
   array/slice iterator lowering must agree before this spelling is released.
 - Growable `List` literals and anonymous record literals: lifetime,

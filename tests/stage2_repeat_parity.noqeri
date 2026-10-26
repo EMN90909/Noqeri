@@ -53,3 +53,27 @@ function rejectsUnclosedRepeat(): int {
 }
 print(parsedAndLowered())
 print(rejectsUnclosedRepeat())
+
+function parsesTypedExpressionFunction(): int {
+    let source: [u8; 36] = [102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8,32 as u8,100 as u8,111 as u8,117 as u8,98 as u8,108 as u8,101 as u8,40 as u8,120 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,41 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,61 as u8,32 as u8,120 as u8,32 as u8,42 as u8,32 as u8,50 as u8]
+    let nodes: [NqAstNode; 64]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source), slice(nodes), &count, &first) != 0 as isize { return 10 }
+    if first < 0 as isize || nodes[first as usize].tag != nqAstFunction() { return 11 }
+    let body: isize = nodes[first as usize].extra
+    if body < 0 as isize || nodes[body as usize].tag != nqAstBlock() { return 12 }
+    let returned: isize = nodes[body as usize].left
+    if returned < 0 as isize || nodes[returned as usize].tag != nqAstReturn() { return 13 }
+    return 0
+}
+function rejectsUnannotatedExpressionFunction(): int {
+    let source: [u8; 26] = [102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8,32 as u8,98 as u8,114 as u8,111 as u8,107 as u8,101 as u8,110 as u8,40 as u8,120 as u8,41 as u8,32 as u8,61 as u8,32 as u8,120 as u8,32 as u8,43 as u8,32 as u8,49 as u8]
+    let nodes: [NqAstNode; 64]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source), slice(nodes), &count, &first) >= 0 as isize { return 14 }
+    return 0
+}
+print(parsesTypedExpressionFunction())
+print(rejectsUnannotatedExpressionFunction())

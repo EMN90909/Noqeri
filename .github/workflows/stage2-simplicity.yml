@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'Compiler/bootstrap/parser_host.cpp'
+      - 'Compiler/bootstrap/interpreter_host.cpp'
       - 'Compiler/selfhost/ast.noqeri'
       - 'Compiler/selfhost/parser_stmt.noqeri'
       - 'Compiler/selfhost/semantic_program.noqeri'
@@ -15,6 +17,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'Compiler/bootstrap/parser_host.cpp'
       - 'Compiler/selfhost/**'
       - 'Lib/std/numeric.noqeri'
       - 'tests/stage2_repeat_parity.noqeri'
@@ -42,5 +45,14 @@ jobs:
           set -euo pipefail
           ./build-simplicity/noqeri check examples/simplicity/students.noqeri --unsafe
           ./build-simplicity/noqeri run examples/simplicity/students.noqeri --unsafe | grep -Fx NUMERIC_SIMPLICITY_PASS
+      - name: Check and run typed expression-bodied functions
+        run: |
+          set -euo pipefail
+          ./build-simplicity/noqeri check examples/simplicity/short_functions.noqeri
+          ./build-simplicity/noqeri run examples/simplicity/short_functions.noqeri | grep -Fx SHORT_FUNCTIONS_PASS
+      - name: Boolean equality runtime regression
+        run: |
+          set -euo pipefail
+          ./build-simplicity/noqeri run tests/bool_equality.noqeri | grep -Fx BOOL_EQUALITY_PASS
       - name: Check original repeat syntax compatibility
         run: ./build-simplicity/noqeri check tests/repeat_loop.noqeri

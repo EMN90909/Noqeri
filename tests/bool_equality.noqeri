@@ -1,0 +1,6 @@
+// The bootstrap NIR interpreter must compare booleans as typed values.
+if true == false { throw -1 }
+if true != true { throw -2 }
+if (2 < 3) != (4 > 1) { throw -3 }
+if (2 < 3) == (1 > 5) { throw -4 }
+print("BOOL_EQUALITY_PASS")

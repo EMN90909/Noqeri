@@ -40,7 +40,7 @@ terminator     := ";"
 functionDecl   := "function" IDENT genericParams?
                   "(" parameters? ")"
                   (":" type)?
-                  (block | terminator?)
+                  (block | "=" expression terminator? | terminator?)
 
 genericParams  := "<" IDENT ("," IDENT)* ">"
 parameters     := parameter ("," parameter)*

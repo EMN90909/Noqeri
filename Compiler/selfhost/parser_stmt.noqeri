@@ -318,6 +318,26 @@ function nqStmtParseFunction(source: []u8, start: usize, nodes: []NqAstNode, cou
     if bodyToken.kind == nqTokenPunctuation() && bodyToken.first == 123 as u8 {
         body = nqStmtParseBlock(source, cursor, nodes, count, &end)
         if body < 0 as isize { return nqAstNoNode() }
+    } else if bodyToken.kind == nqTokenOperator() && bodyToken.first == 61 as u8 {
+        // Require explicit types until Stage-2 can prove sound private
+        // parameter/return type inference across call sites and recursion.
+        if returnTypeStart == 0 as usize { return nqAstNoNode() }
+        let parameter: isize = firstParam
+        while parameter >= 0 as isize {
+            if nodes[parameter as usize].extra < 0 as isize { return nqAstNoNode() }
+            parameter = nodes[parameter as usize].next
+        }
+        let exprEnd: usize = bodyToken.end
+        let value: isize = nqParserParseExpression(source, bodyToken.end, nodes, count, &exprEnd)
+        if value < 0 as isize { return nqAstNoNode() }
+        let returned: isize = nqAstArenaPush(nodes, count, nqAstReturn(), bodyToken.start, exprEnd)
+        if returned < 0 as isize { return returned }
+        nodes[returned as usize].left = value
+        body = nqAstArenaPush(nodes, count, nqAstBlock(), bodyToken.start, exprEnd)
+        if body < 0 as isize { return body }
+        nodes[body as usize].left = returned
+        nodes[body as usize].extra = 1 as isize
+        end = nqStmtOptionalSemicolon(source, exprEnd)
     } else { end = nqStmtOptionalSemicolon(source, cursor) }
     let function: isize = nqAstArenaPush(nodes, count, nqAstFunction(), keyword.start, end)
     if function < 0 as isize { return function }

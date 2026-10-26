@@ -1,0 +1,8 @@
+// Syntax sugar for a statically typed single-expression function.
+// There is no dynamic typing and both Stage-0 and Stage-2 parse this form.
+function add(a: int, b: int): int = a + b
+function triple(x: int): int = x * 3
+
+if add(5, 3) != 8 { throw -1 }
+if triple(7) != 21 { throw -2 }
+print("SHORT_FUNCTIONS_PASS")

@@ -199,6 +199,27 @@ StmtPtr Parser::functionDeclaration(bool isExtern,bool isExport){
     auto fn=std::make_shared<FunctionStmt>();
     fn->span=name.span;fn->name=name.lexeme;fn->genericParams=std::move(genericParams);fn->params=std::move(params);fn->returnType=ret;fn->isExtern=isExtern;fn->isExport=isExport;
     if(isExtern){match({TokenKind::Semicolon});fn->body=std::make_shared<BlockStmt>();return fn;}
+    if(match({TokenKind::Equal})){
+        // This is a statically typed expression body, not a new inference or
+        // dynamic-call path. Keep ABI/API contracts explicit across stages.
+        if(!ret || std::any_of(fn->params.begin(),fn->params.end(),
+                              [](const Parameter& p){return !p.annotation;})){
+            diagnostics_.error("NQR-P2021",name.span,
+                "single-expression functions require parameter and return types",
+                "write function add(a: int, b: int): int = a + b");
+            throw ParseError("parse");
+        }
+        auto value=expression();
+        match({TokenKind::Semicolon});
+        auto result=std::make_shared<ReturnStmt>();
+        result->span=name.span;
+        result->value=value;
+        auto body=std::make_shared<BlockStmt>();
+        body->span=name.span;
+        body->statements.push_back(result);
+        fn->body=body;
+        return fn;
+    }
     if(!check(TokenKind::LBrace)){
         fn->isForward=true;
         match({TokenKind::Semicolon});
