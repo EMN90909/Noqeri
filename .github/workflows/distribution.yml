@@ -93,7 +93,7 @@ jobs:
             -DBUILD_TESTING=ON "-DNOQERI_PACKAGE_TARGET=$env:RELEASE_TARGET"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build toolchain and portability test
-        run: cmake --build build --config Release --target noqeri noqeri-nqri noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
+        run: cmake --build build --config Release --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
       - name: Portable graphics and shader tests
         run: ctest --test-dir build -C Release --output-on-failure -R '^noqeri-graphics-'
       - name: Install SDK
@@ -219,7 +219,7 @@ jobs:
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF \
             "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET" -DBUILD_TESTING=OFF
       - name: Cross-compile Android SDK
-        run: cmake --build build-android --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 2
+        run: cmake --build build-android --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath --parallel 2
       - name: Install Android SDK
         run: cmake --install build-android --prefix stage
       - name: Verify Android binaries and SDK files
