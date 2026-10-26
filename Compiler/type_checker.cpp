@@ -265,8 +265,8 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             Type l=checkExpr(e->left),r=checkExpr(e->right);
             if(l.kind==TypeKind::Pointer && (r==l || r.kind==TypeKind::Null))return l;
             if(l.kind==TypeKind::Null && r.kind==TypeKind::Pointer)return r;
-            diagnostics_.error("NQR-T3060",e->span,
-              "'??' requires a nullable pointer and a matching pointer fallback",
+            diagnostics_.error("NQR-T3062",e->span,
+              "the ?? operator requires a nullable pointer and a matching pointer fallback",
               "use pointers of the same type, for example: value ?? fallback; use an explicit Result match for errors");
             return simple(TypeKind::Unknown);
         }

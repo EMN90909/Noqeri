@@ -15,5 +15,4 @@ let chosen: *int = missing ?? &fallback
 This deliberately **does not** add option/result unwrapping, `?.`, or postfix
 `?` propagation. Borrow/lifetime checking still applies to pointer values.
 Tests: `stage2_pointer_coalesce.noqeri`, and invalid numeric/mismatched-pointer
-fixtures. The cross-runtime gate checks Stage-0, rebuilt Stage-2 NQRI and
-Linux x86-64 native AOT; do not mark generally supported until CI is green.
+fixtures. The [cross-runtime gate](https://github.com/EMN90909/Noqeri/actions/runs/40390884638) passed on Stage-0, rebuilt Stage-2 NQRI and Linux x86-64 native AOT. Pointer equality and pointer dereference beyond this bounded fixture are not qualified by this result.
