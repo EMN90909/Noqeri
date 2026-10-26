@@ -45,6 +45,16 @@ jobs:
           # The standalone NQRI CLI also prints the invoked entry's
           # integer return value (0), unlike the Stage-0 run command.
           test "$output" = "$(printf '3\n0\n0')"
+
+      - name: Self-hosted Stage-2 compiler accepts and executes beginner list source
+        run: |
+          set -euo pipefail
+          sha256sum -c Compiler/selfhost/trusted-stage1.sha256
+          ./build-beginner-list/noqeri-nqri compile-manifest Compiler/selfhost/trusted-stage1.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-beginner-list/selfhost-stage2.nqri 3
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri tests/beginner_growable_lists.noqeri build-beginner-list/selfhost-lists.nqri 3
+          result=$(./build-beginner-list/noqeri-nqri build-beginner-list/selfhost-lists.nqri verify)
+          echo "Self-hosted Stage-2 list verification: $result"
+          test "$result" = "0"
       - name: Native Linux AOT auto links owned storage with no special flags
         run: |
           set -euo pipefail

@@ -10,26 +10,37 @@ private:
     int compare(const Value&a,const Value&b){if((std::holds_alternative<std::int64_t>(a)||std::holds_alternative<double>(a))&&(std::holds_alternative<std::int64_t>(b)||std::holds_alternative<double>(b))){double x=asDouble(a),y=asDouble(b);return x<y?-1:x>y?1:0;}throw RuntimeError("ordered comparison requires numbers");}
     Value zeroValueForType(std::string text){text.erase(text.begin(),std::find_if(text.begin(),text.end(),[](unsigned char c){return!std::isspace(c);}));text.erase(std::find_if(text.rbegin(),text.rend(),[](unsigned char c){return!std::isspace(c);}).base(),text.end());if(text.empty())throw RuntimeError("zero-init marker has no type");if(text.rfind("[]",0)==0)return sliceValue(nullptr,0);if(text[0]=='*')return std::monostate{};if(text[0]=='['){auto sem=text.rfind(';'), close=text.rfind(']');if(sem==std::string::npos||close==std::string::npos||sem>close)throw RuntimeError("invalid zero-init array type "+text);auto length=static_cast<std::size_t>(std::stoull(text.substr(sem+1,close-sem-1)));auto block=std::make_shared<MemoryBlock>(std::min<std::size_t>(length>std::numeric_limits<std::size_t>::max()/8?std::numeric_limits<std::size_t>::max():length*8,1024),length);return blockPtr(block);}auto generic=text.substr(0,text.find('<'));if(module_.recordTypes.count(generic))return blockPtr(std::make_shared<MemoryBlock>(128));if(text=="float")return 0.0;if(text=="string")return sliceValue(blockPtr(std::make_shared<MemoryBlock>(0,0)),0);static const std::unordered_set<std::string> scalars={"bool","int","i8","u8","i16","u16","i32","u32","i64","u64","isize","usize"};if(scalars.count(text))return std::int64_t{0};if(std::isupper(static_cast<unsigned char>(text[0])))return std::int64_t{0};throw RuntimeError("unsupported zero-init type "+text);}
     Value hostCall(const std::string& name,const std::vector<Value>& args,const Instruction& ins,std::size_t depth){
-        if(name=="nq_list_new"){
+        auto builtinListSymbol=[](const char* word)->std::uint64_t {
+            std::uint64_t hash=2166136261ull;
+            for(const unsigned char* p=reinterpret_cast<const unsigned char*>(word);*p;++p)
+                hash=(hash*16777619ull+static_cast<std::uint64_t>(*p)+1ull)%4294967291ull;
+            return hash+1ull;
+        };
+        std::string dispatch=name;
+        if(ins.symbol==builtinListSymbol("nq_list_new"))dispatch="nq_list_new";
+        else if(ins.symbol==builtinListSymbol("nq_list_append"))dispatch="nq_list_append";
+        else if(ins.symbol==builtinListSymbol("nq_list_length"))dispatch="nq_list_length";
+        else if(ins.symbol==builtinListSymbol("nq_list_close"))dispatch="nq_list_close";
+        if(dispatch=="nq_list_new"){
             if(nextGrowingIntList_==std::numeric_limits<std::int64_t>::max())
                 throw RuntimeError("growable list ID space exhausted");
             const auto id=nextGrowingIntList_++;
             growingIntLists_.emplace(id,std::vector<std::int64_t>{});
             return id;
         }
-        if(name=="nq_list_append"||name=="nq_list_length"||name=="nq_list_close"){
+        if(dispatch=="nq_list_append"||dispatch=="nq_list_length"||dispatch=="nq_list_close"){
             if(args.empty())throw RuntimeError("growable list handle is missing");
             const auto id=asInt(args[0]);
             auto it=growingIntLists_.find(id);
             if(it==growingIntLists_.end())throw RuntimeError("invalid or released growable list");
-            if(name=="nq_list_append"){
+            if(dispatch=="nq_list_append"){
                 if(args.size()!=2)throw RuntimeError("growable list append requires one int");
                 if(it->second.size()>=1000000)
                     throw RuntimeError("growable list exceeded one-million-element cap");
                 it->second.push_back(asInt(args[1]));
                 return std::int64_t{0};
             }
-            if(name=="nq_list_length")return static_cast<std::int64_t>(it->second.size());
+            if(dispatch=="nq_list_length")return static_cast<std::int64_t>(it->second.size());
             growingIntLists_.erase(it);
             return std::int64_t{0};
         }

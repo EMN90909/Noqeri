@@ -9,6 +9,8 @@ record NqLowerState {
     loopDepth: usize
     loopStart: usize
     breakHead: isize
+    ownedCount: usize
+    ownedSymbols: [u64; 64]
 }
 
 export function nqLowerOk(): isize { return 0 }
@@ -24,6 +26,52 @@ export function nqLowerStateInit(out: *NqLowerState): void {
     out.loopDepth = 0 as usize
     out.loopStart = 0 as usize
     out.breakHead = nqNirNoValue()
+    out.ownedCount = 0 as usize
+}
+
+
+function nqLowerListSymbol(which: int): u64 {
+    if which == 1 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,110 as u8,101 as u8,119 as u8]),0 as usize,11 as usize) }
+    if which == 2 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8]),0 as usize,14 as usize) }
+    if which == 3 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,108 as u8,101 as u8,110 as u8,103 as u8,116 as u8,104 as u8]),0 as usize,14 as usize) }
+    return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,99 as u8,108 as u8,111 as u8,115 as u8,101 as u8]),0 as usize,13 as usize)
+}
+function nqLowerListCall(instructions: []NqNirInstruction,state: *NqLowerState,which: int,left: isize,right: isize): isize {
+    let count: usize = 0 as usize
+    if which != 1 {
+        let arg: isize = nqLowerEmit(instructions,state,nqNirCallArg(),nqNirNoValue())
+        if arg < 0 as isize { return arg }
+        instructions[arg as usize].left = left
+        instructions[arg as usize].immediate = 0 as i64
+        count = 1 as usize
+    }
+    if which == 2 {
+        let arg: isize = nqLowerEmit(instructions,state,nqNirCallArg(),nqNirNoValue())
+        if arg < 0 as isize { return arg }
+        instructions[arg as usize].left = right
+        instructions[arg as usize].immediate = 1 as i64
+        count = 2 as usize
+    }
+    let reg: isize = nqLowerAllocRegister(state)
+    let emitted: isize = nqLowerEmit(instructions,state,nqNirCall(),reg)
+    if emitted < 0 as isize { return emitted }
+    instructions[emitted as usize].symbol = nqLowerListSymbol(which)
+    instructions[emitted as usize].width = count
+    instructions[emitted as usize].typeCode = nqAstTypeInt()
+    return reg
+}
+function nqLowerCloseOwnedLists(instructions: []NqNirInstruction,state: *NqLowerState,boundary: usize): isize {
+    let cursor: usize = state.ownedCount
+    while cursor > boundary {
+        cursor = cursor - 1 as usize
+        let reg: isize = nqLowerAllocRegister(state)
+        let load: isize = nqLowerEmit(instructions,state,nqNirLoad(),reg)
+        if load < 0 as isize { return load }
+        instructions[load as usize].symbol = state.ownedSymbols[cursor]
+        let closed: isize = nqLowerListCall(instructions,state,4,reg,nqNirNoValue())
+        if closed < 0 as isize { return closed }
+    }
+    return nqLowerOk()
 }
 
 function nqLowerAllocRegister(state: *NqLowerState): isize {
@@ -437,6 +485,16 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
     }
     if node.tag == nqAstCall() {
         let callee: *NqAstNode = &nodes[node.left as usize]
+        if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
+            let receiver: isize = nqLowerExpressionInternal(source,nodes,callee.left,instructions,state)
+            if receiver < 0 as isize { return receiver }
+            if node.extra == 1 as isize {
+                let value: isize = nqLowerExpressionInternal(source,nodes,node.right,instructions,state)
+                if value < 0 as isize { return value }
+                return nqLowerListCall(instructions,state,2,receiver,value)
+            }
+            return nqLowerListCall(instructions,state,3,receiver,nqNirNoValue())
+        }
         let symbol: u64 = nqNirSymbolId(source, callee.start, callee.end)
         if symbol == 0 as u64 { return nqLowerBadAst() }
         // Evaluate all arguments before pushing any call-argument instruction.
@@ -484,6 +542,28 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     let node: *NqAstNode = &nodes[nodeIndex as usize]
     if node.tag == nqAstExpressionStatement() { let value: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state) if value < 0 as isize { return value } return nqLowerOk() }
     if node.tag == nqAstBinding() {
+        if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
+            if state.ownedCount >= 64 as usize { return nqLowerCapacity() }
+            let handle: isize = nqLowerListCall(instructions,state,1,nqNirNoValue(),nqNirNoValue())
+            if handle < 0 as isize { return handle }
+            let ownedSymbol: u64 = nqLowerNodeSymbol(source,nodes,node.left)
+            let storeList: isize = nqLowerEmit(instructions,state,nqNirStore(),nqNirNoValue())
+            if storeList < 0 as isize { return storeList }
+            instructions[storeList as usize].left = handle
+            instructions[storeList as usize].symbol = ownedSymbol
+            state.ownedSymbols[state.ownedCount] = ownedSymbol
+            state.ownedCount = state.ownedCount + 1 as usize
+            let array: *NqAstNode = &nodes[node.right as usize]
+            let element: isize = array.right
+            while element >= 0 as isize {
+                let item: isize = nqLowerExpressionInternal(source,nodes,element,instructions,state)
+                if item < 0 as isize { return item }
+                let appended: isize = nqLowerListCall(instructions,state,2,handle,item)
+                if appended < 0 as isize { return appended }
+                element = nodes[element as usize].next
+            }
+            return nqLowerOk()
+        }
         let value: isize = nqLowerExpressionInternal(source, nodes, node.right, instructions, state)
         if value < 0 as isize { return value }
         let store: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
@@ -496,6 +576,8 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     if node.tag == nqAstReturn() {
         let value: isize = nqNirNoValue()
         if node.left >= 0 as isize { value = nqLowerExpressionInternal(source, nodes, node.left, instructions, state) if value < 0 as isize { return value } }
+        let clean: isize = nqLowerCloseOwnedLists(instructions,state,0 as usize)
+        if clean < 0 as isize { return clean }
         let emitted: isize = nqLowerEmit(instructions, state, nqNirReturn(), nqNirNoValue())
         if emitted < 0 as isize { return emitted }
         instructions[emitted as usize].left = value
@@ -510,12 +592,16 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         return nqLowerOk()
     }
     if node.tag == nqAstBlock() {
+        let boundary: usize = state.ownedCount
         let cursor: isize = node.left
         while cursor >= 0 as isize {
             let status: isize = nqLowerStatement(source, nodes, cursor, instructions, state)
             if status < 0 as isize { return status }
             cursor = nodes[cursor as usize].next
         }
+        let clean: isize = nqLowerCloseOwnedLists(instructions,state,boundary)
+        if clean < 0 as isize { return clean }
+        state.ownedCount = boundary
         return nqLowerOk()
     }
     if node.tag == nqAstBreak() || node.tag == nqAstContinue() {
@@ -768,6 +854,7 @@ export function nqLowerFunction(source: []u8, nodes: []NqAstNode, nodeIndex: isi
     if out == null || nodeIndex < 0 as isize || nodeIndex as usize >= len(nodes) { return nqLowerBadAst() }
     let node: *NqAstNode = &nodes[nodeIndex as usize]
     if node.tag != nqAstFunction() || node.left < 0 as isize { return nqLowerBadAst() }
+    state.ownedCount = 0 as usize
     let name: *NqAstNode = &nodes[node.left as usize]
     out.symbol = nqNirSymbolId(source, name.start, name.end)
     out.nameStart = name.start
@@ -800,6 +887,9 @@ export function nqLowerFunction(source: []u8, nodes: []NqAstNode, nodeIndex: isi
         let status: isize = nqLowerStatement(source, nodes, node.extra, instructions, state)
         if status < 0 as isize { return status }
     }
+    let clean: isize = nqLowerCloseOwnedLists(instructions,state,0 as usize)
+    if clean < 0 as isize { return clean }
+    state.ownedCount = 0 as usize
     if state.instructionCount == out.firstInstruction || !nqNirIsTerminator(instructions[state.instructionCount - 1 as usize].opcode) {
         let ret: isize = nqLowerEmit(instructions, state, nqNirReturn(), nqNirNoValue())
         if ret < 0 as isize { return ret }
@@ -819,7 +909,20 @@ export function nqLowerProgram(source: []u8, nodes: []NqAstNode, first: isize, i
         let node: *NqAstNode = &nodes[cursor as usize]
         if node.tag == nqAstFunction() {
             if functionCount >= len(functions) { return nqLowerCapacity() }
+            let savedOwnedCount: usize = state.ownedCount
+            let savedOwnedSymbols: [u64; 64]
+            let saveIndex: usize = 0 as usize
+            while saveIndex < savedOwnedCount {
+                savedOwnedSymbols[saveIndex] = state.ownedSymbols[saveIndex]
+                saveIndex = saveIndex + 1 as usize
+            }
             let status: isize = nqLowerFunction(source, nodes, cursor, instructions, &state, &functions[functionCount])
+            state.ownedCount = savedOwnedCount
+            let restoreIndex: usize = 0 as usize
+            while restoreIndex < savedOwnedCount {
+                state.ownedSymbols[restoreIndex] = savedOwnedSymbols[restoreIndex]
+                restoreIndex = restoreIndex + 1 as usize
+            }
             if status < 0 as isize { return status }
             functionCount = functionCount + 1 as usize
         } else if node.tag != nqAstModule() && node.tag != nqAstImport() && node.tag != nqAstRecord() {
