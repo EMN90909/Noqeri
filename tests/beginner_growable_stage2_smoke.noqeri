@@ -1,0 +1,7 @@
+// Narrow Stage-2 compilation check for .append and implicit cleanup.
+function verify(): int {
+    let numbers = [5, 10]
+    numbers.append(15)
+    return 0
+}
+print(verify())
