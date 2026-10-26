@@ -89,7 +89,7 @@ export function nqCompilerTokenEnd(source: []u8, start: usize): usize {
     if index + 1 < len(source) {
         let a: u8 = source[index]
         let b: u8 = source[index + 1]
-        if (a == 61 as u8 && b == 61 as u8) || (a == 33 as u8 && b == 61 as u8) || (a == 60 as u8 && b == 61 as u8) || (a == 62 as u8 && b == 61 as u8) || (a == 38 as u8 && b == 38 as u8) || (a == 124 as u8 && b == 124 as u8) || (a == 45 as u8 && b == 62 as u8) {
+        if (a == 61 as u8 && b == 61 as u8) || (a == 33 as u8 && b == 61 as u8) || (a == 60 as u8 && b == 61 as u8) || (a == 62 as u8 && b == 61 as u8) || (a == 38 as u8 && b == 38 as u8) || (a == 124 as u8 && b == 124 as u8) || (a == 45 as u8 && b == 62 as u8) || (a == 63 as u8 && b == 63 as u8) {
             return index + 2
         }
     }
@@ -110,7 +110,7 @@ export function nqCompilerTokenCount(source: []u8): usize {
 }
 
 function nqCompilerPunctuation(value: u8): bool { return value == 40 as u8 || value == 41 as u8 || value == 91 as u8 || value == 93 as u8 || value == 123 as u8 || value == 125 as u8 || value == 44 as u8 || value == 46 as u8 || value == 58 as u8 || value == 59 as u8 }
-function nqCompilerOperator(value: u8): bool { return value == 43 as u8 || value == 45 as u8 || value == 42 as u8 || value == 47 as u8 || value == 37 as u8 || value == 61 as u8 || value == 33 as u8 || value == 60 as u8 || value == 62 as u8 || value == 38 as u8 || value == 124 as u8 }
+function nqCompilerOperator(value: u8): bool { return value == 43 as u8 || value == 45 as u8 || value == 42 as u8 || value == 47 as u8 || value == 37 as u8 || value == 61 as u8 || value == 33 as u8 || value == 60 as u8 || value == 62 as u8 || value == 38 as u8 || value == 124 as u8 || value == 63 as u8 }
 
 export function nqCompilerNextToken(source: []u8, start: usize, out: *NqToken): usize {
     let index: usize = nqCompilerSkipTrivia(source, start)

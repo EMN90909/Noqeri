@@ -1,0 +1,5 @@
+function verify(): int {
+    let value: int = 3 ?? 4
+    return value
+}
+print(verify())

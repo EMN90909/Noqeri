@@ -1,0 +1,9 @@
+function verify(): int {
+    let a: int = 1
+    let b: u8 = 2 as u8
+    let left: *int = &a
+    let right: *u8 = &b
+    let invalid: *int = left ?? right
+    return 0
+}
+print(verify())

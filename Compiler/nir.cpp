@@ -107,7 +107,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Reg a=lowerExpr(fn,e->value);NirInstruction i;i.op=NirOp::Cast;i.dest=fn.nextReg++;i.text=e->typeName;i.args={a};emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
         if(e->op==TokenKind::Equal){Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
-        if(e->op==TokenKind::AndAnd||e->op==TokenKind::OrOr){
+        if(e->op==TokenKind::AndAnd||e->op==TokenKind::OrOr||e->op==TokenKind::QuestionQuestion){
             Reg left=lowerExpr(fn,e->left);
             const std::string temp="$noqeri.logic."+std::to_string(fn.code.size())+"."+std::to_string(fn.nextReg);
             NirInstruction saveLeft;saveLeft.op=NirOp::Store;saveLeft.text=temp;saveLeft.args={left};emit(fn,std::move(saveLeft));

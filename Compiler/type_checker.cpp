@@ -261,6 +261,15 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     }
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Type from=checkExpr(e->value),to=resolveType(e->typeName,e->span);bool ok=(from.isNumeric()&&to.isNumeric())||(from.kind==TypeKind::Pointer&&to.kind==TypeKind::Pointer)||(from.kind==TypeKind::Pointer&&(to.kind==TypeKind::Usize||to.kind==TypeKind::Isize))||(to.kind==TypeKind::Pointer&&(from.kind==TypeKind::Usize||from.kind==TypeKind::Isize||from.kind==TypeKind::Int))||(from.kind==TypeKind::Null&&to.kind==TypeKind::Pointer);if(!ok&&from.kind!=TypeKind::Unknown&&to.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3027",e->span,"cannot cast "+from.name()+" to "+to.name());return to;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
+        if(e->op==TokenKind::QuestionQuestion){
+            Type l=checkExpr(e->left),r=checkExpr(e->right);
+            if(l.kind==TypeKind::Pointer && (r==l || r.kind==TypeKind::Null))return l;
+            if(l.kind==TypeKind::Null && r.kind==TypeKind::Pointer)return r;
+            diagnostics_.error("NQR-T3060",e->span,
+              "'??' requires a nullable pointer and a matching pointer fallback",
+              "use pointers of the same type, for example: value ?? fallback; use an explicit Result match for errors");
+            return simple(TypeKind::Unknown);
+        }
         if(e->op==TokenKind::Equal){Type lhs=checkExpr(e->left),rhs=checkExpr(e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left))if(isConstSymbol(n->name))diagnostics_.error("NOE-T3014",e->span,"cannot assign to const '"+n->name+"'");if(!canAssignValue(lhs,rhs,e->right))diagnostics_.error("NOE-T3001",e->span,"cannot assign "+rhs.name()+" to "+lhs.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");return lhs;}
         Type l=checkExpr(e->left),r=checkExpr(e->right);switch(e->op){case TokenKind::Plus:if(l.kind==TypeKind::String&&r.kind==TypeKind::String)return simple(TypeKind::String);if(l.kind==TypeKind::Pointer&&r.isInteger())return l;if(r.kind==TypeKind::Pointer&&l.isInteger())return r;[[fallthrough]];case TokenKind::Minus:case TokenKind::Star:case TokenKind::Slash:case TokenKind::Percent:
             if((!l.isNumeric()||!r.isNumeric())&&l.kind!=TypeKind::Unknown&&r.kind!=TypeKind::Unknown&&l.kind!=TypeKind::Generic&&r.kind!=TypeKind::Generic){diagnostics_.error("NOE-T3007",e->span,"arithmetic operator requires numeric operands");return simple(TypeKind::Unknown);}

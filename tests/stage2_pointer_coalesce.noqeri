@@ -1,0 +1,23 @@
+// Nullable pointer coalescing. Both interpreters and native AOT must
+// preserve the left value and avoid evaluating an unnecessary fallback.
+function unexpected(): *int {
+    print("EAGER_FALLBACK_ERROR")
+    return null as *int
+}
+function verify(): int {
+    let first: int = 11
+    let other: int = 29
+    let present: *int = &first
+    let missing: *int = null as *int
+    let chosen: *int = present ?? unexpected()
+    if chosen == null { return 1 }
+    if chosen[0] != 11 { return 2 }
+    let replaced: *int = missing ?? &other
+    if replaced == null || replaced[0] != 29 { return 3 }
+    let nested: *int = missing ?? missing ?? present
+    if nested[0] != 11 { return 4 }
+    let nullable: *int = missing ?? null
+    if nullable != null { return 5 }
+    return 0
+}
+print(verify())

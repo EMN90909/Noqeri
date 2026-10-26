@@ -21,7 +21,7 @@ enum class TokenKind {
     Plus, Minus, Star, Slash, Percent, Ampersand,
     Bang, BangEqual, Equal, EqualEqual,
     Less, LessEqual, Greater, GreaterEqual,
-    AndAnd, OrOr
+    AndAnd, OrOr, QuestionQuestion
 };
 
 struct Token { TokenKind kind=TokenKind::Eof; std::string lexeme; Span span; };

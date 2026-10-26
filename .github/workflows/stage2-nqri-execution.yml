@@ -11,6 +11,9 @@ on:
       - 'tests/repeat_loop.noqeri'
       - 'tests/stage2_cross_runtime_parity.noqeri'
       - 'tests/stage2_invalid_repeat_type.noqeri'
+      - 'tests/stage2_pointer_coalesce.noqeri'
+      - 'tests/stage2_coalesce_bad_numbers.noqeri'
+      - 'tests/stage2_coalesce_bad_pointer_types.noqeri'
       - '.github/workflows/stage2-nqri-execution.yml'
   workflow_dispatch:
 permissions:
@@ -76,3 +79,25 @@ jobs:
           if ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri tests/stage2_invalid_repeat_type.noqeri build-stage2-nqri/invalid.nqri 3; then
             echo "Stage-2 improperly accepted string loop count"; exit 1
           fi
+      - name: Nullable pointer coalescing differential and lazy fallback
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri check tests/stage2_pointer_coalesce.noqeri
+          stage0=$(./build-stage2-nqri/noqeri run tests/stage2_pointer_coalesce.noqeri)
+          ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri tests/stage2_pointer_coalesce.noqeri build-stage2-nqri/coalesce.nqri 3
+          stage2=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/coalesce.nqri verify)
+          node scripts/native-build.mjs tests/stage2_pointer_coalesce.noqeri build-stage2-nqri/coalesce-native --compiler=build-stage2-nqri/noqeri
+          native=$(./build-stage2-nqri/coalesce-native)
+          echo "Pointer coalescing: Stage-0 $stage0; Stage-2 $stage2; native $native"
+          test "$stage0" = "0"
+          test "$stage2" = "0"
+          test "$native" = "0"
+      - name: Coalescing must reject numeric and mismatched pointer types
+        run: |
+          set -euo pipefail
+          for fixture in tests/stage2_coalesce_bad_numbers.noqeri tests/stage2_coalesce_bad_pointer_types.noqeri; do
+            if ./build-stage2-nqri/noqeri check "$fixture"; then echo "Stage-0 accepted invalid $fixture"; exit 1; fi
+            if ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri "$fixture" build-stage2-nqri/invalid-coalesce.nqri 3; then
+              echo "Stage-2 accepted invalid $fixture"; exit 1
+            fi
+          done

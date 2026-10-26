@@ -388,7 +388,7 @@ StmtPtr Parser::expressionStatement(){auto s=std::make_shared<ExprStmt>();s->exp
 
 ExprPtr Parser::expression(){return assignment();}
 ExprPtr Parser::assignment(){
-    auto left=logicalOr();
+    auto left=coalesce();
     if(match({TokenKind::Equal})){
         Token eq=previous();auto value=assignment();
         bool valid=std::dynamic_pointer_cast<NameExpr>(left)||std::dynamic_pointer_cast<IndexExpr>(left)||std::dynamic_pointer_cast<MemberExpr>(left);
@@ -399,6 +399,17 @@ ExprPtr Parser::assignment(){
     return left;
 }
 static ExprPtr makeBinary(ExprPtr l,TokenKind op,ExprPtr r,Span span){auto b=std::make_shared<BinaryExpr>();b->left=std::move(l);b->op=op;b->right=std::move(r);b->span=span;return b;}
+// Right associative, below logical-or and above assignment.
+ExprPtr Parser::coalesce(){
+    auto left=logicalOr();
+    if(match({TokenKind::QuestionQuestion})){
+        auto token=previous();
+        auto expr=std::make_shared<BinaryExpr>();
+        expr->span=token.span;expr->left=left;expr->op=token.kind;expr->right=coalesce();
+        return expr;
+    }
+    return left;
+}
 ExprPtr Parser::logicalOr(){auto e=logicalAnd();while(match({TokenKind::OrOr})){auto o=previous();e=makeBinary(e,o.kind,logicalAnd(),o.span);}return e;}
 ExprPtr Parser::logicalAnd(){auto e=equality();while(match({TokenKind::AndAnd})){auto o=previous();e=makeBinary(e,o.kind,equality(),o.span);}return e;}
 ExprPtr Parser::equality(){auto e=comparison();while(match({TokenKind::EqualEqual,TokenKind::BangEqual})){auto o=previous();e=makeBinary(e,o.kind,comparison(),o.span);}return e;}

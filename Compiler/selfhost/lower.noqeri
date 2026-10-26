@@ -253,7 +253,7 @@ function nqLowerLogical(source: []u8, nodes: []NqAstNode, nodeIndex: isize, inst
     let load: isize = nqLowerEmit(instructions, state, nqNirLoad(), result)
     if load < 0 as isize { return load }
     instructions[load as usize].symbol = tempSymbol
-    instructions[load as usize].typeCode = nqAstTypeBool()
+    instructions[load as usize].typeCode = node.typeCode
     return result
 }
 
@@ -310,6 +310,7 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let orCode: u32 = 124 as u32 * 256 as u32 + 124 as u32
         if node.flags == andCode { return nqLowerLogical(source, nodes, nodeIndex, instructions, state, true) }
         if node.flags == orCode { return nqLowerLogical(source, nodes, nodeIndex, instructions, state, false) }
+        if node.flags == 63 as u32 * 256 as u32 + 63 as u32 { return nqLowerLogical(source, nodes, nodeIndex, instructions, state, false) }
         let left: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state)
         if left < 0 as isize { return left }
         let right: isize = nqLowerExpressionInternal(source, nodes, node.right, instructions, state)

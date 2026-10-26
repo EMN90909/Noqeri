@@ -283,6 +283,23 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         if leftStatus < 0 as isize { return leftStatus }
         let rightStatus: isize = nqSemanticExpression(source, nodes, node.right, symbols, context, functions, functionParameters, records, recordCount, fields)
         if rightStatus < 0 as isize { return rightStatus }
+        if node.flags == 63 as u32 * 256 as u32 + 63 as u32 {
+            let l: *NqAstNode = &nodes[node.left as usize]
+            let r: *NqAstNode = &nodes[node.right as usize]
+            if l.typeCode == nqAstTypePointer() && r.typeCode == nqAstTypePointer() && l.elementTypeCode == r.elementTypeCode && l.elementTypeSymbol == r.elementTypeSymbol {
+                nqAstApplyType(node,l.typeCode,l.typeSymbol,l.elementTypeCode,l.elementTypeSymbol,l.arrayLength)
+                return nqSemanticOk()
+            }
+            if l.typeCode == nqAstTypePointer() && r.typeCode == nqAstTypeNull() {
+                nqAstApplyType(node,l.typeCode,l.typeSymbol,l.elementTypeCode,l.elementTypeSymbol,l.arrayLength)
+                return nqSemanticOk()
+            }
+            if l.typeCode == nqAstTypeNull() && r.typeCode == nqAstTypePointer() {
+                nqAstApplyType(node,r.typeCode,r.typeSymbol,r.elementTypeCode,r.elementTypeSymbol,r.arrayLength)
+                return nqSemanticOk()
+            }
+            return nqSemanticFail(context,node,nqSemanticInvalidBinary())
+        }
         let op: int = 0
         if node.flags == 43 as u32 { op = nqSemanticOpAdd() }
         else if node.flags == 45 as u32 { op = nqSemanticOpSub() }

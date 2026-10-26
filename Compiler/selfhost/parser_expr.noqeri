@@ -297,9 +297,27 @@ function nqExprParseLogicalOr(source: []u8, start: usize, nodes: []NqAstNode, co
     return left
 }
 
-function nqExprParseAssignment(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
+function nqExprParseCoalesce(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
     let cursor: usize = start
     let left: isize = nqExprParseLogicalOr(source, cursor, nodes, count, &cursor)
+    if left < 0 as isize { return left }
+    let op: NqToken
+    nqCompilerNextToken(source, cursor, &op)
+    if op.kind == nqTokenOperator() && op.first == 63 as u8 && op.second == 63 as u8 {
+        let rightEnd: usize = op.end
+        let right: isize = nqExprParseCoalesce(source, op.end, nodes, count, &rightEnd)
+        if right < 0 as isize { return right }
+        let result: isize = nqExprBinary(nodes,count,left,right,nodes[left as usize].start,rightEnd,nqExprOperatorCode(&op))
+        outEnd[0] = rightEnd
+        return result
+    }
+    outEnd[0] = cursor
+    return left
+}
+
+function nqExprParseAssignment(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
+    let cursor: usize = start
+    let left: isize = nqExprParseCoalesce(source, cursor, nodes, count, &cursor)
     if left < 0 as isize { return left }
     let op: NqToken
     nqCompilerNextToken(source, cursor, &op)
