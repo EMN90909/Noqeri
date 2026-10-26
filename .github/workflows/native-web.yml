@@ -45,5 +45,13 @@ jobs:
           test "$status" = 404
       - name: Test native interactive HTTP security and sessions
         run: python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Test unified native layouts, parameters and form validation
+        run: python3 tests/native_web_fullstack.py ./build-native-web/noqeri-web examples/native_web_fullstack
+      - name: Compile and run independent full-stack native application
+        run: python3 tests/native_web_bundle.py ./build-native-web/noqeri-web examples/native_web_fullstack
+      - name: Qualify native HTTP concurrency, Basic authentication and secure cookies
+        run: python3 tests/native_web_auth.py ./build-native-web/noqeri-web examples/native_web_fullstack
       - name: Test native web database adapters without changing NoeSQL
         run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
+      - name: Qualify in-process native NoeSQL v2 ABI contract (mock provider)
+        run: python3 tests/native_web_noesql_session.py ./build-native-web/noqeri-web .

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 // Bounded RFC 6455 frame-layer foundation. No sockets, handshake, TLS or JS.
 // Rejects fragmentation until a streaming reassembler is implemented.

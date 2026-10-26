@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Native server-driven Noqeri interactions. Included only by web_native.cpp.
 // No JS runtime. Every mutation is an explicitly declared, bounded server action.
 // Deliberately localhost-only; not a production HTTP stack.
@@ -95,11 +96,17 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
         if (!n.actionId.empty()) {
             std::size_t databaseCalls=0;
             for(const auto& mutation:n.mutations)if(mutation.op=="db")++databaseCalls;
-            if(databaseCalls>0&&n.mutations.size()!=1)
+            std::size_t mutatingCalls=0;
+            for(const auto& mutation:n.mutations)if(mutation.op!="validate")++mutatingCalls;
+            if(databaseCalls>0&&mutatingCalls!=1)
                 throw std::runtime_error("database actions require one independently committed statement");
             if (!actions.emplace(n.actionId,&n).second)
                 throw std::runtime_error("duplicate native action ID");
             for(const auto& mutation:n.mutations) {
+                if(mutation.op=="validate") {
+                    if(n.eventName!="submit")throw std::runtime_error("field validation requires on.submit");
+                    continue;
+                }
                 if(mutation.op=="db") {
                     if(!p.databaseConfigured)throw std::runtime_error("db.execute requires database declaration");
                     if(mutation.query.empty())throw std::runtime_error("empty native DB action");
@@ -140,10 +147,15 @@ struct AppRenderContext {
 };
 std::string renderApp(const std::vector<Node>& nodes,const Project& p,
                       const AppRenderContext& ctx,
-                      const std::map<std::string,std::string>& locals={},int depth=0,bool inForm=false) {
+                      const std::map<std::string,std::string>& locals={},int depth=0,bool inForm=false,
+                      const std::vector<Node>* slotNodes=nullptr) {
     if (depth>32) throw std::runtime_error("component recursion limit");
     std::string result;
     for(const auto& n:nodes) {
+        if(n.kind=="slot") {
+            if(!slotNodes)throw std::runtime_error("slot outside layout");
+            result+=renderApp(*slotNodes,p,ctx,locals,depth+1,inForm,nullptr);continue;
+        }
         if (n.kind=="text") {
             result+=escaped(evaluate(n.text,locals,p.globals)); continue;
         }
@@ -160,7 +172,7 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
             std::map<std::string,std::string> args;
             for(std::size_t i=0;i<n.args.size();++i)
                 args[it->second.params[i]]=evaluate(n.args[i],locals,p.globals);
-            result+=renderApp(it->second.children,p,ctx,args,depth+1,inForm);
+            result+=renderApp(it->second.children,p,ctx,args,depth+1,inForm,slotNodes);
             continue;
         }
         if (!allowedTag(n.tag)) throw std::runtime_error("unsafe native element");
@@ -198,7 +210,7 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
         if(n.tag=="input"||n.tag=="img"||n.tag=="br"||n.tag=="hr") {
             if(!n.children.empty())throw std::runtime_error("void element has children");
         }else{
-            result+=renderApp(n.children,p,ctx,locals,depth+1,inForm||n.tag=="form");
+            result+=renderApp(n.children,p,ctx,locals,depth+1,inForm||n.tag=="form",slotNodes);
             result+="</"+n.tag+">";
         }
         if(n.eventName=="click")result+="</form>";
@@ -270,7 +282,7 @@ std::string lower(std::string text) {
     return text;
 }
 struct AppRequest {
-    std::string method,path,host,origin,body,cookie,type;
+    std::string method,path,host,origin,body,cookie,type,authorization;
 };
 AppRequest receiveAppRequest(int fd) {
     timeval timeout{};timeout.tv_sec=4;
@@ -314,7 +326,7 @@ AppRequest receiveAppRequest(int fd) {
             return c==0||c==127||(c<32&&c!=9);
         }))throw std::runtime_error("control byte in HTTP header");
         if((name=="host"||name=="origin"||name=="cookie"||name=="content-type"||
-            name=="content-length"||name=="transfer-encoding") &&
+            name=="content-length"||name=="transfer-encoding"||name=="authorization") &&
            !singletonHeaders.insert(name).second)
             throw std::runtime_error("duplicate HTTP routing or framing header");
         while(!val.empty()&&(val.front()==' '||val.front()=='\t'))val.erase(val.begin());
@@ -330,6 +342,7 @@ AppRequest receiveAppRequest(int fd) {
         if(name=="cookie")req.cookie=val;
         if(name=="origin")req.origin=val;
         if(name=="host")req.host=val;
+        if(name=="authorization")req.authorization=val;
     }
     if(protocol=="HTTP/1.1"&&req.host.empty())
         throw std::runtime_error("missing HTTP Host header");
@@ -366,15 +379,24 @@ std::string getSid(const std::string& cookie) {
 void appReply(int fd,int status,const std::string& data,const std::string& cookie="",
               const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
-        status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":"Internal Server Error";
+        status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
+        status==422?"Unprocessable Content":status==503?"Service Unavailable":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
         "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\r\n";
-    if(!cookie.empty())header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict\r\n";
+    if(status==401)header+="WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
+    if(!cookie.empty()) {
+        const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
+        header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
+        if(secure&&std::string(secure)=="1")header+="; Secure";
+        header+="\r\n";
+    }
     if(!redirect.empty())header+="Location: "+redirect+"\r\n";
     sendAll(fd,header+"\r\n");
     if(!head)sendAll(fd,data);
+    // No user-controlled path or request body enters structured access logs.
+    std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"http_response\",\"status\":"<<status<<"}\n";
 }
 void sessionPrune(AppStore& app) {
     const auto now=std::chrono::steady_clock::now();
@@ -395,13 +417,119 @@ std::map<std::string,std::string> currentValues(const AppStore& app,const AppSes
     for(const auto& [k,v]:app.persisted)result[k]=v;
     return result;
 }
-void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable) {
+
+struct RouteSelection {
+    const std::vector<Node>* nodes=nullptr;
+    std::map<std::string,std::string> params;
+};
+std::vector<std::string> splitRoute(const std::string& path) {
+    std::vector<std::string> result;
+    if(path=="/")return result;
+    std::stringstream ss(path.substr(1));std::string item;
+    while(std::getline(ss,item,'/'))result.push_back(item);
+    return result;
+}
+bool routePatternsOverlap(const std::string& one,const std::string& two) {
+    const auto a=splitRoute(one),b=splitRoute(two);
+    if(a.size()!=b.size())return false;
+    for(std::size_t i=0;i<a.size();++i) {
+        if(a[i]==b[i]||a[i][0]==':'||b[i][0]==':')continue;
+        return false;
+    }
+    return true;
+}
+RouteSelection matchAppRoute(const Project& project,const std::string& path) {
+    const auto direct=project.routes.find(path);
+    if(direct!=project.routes.end())return {&direct->second,{}};
+    const auto parts=splitRoute(path);
+    for(const auto& [pattern,nodes]:project.routes) {
+        if(!dynamicRoute(pattern))continue;
+        const auto segments=splitRoute(pattern);
+        if(parts.size()!=segments.size())continue;
+        std::map<std::string,std::string> params;
+        bool matches=true;
+        for(std::size_t i=0;i<segments.size();++i) {
+            if(segments[i][0]==':') {
+                if(parts[i].empty()||parts[i].size()>64||
+                   !std::all_of(parts[i].begin(),parts[i].end(),[](unsigned char ch){
+                       return std::isalnum(ch)||ch=='_'||ch=='-';
+                   })) {matches=false;break;}
+                params.emplace(segments[i].substr(1),parts[i]);
+            }else if(segments[i]!=parts[i]) {matches=false;break;}
+        }
+        if(matches)return {&nodes,std::move(params)};
+    }
+    return {};
+}
+std::size_t layoutSlotCount(const std::vector<Node>& nodes) {
+    std::size_t count=0;
+    for(const auto& n:nodes) {
+        if(n.kind=="slot")++count;
+        count+=layoutSlotCount(n.children);
+    }
+    return count;
+}
+
+bool constantTimeEquals(const std::string& a,const std::string& b) {
+    const auto length=std::max(a.size(),b.size());
+    unsigned mismatch=static_cast<unsigned>(a.size()^b.size());
+    for(std::size_t i=0;i<length;++i) {
+        const auto left=i<a.size()?static_cast<unsigned char>(a[i]):0;
+        const auto right=i<b.size()?static_cast<unsigned char>(b[i]):0;
+        mismatch|=left^right;
+    }
+    return mismatch==0;
+}
+std::string basicDecode(const std::string& input) {
+    if(input.empty()||input.size()>684||input.size()%4!=0)return "";
+    static const std::string chars=
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    for(std::size_t i=0;i<input.size();i+=4) {
+        unsigned values[4]={};
+        bool padded=false;
+        for(int k=0;k<4;++k) {
+            const auto c=input[i+static_cast<std::size_t>(k)];
+            if(c=='=') {
+                if(i+4!=input.size()||k<2)return "";
+                padded=true; values[k]=0;
+            } else {
+                if(padded)return "";
+                const auto at=chars.find(c);
+                if(at==std::string::npos)return "";
+                values[k]=static_cast<unsigned>(at);
+            }
+        }
+        const bool a=input[i+2]=='=',b=input[i+3]=='=';
+        if(a&&!b)return "";
+        if((a&&(values[1]&15))||(b&&!a&&(values[2]&3)))return "";
+        result+=static_cast<char>((values[0]<<2)|(values[1]>>4));
+        if(!a)result+=static_cast<char>((values[1]<<4)|(values[2]>>2));
+        if(!b)result+=static_cast<char>((values[2]<<6)|values[3]);
+    }
+    return result;
+}
+bool nativeBasicAllowed(const std::string& auth,const std::string& expected) {
+    if(expected.empty())return true;
+    if(auth.rfind("Basic ",0)!=0)return false;
+    return constantTimeEquals(basicDecode(auth.substr(6)),expected);
+}
+void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
+              const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
+    const char* configuredUser=std::getenv("NOQERI_WEB_BASIC_USER");
+    const char* configuredPassword=std::getenv("NOQERI_WEB_BASIC_PASSWORD");
+    if(bool(configuredUser)!=bool(configuredPassword))
+        throw std::runtime_error("both native Basic environment credentials are required");
+    if(configuredUser&&(!*configuredUser||!*configuredPassword))
+        throw std::runtime_error("Basic credentials may not be empty");
+    const std::string basicExpected=configuredUser?
+        std::string(configuredUser)+":"+configuredPassword:"";
     AppStore app;
     app.stateFile=fs::absolute(stateFile).lexically_normal();
-    Parser(readText(input/"main.noqeri"),app.project).parse();
+    Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
     if(!app.project.uiAlias.empty())
-        Parser(readText(uiSource(executable)),app.project,true).parse();
+        Parser(uiOverride?*uiOverride:readText(uiSource(executable)),app.project,true).parse();
     if(app.project.routes.empty())throw std::runtime_error("serve-app requires routes");
     if(app.project.databaseConfigured)verifyDbConfig(app.project.database);
     if(!app.project.queries.empty()&&!app.project.databaseConfigured)
@@ -420,6 +548,26 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             auto pos=statement.find_first_not_of(" \t\r\n");
             if(pos==std::string::npos||lower(statement.substr(pos,6))!="select")
                 throw std::runtime_error("SQL view query must use SELECT");
+        }
+    }
+    if(app.project.hasLayout) {
+        if(layoutSlotCount(app.project.layout)!=1)
+            throw std::runtime_error("native layout must contain exactly one slot {}");
+        std::map<std::string,const Node*> found;
+        validateActions(app.project.layout,app.project,found);
+        if(!found.empty())throw std::runtime_error("actions in layout are unsupported");
+    }
+    for(const auto& [route,nodes]:app.project.routes) {
+        if(!dynamicRoute(route))continue;
+        for(const auto& [other,_]:app.project.routes) {
+            if(other==route||!dynamicRoute(other))continue;
+            if(routePatternsOverlap(route,other))
+                throw std::runtime_error("ambiguous dynamic route patterns: "+route+" and "+other);
+        }
+        for(const auto& seg:splitRoute(route))if(!seg.empty()&&seg[0]==':') {
+            const auto name=seg.substr(1);
+            if(app.project.globals.count(name)||app.project.queries.count(name))
+                throw std::runtime_error("route parameter conflicts with application state: "+name);
         }
     }
     app.styles=css(app.project.theme);
@@ -447,11 +595,27 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     ::signal(SIGPIPE,SIG_IGN);
     std::cout<<"noqeri-web: server-rendered app at http://127.0.0.1:"<<port
              <<" (no Node or JavaScript; local development only)\n"<<std::flush;
+    std::mutex stateGuard;
+    std::atomic<unsigned> activeClients{0};
+    constexpr unsigned maxConcurrentClients=32;
     for (;;) {
         const int client=::accept(server,nullptr,nullptr);
         if(client<0)continue;
+        if(activeClients.fetch_add(1)>=maxConcurrentClients) {
+            appReply(client,503,"Server at capacity");
+            ::close(client);
+            activeClients.fetch_sub(1);
+            continue;
+        }
+        std::thread([&,client] {
         try {
             const AppRequest req=receiveAppRequest(client);
+            // Session/persisted map and synchronous database connections use one
+            // state lock. I/O framing is concurrent; actions remain serialized.
+            std::lock_guard<std::mutex> locked(stateGuard);
+            if(!nativeBasicAllowed(req.authorization,basicExpected)) {
+                appReply(client,401,"Authentication required");
+            } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
             if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB)
@@ -462,10 +626,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             if(path=="/theme.css"&&req.method!="POST") {
                 appReply(client,200,app.styles,"","",head,"text/css; charset=utf-8");
             } else {
-                const auto page=app.project.routes.find(path);
-                if(page==app.project.routes.end()) {
+                const auto page=matchAppRoute(app.project,path);
+                if(!page.nodes) {
                     const auto content=app.project.hasFallback?
-                        htmlPage(render(app.project.fallback,app.project),"theme.css"):"Page not found";
+                        htmlPage(app.project.hasLayout?
+                            render(app.project.layout,app.project,{},0,&app.project.fallback):
+                            render(app.project.fallback,app.project),"/theme.css"):"Page not found";
                     appReply(client,404,content,"","",head);
                 } else if(req.method=="POST") {
                     auto session=app.sessions.find(getSid(req.cookie));
@@ -479,12 +645,32 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         const auto action=fields.find("_nq_action");
                         const auto csrf=fields.find("_nq_csrf");
                         std::map<std::string,const Node*> actions;
-                        validateActions(page->second,app.project,actions);
+                        validateActions(*page.nodes,app.project,actions);
                         const auto specified=action==fields.end()?actions.end():actions.find(action->second);
                         if(specified==actions.end()||csrf==fields.end()||csrf->second!=session->second.csrf)
                             appReply(client,403,"Invalid native action");
                         else {
+                            std::string validationError;
+                            for(const auto& mutation:specified->second->mutations) {
+                                if(mutation.op!="validate")continue;
+                                const auto supplied=fields.find(mutation.field);
+                                const auto length=supplied==fields.end()?0:supplied->second.size();
+                                if(length<mutation.minLength||length>mutation.maxLength) {
+                                    validationError="Invalid length for "+mutation.field+
+                                        " (expected "+std::to_string(mutation.minLength)+
+                                        ".."+std::to_string(mutation.maxLength)+" bytes)";
+                                    break;
+                                }
+                            }
+                            if(!validationError.empty()) {
+                                const auto content=htmlPage(
+                                    "<main class=\"nq-page\"><h1>Input validation failed</h1><p role=\"alert\">"+
+                                    escaped(validationError)+"</p><a href=\""+escaped(path)+"\">Return</a></main>",
+                                    "/theme.css");
+                                appReply(client,422,content);
+                            } else {
                             auto updated=currentValues(app,session->second);
+                            for(const auto& [name,value]:page.params)updated[name]=value;
                             bool hasDb=false,hasPersist=false;
                             for(const auto& mutation:specified->second->mutations) {
                                 if(mutation.op=="db")hasDb=true;
@@ -492,6 +678,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             }
                             if(hasDb&&hasPersist)throw std::runtime_error("cannot atomically mix DB writes and .nqkv persist");
                             for(const auto& mutation:specified->second->mutations) {
+                                if(mutation.op=="validate")continue;
                                 if(mutation.op=="db") {
                                     std::vector<DbParameter> params;
                                     for(const auto& param:mutation.dbParams) {
@@ -523,6 +710,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             session->second.csrf=randomToken(); // invalidate replayed form posts
                             session->second.seen=std::chrono::steady_clock::now();
                             appReply(client,303,"","",path);
+                            }
                         }
                     }
                 } else {
@@ -543,19 +731,25 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     session->second.seen=std::chrono::steady_clock::now();
                     Project rendered=app.project;
                     rendered.globals=currentValues(app,session->second);
+                    for(const auto& [name,value]:page.params)rendered.globals[name]=value;
                     for(const auto& [name,statement]:app.project.queries)
                         rendered.globals[name]=executeDatabase(app.project.database,statement,{});
                     const AppRenderContext context{path,session->second.csrf};
-                    const auto body=renderApp(page->second,rendered,context);
+                    const auto body=rendered.hasLayout?
+                        renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
+                        renderApp(*page.nodes,rendered,context);
                     if(body.size()>1024*1024)throw std::runtime_error("generated HTML too large");
                     appReply(client,200,htmlPage(body,"/theme.css"),newCookie,"",head);
                 }
+            }
             }
         } catch(const std::exception& e) {
             std::cerr<<"noqeri-web request error: "<<e.what()<<"\n";
             appReply(client,400,"Bad Request");
         }
         ::close(client);
+        activeClients.fetch_sub(1);
+        }).detach();
     }
 }
 #endif

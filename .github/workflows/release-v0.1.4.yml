@@ -1,0 +1,144 @@
+name: Noqeri v0.1.4 verified public developer preview
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-v0.1.4.yml'
+      - 'CMakeLists.txt'
+      - 'Include/noqeri/version.hpp'
+      - 'Compiler/bootstrap/web_native*'
+      - 'tests/native_web_*.py'
+      - 'LICENSES.md'
+      - 'LICENSES/**'
+      - 'Doc/V0_1_4_RELEASE.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-v0.1.4.yml'
+      - 'CMakeLists.txt'
+      - 'Include/noqeri/version.hpp'
+      - 'Doc/V0_1_4_RELEASE.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: noqeri-v014-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    name: Validate compiler, native full-stack and SPDX artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build and SQL SDK dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential cmake libsqlite3-dev libpq-dev libmariadb-dev
+      - name: Verify compiler version and license split
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'project(noqeri VERSION 0.1.4' CMakeLists.txt
+          grep -Fq 'NOQERI_COMPILER_VERSION = "0.1.4"' Include/noqeri/version.hpp
+          grep -Fq 'version = "0.1.4"' project.nqon
+          grep -Fq 'version: "0.1.4"' project.noqeri
+          grep -Fq 'GNU GENERAL PUBLIC LICENSE' LICENSE
+          grep -Fq 'Apache License' LICENSES/Apache-2.0.txt
+          grep -Fq 'SPDX-License-Identifier: GPL-3.0-only' Compiler/bootstrap/web_native.cpp
+          grep -Fq 'SPDX-License-Identifier: Apache-2.0' Lib/web/ui.noqeri
+      - name: Build release-mode compiler, VM and web runtime
+        run: |
+          cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+            -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF
+          cmake --build build-release --target noqeri noqeri-nqri noqeri-web \
+            noqeri_graphics_fastpath noqeri-websocket-frame-test --parallel 2
+      - name: Test compiler, VM and native WebSocket frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-release/noqeri --version | grep -q '0.1.4'
+          ./build-release/noqeri check examples/hello.noqeri
+          ./build-release/noqeri-nqri --selftest
+          ctest --test-dir build-release -R '^noqeri-websocket-frame$' --output-on-failure
+      - name: Test JavaScript-free HTTP, sessions, auth, routes and data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/native_web_actions.py ./build-release/noqeri-web examples/native_web_actions
+          python3 tests/native_web_fullstack.py ./build-release/noqeri-web examples/native_web_fullstack
+          python3 tests/native_web_auth.py ./build-release/noqeri-web examples/native_web_fullstack
+          python3 tests/native_web_bundle.py ./build-release/noqeri-web examples/native_web_fullstack
+          python3 tests/native_web_database.py ./build-release/noqeri-web
+          python3 tests/native_web_noesql_session.py ./build-release/noqeri-web .
+      - name: Install and archive redistributable SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --install build-release --prefix "$PWD/stage"
+          test -s stage/bin/noqeri
+          test -s stage/bin/noqeri-web
+          test -s stage/bin/noqeri-nqri
+          test -s stage/share/noqeri/licenses/Apache-2.0.txt
+          test -s stage/share/noqeri/LICENSE
+          test -s stage/share/noqeri/Compiler/bootstrap/web_native.cpp
+          test -s stage/share/noqeri/Lib/web/ui.noqeri
+          mkdir -p stage/share/noqeri/release dist
+          cp Doc/V0_1_4_RELEASE.md stage/share/noqeri/release/RELEASE_NOTES.md
+          tar -C stage -czf dist/noqeri-v0.1.4-linux-x86_64-developer-preview.tar.gz .
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS && sha256sum -c SHA256SUMS)
+          test -s dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: noqeri-v0.1.4-linux-x86_64-qualified
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish exact v0.1.4 tag (clearly marked prerelease)
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: qualify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: noqeri-v0.1.4-linux-x86_64-qualified
+          path: dist
+      - name: Never overwrite a tag created from another commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.4" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ -n "$existing" && "$existing" != "$GITHUB_SHA" ]]; then
+            echo "Refusing to move existing v0.1.4 tag ($existing)" >&2
+            exit 1
+          fi
+          (cd dist && sha256sum -c SHA256SUMS)
+      - name: Public GitHub Release v0.1.4 — experimental developer preview
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v0.1.4
+          target_commitish: ${{ github.sha }}
+          name: Noqeri v0.1.4 (developer preview)
+          body_path: Doc/V0_1_4_RELEASE.md
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: dist/*
+      - name: Verify public release tag and downloadable assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.1.4 --json isPrerelease --jq '.isPrerelease' | grep -Fx true
+          gh release view v0.1.4 --json assets --jq '.assets[].name' \
+            | grep -Fx noqeri-v0.1.4-linux-x86_64-developer-preview.tar.gz
+          gh release view v0.1.4 --json assets --jq '.assets[].name' \
+            | grep -Fx SHA256SUMS

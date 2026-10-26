@@ -1,0 +1,41 @@
+// Full-stack preview: shared layout, dynamic routes, sessions, HTML-native forms.
+import noqeri/ui as ui
+
+let greeting = "Welcome"
+let submissions = 0
+
+layout {
+    main class: "nq-page" {
+        nav class: "nq-navbar" {
+            a href: "/" { "Home" }
+            a href: "/members/Ada" { "Ada" }
+        }
+        slot {}
+        footer class: "nq-footer" { "Noqeri independent full-stack preview" }
+    }
+}
+
+route "/" {
+    ui.PageHeader("No JavaScript", "Unified Noqeri", "HTML-native requests and reusable layouts.")
+    ui.Card("Dynamic navigation", "Visit /members/Ada or /members/Lina.")
+    a href: "/members/Lina" { "Meet Lina" }
+}
+
+route "/members/:member" {
+    h1 { "Hello, " + member }
+    p { "Last greeting: " + greeting }
+    p { "Submissions: " + submissions }
+    form on.submit {
+        validate(message, 2, 64)
+        greeting = form.message
+        submissions = submissions + 1
+    } {
+        ui.TextField("Your message", "message", "2 to 64 bytes")
+        ui.SubmitButton("Save greeting")
+    }
+}
+
+view {
+    h1 { "Page not found" }
+    a href: "/" { "Home" }
+}
