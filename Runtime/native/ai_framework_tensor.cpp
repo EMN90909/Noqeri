@@ -251,8 +251,12 @@ void sgd_update(Matrix& param,const Matrix& grad,double rate,double clip) {
     require(std::isfinite(rate) && rate>0 && rate<=0.2 &&
             std::isfinite(clip) && clip>0 && clip<=100,
             "invalid optimizer learning rate or clip");
-    for(std::size_t i=0;i<param.values.size();++i)
-        param.values[i]-=rate*std::clamp(grad.values[i],-clip,clip);
-    valid(param);
+    // Stage the whole update first. An overflowing element must not leave a
+    // partially modified parameter tensor (important for training retries).
+    Matrix candidate=param;
+    for(std::size_t i=0;i<candidate.values.size();++i)
+        candidate.values[i]-=rate*std::clamp(grad.values[i],-clip,clip);
+    valid(candidate);
+    param.values.swap(candidate.values);
 }
 } // namespace noqeri_ai::framework
