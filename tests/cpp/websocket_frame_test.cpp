@@ -66,8 +66,39 @@ int main() {
     assert(encode_server(8,"x").empty());
 
     auto rsv=hello;rsv[0]|=0x40;reject(rsv);
-    auto fragmented=hello;fragmented[0]&=0x7f;reject(fragmented);
-    auto continuation=hello;continuation[0]=0x80;reject(continuation);
+    auto fragmented=masked(1,"Hello ");fragmented[0]&=0x7f;
+    const auto first=decode(fragmented.data(),fragmented.size(),true);
+    assert(first.status==Status::ok && !first.frame.fin);
+    auto continuation=masked(0,"Noqeri");
+    const auto second=decode(continuation.data(),continuation.size(),true);
+    assert(second.status==Status::ok);
+    noqeri_websocket::MessageAssembler assembler;
+    assert(assembler.push(first.frame).status==Status::incomplete);
+    assert(assembler.awaiting_continuation());
+    assert(assembler.push(decode(ping.data(),ping.size(),true).frame).status==Status::ok);
+    const auto complete=assembler.push(second.frame);
+    assert(complete.status==Status::ok && complete.frame.opcode==1 &&
+           complete.frame.payload=="Hello Noqeri");
+    assert(!assembler.awaiting_continuation());
+    assert(assembler.push(second.frame).status==Status::invalid);
+    auto splitUtf8=masked(1,std::string("\xe2",1));splitUtf8[0]&=0x7f;
+    const auto half=decode(splitUtf8.data(),splitUtf8.size(),true);
+    assert(half.status==Status::ok);
+    auto utf8Tail=masked(0,std::string("\x82\xac",2));
+    assert(assembler.push(half.frame).status==Status::incomplete);
+    assert(assembler.push(decode(utf8Tail.data(),utf8Tail.size(),true).frame).status==Status::ok);
+    auto invalidTail=masked(0,"X");
+    assert(assembler.push(half.frame).status==Status::incomplete);
+    assert(assembler.push(decode(invalidTail.data(),invalidTail.size(),true).frame).status==Status::invalid);
+    auto next=masked(1,"replacement");
+    assert(assembler.push(decode(next.data(),next.size(),true).frame).status==Status::ok);
+    auto invalidControl=ping;invalidControl[0]&=0x7f;reject(invalidControl);
+    auto orphan=masked(0,"orphan");
+    assert(assembler.push(decode(orphan.data(),orphan.size(),true).frame).status==Status::invalid);
+    auto largePart=masked(2,std::string(noqeri_websocket::max_frame_bytes,'x'));
+    largePart[0]&=0x7f;
+    assert(assembler.push(decode(largePart.data(),largePart.size(),true).frame).status==Status::incomplete);
+    assert(assembler.push(second.frame).status==Status::invalid); // aggregate limit
     auto unsupported=hello;unsupported[0]=0x83;reject(unsupported);
     auto invalidCode=masked(8,std::string("\x0b\xb8",2));
     assert(decode(invalidCode.data(),invalidCode.size(),true).status==Status::ok); // 3000 allowed
