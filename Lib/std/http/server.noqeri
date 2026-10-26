@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 module noqeri.std.http.server
 
 extern function httpServerListen(address: string, port: u32): isize
