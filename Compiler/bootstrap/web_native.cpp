@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Native Noqeri web renderer: no Node.js, JS engine, npm, or browser DOM runtime.
 // This deliberately compiles a *static*, fail-closed subset of Noqeri views.
 // Dynamic events/data loaders require an independently designed native backend.
