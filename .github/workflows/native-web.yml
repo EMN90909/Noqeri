@@ -1,0 +1,27 @@
+name: Native web without Node or JavaScript
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  native-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native C++ bootstrap
+        run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
+      - name: Build standalone Noqeri web binary (no Node/npm/JS)
+        run: cmake --build build-native-web --target noqeri-web -j2
+      - name: Native static web regression tests
+        run: ctest --test-dir build-native-web -R '^noqeri-native-web$' --output-on-failure
+      - name: Ensure generated site contains only HTML/CSS
+        run: |
+          ./build-native-web/noqeri-web build examples/native_web_static build-native-web/website
+          test -f build-native-web/website/index.html
+          test -f build-native-web/website/about/index.html
+          test -f build-native-web/website/theme.css
+          if find build-native-web/website -type f \( -name '*.js' -o -name '*.mjs' \) | grep .; then exit 1; fi
