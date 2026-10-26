@@ -2,6 +2,9 @@
 // Native web DB boundary. All engines are opt-in; NoeSQL owns .noedb.
 // No implicit NoqeriDB/NoeSQL format conversion and no SQL source interpolation.
 #pragma once
+struct NativeDatabaseFailure : std::runtime_error {
+    NativeDatabaseFailure():std::runtime_error("native database operation failed"){}
+};
 struct DbParameter {
     std::string name, value;
 };
