@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 module noqeri.std.http
 
 export function http_is_token_char(c:u8):bool{return c>32 as u8&&c<127 as u8&&c!=40 as u8&&c!=41 as u8&&c!=60 as u8&&c!=62 as u8&&c!=64 as u8&&c!=44 as u8&&c!=59 as u8&&c!=58 as u8&&c!=92 as u8&&c!=34 as u8&&c!=47 as u8&&c!=91 as u8&&c!=93 as u8&&c!=63 as u8&&c!=61 as u8&&c!=123 as u8&&c!=125 as u8}
