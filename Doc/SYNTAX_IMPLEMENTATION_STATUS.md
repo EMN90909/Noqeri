@@ -78,3 +78,10 @@ The compiler preserves explicit fixed-array behavior and rejects copying
 or returning an implicitly owned list. Handling negative integer-status
 `?` while lists are live is validated separately; no claim of complete
 exception safety or unconstrained generic ownership is made.
+
+## Owned collection verification, 2026-10-27
+
+* `numbers[index] = value` has end-to-end Stage-0, Stage-2 NQRI, C++ NQRI, native AOT execution coverage: [CI](https://github.com/EMN90909/Noqeri/actions/runs/40414806122).
+* `numbers.pop()` and `numbers.clear()` passed the same three runtime families, including failure for empty-pop: [CI](https://github.com/EMN90909/Noqeri/actions/runs/40415393196).
+* Out-of-bounds indexed assignment gets its own negative differential regression, including Stage-2 emitted bytecode. A successful build does not promise by-value `Result` errors: out-of-bounds and empty-pop currently trap.
+* All these operations are limited to contextually promoted `List<int>` and do **not** constitute generic allocator-owned `List<T>`, polymorphic elements, list ownership moves, or universal compiler `for-in`.

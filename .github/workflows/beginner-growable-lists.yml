@@ -107,6 +107,19 @@ jobs:
           ulimit -c 0
           if ./build-beginner-list/empty-pop-native; then echo "native silently popped empty list"; exit 1; fi
 
+      - name: Out-of-range indexed assignment fails closed in all runtimes
+        run: |
+          set -euo pipefail
+          ./build-beginner-list/noqeri check tests/beginner_growable_bad_index_set_range.noqeri
+          if ./build-beginner-list/noqeri run tests/beginner_growable_bad_index_set_range.noqeri; then echo "reference accepted bad list assignment"; exit 1; fi
+          ./build-beginner-list/noqeri nqri tests/beginner_growable_bad_index_set_range.noqeri build-beginner-list/bad-set.nqri
+          if ./build-beginner-list/noqeri-nqri build-beginner-list/bad-set.nqri verify; then echo "NQRI accepted bad list assignment"; exit 1; fi
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri tests/beginner_growable_bad_index_set_range.noqeri build-beginner-list/bad-set-stage2.nqri 3
+          if ./build-beginner-list/noqeri-nqri build-beginner-list/bad-set-stage2.nqri verify; then echo "Stage-2 accepted bad list assignment"; exit 1; fi
+          node scripts/native-build.mjs tests/beginner_growable_bad_index_set_range.noqeri build-beginner-list/bad-set-native --compiler=build-beginner-list/noqeri
+          ulimit -c 0
+          if ./build-beginner-list/bad-set-native; then echo "native accepted bad list assignment"; exit 1; fi
+
       - name: Out-of-range growable index rejects at runtime in all three engines
         run: |
           set -euo pipefail
