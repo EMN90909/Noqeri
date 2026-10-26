@@ -187,13 +187,16 @@ export function iterator_from_list<T>(cursor: *Iterator<T>,
 // 1 = one Unicode scalar was written, 0 = exhausted, -1 = invalid UTF-8.
 // The byte position and destination are unchanged on invalid input.
 record Utf8Iterator {
-    bytes: []u8
+    data: *u8
+    length: usize
     position: usize
 }
 export function utf8_iterator_init(cursor: *Utf8Iterator,
                                   bytes: []u8): bool {
     if cursor == null { return false }
-    cursor.bytes = bytes
+    cursor.data = null
+    if len(bytes) > 0 as usize { cursor.data = &bytes[0 as usize] }
+    cursor.length = len(bytes)
     cursor.position = 0 as usize
     return true
 }
@@ -209,9 +212,11 @@ export function utf8_iterator_reset(cursor: *Utf8Iterator): bool {
 export function utf8_iterator_next(cursor: *Utf8Iterator,
                                   output: *u32): isize {
     if cursor == null || output == null { return -1 as isize }
-    if cursor.position >= len(cursor.bytes) { return 0 as isize }
+    if cursor.position >= cursor.length { return 0 as isize }
+    if cursor.data == null { return -1 as isize }
+    let view: []u8 = slice(cursor.data, cursor.length)
     let scalar: u32 = 0 as u32
-    let size: isize = nqUtf8DecodeAt(cursor.bytes, cursor.position, &scalar)
+    let size: isize = nqUtf8DecodeAt(view, cursor.position, &scalar)
     if size <= 0 as isize { return -1 as isize }
     output[0 as usize] = scalar
     cursor.position = cursor.position + size as usize

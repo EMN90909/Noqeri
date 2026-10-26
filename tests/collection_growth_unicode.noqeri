@@ -31,7 +31,8 @@ function verify(): int {
     let bytes: [u8; 8] = [65 as u8,226 as u8,130 as u8,172 as u8,
                          240 as u8,159 as u8,140 as u8,141 as u8]
     let unicode: Utf8Iterator
-    unicode.bytes = slice(bytes)
+    unicode.data = &bytes[0 as usize]
+    unicode.length = 8 as usize
     unicode.position = 0 as usize
     let scalar: u32 = 0 as u32
     if utf8_iterator_next(&unicode,&scalar) != 1 as isize || scalar != 65 as u32 { return 9 }
@@ -41,7 +42,8 @@ function verify(): int {
     if utf8_iterator_position(&unicode) != 8 as usize { return 13 }
     if !utf8_iterator_reset(&unicode) || utf8_iterator_position(&unicode) != 0 as usize { return 14 }
     let invalid: [u8; 2] = [192 as u8,175 as u8]
-    unicode.bytes = slice(invalid)
+    unicode.data = &invalid[0 as usize]
+    unicode.length = 2 as usize
     unicode.position = 0 as usize
     scalar = 777 as u32
     if utf8_iterator_next(&unicode,&scalar) != -1 as isize { return 15 }
