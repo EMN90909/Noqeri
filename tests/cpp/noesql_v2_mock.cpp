@@ -10,7 +10,7 @@
 namespace {
 int open(void*,const std::uint8_t* path,std::size_t size,void** out) {
     std::string file(reinterpret_cast<const char*>(path),size);
-    if(file.size()<7||file.substr(file.size()-7)!=".noedb")return -1;
+    if(file.size()<6||file.substr(file.size()-6)!=".noedb")return -1;
     *out=new int(1);return 0;
 }
 int close(void*,void* p) {delete static_cast<int*>(p);return 0;}
