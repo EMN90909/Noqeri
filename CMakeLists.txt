@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(noqeri VERSION 0.1.3 LANGUAGES CXX)
+project(noqeri VERSION 0.1.4 LANGUAGES CXX)
 include(GNUInstallDirs)
 option(NOQERI_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(NOQERI_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
