@@ -1,0 +1,87 @@
+name: Publish already-qualified v0.1.4 OS/CPU downloads
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v014-qualified-now.yml']
+permissions:
+  contents: read
+jobs:
+  early-platform-assets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.1.4
+      RELEASE_TAG_SHA: 50606b6c491dfde2c8a9f4db624a82f8839621b3
+      SOURCE_SHA: 4f832f6105ce65a4c94800c87f8b16312cf7c1d1
+      SOURCE_RUN: '40313903511'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify trusted existing platform CI run and immutable public release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$RELEASE_TAG_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" \
+            --jq '[.head_sha,.head_branch,.event] | @tsv' \
+            | grep -Fx "$(printf '%s\tmain\tpush' "$SOURCE_SHA")"
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq 'select(.isDraft == false and .isPrerelease == true) | .isPrerelease' | grep -Fx true
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 40313903511
+          github-token: ${{ github.token }}
+          pattern: noqeri-*
+          merge-multiple: true
+          path: artifacts
+      - name: Verify real host architecture and source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/distribution/verify_v014_assets.py \
+            artifacts "$SOURCE_SHA" "$RELEASE_TAG_SHA" "$SOURCE_RUN"
+          (cd artifacts && sha256sum -c SHA256SUMS-platform-v014)
+          # Early evidence is separate. Final CI completion can publish a new,
+          # expanded canonical manifest without ever replacing these bytes.
+          mv artifacts/v0.1.4-platform-manifest.json \
+             artifacts/v0.1.4-platform-manifest-early-40313903511.json
+          mv artifacts/SHA256SUMS-platform-v014 \
+             artifacts/SHA256SUMS-platform-v014-early-40313903511
+      - name: Attach only qualified targets to existing v0.1.4, never overwrite
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > preexisting.txt
+          mkdir -p previous
+          for file in artifacts/*; do
+            [[ -s "$file" ]] || continue
+            name="$(basename "$file")"
+            if grep -Fxq "$name" preexisting.txt; then
+              gh release download "$RELEASE_TAG" --pattern "$name" --dir previous
+              cmp -s "previous/$name" "$file" || {
+                echo "Refusing to replace nonidentical release asset $name" >&2
+                exit 1
+              }
+              continue
+            fi
+            gh release upload "$RELEASE_TAG" "$file" --repo "$GITHUB_REPOSITORY"
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > final-assets.txt
+          for file in artifacts/*; do
+            [[ -s "$file" ]] || continue
+            grep -Fxq "$(basename "$file")" final-assets.txt
+          done
+      - name: Report public host coverage honestly
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          with open("artifacts/v0.1.4-platform-manifest-early-40313903511.json") as source:
+              manifest=json.load(source)
+          print("Published:",", ".join(manifest["available"]))
+          print("Not yet published:",", ".join(manifest["unavailable"]))
+          print("Android debug APK:", manifest["android_debug_apk"])
+          PY
