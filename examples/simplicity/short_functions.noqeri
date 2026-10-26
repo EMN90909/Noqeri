@@ -3,6 +3,9 @@
 function add(a: int, b: int): int = a + b
 function triple(x: int): int = x * 3
 
-if add(5, 3) != 8 { throw -1 }
-if triple(7) != 21 { throw -2 }
-print("SHORT_FUNCTIONS_PASS")
+function checkShortFunctions(): int {
+if add(5, 3) != 8 { return 1 }
+if triple(7) != 21 { return 2 }
+return 0
+}
+if checkShortFunctions() == 0 { print("SHORT_FUNCTIONS_PASS") } else { print("SHORT_FUNCTIONS_FAIL") }
