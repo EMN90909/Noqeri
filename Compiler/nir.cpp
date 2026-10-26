@@ -24,6 +24,11 @@ NirProgram Lowerer::lower(const Program&program){
     NirProgram out;out.entry.name="__entry";
     for(const auto&s:program.statements){
         if(auto f=std::dynamic_pointer_cast<FunctionStmt>(s)){
+            // Entry-scope ownership and function-local ownership are
+            // independent. Never let a callee's local list names leak into
+            // entry cleanup, particularly with mixed top-level statements.
+            const auto entryOwnedLists=ownedListVariables_;
+            ownedListVariables_.clear();
             NirFunction nf;nf.name=f->name;nf.genericParams=f->genericParams;nf.isExtern=f->isExtern||f->isForward;nf.isExport=f->isExport;for(const auto&p:f->params)nf.params.push_back(p.name);
             if(!f->isExtern&&!f->isForward){
                 ownedListVariables_.clear();
@@ -32,6 +37,7 @@ NirProgram Lowerer::lower(const Program&program){
                 if(nf.code.empty()||nf.code.back().op!=NirOp::Return){NirInstruction r;r.op=NirOp::Return;nf.code.push_back(r);}
             }
             out.functions.push_back(std::move(nf));
+            ownedListVariables_=entryOwnedLists;
         }else if(!std::dynamic_pointer_cast<RecordStmt>(s)&&!std::dynamic_pointer_cast<ImportStmt>(s)&&!std::dynamic_pointer_cast<ModuleStmt>(s))lowerStmt(out.entry,s);
     }
     closeOwnedLists(out.entry,0);
