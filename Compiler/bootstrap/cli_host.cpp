@@ -507,8 +507,9 @@ int main(int argc, char** argv) {
             return 0;
         }
         Diagnostics selectionDiagnostics;
+        const bool jsonCheck = cmd == "check" && std::any_of(argv+2,argv+argc,[](const char* a){return std::string(a)=="--diagnostics=json";});
         auto selected = selectSource(argc, argv, selectionDiagnostics);
-        if (!selected) { selectionDiagnostics.print("project.nqon"); return 1; }
+        if (!selected) { if(jsonCheck)printJsonDiagnostics(selectionDiagnostics,"project.nqon"); else selectionDiagnostics.print("project.nqon"); return 1; }
         auto path = selected->source;
         if (cmd == "lex") {
             auto source = readTextFile(path);
