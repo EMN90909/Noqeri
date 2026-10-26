@@ -35,3 +35,20 @@ The original Stage-2 corruption blocker [#115](https://github.com/EMN90909/Noqer
 was closed with sanitizer, reproducible NQRI rebuild and executable Stage-2
 evidence. Claims about *native* selfhosting remain explicitly out of scope
 of that closure.
+
+## Contextually growable integer lists (native/compiler candidate)
+
+The compiler recognizes an *unannotated* local integer array initializer
+which is subsequently mutated with a direct same-scope `.append(value)`
+expression statement, promoting it to an owned growable `List<int>`.
+Fixed arrays with explicit `[int;N]` annotations remain unchanged.
+Initial elements and appended values must be `int`; `.length()`
+returns the live length. NIR emits automatic close at normal lexical-scope
+exit and before explicit returns. Native Linux x86-64 AOT links the runtime
+without a special flag, and both the reference interpreter and NQRI VM
+recognize list operations. The runtime traps rather than silently ignoring
+allocation and capacity errors. Do **not** assume automatic close on every
+exceptional/control-flow escape, or support for aliases, generic types,
+indexing, list iteration, nested append expressions, and full Stage-2
+inference until corresponding tests exist. This change requires CI before
+it can be marked as qualified.

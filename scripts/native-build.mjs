@@ -94,6 +94,17 @@ try {
   run(compilerPath, ['build', source, assembly, optimization])
   if (!existsSync(assembly) || statSync(assembly).size === 0) fail('Noqeri compiler did not emit assembly')
 
+  const needsCompilerListRuntime = /\\bcall\\s+nq_list_(?:new|append|length|close)\\b/.test(readFileSync(assembly, 'utf8'))
+  const compilerListObject = resolve(temp, 'compiler-list-runtime.o')
+  if (needsCompilerListRuntime && !linkOwnedCollections) {
+    // A beginner's `let values = [5, 10]; values.append(15)` must not
+    // require a separate build flag or a prebuilt static library.
+    run(cxx, [
+      '-std=c++17', '-O2', '-I', resolve(root, 'Include/noqeri'),
+      '-c', resolve(root, 'Runtime/native/owned_collections.cpp'),
+      '-o', compilerListObject
+    ])
+  }
   run(cxx, ['-c', assembly, '-o', programObject])
   run(cxx, [
     '-std=c++17',
@@ -102,7 +113,7 @@ try {
     '-c', runnerSource,
     '-o', runnerObject
   ])
-  run(cxx, [programObject, runnerObject, ...(linkAiFramework ? [aiLib] : []), ...(linkOwnedCollections ? [ownedLibrary] : []), '-o', output])
+  run(cxx, [programObject, runnerObject, ...(linkAiFramework ? [aiLib] : []), ...(linkOwnedCollections ? [ownedLibrary] : needsCompilerListRuntime ? [compilerListObject] : []), '-o', output])
 
   if (!existsSync(output) || statSync(output).size === 0) fail('native executable was not produced')
   chmodSync(output, 0o755)

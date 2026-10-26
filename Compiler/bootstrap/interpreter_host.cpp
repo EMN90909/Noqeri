@@ -20,6 +20,9 @@ std::vector<std::unique_ptr<std::uint8_t[]>> allocations;
 // Do not dereference untrusted integer pointers as C strings.
 std::unordered_map<std::uintptr_t,std::string> aggregateStrings;
 std::mutex atomicMutex;
+std::unordered_map<std::int64_t,std::vector<std::int64_t>> growingIntLists;
+std::int64_t nextGrowingIntList=1;
+constexpr std::size_t maxGrowingElements=1000000;
 
 bool truthyValue(const NirValue&v){if(auto p=std::get_if<bool>(&v))return*p;if(auto p=std::get_if<std::int64_t>(&v))return*p!=0;if(auto p=std::get_if<double>(&v))return*p!=0.0;if(auto p=std::get_if<std::string>(&v))return!p->empty();return false;}
 std::int64_t asInt(const NirValue&v){if(auto p=std::get_if<std::int64_t>(&v))return*p;if(auto p=std::get_if<bool>(&v))return*p?1:0;if(std::holds_alternative<std::monostate>(v))return 0;throw std::runtime_error("integer or pointer value required");}
@@ -174,7 +177,7 @@ std::string Interpreter::valueToString(const NirValue&v)const{if(std::holds_alte
 int Interpreter::run(const NirProgram&p){try{
     if(!p.entry.partitions.empty())throw std::runtime_error("PGAS partitions require a distributed backend; local interpreter is disabled");
     for(const auto&fn:p.functions)if(!fn.partitions.empty())throw std::runtime_error("PGAS partitions require a distributed backend; local interpreter is disabled");
-    allocations.clear();aggregateStrings.clear();runFunction(p,p.entry,{});aggregateStrings.clear();allocations.clear();return 0;}catch(const std::exception&e){aggregateStrings.clear();allocations.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
+    allocations.clear();aggregateStrings.clear();growingIntLists.clear();runFunction(p,p.entry,{});aggregateStrings.clear();allocations.clear();growingIntLists.clear();return 0;}catch(const std::exception&e){aggregateStrings.clear();allocations.clear();growingIntLists.clear();std::cerr<<"NQR-R4000: runtime error: "<<e.what()<<"\n";return 1;}}
 NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const std::vector<NirValue>&argv){
     if(fn.isExtern)throw std::runtime_error("cannot directly interpret extern function "+fn.name);
     std::unordered_map<std::string,NirValue>vars;std::unordered_map<std::string,std::uint64_t>cells;std::unordered_set<std::string>addressTaken;std::vector<NirValue>regs(fn.nextReg);
@@ -251,7 +254,31 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                                          kind,i.type.kind);
                 break;
             }
-            case NirOp::Call:{std::vector<NirValue>a;for(auto r:i.args)a.push_back(get(r));auto user=std::find_if(p.functions.begin(),p.functions.end(),[&](const auto&x){return x.name==i.text&&!x.isExtern;});if(user!=p.functions.end()){regs[*i.dest]=runFunction(p,*user,a);break;}std::string error;if(i.text=="host"||i.text=="abi"){if(a.empty()||!std::holds_alternative<std::string>(a[0]))throw std::runtime_error(i.text+" requires a string service name");std::string service=std::get<std::string>(a[0]);std::vector<NirValue>serviceArgs(a.begin()+1,a.end());std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,service,serviceArgs,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),service,serviceArgs,error);if(!result)throw std::runtime_error(error.empty()?"unknown ABI service "+service:error);regs[*i.dest]=*result;break;}std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,i.text,a,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),i.text,a,error);if(!result)throw std::runtime_error(error.empty()?"unknown function "+i.text:error);regs[*i.dest]=*result;break;}
+            case NirOp::Call:{std::vector<NirValue>a;for(auto r:i.args)a.push_back(get(r));auto user=std::find_if(p.functions.begin(),p.functions.end(),[&](const auto&x){return x.name==i.text&&!x.isExtern;});if(user!=p.functions.end()){regs[*i.dest]=runFunction(p,*user,a);break;}if(i.text=="nq_list_new"){
+                    if(nextGrowingIntList==std::numeric_limits<std::int64_t>::max())
+                        throw std::runtime_error("growable list ID space exhausted");
+                    const auto id=nextGrowingIntList++;
+                    growingIntLists.emplace(id,std::vector<std::int64_t>{});
+                    regs[*i.dest]=id;break;
+                }
+                if(i.text=="nq_list_append"||i.text=="nq_list_length"||i.text=="nq_list_close"){
+                    if(a.empty())throw std::runtime_error("growable list handle missing");
+                    const auto id=asInt(a[0]);
+                    auto it=growingIntLists.find(id);
+                    if(it==growingIntLists.end())throw std::runtime_error("growable list has been released or is invalid");
+                    if(i.text=="nq_list_append"){
+                        if(a.size()!=2)throw std::runtime_error("growable list append requires one value");
+                        if(it->second.size()>=maxGrowingElements)
+                            throw std::runtime_error("growable list reached the one-million-element cap");
+                        it->second.push_back(asInt(a[1]));regs[*i.dest]=std::int64_t{0};
+                    }else if(i.text=="nq_list_length"){
+                        regs[*i.dest]=static_cast<std::int64_t>(it->second.size());
+                    }else{
+                        growingIntLists.erase(it);regs[*i.dest]=std::int64_t{0};
+                    }
+                    break;
+                }
+                std::string error;if(i.text=="host"||i.text=="abi"){if(a.empty()||!std::holds_alternative<std::string>(a[0]))throw std::runtime_error(i.text+" requires a string service name");std::string service=std::get<std::string>(a[0]);std::vector<NirValue>serviceArgs(a.begin()+1,a.end());std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,service,serviceArgs,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),service,serviceArgs,error);if(!result)throw std::runtime_error(error.empty()?"unknown ABI service "+service:error);regs[*i.dest]=*result;break;}std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,i.text,a,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),i.text,a,error);if(!result)throw std::runtime_error(error.empty()?"unknown function "+i.text:error);regs[*i.dest]=*result;break;}
             case NirOp::Jump:pc=i.target;continue;
             case NirOp::JumpIfFalse:if(!truthyValue(get(i.args[0]))){pc=i.target;continue;}break;
             case NirOp::Return:return i.args.empty()?NirValue(std::monostate{}):get(i.args[0]);
