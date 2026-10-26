@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Native Noqeri AI development host. The reusable runtime library is Apache-2.0.
 #include "noqeri/ai.hpp"
+#include "noqeri/lm.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <exception>
@@ -31,6 +32,8 @@ void help() {
       "  train <numeric-training.csv> <model.nqai> [--epochs N] [--rate LR] [--l2 L2] [--seed N]\n"
       "  predict <model.nqai> <feature1> [feature2 ...]\n"
       "  agent <model.nqai> <numeric-observations.csv> [--max-steps N] [--allow-emit]\n"
+      "  lm train <ascii-corpus.txt> <model.nqlm> [--steps N] [--context N] [--hidden N] [--rate LR] [--seed N]\n"
+      "  lm generate <model.nqlm> <prompt> [--tokens N] [--temperature X] [--seed N]\n"
       "  --version\n"
       "Training CSV has numeric features then a binary 0/1 label, without a header.\n"
       "Agent tools are default-denied; --allow-emit permits stdout only.\n";
@@ -43,6 +46,53 @@ int main(int argc,char** argv) {
         }
         if(argc<2) {help();return 2;}
         const std::string command=argv[1];
+        if(command=="lm") {
+            if(argc<4)throw std::runtime_error("usage: lm train|generate ...");
+            const std::string task=argv[2];
+            if(task=="train") {
+                if(argc<5)throw std::runtime_error("usage: lm train <corpus.txt> <model.nqlm>");
+                noqeri_ai::LanguageOptions options;
+                for(int i=5;i<argc;++i) {
+                    const std::string flag=argv[i];
+                    if(i+1>=argc)throw std::runtime_error("missing lm train option value");
+                    const std::string value=argv[++i];
+                    if(flag=="--steps")options.steps=natural(value,200000);
+                    else if(flag=="--context")options.context=natural(value,64);
+                    else if(flag=="--hidden")options.hidden=natural(value,64);
+                    else if(flag=="--rate")options.learning_rate=decimal(value);
+                    else if(flag=="--seed")options.seed=static_cast<std::uint32_t>(natural(value,4294967295ULL));
+                    else throw std::runtime_error("unknown lm train flag "+flag);
+                }
+                const auto corpus=noqeri_ai::read_language_corpus(argv[3]);
+                double loss=0.0;
+                const auto model=noqeri_ai::train_language(corpus,options,&loss);
+                noqeri_ai::save_language(model,argv[4]);
+                std::cout<<std::setprecision(8)<<"lm_trained_bytes="<<corpus.size()
+                         <<" steps="<<options.steps<<" context="<<options.context
+                         <<" hidden="<<options.hidden<<" trailing_loss="<<loss<<"\n";
+                return 0;
+            }
+            if(task=="generate") {
+                if(argc<5)throw std::runtime_error("usage: lm generate <model.nqlm> <prompt>");
+                std::size_t tokens=64;
+                double temperature=0.0;
+                std::uint32_t seed=42;
+                for(int i=5;i<argc;++i) {
+                    const std::string flag=argv[i];
+                    if(i+1>=argc)throw std::runtime_error("missing lm generate option value");
+                    const std::string value=argv[++i];
+                    if(flag=="--tokens")tokens=natural(value,256);
+                    else if(flag=="--temperature")temperature=decimal(value);
+                    else if(flag=="--seed")seed=static_cast<std::uint32_t>(natural(value,4294967295ULL));
+                    else throw std::runtime_error("unknown lm generate flag "+flag);
+                }
+                const auto model=noqeri_ai::load_language(argv[3]);
+                const auto result=noqeri_ai::generate_language(model,argv[4],tokens,temperature,seed);
+                std::cout<<"generated="<<result<<"\n";
+                return 0;
+            }
+            throw std::runtime_error("unknown lm subcommand: "+task);
+        }
         if(command=="train") {
             if(argc<4)throw std::runtime_error("usage: train <data.csv> <output.nqai>");
             noqeri_ai::Options opts;

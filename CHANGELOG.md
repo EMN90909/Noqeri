@@ -1,5 +1,16 @@
 # Changelog
 
+### Post-tag v0.1.4: lightweight neural language-model research add-on
+
+- Add a bounded, dependency-free C++17 CPU numerical SDK (matrix multiplication,
+  stable row softmax, RMS normalization and forward-only causal attention).
+- Add a miniature trainable character-level neural next-token model with safe,
+  versioned offline model persistence, reproducible seeded generation and
+  `noqeri ai lm train/generate` commands.
+- Extend deterministic and rejection-path tests and package as unique, SHA-qualified
+  v0.1.4 add-on assets; the original v0.1.4 tag and old binaries are unchanged.
+- Scope: **not** full LLM pretraining, transformer autodiff or GPU acceleration.
+
 ## 0.1.4 — 2026-10-26 (experimental developer preview)
 
 - Align CMake, compiler/language version constants and project manifests with 0.1.4.

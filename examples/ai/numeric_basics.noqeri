@@ -1,0 +1,6 @@
+import "../../Lib/std/numeric.noqeri"
+
+// Numeric building blocks are ordinary Noqeri library functions.
+// The same module is useful for scientific, graphics and business code.
+let sum: float = 1.0 + 2.0
+print(sum)

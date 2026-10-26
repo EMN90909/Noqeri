@@ -27,6 +27,11 @@ checked=subprocess.run([str(compiler),"check",str(example)],
                        text=True,capture_output=True,timeout=20)
 assert checked.returncode==0,(checked.stdout,checked.stderr)
 
+numeric_example=example.parent/"numeric_basics.noqeri"
+check_numeric=subprocess.run([str(compiler),"check",str(numeric_example)],
+                             text=True,capture_output=True,timeout=20)
+assert check_numeric.returncode==0,(check_numeric.stdout,check_numeric.stderr)
+
 with tempfile.TemporaryDirectory() as temp:
     root=Path(temp)
     train=root/"training.csv"
@@ -60,4 +65,23 @@ with tempfile.TemporaryDirectory() as temp:
     malicious.write_text('NQAI1 1\n0\n1\nnan\n0\n',encoding="ascii")
     cli("predict",malicious,"1",success=False)
 
-print("PASS: typed .noqeri AI modules, CPU SGD training, prediction, bounded autonomous agent")
+    # End-to-end neural character model through the same general-purpose CLI.
+    corpus=root/"corpus.txt"
+    corpus.write_text("hello world\n"*16,encoding="ascii")
+    language_model=root/"small.nqlm"
+    trained=cli("lm","train",corpus,language_model,"--steps","1500","--hidden","12",
+                "--context","4","--seed","7")
+    assert language_model.is_file() and "trailing_loss=" in trained.stdout
+    emitted=cli("lm","generate",language_model,"hello","--tokens","16")
+    again=cli("lm","generate",language_model,"hello","--tokens","16")
+    assert emitted.stdout==again.stdout and emitted.stdout.startswith("generated=")
+    cli("lm","generate",language_model,"hello","--tokens","100000",success=False)
+    cli("lm","generate",language_model,"hi\t","--tokens","2",success=False)
+    poisoned_text=root/"malicious.nqlm"
+    poisoned_text.write_text("NQLM1 99 2\n",encoding="ascii")
+    cli("lm","generate",poisoned_text,"hi",success=False)
+    bad_corpus=root/"binary.txt"
+    bad_corpus.write_bytes(b"test"*10+b"\x00")
+    cli("lm","train",bad_corpus,root/"bad.nqlm",success=False)
+
+print("PASS: typed .noqeri AI modules, SGD classifier, bounded agent and small CPU text-model training")

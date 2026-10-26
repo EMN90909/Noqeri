@@ -1,229 +1,47 @@
+// SPDX-License-Identifier: Apache-2.0
 module noqeri.std.numeric
 
-export function numeric_abs_i64(value: i64): i64 {
-    if value < 0 as i64 { return -value }
-    return value
-}
-
-export function numeric_sign_i64(value: i64): int {
-    if value < 0 as i64 { return -1 }
-    if value > 0 as i64 { return 1 }
-    return 0
-}
-
-export function numeric_min2_i64(a: i64, b: i64): i64 { if a < b { return a } return b }
-export function numeric_max2_i64(a: i64, b: i64): i64 { if a > b { return a } return b }
-
-export function numeric_clamp_i64(value: i64, low: i64, high: i64): i64 {
-    if low > high { return value }
-    if value < low { return low }
-    if value > high { return high }
-    return value
-}
-
-export function numeric_sum_i64(items: []i64): i64 {
-    let total: i64 = 0 as i64
+// Pure, allocation-free vector helpers for every Noqeri application.
+// No AI-specific syntax and no hidden native or network dependency.
+export function vector_sum(values: []float): float {
+    let total: float = 0.0
     let i: usize = 0 as usize
-    while i < len(items) { total = total + items[i] i = i + 1 as usize }
+    while i < len(values) {
+        total = total + values[i]
+        i = i + 1 as usize
+    }
     return total
 }
 
-export function numeric_product_i64(items: []i64): i64 {
-    if len(items) == 0 as usize { return 0 as i64 }
-    let total: i64 = 1 as i64
+export function vector_dot(left: []float, right: []float): float {
+    if len(left) != len(right) { return 0.0 }
+    let total: float = 0.0
     let i: usize = 0 as usize
-    while i < len(items) { total = total * items[i] i = i + 1 as usize }
+    while i < len(left) {
+        total = total + left[i] * right[i]
+        i = i + 1 as usize
+    }
     return total
 }
 
-export function numeric_min_or_i64(items: []i64, fallback: i64): i64 {
-    if len(items) == 0 as usize { return fallback }
-    let best: i64 = items[0]
+export function vector_max_index(values: []float): usize {
+    let best: usize = 0 as usize
     let i: usize = 1 as usize
-    while i < len(items) { if items[i] < best { best = items[i] } i = i + 1 as usize }
+    while i < len(values) {
+        if values[i] > values[best] { best = i }
+        i = i + 1 as usize
+    }
     return best
 }
 
-export function numeric_max_or_i64(items: []i64, fallback: i64): i64 {
-    if len(items) == 0 as usize { return fallback }
-    let best: i64 = items[0]
-    let i: usize = 1 as usize
-    while i < len(items) { if items[i] > best { best = items[i] } i = i + 1 as usize }
-    return best
-}
-
-export function numeric_min_i64(items: []i64): i64 { return numeric_min_or_i64(items, 0 as i64) }
-export function numeric_max_i64(items: []i64): i64 { return numeric_max_or_i64(items, 0 as i64) }
-
-export function numeric_mean_i64(items: []i64): i64 {
-    if len(items) == 0 as usize { return 0 as i64 }
-    return numeric_sum_i64(items) / (len(items) as i64)
-}
-
-export function numeric_range_i64(items: []i64): i64 {
-    if len(items) == 0 as usize { return 0 as i64 }
-    return numeric_max_i64(items) - numeric_min_i64(items)
-}
-
-export function numeric_count_zero_i64(items: []i64): usize {
-    let count: usize = 0 as usize
+export function vector_squared_error(left: []float, right: []float): float {
+    if len(left) != len(right) { return 0.0 }
+    let total: float = 0.0
     let i: usize = 0 as usize
-    while i < len(items) { if items[i] == 0 as i64 { count = count + 1 as usize } i = i + 1 as usize }
-    return count
-}
-
-export function numeric_count_positive_i64(items: []i64): usize {
-    let count: usize = 0 as usize
-    let i: usize = 0 as usize
-    while i < len(items) { if items[i] > 0 as i64 { count = count + 1 as usize } i = i + 1 as usize }
-    return count
-}
-
-export function numeric_count_negative_i64(items: []i64): usize {
-    let count: usize = 0 as usize
-    let i: usize = 0 as usize
-    while i < len(items) { if items[i] < 0 as i64 { count = count + 1 as usize } i = i + 1 as usize }
-    return count
-}
-
-export function numeric_gcd_i64(a: i64, b: i64): i64 {
-    let x: i64 = numeric_abs_i64(a)
-    let y: i64 = numeric_abs_i64(b)
-    while y != 0 as i64 {
-        let r: i64 = x % y
-        x = y
-        y = r
-    }
-    return x
-}
-
-export function numeric_lcm_i64(a: i64, b: i64): i64 {
-    if a == 0 as i64 || b == 0 as i64 { return 0 as i64 }
-    let gcd: i64 = numeric_gcd_i64(a, b)
-    return numeric_abs_i64((a / gcd) * b)
-}
-
-export function numeric_pow_i64(base: i64, exponent: usize): i64 {
-    let result: i64 = 1 as i64
-    let factor: i64 = base
-    let power: usize = exponent
-    while power > 0 as usize {
-        if power % 2 as usize == 1 as usize { result = result * factor }
-        power = power / 2 as usize
-        if power > 0 as usize { factor = factor * factor }
-    }
-    return result
-}
-
-export function numeric_lerp_i64(a: i64, b: i64, numerator: i64, denominator: i64): i64 {
-    if denominator == 0 as i64 { return a }
-    return a + ((b - a) * numerator) / denominator
-}
-
-export function numeric_inverse_lerp_per_mille(value: i64, low: i64, high: i64): i64 {
-    if low == high { return 0 as i64 }
-    return ((value - low) * 1000 as i64) / (high - low)
-}
-
-export function numeric_dot_i64(a: []i64, b: []i64): i64 {
-    let count: usize = len(a)
-    if len(b) < count { count = len(b) }
-    let total: i64 = 0 as i64
-    let i: usize = 0 as usize
-    while i < count {
-        total = total + a[i] * b[i]
+    while i < len(left) {
+        let delta: float = left[i] - right[i]
+        total = total + delta * delta
         i = i + 1 as usize
     }
     return total
-}
-
-export function numeric_prefix_sum_i64(items: []i64, out: []i64): usize {
-    let count: usize = len(items)
-    if len(out) < count { count = len(out) }
-    let total: i64 = 0 as i64
-    let i: usize = 0 as usize
-    while i < count {
-        total = total + items[i]
-        out[i] = total
-        i = i + 1 as usize
-    }
-    return count
-}
-
-export function numeric_first_difference_i64(items: []i64, out: []i64): usize {
-    if len(items) < 2 as usize { return 0 as usize }
-    let count: usize = len(items) - 1 as usize
-    if len(out) < count { count = len(out) }
-    let i: usize = 0 as usize
-    while i < count {
-        out[i] = items[i + 1 as usize] - items[i]
-        i = i + 1 as usize
-    }
-    return count
-}
-
-export function numeric_is_sorted_ascending_i64(items: []i64): bool {
-    let i: usize = 1 as usize
-    while i < len(items) {
-        if items[i] < items[i - 1 as usize] { return false }
-        i = i + 1 as usize
-    }
-    return true
-}
-
-export function numeric_is_sorted_descending_i64(items: []i64): bool {
-    let i: usize = 1 as usize
-    while i < len(items) {
-        if items[i] > items[i - 1 as usize] { return false }
-        i = i + 1 as usize
-    }
-    return true
-}
-
-export function numeric_binary_search_i64(items: []i64, value: i64): isize {
-    let low: usize = 0 as usize
-    let high: usize = len(items)
-    while low < high {
-        let mid: usize = low + (high - low) / 2 as usize
-        if items[mid] == value { return mid as isize }
-        if items[mid] < value { low = mid + 1 as usize } else { high = mid }
-    }
-    return -1 as isize
-}
-
-export function numeric_saturating_add_u64(a: u64, b: u64): u64 {
-    let max: u64 = 18446744073709551615 as u64
-    if b > max - a { return max }
-    return a + b
-}
-
-export function numeric_saturating_sub_u64(a: u64, b: u64): u64 {
-    if b > a { return 0 as u64 }
-    return a - b
-}
-
-export function numeric_checked_add_u64(a: u64, b: u64, out: *u64): bool {
-    if out == null { return false }
-    let max: u64 = 18446744073709551615 as u64
-    if b > max - a { return false }
-    unsafe { *out = a + b }
-    return true
-}
-
-export function numeric_checked_mul_u64(a: u64, b: u64, out: *u64): bool {
-    if out == null { return false }
-    let max: u64 = 18446744073709551615 as u64
-    if a != 0 as u64 && b > max / a { return false }
-    unsafe { *out = a * b }
-    return true
-}
-
-export function numeric_digit_count_u64(value: u64): usize {
-    let digits: usize = 1 as usize
-    let current: u64 = value
-    while current >= 10 as u64 {
-        current = current / 10 as u64
-        digits = digits + 1 as usize
-    }
-    return digits
 }

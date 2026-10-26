@@ -29,6 +29,22 @@ Noqeri is an evolving **statically typed, general-purpose programming language**
 
 This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.4`, an experimental developer preview, not a production-qualified release.** See [v0.1.4 scope and release gates](Doc/V0_1_4_RELEASE.md) and [component-specific licenses](LICENSES.md).
 
+## Lightweight numerical and language-model research add-on (post-tag)
+
+Noqeri remains a **general-purpose language**. Its opt-in Apache-2.0 CPU
+numerical library exposes matrix multiplication, softmax, normalization and
+causal attention, while the `noqeri ai lm` command trains and generates from
+a tiny neural character model for learning and prototyping. This is **not yet**
+a full transformer-based LLM training or serving ecosystem.
+
+```sh
+noqeri ai lm train corpus.txt model.nqlm --steps 2000
+noqeri ai lm generate model.nqlm "Example" --tokens 32
+```
+
+See [AI and language-model patch guide](Doc/AI_PATCH_V0_1_4.md). Post-tag
+binary add-ons are shipped separately from the immutable v0.1.4 original.
+
 ## Native web app preview (v0.1.4)
 
 Use the **single Noqeri CLI** for native static sites, JS-free full-stack

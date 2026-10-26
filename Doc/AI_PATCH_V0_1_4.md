@@ -41,3 +41,41 @@ Training limits: up to 100,000 rows, 32 numeric features, 10,000 epochs, 8,192 b
 The original `v0.1.4` release points to git SHA `50606b6c491dfde2c8a9f4db624a82f8839621b3`. AI implementation is **later work**. New, uniquely named `noqeri-v0.1.4-ai-patch-<platform>` downloads ship a `PATCH_SOURCE_SHA` file and a separate patch checksum/manifest. Do not claim the AI patch came from the original tag commit.
 
 This is an additive **developer preview**. No foundation-model pretraining, transformer tensor autodifferentiation, tokenizer, LLM hosting, model-provider bindings, distributed training, GPU kernels or external tool-agent runtime is included. Those require separate implementations and qualification.
+
+## Additive lightweight language-model research extension
+
+The post-tag extension adds the Apache-2.0 `noqeri/lm.hpp` CPU numerical library:
+bounded 2D matrix multiplication, stable softmax, RMS normalization, and
+single-head **causal scaled dot-product attention** (forward pass only).
+Those are reusable general-purpose numerical routines, with no AI keywords
+added to the Noqeri grammar.
+
+The native CLI and reusable C++17 library also implement a **small trainable
+autoregressive character predictor** with learned token embeddings,
+context-averaging and a softmax output layer. The vocabulary is deliberately
+limited to printable ASCII plus newline, trained with explicitly bounded
+CPU steps on corpora from 16 to 65,536 bytes. This is a working minimal
+neural language-model experimentation loop, **not a transformer, BPE tokenizer,
+large language model, fine-tuning engine, or production inference runtime**.
+
+```sh
+noqeri ai lm train notes.txt scratch.nqlm --steps 2000 --context 8 --hidden 24
+noqeri ai lm generate scratch.nqlm "hello" --tokens 40
+noqeri ai lm generate scratch.nqlm "hello" --tokens 40 --temperature 0.7 --seed 12
+```
+
+The `.nqlm` text model is a separate versioned, validated format; it is not
+compatible with the existing classifier `.nqai` format or GGUF. All model
+paths are explicit. There are no hidden network calls, remote model downloads,
+shell commands or agent permissions. Model files are **not signed**; use
+trusted inputs and a sandbox for untrusted applications. No GPU or third-party
+Python dependency is required for this teaching/research subset.
+
+Modern LLM development will additionally require native tensor differentiation
+and optimizer graphs, a production subword tokenizer, transformer weight
+loading/saving, fast SIMD/BLAS kernels, GPU backends and multi-device training.
+The checked-in small-model test must not be presented as evidence those exist.
+
+The additive extension ships as uniquely named
+`noqeri-v0.1.4-llm-foundation-<platform>` patch packages, retaining the
+original v0.1.4 tag and existing AI assets without overwriting either.
