@@ -9,6 +9,8 @@
 #include <mutex>
 #include <thread>
 #include <cstdint>
+#include <cmath>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <cstring>
