@@ -21,6 +21,7 @@ int64_t nq_collection_close(int64_t handle);
 int64_t nq_list_new(void);
 int64_t nq_list_append(int64_t handle,int64_t value);
 int64_t nq_list_length(int64_t handle);
+int64_t nq_list_at(int64_t handle,int64_t index);
 int64_t nq_list_close(int64_t handle);
 #ifdef __cplusplus
 }

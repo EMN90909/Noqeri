@@ -1,0 +1,7 @@
+function verify(): int {
+    let numbers = [1, 2]
+    numbers.append(3)
+    numbers[0] = 9
+    return 0
+}
+print(verify())

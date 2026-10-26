@@ -422,6 +422,13 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t){e->aggregateStorage=t->kind==TypeKind::Array||t->kind==TypeKind::Record||t->kind==TypeKind::Slice;return*t;}if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
         Type t=checkExpr(e->operand);
+        if(e->op==TokenKind::Ampersand){
+            if(auto index=std::dynamic_pointer_cast<IndexExpr>(e->operand);
+               index && index->growableListRead)
+                diagnostics_.error("NQR-T3081",e->span,
+                    "cannot borrow the address of an owned growable list element",
+                    "read the value with numbers[index] instead; appending may relocate storage");
+        }
         if(e->op==TokenKind::Question&&t.isInteger())e->op=TokenKind::Try;
         if(e->op==TokenKind::Question){
             const bool sameReturn=insideFunction_&&currentReturn_==t;
@@ -464,6 +471,12 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Type b=checkExpr(e->object);auto f=resolveField(b,e->member);if(!f){diagnostics_.error("NOE-T3024",e->span,"type '"+b.name()+"' has no field '"+e->member+"'");return simple(TypeKind::Unknown);}e->offset=f->offset;e->fieldSize=f->size;if(b.kind==TypeKind::Pointer){e->volatileAccess=b.isVolatile;e->baseIsPointer=true;}e->fieldType=resolveType(f->typeName,e->span);return e->fieldType;}
     if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
         Type container=checkExpr(e->object);Type idx=checkExpr(e->index);if(!idx.isInteger()&&idx.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3025",e->index->span,"index must be an integer");
+        if(container.kind==TypeKind::List){
+            e->growableListRead=true;
+            e->elementSize=8;
+            e->elementType=simple(TypeKind::Int);
+            return e->elementType;
+        }
         if(container.kind==TypeKind::Pointer&&container.pointee){e->elementSize=std::max<std::size_t>(1,container.pointee->size());e->volatileAccess=container.isVolatile;e->elementType=*container.pointee;return e->elementType;}
         if(container.kind==TypeKind::Array&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());e->hasFixedBound=true;e->fixedBound=container.count;e->elementType=*container.element;return e->elementType;}
         if(container.kind==TypeKind::Slice&&container.element){e->elementSize=std::max<std::size_t>(1,container.element->size());e->baseIsSlice=true;e->elementType=*container.element;return e->elementType;}
@@ -481,6 +494,11 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             return simple(TypeKind::Unknown);
         }
         if(e->op==TokenKind::Equal){Type lhs=checkExpr(e->left),rhs=checkExpr(e->right);
+            if(auto index=std::dynamic_pointer_cast<IndexExpr>(e->left);
+               index && index->growableListRead)
+                diagnostics_.error("NQR-T3080",e->span,
+                    "List<int> index is read-only while the list owns its storage",
+                    "use .append() to add values; indexed replacement is not implemented yet");
             if(lhs.kind==TypeKind::List||rhs.kind==TypeKind::List)
                 diagnostics_.error("NQR-T3077",e->span,
                     "cannot reassign or copy a live owned growable list",

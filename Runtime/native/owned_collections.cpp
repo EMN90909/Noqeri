@@ -133,3 +133,10 @@ extern "C" int64_t nq_list_close(int64_t handle) {
     if(status!=0)listRuntimeTrap("close",status);
     return 0;
 }
+
+extern "C" int64_t nq_list_at(int64_t handle,int64_t index) {
+    int64_t value=0;
+    const auto status=nq_collection_get(handle,index,&value);
+    if(status!=0)listRuntimeTrap("index",status);
+    return value;
+}

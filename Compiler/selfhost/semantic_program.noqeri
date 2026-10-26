@@ -499,6 +499,10 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         let base: *NqAstNode = &nodes[node.left as usize]
         if !nqCompilerTypeIsInteger(nodes[node.right as usize].typeCode) { return nqSemanticFail(context, node, nqSemanticInvalidIndex()) }
         if base.typeCode == nqAstTypePointer() && !context.unsafeAllowed { return nqSemanticFail(context, node, nqSemanticUnsafeRequired()) }
+        if base.typeCode == nqAstTypeOwnedIntList() {
+            node.typeCode = nqAstTypeInt()
+            return nqSemanticOk()
+        }
         if !nqCompilerTypeIsIndexable(base.typeCode) && base.typeCode != nqAstTypePointer() { return nqSemanticFail(context, node, nqSemanticInvalidIndex()) }
         if base.typeCode == nqAstTypeString() { node.typeCode = nqAstTypeU8() }
         else { node.typeCode = base.elementTypeCode node.typeSymbol = base.elementTypeSymbol }

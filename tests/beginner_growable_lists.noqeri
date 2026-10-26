@@ -8,6 +8,7 @@ function verify(): int {
     local.append(3)
     local.append(-7)
     if local.length() != 4 as usize { return 1 }
+    if local[0] != 1 || local[2] != 3 || local[3] != -7 { return 4 }
     let another = [9]
     another.append(8)
     if another.length() != 2 as usize { return 2 }
@@ -17,6 +18,7 @@ function verify(): int {
     empty.append(31)
     empty.append(32)
     if empty.length() != 2 as usize { return 3 }
+    if empty[0] != 31 || empty[1] != 32 { return 5 }
     return 0
 }
 print(verify())

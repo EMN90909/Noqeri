@@ -71,7 +71,7 @@ jobs:
       - name: Reject mismatched, fixed and aliased mutable collections
         run: |
           set -euo pipefail
-          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri; do
+          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri tests/beginner_growable_bad_index_assignment.noqeri tests/beginner_growable_bad_index_borrow.noqeri; do
             if ./build-beginner-list/noqeri check "$path"; then
               echo "unexpectedly accepted $path"; exit 1
             fi

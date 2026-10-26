@@ -261,12 +261,18 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                     growingIntLists.emplace(id,std::vector<std::int64_t>{});
                     regs[*i.dest]=id;break;
                 }
-                if(i.text=="nq_list_append"||i.text=="nq_list_length"||i.text=="nq_list_close"){
+                if(i.text=="nq_list_append"||i.text=="nq_list_length"||i.text=="nq_list_close"||i.text=="nq_list_at"){
                     if(a.empty())throw std::runtime_error("growable list handle missing");
                     const auto id=asInt(a[0]);
                     auto it=growingIntLists.find(id);
                     if(it==growingIntLists.end())throw std::runtime_error("growable list has been released or is invalid");
-                    if(i.text=="nq_list_append"){
+                    if(i.text=="nq_list_at"){
+                        if(a.size()!=2)throw std::runtime_error("growable list index requires one integer");
+                        const auto at=asInt(a[1]);
+                        if(at<0 || static_cast<std::uint64_t>(at)>=it->second.size())
+                            throw std::runtime_error("growable list index out of bounds");
+                        regs[*i.dest]=it->second[static_cast<std::size_t>(at)];
+                    }else if(i.text=="nq_list_append"){
                         if(a.size()!=2)throw std::runtime_error("growable list append requires one value");
                         if(it->second.size()>=maxGrowingElements)
                             throw std::runtime_error("growable list reached the one-million-element cap");

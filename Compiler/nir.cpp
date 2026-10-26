@@ -212,7 +212,15 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
         Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Unary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={a};emit(fn,i);return*i.dest;
     }
     if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->fieldSize?e->fieldSize:8;i.isVolatile=e->volatileAccess;i.type=e->fieldType;emit(fn,i);return*i.dest;}
-    if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;i.type=e->elementType;emit(fn,i);return*i.dest;}
+    if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
+        if(e->growableListRead){
+            Reg list=lowerExpr(fn,e->object);
+            Reg index=lowerExpr(fn,e->index);
+            NirInstruction call;call.op=NirOp::Call;call.dest=fn.nextReg++;
+            call.text="nq_list_at";call.args={list,index};emit(fn,call);
+            return *call.dest;
+        }
+        Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;i.type=e->elementType;emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Reg a=lowerExpr(fn,e->value);NirInstruction i;i.op=NirOp::Cast;i.dest=fn.nextReg++;i.text=e->typeName;i.args={a};emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
         if(e->op==TokenKind::Equal){Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
