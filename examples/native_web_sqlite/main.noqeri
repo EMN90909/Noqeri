@@ -1,0 +1,19 @@
+// Optional native SQLite adapter: use backend-native SQL syntax.
+database {
+  engine: "sqlite"
+  path: "noqeri-data/visitors.sqlite"
+}
+query visitors = "SELECT id, name FROM visitors ORDER BY id LIMIT 20"
+route "/" {
+  main class: "nq-page" {
+    h1 { "Visitors — SQLite" }
+    p { visitors }
+    form on.submit {
+      db.execute("INSERT INTO visitors(name) VALUES (:name)", name: form.name)
+    } {
+      label for: "visitor" { "Visitor name" }
+      input id: "visitor" name: "name" type: "text" {}
+      button type: "submit" { "Save visitor" }
+    }
+  }
+}
