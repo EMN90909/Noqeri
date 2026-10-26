@@ -4,6 +4,8 @@
 #include <cstdlib>
 #if !defined(_WIN32)
 #include <unistd.h>
+#else
+#include <process.h>
 #endif
 #include <chrono>
 #include <filesystem>
@@ -29,6 +31,7 @@ void usage() {
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
+              << "  ai train|predict|agent ...          offline CPU training and bounded agent tools\n"
               << "  web compile <app-dir> <binary>     compile JS-free full-stack native executable\n"
               << "  web build <app-dir> <output>       emit static HTML/CSS routes\n"
               << "  web serve-app <app-dir> [port]     launch native form/action server (local only)\n"
@@ -338,6 +341,30 @@ int main(int argc, char** argv) {
             return 2;
 #endif
         }
+    }
+    // Keep AI as an optional native runner: no Python, Node, remote API or
+    // ambient shell command needed. Argument forwarding does not invoke a shell.
+    if (cmd == "ai") {
+        const char* configured=std::getenv("NOQERI_AI_BIN");
+        std::filesystem::path sibling=std::filesystem::absolute(argv[0]).parent_path()
+                                       / "noqeri-ai";
+#if defined(_WIN32)
+        sibling += ".exe";
+#endif
+        const std::string executable=configured&&*configured?
+            std::string(configured):
+            (std::filesystem::exists(sibling)?sibling.string():std::string("noqeri-ai"));
+        std::vector<char*> forwarded{const_cast<char*>(executable.c_str())};
+        for (int i=2;i<argc;++i)forwarded.push_back(argv[i]);
+        forwarded.push_back(nullptr);
+#if defined(_WIN32)
+        const int rc=_spawnvp(_P_WAIT,executable.c_str(),forwarded.data());
+        if(rc>=0)return rc;
+#else
+        ::execvp(executable.c_str(),forwarded.data());
+#endif
+        std::cerr<<"NQR-AI1000: native AI runner unavailable; install noqeri-ai or set NOQERI_AI_BIN\n";
+        return 1;
     }
     if (cmd == "stress" || cmd == "--stress") return runStress(argc, argv);
     if (cmd == "targets") {

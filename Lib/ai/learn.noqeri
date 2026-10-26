@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+module noqeri.ai.learn
+
+// Allocation-free, deterministic learning primitives for the typed Noqeri
+// compiler. An online linear/logistic update is not LLM foundation training.
+// These functions are ordinary language modules, not opaque pseudo-syntax.
+
+export function ai_clamp_gradient(value: float, limit: float): float {
+    if limit <= 0.0 { return 0.0 }
+    if value > limit { return limit }
+    if value < -limit { return -limit }
+    return value
+}
+
+export function ai_linear_predict(weight: float, bias: float, feature: float): float {
+    return weight * feature + bias
+}
+
+export function ai_linear_weight_step(weight: float, bias: float, feature: float,
+                                      label: float, rate: float): float {
+    if rate <= 0.0 { return weight }
+    let residual: float = ai_linear_predict(weight, bias, feature) - label
+    return weight - rate * ai_clamp_gradient(residual * feature, 10.0)
+}
+
+export function ai_linear_bias_step(weight: float, bias: float, feature: float,
+                                    label: float, rate: float): float {
+    if rate <= 0.0 { return bias }
+    let residual: float = ai_linear_predict(weight, bias, feature) - label
+    return bias - rate * ai_clamp_gradient(residual, 10.0)
+}
+
+export function ai_squared_error(prediction: float, label: float): float {
+    let difference: float = prediction - label
+    return difference * difference
+}
+
+export function ai_threshold(prediction: float, threshold: float): bool {
+    return prediction >= threshold
+}
+
+export function ai_dot(left: []float, right: []float): float {
+    if len(left) != len(right) { return 0.0 }
+    let sum: float = 0.0
+    let i: usize = 0 as usize
+    while i < len(left) {
+        sum = sum + left[i] * right[i]
+        i = i + 1 as usize
+    }
+    return sum
+}

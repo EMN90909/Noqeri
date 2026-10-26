@@ -1,0 +1,35 @@
+name: Noqeri lightweight AI and bounded autonomous agents
+on:
+  push:
+    branches: [main]
+    paths: ['Lib/ai/**','Runtime/native/ai_runtime.cpp','Include/noqeri/ai.hpp','Tools/ai/**','tests/native_ai.py','tests/cpp/ai_runtime_test.cpp','Compiler/bootstrap/cli_host.cpp','.github/workflows/native-ai.yml','CMakeLists.txt']
+  pull_request:
+    branches: [main]
+    paths: ['Lib/ai/**','Runtime/native/ai_runtime.cpp','Include/noqeri/ai.hpp','Tools/ai/**','tests/native_ai.py','tests/cpp/ai_runtime_test.cpp','Compiler/bootstrap/cli_host.cpp','.github/workflows/native-ai.yml','CMakeLists.txt']
+permissions:
+  contents: read
+jobs:
+  cpu-ai:
+    name: CPU training, typed Noqeri AI, capability-limited agent
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure lightweight C++17 toolchain
+        run: cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+      - name: Build language compiler and native AI runtime
+        run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test --parallel 2
+      - name: Run native training, model integrity and agent budget tests
+        run: ctest --test-dir build-ai -R '^noqeri-ai-runtime$' --output-on-failure
+      - name: Compile typed Noqeri AI modules and run agent integration
+        run: python3 tests/native_ai.py ./build-ai/noqeri ./build-ai/noqeri-ai examples/ai/online_learning.noqeri
+      - name: Verify installed CLI, public header, model library and .noqeri AI modules
+        shell: bash
+        run: |
+          cmake --install build-ai --prefix "$PWD/ai-stage"
+          test -s ai-stage/bin/noqeri-ai
+          test -s ai-stage/lib/libnoqeri_ai.a
+          test -s ai-stage/include/noqeri/ai.hpp
+          test -s ai-stage/share/noqeri/Lib/ai/learn.noqeri
+          test -s ai-stage/share/noqeri/Lib/ai/agent.noqeri
+          ai-stage/bin/noqeri ai --version | grep -F '0.1.4-patch'

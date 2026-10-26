@@ -1,0 +1,16 @@
+import "../../Lib/ai/learn.noqeri"
+import "../../Lib/ai/agent.noqeri"
+
+// Small learning example using only .noqeri scalar functions.
+let weight: float = 0.0
+let bias: float = 0.0
+let epoch: int = 0
+while epoch < 30 {
+    let nextWeight: float = ai_linear_weight_step(weight, bias, 2.0, 5.0, 0.1)
+    let nextBias: float = ai_linear_bias_step(weight, bias, 2.0, 5.0, 0.1)
+    weight = nextWeight
+    bias = nextBias
+    epoch = epoch + 1
+}
+print(ai_can_step(0, 10))
+print(ai_linear_predict(weight, bias, 2.0))
