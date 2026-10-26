@@ -173,4 +173,30 @@ route "/" { h1 { "invalid" } }
                          str(root/"state4.nqkv")],capture_output=True,timeout=5)
     assert proc.returncode!=0 and b".noedb" in proc.stderr
 
+
+    # Provider introspection reports compiled drivers without opening sockets.
+    capabilities = subprocess.run([binary, "drivers"], capture_output=True, text=True, timeout=5)
+    assert capabilities.returncode == 0, capabilities.stderr
+    for engine in ("noesql", "sqlite", "postgresql", "duckdb", "mysql"):
+        assert engine + ":" in capabilities.stdout
+    assert "sqlite: compiled" in capabilities.stdout, capabilities.stdout
+
+    # Mixing DB writes with nontransactional state must be rejected at startup.
+    project.joinpath("main.noqeri").write_text("""
+let counter = 0
+database { engine: "sqlite" path: "test.sqlite" }
+route "/" {
+  form on.submit {
+    db.execute("INSERT INTO visitors(name) VALUES (:name)", name: form.name)
+    counter = counter + 1
+  } {
+    input name: "name" type: "text" {}
+    button type: "submit" { "Save" }
+  }
+}
+""")
+    proc=subprocess.run([binary, "serve-app", str(project), str(unused_port()),
+                         str(root / "state5.nqkv")], capture_output=True, timeout=5)
+    assert proc.returncode != 0 and b"independently committed" in proc.stderr
+
 print("PASS: native SQLite CRUD and parameter safety; NoeSQL native CLI delegation and no-fallback validation")
