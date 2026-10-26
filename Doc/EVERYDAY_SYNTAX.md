@@ -21,6 +21,20 @@ This is **front-end / NIR parity**, not proof that the entire Stage-2 native
 self-hosted compiler has passed reproducible bootstrap and release gates.
 The Stage-2 proof certificate remains fail-closed.
 
+## Simple iteration
+
+```noqeri
+let prices = [100, 250, 80, 400]
+for price in prices {
+    print(price)
+}
+```
+
+Stage-0 desugars this into a lexical block with one iterable binding,
+index and a while loop. Stage-2 uses a dedicated AST node, numeric primitive
+type propagation, a bounded loop index and bounds-checked NIR memory access.
+For now the supported iterables are typed fixed arrays and slices.
+
 ## Collections: first ergonomic, nonallocating operations
 
 ```noqeri
@@ -54,8 +68,7 @@ run without dynamic allocations and can be used with the existing
 The following remain **design targets, not implemented syntax**:
 
 - `function add(a,b) = a+b`: sound cross-call inference requires compiler-wide type inference, ABI and Stage-2 work. Typed expression bodies, such as `function add(a: int, b: int): int = a + b`, are supported in both parsers.
-- `for item in items`: a common iterator protocol and Stage-0/Stage-2
-  array/slice iterator lowering must agree before this spelling is released.
+- `for item in items` now lowers arrays and slices in both frontends. The iterable is evaluated once; `continue` advances; the Stage-2 NIR path guards bounds. Strings, growable lists and custom iterator objects are **not yet supported** by this syntax and require a common iterator protocol.
 - Growable `List` literals and anonymous record literals: lifetime,
   allocation, structural field identity and ABI need design and tests.
 - `"Hello {name}"`: requires typed string formatting, escaping and safe

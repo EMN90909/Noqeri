@@ -97,6 +97,7 @@ letDecl        := ("let" | "const") IDENT (":" type)? "=" expression terminator?
 statement      := ifStmt
                 | whileStmt
                 | repeatStmt
+                | forStmt
                 | returnStmt
                 | throwStmt
                 | block
@@ -105,6 +106,7 @@ statement      := ifStmt
 ifStmt         := "if" expression block ("else" (ifStmt | block))?
 whileStmt      := "while" expression block
 repeatStmt     := "repeat" expression block
+forStmt        := "for" IDENT "in" expression block
 returnStmt     := "return" expression? terminator?
 throwStmt      := "throw" expression terminator?
 block          := "{" declaration* "}"

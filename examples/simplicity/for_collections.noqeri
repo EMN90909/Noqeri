@@ -1,0 +1,19 @@
+// Statically typed for-in over a fixed array. continue advances normally.
+let scores: [int; 5] = [78,42,91,65,30]
+let passed: int = 0
+let total: int = 0
+for score in scores {
+    if score < 50 { continue }
+    passed = passed + 1
+    total = total + score
+}
+if passed != 3 || total != 234 { throw -1 }
+print("FOR_ARRAY_PASS")
+
+let other: [int; 3] = [1, 2, 3]
+let product: int = 1
+for value in slice(other) {
+    product = product * value
+}
+if product != 6 { throw -2 }
+print("FOR_SLICE_PASS")

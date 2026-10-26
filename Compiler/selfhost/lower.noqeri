@@ -549,6 +549,110 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         } else { instructions[branch as usize].immediate = state.instructionCount as i64 }
         return nqLowerOk()
     }
+    if node.tag == nqAstFor() {
+        let iterable: *NqAstNode = &nodes[node.right as usize]
+        let width: usize = nqCompilerPrimitiveTypeWidth(iterable.elementTypeCode)
+        if width == 0 as usize { return nqLowerUnsupported() }
+        let data: isize = nqLowerExpressionInternal(source, nodes, node.right, instructions, state)
+        if data < 0 as isize { return data }
+        let length: isize = nqNirNoValue()
+        let pointer: isize = data
+        if iterable.typeCode == nqAstTypeArray() {
+            length = nqLowerEmitConst(instructions, state, iterable.arrayLength as i64, nqAstTypeUsize())
+        } else if iterable.typeCode == nqAstTypeSlice() {
+            length = nqLowerAllocRegister(state)
+            let lenOp: isize = nqLowerEmit(instructions, state, nqNirSliceLen(), length)
+            if lenOp < 0 as isize { return lenOp }
+            instructions[lenOp as usize].left = data
+            pointer = nqLowerAllocRegister(state)
+            let dataOp: isize = nqLowerEmit(instructions, state, nqNirSliceData(), pointer)
+            if dataOp < 0 as isize { return dataOp }
+            instructions[dataOp as usize].left = data
+        } else { return nqLowerUnsupported() }
+        if length < 0 as isize { return length }
+        let indexSymbol: u64 = 18446744065119617024 as u64 + nodeIndex as u64
+        let zero: isize = nqLowerEmitConst(instructions, state, 0 as i64, nqAstTypeUsize())
+        if zero < 0 as isize { return zero }
+        let initial: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if initial < 0 as isize { return initial }
+        instructions[initial as usize].symbol = indexSymbol
+        instructions[initial as usize].left = zero
+
+        let loopStart: usize = state.instructionCount
+        let index: isize = nqLowerAllocRegister(state)
+        let readIndex: isize = nqLowerEmit(instructions, state, nqNirLoad(), index)
+        if readIndex < 0 as isize { return readIndex }
+        instructions[readIndex as usize].symbol = indexSymbol
+        instructions[readIndex as usize].typeCode = nqAstTypeUsize()
+        let condition: isize = nqLowerAllocRegister(state)
+        let less: isize = nqLowerEmit(instructions, state, nqNirLt(), condition)
+        if less < 0 as isize { return less }
+        instructions[less as usize].left = index
+        instructions[less as usize].right = length
+        instructions[less as usize].typeCode = nqAstTypeBool()
+        let branch: isize = nqLowerEmit(instructions, state, nqNirBranch(), nqNirNoValue())
+        if branch < 0 as isize { return branch }
+        instructions[branch as usize].left = condition
+        let guard: isize = nqLowerEmit(instructions, state, nqNirBoundsCheck(), nqNirNoValue())
+        if guard < 0 as isize { return guard }
+        instructions[guard as usize].left = index
+        instructions[guard as usize].right = length
+
+        let address: isize = nqLowerAllocRegister(state)
+        let offset: isize = nqLowerEmit(instructions, state, nqNirPtrAdd(), address)
+        if offset < 0 as isize { return offset }
+        instructions[offset as usize].left = pointer
+        instructions[offset as usize].right = index
+        instructions[offset as usize].width = width
+        let value: isize = nqLowerAllocRegister(state)
+        let load: isize = nqLowerEmit(instructions, state, nqNirLoadMemory(), value)
+        if load < 0 as isize { return load }
+        instructions[load as usize].left = address
+        instructions[load as usize].width = width
+        instructions[load as usize].typeCode = iterable.elementTypeCode
+        let item: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if item < 0 as isize { return item }
+        instructions[item as usize].symbol = nqLowerNodeSymbol(source, nodes, node.left)
+        instructions[item as usize].left = value
+
+        // Advance before the user body so continue makes progress.
+        let one: isize = nqLowerEmitConst(instructions, state, 1 as i64, nqAstTypeUsize())
+        if one < 0 as isize { return one }
+        let next: isize = nqLowerAllocRegister(state)
+        let add: isize = nqLowerEmit(instructions, state, nqNirAdd(), next)
+        if add < 0 as isize { return add }
+        instructions[add as usize].left = index
+        instructions[add as usize].right = one
+        instructions[add as usize].typeCode = nqAstTypeUsize()
+        let increment: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
+        if increment < 0 as isize { return increment }
+        instructions[increment as usize].symbol = indexSymbol
+        instructions[increment as usize].left = next
+
+        let savedStart: usize = state.loopStart
+        let savedBreakHead: isize = state.breakHead
+        state.loopDepth = state.loopDepth + 1 as usize
+        state.loopStart = loopStart
+        state.breakHead = nqNirNoValue()
+        let bodyStatus: isize = nqLowerStatement(source, nodes, node.extra, instructions, state)
+        if bodyStatus < 0 as isize { return bodyStatus }
+        let jump: isize = nqLowerEmit(instructions, state, nqNirJump(), nqNirNoValue())
+        if jump < 0 as isize { return jump }
+        instructions[jump as usize].immediate = loopStart as i64
+        let ending: usize = state.instructionCount
+        instructions[branch as usize].immediate = ending as i64
+        let pending: isize = state.breakHead
+        while pending >= 0 as isize {
+            let nextPending: isize = instructions[pending as usize].left
+            instructions[pending as usize].left = nqNirNoValue()
+            instructions[pending as usize].immediate = ending as i64
+            pending = nextPending
+        }
+        state.breakHead = savedBreakHead
+        state.loopStart = savedStart
+        state.loopDepth = state.loopDepth - 1 as usize
+        return nqLowerOk()
+    }
     if node.tag == nqAstRepeat() {
         // The synthetic slot has a distinct 64-bit namespace from ordinary
         // hashed source identifiers. Neither its spelling nor address can

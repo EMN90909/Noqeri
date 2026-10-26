@@ -158,6 +158,36 @@ function nqStmtParseRepeat(source: []u8, start: usize, nodes: []NqAstNode, count
     return node
 }
 
+// For-in is intentionally restricted to statically typed arrays/slices.
+// The iterable is evaluated once in NIR; the iterator binding is local to
+// the loop body and break/continue use the ordinary loop-control mechanism.
+function nqStmtParseFor(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
+    let keyword: NqToken
+    nqCompilerNextToken(source, start, &keyword)
+    let name: NqToken
+    nqCompilerNextToken(source, keyword.end, &name)
+    if name.kind != nqTokenIdentifier() { return nqAstNoNode() }
+    let separator: NqToken
+    nqCompilerNextToken(source, name.end, &separator)
+    if separator.kind != nqTokenIdentifier() ||
+       !nqTokenTextEqual(source, &separator, slice([105 as u8,110 as u8])) { return nqAstNoNode() }
+    let iterableEnd: usize = separator.end
+    let iterable: isize = nqParserParseExpression(source, separator.end, nodes, count, &iterableEnd)
+    if iterable < 0 as isize { return nqAstNoNode() }
+    let bodyEnd: usize = iterableEnd
+    let body: isize = nqStmtParseBlock(source, iterableEnd, nodes, count, &bodyEnd)
+    if body < 0 as isize { return nqAstNoNode() }
+    let binding: isize = nqAstArenaPush(nodes, count, nqAstName(), name.start, name.end)
+    if binding < 0 as isize { return binding }
+    let node: isize = nqAstArenaPush(nodes, count, nqAstFor(), keyword.start, bodyEnd)
+    if node < 0 as isize { return node }
+    nodes[node as usize].left = binding
+    nodes[node as usize].right = iterable
+    nodes[node as usize].extra = body
+    outEnd[0] = bodyEnd
+    return node
+}
+
 function nqStmtParseBlock(source: []u8, start: usize, nodes: []NqAstNode, count: *usize, outEnd: *usize): isize {
     let open: NqToken
     nqCompilerNextToken(source, start, &open)
@@ -382,6 +412,7 @@ function nqStmtParseDeclaration(source: []u8, start: usize, nodes: []NqAstNode, 
     if nqTokenTextEqual(source, &token, slice([105 as u8,102 as u8])) { return nqStmtParseIf(source, token.start, nodes, count, outEnd) }
     if nqTokenTextEqual(source, &token, slice([119 as u8,104 as u8,105 as u8,108 as u8,101 as u8])) { return nqStmtParseWhile(source, token.start, nodes, count, outEnd) }
     if nqTokenTextEqual(source, &token, slice([114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8])) { return nqStmtParseRepeat(source, token.start, nodes, count, outEnd) }
+    if nqTokenTextEqual(source, &token, slice([102 as u8,111 as u8,114 as u8])) { return nqStmtParseFor(source, token.start, nodes, count, outEnd) }
     if nqTokenTextEqual(source, &token, slice([114 as u8,101 as u8,116 as u8,117 as u8,114 as u8,110 as u8])) { return nqStmtParseReturnThrow(source, token.start, nodes, count, outEnd, false) }
     if nqTokenTextEqual(source, &token, slice([116 as u8,104 as u8,114 as u8,111 as u8,119 as u8])) { return nqStmtParseReturnThrow(source, token.start, nodes, count, outEnd, true) }
     // Treat loop control as statements, not unresolved identifier expressions.

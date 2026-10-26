@@ -473,6 +473,29 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
         if context.loopDepth == 0 as usize { return nqSemanticFail(context, node, nqSemanticInvalidLoopControl()) }
         return nqSemanticOk()
     }
+    if node.tag == nqAstFor() {
+        let status: isize = nqSemanticExpression(source, nodes, node.right, symbols, context, functions, functionParameters, records, recordCount, fields)
+        if status < 0 as isize { return status }
+        let iterable: *NqAstNode = &nodes[node.right as usize]
+        if (iterable.typeCode != nqAstTypeArray() && iterable.typeCode != nqAstTypeSlice()) ||
+           !nqAstTypeScalar(iterable.elementTypeCode) {
+            return nqSemanticFail(context, node, nqSemanticTypeMismatch())
+        }
+        context.scopeDepth = context.scopeDepth + 1 as usize
+        let name: *NqAstNode = &nodes[node.left as usize]
+        let defined: isize = nqSymbolsDefineTyped(source, symbols, &context.symbolCount, name.start, name.end,
+            iterable.elementTypeCode, iterable.elementTypeSymbol, nqAstTypeUnknown(), 0 as u64,
+            0 as usize, context.scopeDepth, 0 as u32)
+        if defined == nqSymbolDuplicate() { return nqSemanticDuplicateName() }
+        if defined < 0 as isize { return nqSemanticProgramCapacity() }
+        nqSemanticCopySymbolType(name, &symbols[defined as usize])
+        context.loopDepth = context.loopDepth + 1 as usize
+        let bodyStatus: isize = nqSemanticStatement(source, nodes, node.extra, symbols, context, functions, functionParameters, records, recordCount, fields)
+        context.loopDepth = context.loopDepth - 1 as usize
+        nqSymbolsPopScope(symbols, &context.symbolCount, context.scopeDepth)
+        context.scopeDepth = context.scopeDepth - 1 as usize
+        return bodyStatus
+    }
     if node.tag == nqAstRepeat() {
         let status: isize = nqSemanticExpression(source, nodes, node.left, symbols, context, functions, functionParameters, records, recordCount, fields)
         if status < 0 as isize { return status }

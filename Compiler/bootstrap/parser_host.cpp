@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include <algorithm>
 #include <stdexcept>
 
 namespace noe {
@@ -256,6 +257,7 @@ StmtPtr Parser::statement(){
     if(match({TokenKind::If}))return ifStatement();
     if(match({TokenKind::While}))return whileStatement();
     if(match({TokenKind::Repeat}))return repeatStatement();
+    if(check(TokenKind::Identifier) && peek().lexeme=="for"){advance();return forStatement();}
     if(match({TokenKind::Break}))return breakStatement();
     if(match({TokenKind::Continue}))return continueStatement();
     if(match({TokenKind::Return}))return returnStatement();
@@ -273,6 +275,74 @@ StmtPtr Parser::statement(){
 }
 StmtPtr Parser::ifStatement(){Token start=previous();ExprPtr cond=expression();auto s=std::make_shared<IfStmt>();s->span=start.span;s->condition=cond;s->thenBranch=statement();if(match({TokenKind::Else}))s->elseBranch=statement();return s;}
 StmtPtr Parser::whileStatement(){Token start=previous();ExprPtr cond=expression();auto s=std::make_shared<WhileStmt>();s->span=start.span;s->condition=cond;s->body=statement();return s;}
+StmtPtr Parser::forStatement(){
+    const Token start=previous();
+    const Token name=consumeName("expected item name after for");
+    if(!(check(TokenKind::Identifier)&&peek().lexeme=="in")){
+        diagnostics_.error("NQR-P2022",peek().span,
+            "expected 'in' between the item and collection",
+            "write 'for item in items { ... }'");
+        throw ParseError("parse");
+    }
+    advance();
+    auto source=expression();
+    consume(TokenKind::LBrace,"expected '{' after the collection");
+    auto userBody=block();
+
+    const std::string suffix=std::to_string(start.span.source)+"_"+
+                             std::to_string(start.span.start);
+    const std::string collectionName="__nq_for_collection_"+suffix;
+    const std::string indexName="__nq_for_index_"+suffix;
+    auto makeName=[&](const std::string& value)->ExprPtr{
+        auto result=std::make_shared<NameExpr>();
+        result->span=start.span;result->name=value;return result;
+    };
+    auto makeNumber=[&](std::int64_t value)->ExprPtr{
+        auto result=std::make_shared<LiteralExpr>();
+        result->span=start.span;result->value=value;return result;
+    };
+    auto makeUsize=[&](ExprPtr value)->ExprPtr{
+        auto result=std::make_shared<CastExpr>();result->span=start.span;
+        result->value=std::move(value);result->typeName="usize";return result;
+    };
+    auto collection=std::make_shared<LetStmt>();collection->span=start.span;
+    collection->name=collectionName;collection->initializer=source;
+    auto index=std::make_shared<LetStmt>();index->span=start.span;
+    index->name=indexName;index->annotation=std::string("usize");
+    index->initializer=makeUsize(makeNumber(0));
+
+    auto length=std::make_shared<CallExpr>();length->span=start.span;
+    length->callee=makeName("len");length->args.push_back(makeName(collectionName));
+    auto condition=std::make_shared<BinaryExpr>();condition->span=start.span;
+    condition->left=makeName(indexName);condition->op=TokenKind::Less;
+    condition->right=length;
+
+    auto element=std::make_shared<IndexExpr>();element->span=name.span;
+    element->object=makeName(collectionName);element->index=makeName(indexName);
+    auto binding=std::make_shared<LetStmt>();binding->span=name.span;
+    binding->name=name.lexeme;binding->initializer=element;
+
+    auto addition=std::make_shared<BinaryExpr>();addition->span=start.span;
+    addition->left=makeName(indexName);addition->op=TokenKind::Plus;
+    addition->right=makeUsize(makeNumber(1));
+    auto assign=std::make_shared<BinaryExpr>();assign->span=start.span;
+    assign->left=makeName(indexName);assign->op=TokenKind::Equal;
+    assign->right=addition;
+    auto increment=std::make_shared<ExprStmt>();increment->span=start.span;
+    increment->expr=assign;
+
+    auto loopBody=std::make_shared<BlockStmt>();loopBody->span=userBody->span;
+    loopBody->statements.push_back(binding);
+    loopBody->statements.push_back(increment); // continue always advances
+    loopBody->statements.insert(loopBody->statements.end(),
+        userBody->statements.begin(),userBody->statements.end());
+    auto loop=std::make_shared<WhileStmt>();loop->span=start.span;
+    loop->condition=condition;loop->body=loopBody;
+    auto outer=std::make_shared<BlockStmt>();outer->span=start.span;
+    outer->statements={collection,index,loop};
+    return outer;
+}
+
 StmtPtr Parser::repeatStatement(){
     Token start=previous();
     auto count=expression();

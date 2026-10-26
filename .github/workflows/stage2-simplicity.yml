@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'Compiler/bootstrap/parser_host.cpp'
+      - 'Include/noqeri/compiler.hpp'
       - 'Compiler/bootstrap/interpreter_host.cpp'
       - 'Compiler/selfhost/ast.noqeri'
       - 'Compiler/selfhost/parser_stmt.noqeri'
@@ -50,6 +51,12 @@ jobs:
           set -euo pipefail
           ./build-simplicity/noqeri check examples/simplicity/short_functions.noqeri
           ./build-simplicity/noqeri run examples/simplicity/short_functions.noqeri | grep -Fx SHORT_FUNCTIONS_PASS
+      - name: Collection iteration and negative syntax tests
+        run: |
+          set -euo pipefail
+          ./build-simplicity/noqeri check examples/simplicity/for_collections.noqeri
+          ./build-simplicity/noqeri run examples/simplicity/for_collections.noqeri | grep -Fx FOR_SLICE_PASS
+          if ./build-simplicity/noqeri check tests/invalid_for_keyword.noqeri; then exit 1; fi
       - name: Boolean equality runtime regression
         run: |
           set -euo pipefail
