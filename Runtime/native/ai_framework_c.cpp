@@ -8,6 +8,10 @@
 #include <new>
 #include <exception>
 #include <cmath>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <string>
 
 extern "C" int64_t nq_ai_gemm(const nq_ai_gemm_request* request) {
     if (!request || !request->left || !request->right || !request->output) return -1;
@@ -199,4 +203,89 @@ extern "C" int64_t nq_ai_transformer_train_generate(
         *r->training_loss=loss;
         return 0;
     } catch(const std::exception&) { return -5; } catch(...) { return -5; }
+}
+
+namespace {
+using NqOwnedModel = noqeri_ai::framework::TransformerModel;
+std::mutex nq_model_mutex;
+std::unordered_map<std::uint64_t,std::shared_ptr<const NqOwnedModel>> nq_models;
+std::uint64_t nq_next_model_id=1;
+constexpr std::size_t nq_max_owned_models=16;
+noqeri_ai::framework::Backend nq_backend(std::uint32_t backend) {
+    using noqeri_ai::framework::Backend;
+    switch(backend) {
+        case 0:return Backend::Scalar;
+        case 1:return Backend::Tiled;
+        case 2:return Backend::Simd;
+        default:return Backend::Auto;
+    }
+}
+}
+extern "C" int64_t nq_ai_model_train(const nq_ai_model_train_request* r) {
+    if (!r || !r->corpus || !r->handle || !r->training_loss) return -1;
+    if (r->corpus_length < 16 || r->corpus_length > 65536 ||
+        !r->context || r->context > 16 || r->hidden < 2 ||
+        r->hidden > 24 || !r->steps || r->steps > 10000 ||
+        r->merges > 32 || !std::isfinite(r->learning_rate) ||
+        r->learning_rate < 0.000001 || r->learning_rate > 0.1) return -2;
+    if(r->backend > 3) return -4;
+    // Check the resource budget early, then recheck it under the publish lock
+    // to avoid races between concurrent training calls.
+    { std::lock_guard<std::mutex> lock(nq_model_mutex);
+      if(nq_models.size() >= nq_max_owned_models ||
+         nq_next_model_id == 0 || nq_next_model_id == UINT64_MAX) return -6; }
+    try {
+        noqeri_ai::framework::TransformerOptions opt;
+        opt.context=r->context; opt.hidden=r->hidden; opt.steps=r->steps;
+        opt.merges=r->merges; opt.learning_rate=r->learning_rate;
+        opt.seed=r->seed; opt.backend=nq_backend(r->backend);
+        const std::string corpus(reinterpret_cast<const char*>(r->corpus),
+                                 r->corpus_length);
+        double loss=0.0;
+        auto model=std::make_shared<const NqOwnedModel>(
+            noqeri_ai::framework::train_transformer(corpus,opt,&loss));
+        if(!std::isfinite(loss)) return -5;
+        std::uint64_t handle=0;
+        {
+            std::lock_guard<std::mutex> lock(nq_model_mutex);
+            if(nq_models.size() >= nq_max_owned_models ||
+               nq_next_model_id == 0 || nq_next_model_id == UINT64_MAX) return -6;
+            handle=nq_next_model_id++;
+            nq_models.emplace(handle,std::move(model));
+        }
+        *r->handle=handle;
+        *r->training_loss=loss;
+        return 0;
+    } catch (const std::exception&) { return -5; }
+      catch (...) { return -5; }
+}
+extern "C" int64_t nq_ai_model_generate(const nq_ai_model_generate_request* r) {
+    if (!r || !r->prompt || !r->output || !r->output_length) return -1;
+    if(r->prompt_length > 4096 || !r->output_tokens || r->output_tokens > 64 ||
+       !std::isfinite(r->temperature) ||
+       r->temperature < 0.0 || r->temperature > 10.0) return -2;
+    if(r->backend > 3) return -4;
+    std::shared_ptr<const NqOwnedModel> model;
+    {
+        std::lock_guard<std::mutex> lock(nq_model_mutex);
+        auto it=nq_models.find(r->handle);
+        if(it==nq_models.end())return -7;
+        model=it->second;
+    }
+    try {
+        const std::string prompt(reinterpret_cast<const char*>(r->prompt),
+                                 r->prompt_length);
+        const auto result=noqeri_ai::framework::generate_transformer(
+            *model,prompt,r->output_tokens,r->temperature,r->seed,nq_backend(r->backend));
+        if(result.size()>r->output_capacity) return -3;
+        std::copy(result.begin(),result.end(),r->output);
+        *r->output_length=result.size();
+        return 0;
+    } catch (const std::exception&) { return -5; }
+      catch (...) { return -5; }
+}
+extern "C" int64_t nq_ai_model_release(std::uint64_t handle) {
+    if(handle==0) return -7;
+    std::lock_guard<std::mutex> lock(nq_model_mutex);
+    return nq_models.erase(handle)==1 ? 0 : -7;
 }

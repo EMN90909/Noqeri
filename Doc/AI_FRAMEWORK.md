@@ -129,3 +129,22 @@ model handles. Validation failures leave all outputs untouched.
 These remain experimental single-call AOT research APIs, **not** Unicode
 tokenization, reusable model training, a GPU system or portable NQRI calls.
 See `examples/simplicity/ai_native_tokenizer_transformer.noqeri`.
+
+## Hosted-native reusable model handles (Linux x86-64 AOT)
+
+Three separate calls now expose model ownership:
+`ai_native_model_train(&train)` returns a nonzero opaque `u64` token,
+`ai_native_model_generate(&request)` reuses that model for generation, and
+`ai_native_model_release(handle)` explicitly frees the registered session.
+Tokens are **process-local IDs, not pointers** and are never reused. At
+most 16 models can coexist; training, handle lookup and release are
+mutex-protected. A generation that acquires a model before a simultaneous
+release safely keeps it alive through completion; later lookups fail with
+status `-7`. Request validation and the capacity error `-3` leave caller
+output unchanged; no exception crosses the C ABI.
+
+This is **not** a persistent model file handle, distributed server,
+thread-safe retraining of the same model, GPU implementation, or NQRI VM
+host service. Training is an explicit bounded CPU operation and does not
+expose all weights or graph internals. See
+`examples/simplicity/ai_native_model_session.noqeri`.

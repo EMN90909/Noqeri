@@ -120,3 +120,44 @@ export function ai_native_transformer_train_generate(request: *AiTransformerRequ
 
 // Nonnegative native host status indicates success.
 export function ai_native_ok(status: isize): bool { return status >= 0 as isize }
+
+record AiModelTrainRequest {
+    corpus: *u8
+    corpus_length: usize
+    context: usize
+    hidden: usize
+    steps: usize
+    merges: usize
+    learning_rate: float
+    seed: u32
+    backend: u32
+    handle: *u64
+    training_loss: *float
+}
+record AiModelGenerateRequest {
+    handle: u64
+    prompt: *u8
+    prompt_length: usize
+    output_tokens: usize
+    temperature: float
+    seed: u32
+    backend: u32
+    output: *u8
+    output_capacity: usize
+    output_length: *usize
+}
+extern function nq_ai_model_train(request: *AiModelTrainRequest): isize
+extern function nq_ai_model_generate(request: *AiModelGenerateRequest): isize
+extern function nq_ai_model_release(handle: u64): isize
+
+// Session tokens are opaque unsigned identifiers, not raw pointers.
+// Explicitly release every successful train() handle.
+export function ai_native_model_train(request: *AiModelTrainRequest): isize {
+    return nq_ai_model_train(request)
+}
+export function ai_native_model_generate(request: *AiModelGenerateRequest): isize {
+    return nq_ai_model_generate(request)
+}
+export function ai_native_model_release(handle: u64): isize {
+    return nq_ai_model_release(handle)
+}

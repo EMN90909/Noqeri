@@ -126,6 +126,44 @@ int main() {
     model.output_capacity=256;model.steps=0;
     if(nq_ai_transformer_train_generate(&model)!=-2||generatedLength!=999)return 37;
     if(nq_ai_transformer_train_generate(nullptr)!=-1)return 38;
+
+    // Owned model sessions: train once, generate twice, invalidate the token.
+    std::uint64_t modelHandle=99999;
+    double sessionLoss=-77;
+    nq_ai_model_train_request training{
+        reinterpret_cast<const std::uint8_t*>(corpus.data()),corpus.size(),
+        3,4,2,2,0.025,42,0,&modelHandle,&sessionLoss};
+    if(nq_ai_model_train(&training)!=0 || modelHandle==0 ||
+       !std::isfinite(sessionLoss))return 39;
+    const auto releasedHandle=modelHandle;
+    std::uint8_t sessionText[256]{};
+    std::size_t sessionLen=777;
+    nq_ai_model_generate_request inference{
+        modelHandle,reinterpret_cast<const std::uint8_t*>(word.data()),word.size(),
+        2,0.0,42,0,sessionText,256,&sessionLen};
+    if(nq_ai_model_generate(&inference)!=0 || !sessionLen ||
+       sessionLen>256)return 40;
+    const std::string referenceText(
+        reinterpret_cast<const char*>(sessionText),sessionLen);
+    sessionLen=777;
+    if(nq_ai_model_generate(&inference)!=0 ||
+       std::string(reinterpret_cast<const char*>(sessionText),sessionLen)!=referenceText)
+       return 41;
+    sessionText[0]=99;sessionLen=777;inference.output_capacity=1;
+    if(nq_ai_model_generate(&inference)!=-3 || sessionLen!=777 ||
+       sessionText[0]!=99)return 42;
+    inference.output_capacity=256;inference.backend=255;
+    if(nq_ai_model_generate(&inference)!=-4 || sessionLen!=777)return 43;
+    inference.backend=0;training.context=0;
+    std::uint64_t previousHandle=modelHandle;
+    if(nq_ai_model_train(&training)!=-2 || modelHandle!=previousHandle ||
+       sessionLoss==-77)return 44;
+    training.context=3;
+    if(nq_ai_model_release(releasedHandle)!=0)return 45;
+    if(nq_ai_model_release(releasedHandle)!=-7)return 46;
+    if(nq_ai_model_generate(&inference)!=-7 || sessionLen!=777 ||
+       sessionText[0]!=99)return 47;
+    if(nq_ai_model_release(0)!=-7)return 48;
     std::cout<<"Native AI tensor C ABI passes\n";
     return 0;
 }

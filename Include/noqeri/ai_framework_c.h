@@ -104,6 +104,40 @@ typedef struct nq_ai_transformer_request {
 } nq_ai_transformer_request;
 // Fresh transient model: no retained caller pointers, network or file access.
 int64_t nq_ai_transformer_train_generate(const nq_ai_transformer_request *request);
+
+// Opaque owned CPU model sessions: numeric tokens are never raw pointers.
+// Handles are process-local, nonportable across runs, and must be released.
+// A release racing with generation prevents new lookups but permits the
+// already acquired generation to finish safely using a shared model owner.
+typedef struct nq_ai_model_train_request {
+    const uint8_t *corpus;
+    size_t corpus_length;
+    size_t context, hidden, steps, merges;
+    double learning_rate;
+    uint32_t seed, backend;
+    uint64_t *handle;
+    double *training_loss;
+} nq_ai_model_train_request;
+// No output fields change on failure.
+// 0 success, -1 invalid pointer, -2 bounds, -4 invalid backend,
+// -5 framework error, -6 session cap exhausted.
+int64_t nq_ai_model_train(const nq_ai_model_train_request *request);
+
+typedef struct nq_ai_model_generate_request {
+    uint64_t handle;
+    const uint8_t *prompt;
+    size_t prompt_length;
+    size_t output_tokens;
+    double temperature;
+    uint32_t seed, backend;
+    uint8_t *output;
+    size_t output_capacity;
+    size_t *output_length;
+} nq_ai_model_generate_request;
+// 0 success; -1 pointer; -2 bounds; -3 capacity; -4 backend;
+// -5 framework failure; -7 unknown or released handle.
+int64_t nq_ai_model_generate(const nq_ai_model_generate_request *request);
+int64_t nq_ai_model_release(uint64_t handle);
 #ifdef __cplusplus
 }
 #endif

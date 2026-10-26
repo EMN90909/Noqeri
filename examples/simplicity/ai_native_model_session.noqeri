@@ -1,0 +1,48 @@
+// Reusable, bounded model handle lifecycle in an ordinary Noqeri AOT app.
+import "../../Lib/ai/native.noqeri"
+function verify(): int {
+    let corpus: [u8; 48] = [104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8,104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8,104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8,104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8]
+    let prompt: [u8; 5] = [104 as u8,101 as u8,108 as u8,108 as u8,111 as u8]
+    let handle: u64 = 0 as u64
+    let loss: float = 0.0
+    let train: AiModelTrainRequest
+    train.corpus = &corpus[0]
+    train.corpus_length = 48 as usize
+    train.context = 3 as usize
+    train.hidden = 4 as usize
+    train.steps = 2 as usize
+    train.merges = 2 as usize
+    train.learning_rate = 0.025
+    train.seed = 42 as u32
+    train.backend = 0 as u32
+    train.handle = &handle
+    train.training_loss = &loss
+    if ai_native_model_train(&train) != 0 as isize { return 1 }
+    if handle == 0 as u64 || loss <= 0.0 { return 2 }
+    let output: [u8; 256]
+    let written: usize = 0 as usize
+    let request: AiModelGenerateRequest
+    request.handle = handle
+    request.prompt = &prompt[0]
+    request.prompt_length = 5 as usize
+    request.output_tokens = 2 as usize
+    request.temperature = 0.0
+    request.seed = 42 as u32
+    request.backend = 0 as u32
+    request.output = &output[0]
+    request.output_capacity = 256 as usize
+    request.output_length = &written
+    if ai_native_model_generate(&request) != 0 as isize { return 3 }
+    if written == 0 as usize || written > 256 as usize { return 4 }
+    output[0] = 99 as u8
+    written = 777 as usize
+    request.output_capacity = 1 as usize
+    if ai_native_model_generate(&request) != -3 as isize { return 5 }
+    if written != 777 as usize || output[0] != 99 as u8 { return 6 }
+    if ai_native_model_release(handle) != 0 as isize { return 7 }
+    if ai_native_model_release(handle) != -7 as isize { return 8 }
+    request.output_capacity = 256 as usize
+    if ai_native_model_generate(&request) != -7 as isize { return 9 }
+    return 0
+}
+print(verify())

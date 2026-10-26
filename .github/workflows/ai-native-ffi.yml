@@ -13,6 +13,7 @@ on:
       - 'examples/simplicity/ai_native_extended.noqeri'
       - 'examples/simplicity/ai_native_tape.noqeri'
       - 'examples/simplicity/ai_native_tokenizer_transformer.noqeri'
+      - 'examples/simplicity/ai_native_model_session.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
       - '.github/workflows/ai-native-ffi.yml'
@@ -72,6 +73,14 @@ jobs:
           node scripts/native-build.mjs examples/simplicity/ai_native_tokenizer_transformer.noqeri build-ai-ffi/native-tokenizer-transformer --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
           result=$(./build-ai-ffi/native-tokenizer-transformer)
           echo "Native BPE and transformer: $result"
+          test "$result" = "0"
+      - name: Build and execute Noqeri AOT reusable model session
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_model_session.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_model_session.noqeri build-ai-ffi/ai-model-session --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-model-session)
+          echo "Noqeri reusable model: $result"
           test "$result" = "0"
       - name: Build and run Noqeri AOT app calling native C++ tensor SDK
         run: |
