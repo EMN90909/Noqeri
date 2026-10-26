@@ -69,6 +69,7 @@ jobs:
           cmake_args=(
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
             -DNOQERI_ENABLE_SDL2=OFF
+            -DNOQERI_WEB_SQL_DRIVERS=OFF
             -DBUILD_TESTING=ON
             -DCMAKE_BUILD_TYPE=Release
             "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
@@ -90,7 +91,7 @@ jobs:
           }
           cmake -S . -B build -G $generator -A $architecture `
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF `
-            -DBUILD_TESTING=ON "-DNOQERI_PACKAGE_TARGET=$env:RELEASE_TARGET"
+            -DNOQERI_WEB_SQL_DRIVERS=OFF -DBUILD_TESTING=ON "-DNOQERI_PACKAGE_TARGET=$env:RELEASE_TARGET"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build toolchain and portability test
         run: cmake --build build --config Release --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-graphics-portability-test --parallel 2
@@ -217,7 +218,7 @@ jobs:
             "-DANDROID_ABI=${ANDROID_ABI}" -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF \
-            "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET" -DBUILD_TESTING=OFF
+            -DNOQERI_WEB_SQL_DRIVERS=OFF "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET" -DBUILD_TESTING=OFF
       - name: Cross-compile Android SDK
         run: cmake --build build-android --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath --parallel 2
       - name: Install Android SDK
@@ -335,7 +336,7 @@ jobs:
             pkg install -y cmake bash
           run: |
             set -eu
-            cmake -S . -B build-freebsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
+            cmake -S . -B build-freebsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
             cmake --build build-freebsd --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath --parallel 1
             cmake --install build-freebsd --prefix stage
             ./stage/bin/noqeri --version
@@ -379,7 +380,7 @@ jobs:
             pkg_add -I cmake bash
           run: |
             set -eu
-            cmake -S . -B build-openbsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
+            cmake -S . -B build-openbsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
             cmake --build build-openbsd --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath --parallel 1
             cmake --install build-openbsd --prefix stage
             ./stage/bin/noqeri --version
