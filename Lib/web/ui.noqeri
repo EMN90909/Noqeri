@@ -1,0 +1,51 @@
+// Bundled Noqeri-authored UI components: no React, JSX, TypeScript or npm.
+module noqeri.web.ui
+
+component Heading(label: string) {
+    h1 class: "nq-title" { label }
+}
+
+component Lead(message: string) {
+    p class: "nq-lead" { message }
+}
+
+component Card(title: string, description: string) {
+    article class: "nq-card" {
+        h2 class: "nq-card-title" { title }
+        p { description }
+    }
+}
+
+component Badge(label: string) {
+    span class: "nq-badge" { label }
+}
+
+component Notice(message: string) {
+    aside class: "nq-alert" role: "status" { message }
+}
+
+component Button(label: string) {
+    button type: "button" class: "nq-button" { label }
+}
+
+component LinkButton(label: string, href: string) {
+    a class: "nq-button" href: href { label }
+}
+
+component NavLink(label: string, href: string) {
+    a href: href { label }
+}
+
+component TextField(labelText: string, fieldId: string, hint: string) {
+    div class: "nq-field" {
+        label for: fieldId { labelText }
+        input id: fieldId name: fieldId type: "text" placeholder: hint {}
+    }
+}
+
+component Statistic(label: string, value: string) {
+    div class: "nq-card" {
+        p class: "nq-stat-value" { value }
+        p class: "nq-stat-label" { label }
+    }
+}

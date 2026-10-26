@@ -6,10 +6,11 @@ const TAGS = new Set('a abbr article aside b blockquote br button caption code d
 const VOID = new Set('br hr img input'.split(' '));
 const EVENTS = new Set(['click','input','change','submit']);
 const ATTRS = new Set(['id','class','title','role','href','src','alt','type','name','value','placeholder','for','disabled','checked','target','rel','tabindex']);
+const THEME_KEYS = new Set(['primary','background','surface','text','muted','border','accent','radius']);
 const OPS = {'||':1,'&&':2,'==':3,'!=':3,'<':4,'>':4,'<=':4,'>=':4,'+':5,'-':5,'*':6,'/':6,'%':6};
 const isIdent = x => /^[A-Za-z_][A-Za-z_0-9]*$/.test(x) && !BAD.has(x);
 export function isViewSource(source) {
-  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_])/m.test(source);
+  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_]|route\s+\")/m.test(source);
 }
 function tokenize(source) {
   if (typeof source !== 'string' || source.length > 1024 * 1024) throw Error('Noqeri view: source must be at most 1 MiB');
@@ -90,8 +91,8 @@ export function parseView(source) {
     }
     need('}');return actions;
   };
-  const components=[],functions=[],states=[],loads=[],imports=[],mounts=[];
-  let view=null;
+  const components=[],functions=[],states=[],loads=[],imports=[],mounts=[],routes=[];
+  let view=null,theme=null;
   function children(){
     return nest(()=>{
       const list=[];need('{');
@@ -155,6 +156,23 @@ export function parseView(source) {
       while(!is(')')){const param=ident();if(accept(':')){const t=ident();if(!['string','int','bool','float'].includes(t))fail('unsupported component parameter type '+t)}
         params.push(param);if(!accept(',')){if(!is(')'))fail('expected comma in component arguments')}}
       need(')');components.push({name,params,children:children()});
+    }else if(accept('route')){
+      const path=take();
+      if(path.kind!=='str'||!/^\/(?:[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*)?$/.test(path.value))fail('route path must be a static absolute path');
+      if(routes.some(r=>r.path===path.value))fail('duplicate route '+path.value);
+      routes.push({path:path.value,children:children()});
+    }else if(accept('theme')){
+      if(theme)fail('only one theme allowed');
+      theme=Object.create(null);need('{');
+      while(!is('}')){
+        const key=ident();
+        if(!THEME_KEYS.has(key)||Object.hasOwn(theme,key))fail('unknown or duplicate theme token '+key);
+        need(':');const value=expr();
+        if(value.kind!=='literal')fail('theme token must be a literal');
+        theme[key]=value.value;
+        accept(',');accept(';');
+      }
+      need('}');
     }else if(accept('view')){
       if(view)fail('only one root view allowed');view=children();
     }else if(accept('on')){
@@ -162,19 +180,20 @@ export function parseView(source) {
     }else fail('unsupported top-level declaration '+peek().value);
     accept(';');
   }
-  if(!view&&!components.length&&!functions.length)fail('view, component or function declaration required');
+  if(!view&&!routes.length&&!components.length&&!functions.length)fail('view, route, component or function declaration required');
   const symbols=new Set();
   for(const item of [...imports,...states,...loads,...components,...functions]){
     const name=item.alias??item.name;
     if(symbols.has(name)||BAD.has(name)||!isIdent(name))fail('duplicate or forbidden binding '+name);
     symbols.add(name);
   }
-  return {imports,states,loads,components,functions,view,mounts};
+  if(routes.length&&symbols.has('navigate'))fail('navigate is reserved in routed views');
+  return {imports,states,loads,components,functions,view,mounts,routes,theme};
 }
 export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) {
   const ast=parseView(source);
   if(typeof runtimeImport!=='string'||!/^\.{1,2}\//.test(runtimeImport)||runtimeImport.includes('\\')||runtimeImport.includes('\n'))throw Error('Invalid runtime module import');
-  const bindings=new Set([...ast.imports.map(x=>x.alias),...ast.states.map(x=>x.name),...ast.loads.map(x=>x.name),...ast.components.map(x=>x.name),...ast.functions.map(x=>x.name)]);
+  const bindings=new Set([...ast.imports.map(x=>x.alias),...ast.states.map(x=>x.name),...ast.loads.map(x=>x.name),...ast.components.map(x=>x.name),...ast.functions.map(x=>x.name),...(ast.routes.length?['navigate']:[])]);
   const aliases=new Set(ast.imports.map(x=>x.alias));
   const resource=new Set(ast.loads.map(x=>x.name));
   const mutable=new Set(ast.states.filter(x=>x.mutable).map(x=>x.name));
@@ -193,7 +212,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     }
     if(e.kind==='call'){
       function root(n){return n.kind==='name'?n.name:n.kind==='member'?root(n.object):n.kind==='call'?root(n.callee):null}
-      if(!aliases.has(root(e.callee))&&!(e.callee.kind==='name'&&(ast.components.some(c=>c.name===e.callee.name)||ast.functions.some(f=>f.name===e.callee.name))))throw Error('Noqeri view: call requires imported library, function or component');
+      if(!aliases.has(root(e.callee))&&!(e.callee.kind==='name'&&(ast.components.some(c=>c.name===e.callee.name)||ast.functions.some(f=>f.name===e.callee.name)||(ast.routes.length&&e.callee.name==='navigate'))))throw Error('Noqeri view: call requires imported library, function or component');
       return jsExpr(e.callee,local)+'('+e.args.map(a=>jsExpr(a,local)).join(',')+')';
     }
     throw Error('Noqeri view: unsupported expression');
@@ -227,10 +246,14 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     const source=imp.kind==='js'?imp.specifier:'./'+imp.specifier+'.mjs';
     lines.push('import * as '+imp.alias+' from '+JSON.stringify(source)+';');
   }
-  lines.push('import { element as __h, createApp as __createApp, safeMember as __member } from '+JSON.stringify(runtimeImport)+';');
+  lines.push('import { element as __h, createApp as __createApp, safeMember as __member, createRouter as __createRouter } from '+JSON.stringify(runtimeImport)+';');
   for(const state of ast.states)lines.push((state.mutable?'let ':'const ')+state.name+' = '+jsExpr(state.value)+';');
   for(const res of ast.loads)lines.push('let '+res.name+' = {loading:true,data:null,error:null};');
   lines.push('let __schedule = ()=>{};');
+  if(ast.routes.length){
+    lines.push('let __router = null;');
+    lines.push('export function navigate(path){return __router ? __router.navigate(path) : false;}');
+  }
   for(const fn of ast.functions){
     if(new Set(fn.params).size!==fn.params.length)throw Error('Noqeri view: duplicate function parameter '+fn.name);
     lines.push('export function '+fn.name+'('+fn.params.join(',')+') { '+actions(fn.body,new Set(fn.params),true)+' }');
@@ -240,14 +263,19 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     if(new Set(comp.params).size!==comp.params.length)throw Error('Noqeri view: duplicate component parameter '+comp.name);
     lines.push('export function '+comp.name+'('+comp.params.join(',')+') { return __h("div",{},'+nodes(comp.children,local)+',{}); }');
   }
-  if(ast.view){
-    lines.push('export function render(){return __h("div",{},'+nodes(ast.view)+',{});}');
+  if(ast.view||ast.routes.length){
+    if(ast.routes.length){
+      const page=ast.routes.reduceRight((fallback,r)=>'(__path==='+JSON.stringify(r.path)+' ? '+nodes(r.children)+' : '+fallback+')',ast.view?nodes(ast.view):'[__h("h1",{},["Page not found"],{})]');
+      lines.push('export function render(){const __path=__router ? __router.path() : "/";return __h("div",{},'+page+',{});}');
+    }else lines.push('export function render(){return __h("div",{},'+nodes(ast.view)+',{});}');
     lines.push('export function mount(root){if(!root)throw Error("Missing Noqeri view root");');
+    if(ast.routes.length)lines.push('  __router=__createRouter(root,()=>__schedule());');
     lines.push('  const app=__createApp(root,render);__schedule=app.schedule;');
     for(const r of ast.loads){
       lines.push('  app.load('+JSON.stringify(r.url)+',value=>{'+r.name+'={loading:false,data:value,error:null};__schedule();},error=>{'+r.name+'={loading:false,data:null,error:String(error)};__schedule();});');
     }
     if(ast.mounts.length)lines.push('  '+actions(ast.mounts,new Set()));
+    if(ast.routes.length)lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{__router?.dispose();__router=null;__schedule=()=>{};__dispose();};');
     lines.push('  return app;');
     lines.push('}');
     lines.push('if(typeof document!=="undefined"){const root=document.getElementById("app");if(root)mount(root);}');

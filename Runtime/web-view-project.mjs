@@ -5,6 +5,7 @@ import {resolve,relative,join,dirname,extname,sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {compileView,isViewSource,parseView} from './web-view-compiler.mjs'
 import {compileWeb} from './web-compiler.mjs'
+import {compileTheme} from './noqeri-web-theme.mjs'
 const ASSETS=new Set('.css .html .htm .js .mjs .json .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2 .txt .webmanifest'.split(' '))
 const under=(root,path)=>{const rel=relative(root,path);return rel===''||(rel!=='..'&&!rel.startsWith('..'+sep)&&!rel.startsWith(sep))}
 export async function buildViewProject({source,out,checkSource=null}={}) {
@@ -28,8 +29,8 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
   const code=await readFile(file,'utf8');entries.set(file,code)
   if(isViewSource(code))viewAst.set(file,parseView(code))
  }
- const main=join(input,'main.noqeri'),mainView=viewAst.get(main)?.view;
- if(!mainView)throw Error('Noqeri view project requires main.noqeri containing a view')
+ const main=join(input,'main.noqeri'),mainAst=viewAst.get(main);
+ if(!mainAst||(mainAst.view===null&&!mainAst.routes.length))throw Error('Noqeri view project requires main.noqeri containing a view or route')
  const htmlFiles=all.filter(p=>/\.(?:html|htm)$/.test(p))
  const outputPaths=new Set();
  for(const file of all){
@@ -37,7 +38,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
   if(outputPaths.has(target))throw Error('duplicate output asset: '+target)
   outputPaths.add(target)
  }
- if(outputPaths.has('__noqeri/runtime.mjs'))throw Error('reserved runtime asset path __noqeri/runtime.mjs')
+ if(outputPaths.has('__noqeri/runtime.mjs')||outputPaths.has('__noqeri/theme.css'))throw Error('reserved Noqeri framework output path')
  const mapFile=join(input,'web.importmap.json')
  let importmap=null
  if(all.includes(mapFile)){
@@ -53,6 +54,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
    }
   }
  }
+ let usesNativeUI=false;
  for(const [file,ast] of viewAst){
   for(const i of ast.imports){
    if(i.kind==='js'){
@@ -62,13 +64,24 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
     } else if(!Object.hasOwn(importmap?.imports||{},i.specifier))
      throw Error('import js "'+i.specifier+'" needs explicit web.importmap.json mapping')
    }else{
+    if(i.specifier==='noqeri/ui'){
+     usesNativeUI=true;
+     if(file!==main)throw Error('bundled noqeri/ui must be imported by the root main.noqeri');
+     if(outputPaths.has('noqeri/ui.mjs'))throw Error('reserved Noqeri UI output path');
+     continue;
+    }
     const path=resolve(dirname(file),i.specifier+'.noqeri')
     if(!under(input,path)||!viewAst.has(path))throw Error('Noqeri UI package missing local component source: '+i.specifier)
     modules.add(path)
    }
   }
  }
- const mapScript=importmap?'<script type="importmap">'+JSON.stringify(importmap).replace(/</g,'\\u003c')+'</script>':''
+ const importScript=prefix=>{
+  if(!importmap)return '';
+  const adjusted={...importmap,imports:Object.fromEntries(Object.entries(importmap.imports).map(([name,url])=>[name,url.startsWith('./')?prefix+url.slice(2):url]))};
+  return '<script type="importmap">'+JSON.stringify(adjusted).replace(/</g,'\\u003c')+'</script>';
+ };
+ const mapScript=importScript('./');
  await mkdir(output,{recursive:true})
  for(const file of all){
   const rel=relative(input,file),destination=join(output,rel)
@@ -89,20 +102,39 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
     if(!under(input,resolved))throw Error('HTML reference escapes project: '+ref)
     return attr+eq+path.replace(/\.noqeri$/i,'.mjs')+suffix+q
    })
-   if(mapScript){
-    if(/<script\s+type=["']importmap["']/i.test(html))throw Error('duplicate browser importmap')
-    const head=/<head[^>]*>/i
-    html=head.test(html)?html.replace(head,text=>text+mapScript):mapScript+html
-   }
+   if(mapScript&&/<script\s+type=["']importmap["']/i.test(html))throw Error('duplicate browser importmap');
+   const prefix=relative(dirname(relative(input,file)),'__noqeri/theme.css').replaceAll('\\','/');
+   const href=prefix.startsWith('.')?prefix:'./'+prefix;
+   const additions='<link rel="stylesheet" href="'+href+'">'+mapScript;
+   const head=/<head[^>]*>/i;
+   html=head.test(html)?html.replace(head,text=>text+additions):additions+html;
    await writeFile(destination,html)
   } else await copyFile(file,destination)
  }
  await mkdir(join(output,'__noqeri'),{recursive:true})
- await copyFile(fileURLToPath(new URL('./noqeri-web-runtime.mjs',import.meta.url)),join(output,'__noqeri/runtime.mjs'))
- if(!htmlFiles.length){
-  const css=all.includes(join(input,'styles.css'))?'<link rel="stylesheet" href="./styles.css">':''
-  const html='<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Noqeri web</title>'+css+mapScript+'</head><body><main id="app"></main><script type="module" src="./main.mjs"></script></body></html>\n'
-  await writeFile(join(output,'index.html'),html)
+ await copyFile(fileURLToPath(new URL('./noqeri-web-runtime.mjs',import.meta.url)),join(output,'__noqeri/runtime.mjs'));
+ await writeFile(join(output,'__noqeri/theme.css'),compileTheme(mainAst.theme));
+ if(usesNativeUI){
+  const ui=await readFile(fileURLToPath(new URL('../Lib/web/ui.noqeri',import.meta.url)),'utf8');
+  await mkdir(join(output,'noqeri'),{recursive:true});
+  await writeFile(join(output,'noqeri/ui.mjs'),compileView(ui,{runtimeImport:'../__noqeri/runtime.mjs'}));
  }
- return {files:all.length+(htmlFiles.length?0:1)+1,html:Math.max(1,htmlFiles.length),compiled:entries.size,views:viewAst.size,source:input,output}
+ let routePages=0;
+ if(!htmlFiles.length){
+  const htmlFor=prefix=>{
+   const css=all.includes(join(input,'styles.css'))?'<link rel="stylesheet" href="'+prefix+'styles.css">':'';
+   return '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Noqeri web</title><link rel="stylesheet" href="'+prefix+'__noqeri/theme.css">'+css+importScript(prefix)+'</head><body><main id="app"></main><script type="module" src="'+prefix+'main.mjs"></script></body></html>\n';
+  };
+  await writeFile(join(output,'index.html'),htmlFor('./'));
+  for(const route of mainAst.routes){
+   if(route.path==='/')continue;
+   const segments=route.path.slice(1).split('/');
+   const location=join(output,...segments,'index.html');
+   if(outputPaths.has(join(...segments,'index.html')))throw Error('route output collides with source asset: '+route.path);
+   await mkdir(dirname(location),{recursive:true});
+   await writeFile(location,htmlFor('../'.repeat(segments.length)));
+   routePages++;
+  }
+ }
+ return {files:all.length+(htmlFiles.length?0:1)+2+(usesNativeUI?1:0)+routePages,html:Math.max(1,htmlFiles.length)+routePages,compiled:entries.size,views:viewAst.size,source:input,output}
 }

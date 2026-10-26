@@ -104,3 +104,51 @@ export function createApp(root,render) {
     }
   };
 }
+
+
+/**
+ * Noqeri router capability. Page authors write only Noqeri route declarations;
+ * the browser adapter owns history, navigation and cleanup.
+ * Only local, static absolute paths are accepted (no external redirects).
+ */
+export function createRouter(root,onChange) {
+  if(!root||typeof onChange!=='function')throw TypeError('Noqeri router requires a root and callback');
+  const win=typeof window==='undefined'?null:window;
+  const valid=path=>typeof path==='string'&&/^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(path);
+  const current=()=>{
+    const raw=win?.location?.pathname??'/';
+    const path=raw.replace(/\/+$/,'')||'/';
+    return valid(path)?path:'';
+  };
+  const navigate=path=>{
+    if(!valid(path)||!win?.history?.pushState)return false;
+    if(path!==current())win.history.pushState(null,'',path);
+    onChange();
+    return true;
+  };
+  const pop=()=>onChange();
+  const click=event=>{
+    if(event.defaultPrevented||event.button>0||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return;
+    const anchor=event.target?.closest?.('a[href]');
+    if(!anchor||anchor.hasAttribute('download')||!root.contains?.(anchor))return;
+    const target=anchor.getAttribute('target');
+    if(target&&target!=='_self')return;
+    const href=anchor.getAttribute('href');
+    if(!valid(href))return;
+    event.preventDefault();
+    navigate(href);
+  };
+  win?.addEventListener?.('popstate',pop);
+  root.addEventListener?.('click',click);
+  let disposed=false;
+  return {
+    path:current,
+    navigate:path=>!disposed&&navigate(path),
+    dispose(){
+      if(disposed)return;
+      disposed=true;
+      win?.removeEventListener?.('popstate',pop);
+      root.removeEventListener?.('click',click);
+    }
+  };
+}
