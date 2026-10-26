@@ -459,13 +459,14 @@ std::size_t layoutSlotCount(const std::vector<Node>& nodes) {
     }
     return count;
 }
-void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable) {
+void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
+              const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
     AppStore app;
     app.stateFile=fs::absolute(stateFile).lexically_normal();
-    Parser(readText(input/"main.noqeri"),app.project).parse();
+    Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
     if(!app.project.uiAlias.empty())
-        Parser(readText(uiSource(executable)),app.project,true).parse();
+        Parser(uiOverride?*uiOverride:readText(uiSource(executable)),app.project,true).parse();
     if(app.project.routes.empty())throw std::runtime_error("serve-app requires routes");
     if(app.project.databaseConfigured)verifyDbConfig(app.project.database);
     if(!app.project.queries.empty()&&!app.project.databaseConfigured)
