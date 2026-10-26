@@ -36,6 +36,8 @@ class AssetTests(unittest.TestCase):
         for name in ("noqeri","noqeri-nqri"):
             (root/("noqeri-v0.1.4-linux-x86_64.bin" if name=="noqeri"
                     else "noqeri-nqri-v0.1.4-linux-x86_64.bin")).write_bytes(self.elf())
+        (root/"noqeri-0.1.4-linux-x86_64.deb").write_bytes(b"fake Debian metadata for release format test"*5)
+        (root/"noqeri-0.1.4-linux-x86_64.rpm").write_bytes(b"fake RPM metadata for release format test"*5)
         with tarfile.open(root/"noqeri-v0.1.4-linux-x86_64.tar.gz","w:gz") as tar:
             tar.add(source,arcname="stage")
 
@@ -73,6 +75,6 @@ class AssetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             p=Path(temp);self.make(p)
             (p/"noqeri-v0.1.4-linux-arm64.bin").write_bytes(self.elf(machine=183))
-            self.assertIn("unexpected",self.verify(p).stderr) if False else self.assertNotEqual(self.verify(p).returncode,0)
+            self.assertIn("unexpected",self.verify(p).stderr)
 
 if __name__=="__main__":unittest.main()
