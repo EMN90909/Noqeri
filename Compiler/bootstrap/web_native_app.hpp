@@ -283,6 +283,7 @@ std::string lower(std::string text) {
 }
 struct AppRequest {
     std::string method,path,host,origin,body,cookie,type,authorization;
+    bool hasOrigin=false;
 };
 AppRequest receiveAppRequest(int fd) {
     timeval timeout{};timeout.tv_sec=4;
@@ -340,7 +341,7 @@ AppRequest receiveAppRequest(int fd) {
         }
         if(name=="content-type")req.type=lower(val);
         if(name=="cookie")req.cookie=val;
-        if(name=="origin")req.origin=val;
+        if(name=="origin"){req.origin=val;req.hasOrigin=true;}
         if(name=="host")req.host=val;
         if(name=="authorization")req.authorization=val;
     }
@@ -350,6 +351,8 @@ AppRequest receiveAppRequest(int fd) {
         (req.type!="application/x-www-form-urlencoded"&&
          req.type!="application/x-www-form-urlencoded; charset=utf-8")))
         throw std::runtime_error("unsupported POST encoding");
+    if(req.method=="POST" && (!req.hasOrigin || req.origin.empty()))
+        throw std::runtime_error("POST requires Origin for CSRF protection");
     if(req.method!="POST"&&length!=0)throw std::runtime_error("unexpected request body");
     req.body=received.substr(at+4);
     if(req.body.size()>length)throw std::runtime_error("excess request body");
@@ -610,9 +613,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         std::thread([&,client] {
         try {
             const AppRequest req=receiveAppRequest(client);
-            // Session/persisted map and synchronous database connections use one
-            // state lock. I/O framing is concurrent; actions remain serialized.
-            std::lock_guard<std::mutex> locked(stateGuard);
+            // Authenticate and validate the origin before acquiring the state lock.
+            // GET rendering and independent database reads can now run concurrently.
             if(!nativeBasicAllowed(req.authorization,basicExpected)) {
                 appReply(client,401,"Authentication required");
             } else {
@@ -634,10 +636,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             render(app.project.fallback,app.project),"/theme.css"):"Page not found";
                     appReply(client,404,content,"","",head);
                 } else if(req.method=="POST") {
+                    std::lock_guard<std::mutex> locked(stateGuard);
                     auto session=app.sessions.find(getSid(req.cookie));
-                    if(session==app.sessions.end()) {
+                    if(session==app.sessions.end() ||
+                       std::chrono::steady_clock::now()-session->second.seen>std::chrono::hours(1)) {
                         appReply(client,403,"Session expired");
-                    } else if(!req.origin.empty()&&req.origin!="http://127.0.0.1:"+std::to_string(port)&&
+                    } else if(req.origin!="http://127.0.0.1:"+std::to_string(port)&&
                               req.origin!="http://localhost:"+std::to_string(port)) {
                         appReply(client,403,"Invalid origin");
                     } else {
@@ -647,7 +651,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         std::map<std::string,const Node*> actions;
                         validateActions(*page.nodes,app.project,actions);
                         const auto specified=action==fields.end()?actions.end():actions.find(action->second);
-                        if(specified==actions.end()||csrf==fields.end()||csrf->second!=session->second.csrf)
+                        if(specified==actions.end()||csrf==fields.end()||!constantTimeEquals(csrf->second,session->second.csrf))
                             appReply(client,403,"Invalid native action");
                         else {
                             std::string validationError;
@@ -714,9 +718,17 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         }
                     }
                 } else {
+                    Project rendered;
+                    std::string newCookie, sessionCsrf;
+                    {
+                    std::lock_guard<std::mutex> locked(stateGuard);
                     auto sid=getSid(req.cookie);
                     auto session=app.sessions.find(sid);
-                    std::string newCookie;
+                    if(session!=app.sessions.end() &&
+                       std::chrono::steady_clock::now()-session->second.seen>std::chrono::hours(1)) {
+                        app.sessions.erase(session);
+                        session=app.sessions.end();
+                    }
                     if(session==app.sessions.end()) {
                         sessionPrune(app);
                         sid=randomToken();
@@ -729,12 +741,14 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         newCookie=sid;
                     }
                     session->second.seen=std::chrono::steady_clock::now();
-                    Project rendered=app.project;
+                    rendered=app.project;
                     rendered.globals=currentValues(app,session->second);
                     for(const auto& [name,value]:page.params)rendered.globals[name]=value;
-                    for(const auto& [name,statement]:app.project.queries)
-                        rendered.globals[name]=executeDatabase(app.project.database,statement,{});
-                    const AppRenderContext context{path,session->second.csrf};
+                    sessionCsrf=session->second.csrf;
+                    } // release state lock before slow, read-only database queries and rendering
+                    for(const auto& [name,statement]:rendered.queries)
+                        rendered.globals[name]=executeDatabase(rendered.database,statement,{});
+                    const AppRenderContext context{path,sessionCsrf};
                     const auto body=rendered.hasLayout?
                         renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
                         renderApp(*page.nodes,rendered,context);
