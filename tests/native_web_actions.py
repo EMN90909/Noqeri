@@ -106,6 +106,31 @@ with tempfile.TemporaryDirectory() as temp:
         assert request(port, "POST", "/", "x=1", cookie)[0] == 403
         assert request(port, "POST", "/", "x=1", cookie, "text/plain")[0] == 400
         assert request(port, "GET", "/../secrets")[0] == 400
+        # Raw malformed requests: reject ambiguous framing, spoofed Host and
+        # session-cookie ambiguity before handling any mutation.
+        def raw_request(payload):
+            with socket.create_connection(("127.0.0.1",port), timeout=3) as sock:
+                sock.sendall(payload)
+                return sock.recv(4096).split(b"\r\n", 1)[0]
+        assert b"400" in raw_request(b"GET / HTTP/1.1\r\n\r\n")
+        assert b"400" in raw_request(
+            b"GET / HTTP/1.1\r\nHost: attacker.test\r\n\r\n")
+        assert b"400" in raw_request(
+            f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nHost: localhost:{port}\r\n\r\n".encode())
+        assert b"400" in raw_request(
+            f"POST / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            "Content-Length: 3\r\nContent-Length: 3\r\n"
+            "Content-Type: application/x-www-form-urlencoded\r\n\r\nx=1".encode())
+        assert b"400" in raw_request(
+            f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            "Transfer-Encoding: chunked\r\n\r\n".encode())
+        assert b"400" in raw_request(
+            f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            "X-Control: bad\x01value\r\n\r\n".encode())
+        # An ambiguous session cookie must never authenticate a POST.
+        assert request(port,"POST","/",payload,
+            f"{cookie}; {cookie}")[0] == 403
+
         assert state_file.exists() and state_file.read_text().startswith("NQKV1\n")
     finally:
         stop(server)
