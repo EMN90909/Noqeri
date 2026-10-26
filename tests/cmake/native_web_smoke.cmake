@@ -29,10 +29,10 @@ endif()
 
 set(unsafe "${OUTPUT_ROOT}/native-web-unsafe")
 file(MAKE_DIRECTORY "${unsafe}")
-file(WRITE "${unsafe}/main.noqeri" "route \"/\" { div on.click { action() } { \"bad\" } }\n")
+file(WRITE "${unsafe}/main.noqeri" "let count = 0\nroute \"/\" { button on.click { count = count + 1 } { \"bad\" } }\n")
 execute_process(COMMAND "${NOQERI_WEB}" build "${unsafe}" "${OUTPUT_ROOT}/native-web-rejected"
  RESULT_VARIABLE invalid_result ERROR_VARIABLE invalid_err)
-if(invalid_result EQUAL 0 OR NOT invalid_err MATCHES "event handlers require JavaScript")
+if(invalid_result EQUAL 0 OR NOT invalid_err MATCHES "events require serve-app")
  message(FATAL_ERROR "No-JS mode must reject event handlers: ${invalid_err}")
 endif()
 

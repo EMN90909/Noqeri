@@ -1,0 +1,47 @@
+// Native server-rendered application: zero browser JS, Node.js, npm or browser WASM.
+import noqeri/ui as ui
+
+let clicks = 0
+let visitor = "Guest"
+persist globalClicks = 0
+
+theme {
+    primary: "#304ac0"
+    background: "#f7f8fc"
+    accent: "#0f8466"
+}
+
+route "/" {
+    main class: "nq-page" {
+        ui.Heading("Noqeri native interactive web")
+        ui.Lead("Every click and form submission runs on the native server.")
+        p { "Your clicks: " + clicks }
+        p { "All-time clicks: " + globalClicks }
+        button class: "nq-button" on.click {
+            clicks = clicks + 1
+            globalClicks = globalClicks + 1
+        } { "Increment without JavaScript" }
+        form on.submit {
+            visitor = form.displayName
+        } {
+            label for: "displayName" { "Your name" }
+            input id: "displayName" name: "displayName" type: "text" placeholder: "Type a name" {}
+            button type: "submit" { "Save name" }
+        }
+        p { "Hello, " + visitor }
+        a href: "/about" { "About" }
+    }
+}
+route "/about" {
+    main class: "nq-page" {
+        ui.Heading("Server-driven Noqeri")
+        ui.Card("No JavaScript", "Native POST actions update session and durable global state.")
+        a href: "/" { "Home" }
+    }
+}
+view {
+    main class: "nq-page" {
+        h1 { "Not found" }
+        a href: "/" { "Home" }
+    }
+}

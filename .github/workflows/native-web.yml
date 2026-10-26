@@ -36,3 +36,6 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:18971/theme.css | grep -q -- '--nq-primary:#304ac0'
           status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18971/missing)
           test "$status" = 404
+      - name: Test server-driven buttons, forms, session isolation and persisted data
+        run: |
+          python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions

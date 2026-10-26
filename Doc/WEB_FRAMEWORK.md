@@ -1,5 +1,8 @@
 # Noqeri Web Framework (experimental)
 
+For JavaScript-free **server-driven** actions, forms, session state and persisted data, see [WEB_NATIVE_ACTIONS.md](WEB_NATIVE_ACTIONS.md). For strictly static output use [WEB_NATIVE.md](WEB_NATIVE.md).
+
+
 **Without Node.js or JavaScript:** use the separate native static renderer documented in [WEB_NATIVE.md](WEB_NATIVE.md). It builds and serves HTML/CSS without a JS engine. Reactive browser events are not supported in that mode.
 
 
