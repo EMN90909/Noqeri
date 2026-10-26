@@ -52,6 +52,7 @@ jobs:
           set -euo pipefail
           sha256sum -c Compiler/selfhost/trusted-stage1.sha256
           ./build-beginner-list/noqeri-nqri compile-manifest Compiler/selfhost/trusted-stage1.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-beginner-list/selfhost-stage2.nqri 3
+          echo 'Stage-2 smoke compile with stdout trace enabled:'
           ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri tests/beginner_growable_stage2_smoke.noqeri build-beginner-list/selfhost-smoke.nqri 3
           smoke=$(./build-beginner-list/noqeri-nqri build-beginner-list/selfhost-smoke.nqri verify)
           echo "Minimal Stage-2 append: $smoke"
