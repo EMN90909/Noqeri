@@ -125,4 +125,29 @@ jobs:
           git add Compiler/selfhost/trusted-stage1.nqri Compiler/selfhost/trusted-stage1.sha256 Compiler/selfhost/stage1-seed.sha256 Compiler/selfhost/stage1-seed.json Compiler/selfhost/BOOTSTRAP.md
           git diff --cached --quiet && exit 0
           git commit -m 'chore(bootstrap): refresh reproducible Stage-1 NQRI pin after Stage-2/3 byte equality'
-          git push origin HEAD:main
+          # Parallel documentation/test pushes can advance main while this
+          # CPU-heavy proof runs. Rebase only when the COMPILER inputs used to
+          # generate the proof remain unchanged; never force-push, overwrite a
+          # concurrent pin, or attest to a different source tree.
+          for attempt in 1 2 3; do
+            git fetch origin main
+            if ! git diff --quiet "$GITHUB_SHA" origin/main -- \
+                  Compiler/selfhost Compiler/bootstrap \
+                  Compiler/core.cpp Compiler/type_checker.cpp Compiler/nir.cpp \
+                  Include/noqeri; then
+              echo 'Compiler inputs changed since this proof; refusing stale pin' >&2
+              exit 1
+            fi
+            if ! git rebase origin/main; then
+              git rebase --abort || true
+              echo 'Bootstrap artifact conflict: another pin changed; refusing overwrite' >&2
+              exit 1
+            fi
+            if git push origin HEAD:main; then
+              echo 'Reproducible Stage-1 NQRI pin safely fast-forwarded to main'
+              exit 0
+            fi
+            echo "Concurrent non-compiler push during attempt $attempt; retrying"
+          done
+          echo 'Pin update could not fast-forward main without force; refusing' >&2
+          exit 1
