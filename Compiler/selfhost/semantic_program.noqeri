@@ -313,6 +313,7 @@ function nqSemanticMarkGrowableListBindings(source: []u8, nodes: []NqAstNode, fi
                                nqTypeNameSymbol(source,receiver.start,receiver.end) ==
                                nqTypeNameSymbol(source,nodes[node.left as usize].start,nodes[node.left as usize].end) &&
                                nqSemanticNameEqual(source,method,slice([97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8])) {
+                                print(8811)
                                 node.flags = node.flags + nqAstFlagGrowableIntList()
                             }
                         }
@@ -533,6 +534,8 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
             let receiverStatus: isize = nqSemanticExpression(source,nodes,callee.left,symbols,context,functions,functionParameters,records,recordCount,fields)
             if receiverStatus < 0 as isize { return receiverStatus }
             let receiver: *NqAstNode = &nodes[callee.left as usize]
+            print(8813)
+            print(receiver.typeCode)
             if receiver.typeCode == nqAstTypeOwnedIntList() {
                 let member: *NqAstNode = &nodes[callee.right as usize]
                 if nqSemanticNameEqual(source,member,slice([97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8])) {
@@ -606,6 +609,7 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
         if initStatus < 0 as isize { return initStatus }
         let value: *NqAstNode = &nodes[node.right as usize]
         if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
+            print(8812)
             if value.typeCode != nqAstTypeArray() || value.elementTypeCode != nqAstTypeInt() ||
                node.extra >= 0 as isize { return nqSemanticFail(context,node,nqSemanticTypeMismatch()) }
             node.typeCode = nqAstTypeOwnedIntList()
