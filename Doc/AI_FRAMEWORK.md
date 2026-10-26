@@ -9,8 +9,8 @@ remain backward compatible.
 
 | Component | Implemented | Boundary |
 | --- | --- | --- |
-| Portable Noqeri source | `Lib/ai/framework.noqeri`: scalar affine gradients, bounded SGD, pair frequencies, attention dot product, agent budget guards | Portable helpers are directly importable; an additional explicit native AOT module exposes bounded GEMM, softmax and SGD. |
-| Reverse-mode autodiff | `noqeri/ai_framework.hpp`, `Tape`: tensor add, matmul, transpose, scale, tanh, softmax, causal softmax, gather, last-row, cross-entropy, backward | Small dense 2D CPU graph, up to 128 operations; Full autodiff graph remains a C++17 API; a bounded softmax operation is exposed through a separately linked native Noqeri ABI. |
+| Portable Noqeri source | `Lib/ai/framework.noqeri`: scalar affine gradients, bounded SGD, pair frequencies, attention dot product, agent budget guards | Portable helpers are directly importable; an additional explicit native AOT module exposes bounded GEMM, softmax, SGD, Tape graph execution, ASCII BPE and transient transformer training/generation. |
+| Reverse-mode autodiff | `noqeri/ai_framework.hpp`, `Tape`: tensor add, matmul, transpose, scale, tanh, softmax, causal softmax, gather, last-row, cross-entropy, backward | Small dense 2D CPU graph, up to 128 operations; The C++17 SDK provides the complete graph; a bounded subset of Tape operations is exposed through an explicitly linked Noqeri C ABI. |
 | Transformer training | Learn embeddings, Q/K/V projections, causal attention, attention output, residual, tanh feed-forward, second residual, output logits. Seeded SGD with gradients from Tape. | Single head and layer, bounded CPU model; not a production GPT architecture. |
 | Subword tokenizer | Deterministic byte-pair merges and round-trip encode/decode; saves vocabulary together with model | Printable ASCII + LF only, up to 32 learned merges; not Unicode/BPE/WordPiece production coverage. |
 | Numerical backends | Scalar reference, cache-tiled CPU, x86 SSE2 vectorized inner loop, Auto selection | SIMD compile-time availability; no CUDA, ROCm, Metal, Vulkan or verified performance speedup. |
@@ -68,9 +68,9 @@ archives with SHA-256 verification. Import the installed
 
 Because the Stage-0 registry importer cannot link native C++ into Noqeri
 programs, installing the registry package currently supplies the portable
-language surface **only**. The native GEMM/softmax/SGD bindings require a separate explicit link to
-`libnoqeri_ai`; full tensor autodiff graphs, transformer training and BPE
-remain C++ SDK/CLI features.
+language surface **only**. The native tensor/autodiff/BPE/transformer research bindings require a
+separate explicit link to `libnoqeri_ai`. The package alone remains
+source-only; complete reusable models and full Tape APIs remain SDK features.
 
 ## Verification
 
