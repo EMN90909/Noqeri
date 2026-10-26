@@ -93,6 +93,10 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
         const bool form=n.tag=="form";
         if (form && nestedForm) throw std::runtime_error("nested forms are unsupported");
         if (!n.actionId.empty()) {
+            std::size_t databaseCalls=0;
+            for(const auto& mutation:n.mutations)if(mutation.op=="db")++databaseCalls;
+            if(databaseCalls>0&&n.mutations.size()!=1)
+                throw std::runtime_error("database actions require one independently committed statement");
             if (!actions.emplace(n.actionId,&n).second)
                 throw std::runtime_error("duplicate native action ID");
             for(const auto& mutation:n.mutations) {
