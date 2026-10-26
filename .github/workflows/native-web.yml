@@ -12,6 +12,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Install optional native SQL client headers (SQLite, PostgreSQL, MySQL)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libsqlite3-dev libpq-dev libmariadb-dev
       - name: Configure native C++ bootstrap
         run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
       - name: Build standalone Noqeri web binary (no Node/npm/JS)
@@ -39,3 +43,5 @@ jobs:
       - name: Test server-driven buttons, forms, session isolation and persisted data
         run: |
           python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Test native web database adapters and NoeSQL binding protocol
+        run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
