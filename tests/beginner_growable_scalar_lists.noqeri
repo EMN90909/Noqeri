@@ -1,0 +1,25 @@
+// Homogeneous float/bool literals use the same owned list syntax as ints.
+function verify(): int {
+    let prices = [1.5, 2.5]
+    prices.append(3.5)
+    if prices.length() != 3 as usize { return 1 }
+    if prices[0] + prices[1] + prices[2] != 7.5 { return 2 }
+    prices[1] = 4.5
+    if prices[1] != 4.5 { return 3 }
+    if prices.pop() != 3.5 { return 4 }
+    let total: float = 0.0
+    for price in prices { total = total + price }
+    if total != 6.0 { return 5 }
+
+    let flags = [true, false]
+    flags.append(true)
+    if flags.length() != 3 as usize { return 6 }
+    if !flags[0] || flags[1] || !flags[2] { return 7 }
+    flags[1] = true
+    if !flags[1] { return 8 }
+    if !flags.pop() { return 9 }
+    flags.clear()
+    if flags.length() != 0 as usize { return 10 }
+    return 0
+}
+print(verify())
