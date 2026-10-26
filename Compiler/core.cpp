@@ -57,35 +57,54 @@ void Diagnostics::error(std::string code,Span span,std::string message,std::stri
     items_.push_back({std::move(code),std::move(message),span,std::move(help)});
 }
 void Diagnostics::print(const std::string& fallbackSourceName) const {
-    for(const auto& d:items_) {
-        const auto source=sourceName(d.span.source,fallbackSourceName);
+    constexpr std::size_t maxExcerpt = 160;
+    for(const auto& d : items_) {
+        const auto source = sourceName(d.span.source, fallbackSourceName);
         std::cerr << "error[" << d.code << "]: " << d.message
-                  << "\n --> " << source << ':' << d.span.line << ':' << d.span.column << "\n";
-        const auto found=sourceTexts_.find(d.span.source);
-        if(found!=sourceTexts_.end() && !found->second.empty() && d.span.line>0) {
-            const auto& text=found->second;
-            std::size_t begin=0;
-            bool valid=true;
-            for(std::size_t i=1;i<d.span.line;++i) {
-                const auto pos=text.find('\n',begin);
-                if(pos==std::string::npos) {valid=false;break;}
-                begin=pos+1;
+                  << "\n --> " << source << ':' << d.span.line << ':' << d.span.column << '\n';
+        const auto found = sourceTexts_.find(d.span.source);
+        // Source spans are byte-based. A bounded, single-line excerpt avoids
+        // terminal flooding from very long source lines and invalid spans.
+        if(found != sourceTexts_.end() && d.span.line > 0 && d.span.line <= 1000000) {
+            const auto& text = found->second;
+            std::size_t begin = 0;
+            bool valid = true;
+            for(std::size_t i = 1; i < d.span.line; ++i) {
+                const auto pos = text.find('\n', begin);
+                if(pos == std::string::npos) { valid = false; break; }
+                begin = pos + 1;
             }
             if(valid) {
-                auto end=text.find('\n',begin);
-                if(end==std::string::npos)end=text.size();
-                if(end>begin && text[end-1]=='\r')--end;
-                const std::string sourceLine=text.substr(begin,end-begin);
-                const std::size_t offset=std::min(d.span.column>0?d.span.column-1:0,sourceLine.size());
-                const std::size_t length=std::max<std::size_t>(1,std::min<std::size_t>(80,
-                    d.span.end>d.span.start?d.span.end-d.span.start:1));
-                const std::string gutter=std::to_string(d.span.line);
-                std::cerr << ' ' << gutter << " | " << sourceLine << '\n'
-                          << ' ' << std::string(gutter.size(),' ') << " | "
-                          << std::string(offset,' ') << std::string(length,'^') << "\n";
+                auto end = text.find('\n', begin);
+                if(end == std::string::npos) end = text.size();
+                if(end > begin && text[end-1] == '\r') --end;
+                const auto lineLength = end - begin;
+                const auto rawOffset = d.span.column > 0 ? d.span.column - 1 : 0;
+                const auto offset = std::min(rawOffset, lineLength);
+                // Keep the error within the visible window even at a very
+                // large column. Display one-byte-for-one-byte sanitization.
+                const auto first = offset > maxExcerpt/2 ? offset - maxExcerpt/2 : 0;
+                const auto start = std::min(first, lineLength);
+                const auto shown = std::min(maxExcerpt, lineLength-start);
+                std::string excerpt = text.substr(begin+start, shown);
+                for(char& ch : excerpt) {
+                    const auto byte = static_cast<unsigned char>(ch);
+                    if(byte < 0x20 || byte == 0x7f) ch = ' ';
+                }
+                const auto prefix = start > 0 ? "..." : "";
+                const auto suffix = start+shown < lineLength ? "..." : "";
+                const auto caret = std::min(offset-start, shown);
+                const auto spanBytes = d.span.end > d.span.start ? d.span.end-d.span.start : 1;
+                const auto markCount = std::max<std::size_t>(
+                    1, std::min<std::size_t>(spanBytes, std::max<std::size_t>(1,shown-caret)));
+                const auto gutter = std::to_string(d.span.line);
+                std::cerr << ' ' << gutter << " | " << prefix << excerpt << suffix << '\n'
+                          << ' ' << std::string(gutter.size(), ' ') << " | "
+                          << std::string((start>0?3:0)+caret, ' ')
+                          << std::string(markCount, '^') << '\n';
             }
         }
-        if(!d.help.empty())std::cerr << " help: " << d.help << "\n";
+        if(!d.help.empty()) std::cerr << " help: " << d.help << '\n';
     }
 }
 std::string Diagnostics::toJson(const std::string& fallbackSourceName) const {

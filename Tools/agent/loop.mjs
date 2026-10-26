@@ -4,17 +4,20 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
-import { copyFile, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const MAX_SOURCE_BYTES = 256 * 1024
 const MAX_OUTPUT_BYTES = 128 * 1024
 const MAX_LINE_BYTES = 512 * 1024
+const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
+const builtArtifacts = new Map()
+const sha256 = data => createHash('sha256').update(data).digest('hex')
 const TIMEOUT_MS = 15000
-const options = { compiler: process.env.NOQERI_BIN || 'noqeri', workspace: '.', maxSteps: 12, allowRun: false }
+const options = { compiler: process.env.NOQERI_BIN || 'noqeri', workspace: '.', maxSteps: 12, allowRun: false, allowWrite: false, allowBuild: false, allowStage: false }
 
 function usage() {
-  return 'node Tools/agent/loop.mjs --compiler ./build/noqeri --workspace ./project [--max-steps 12] [--allow-run]'
+  return 'node Tools/agent/loop.mjs --compiler ./build/noqeri --workspace ./project [--max-steps 12] [--allow-write] [--allow-build] [--allow-stage] [--allow-run]'
 }
 for (let i = 2; i < process.argv.length; i++) {
   const option = process.argv[i]
@@ -22,6 +25,9 @@ for (let i = 2; i < process.argv.length; i++) {
     if (++i >= process.argv.length) throw new Error(option + ' requires a value')
     options[{ '--compiler': 'compiler', '--workspace': 'workspace', '--max-steps': 'maxSteps' }[option]] = process.argv[i]
   } else if (option === '--allow-run') options.allowRun = true
+  else if (option === '--allow-write') options.allowWrite = true
+  else if (option === '--allow-build') options.allowBuild = true
+  else if (option === '--allow-stage') options.allowStage = true
   else if (option === '--help') { console.log(usage()); process.exit(0) }
   else throw new Error('Unknown option: ' + option + '. ' + usage())
 }
@@ -54,6 +60,19 @@ async function workspacePath(candidate, suffixes) {
     } catch (error) {
       if (error.code !== 'ENOENT') throw error
     }
+  }
+  // Detect link swaps involving already-existing paths (not a sandbox against
+  // hostile concurrent local processes). Operations revalidate immediately
+  // before actual I/O, in addition to this initial component walk.
+  try {
+    const actual = await realpath(absolute)
+    const actualRel = relative(root, actual)
+    if (!actualRel || actualRel === '..' || actualRel.startsWith('..' + sep) ||
+        isAbsolute(actualRel) || actual !== absolute) {
+      throw new Error('Real path is not inside the workspace: ' + candidate)
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
   }
   return absolute
 }
@@ -100,20 +119,46 @@ async function check(source) {
     ...(result.stderr && { stderr: result.stderr }) }
 }
 
-async function writeSource(path, content) {
+async function writeSource(path, content, expectedSha256) {
+  if (!options.allowWrite) throw new Error('Source writes require --allow-write')
   const absolute = await workspacePath(path, ['.noqeri'])
   if (typeof content !== 'string' || Buffer.byteLength(content) > MAX_SOURCE_BYTES) {
     throw new Error('Source must be a string of at most 256 KiB')
   }
+  // Optimistic concurrency: never silently overwrite a human or another agent.
+  // Creating a new file requires absence; updating requires an exact digest.
+  let previous = null
+  try {
+    previous = await readFile(absolute)
+    if (previous.length > MAX_SOURCE_BYTES) throw new Error('Existing source exceeds size limit')
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  if (previous === null && expectedSha256 !== undefined)
+    throw new Error('Revision supplied for a file that does not exist')
+  if (previous !== null && (typeof expectedSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(expectedSha256) || sha256(previous) !== expectedSha256))
+    throw new Error('Source revision mismatch: read the file and retry with expectedSha256')
   await mkdir(dirname(absolute), { recursive: true })
+  await workspacePath(path, ['.noqeri'])
   const temp = join(dirname(absolute), '.' + basename(absolute) + '.' + randomUUID() + '.tmp')
   try {
     await writeFile(temp, content, { flag: 'wx', mode: 0o600 })
+    await workspacePath(path, ['.noqeri'])
+    // Re-check the revision just before rename. Concurrent hostile writers
+    // still require OS-level workspace isolation.
+    let current = null
+    try { current = await readFile(absolute) }
+    catch (error) { if (error.code !== 'ENOENT') throw error }
+    if ((previous === null) !== (current === null) ||
+        (previous !== null && sha256(current) !== sha256(previous)))
+      throw new Error('Source changed while writing; refusing to replace it')
     await rename(temp, absolute)
   } finally {
     await rm(temp, { force: true })
   }
-  return check(path)
+  const validation = await check(path)
+  return { ...validation, sha256: sha256(Buffer.from(content)), path }
 }
 
 async function handle(request) {
@@ -124,31 +169,45 @@ async function handle(request) {
     case 'help':
       return { ok: true, protocol: 1, actions: ['help', 'read', 'write_check', 'check', 'build', 'stage', 'run'],
         maxSteps: options.maxSteps, allowRun: options.allowRun,
+        allowWrite: options.allowWrite, allowBuild: options.allowBuild, allowStage: options.allowStage,
         notes: 'Each request gets one JSON response. build produces assembly or NQRI; stage copies the artifact into dist/. No remote deploy.' }
     case 'read': {
       const file = await workspacePath(request.path, ['.noqeri'])
       const data = await readFile(file)
       if (data.length > MAX_SOURCE_BYTES) throw new Error('Source is larger than 256 KiB')
-      return { ok: true, path: request.path, content: data.toString('utf8') }
+      return { ok: true, path: request.path, content: data.toString('utf8'),
+        sha256: sha256(data) }
     }
     case 'write_check':
-      return await writeSource(request.path, request.content)
+      return await writeSource(request.path, request.content, request.expectedSha256)
     case 'check':
       return await check(request.path)
     case 'build': {
+      if (!options.allowBuild) throw new Error('Build output requires --allow-build')
       const source = await workspacePath(request.path, ['.noqeri'])
       const format = request.format || 'nqri'
       if (!['nqri', 'assembly'].includes(format)) throw new Error('format must be nqri or assembly')
       const suffix = format === 'nqri' ? '.nqri' : '.s'
       const output = await workspacePath(request.output, [suffix])
       await mkdir(dirname(output), { recursive: true })
-      // Remove a previous artifact so a failed build cannot appear successful.
+      await workspacePath(request.output, [suffix])
+      builtArtifacts.delete(output)
+      // Remove the previous artifact so a failed build cannot appear successful.
       await rm(output, { force: true })
       const result = await execute([format === 'nqri' ? 'nqri' : 'build', source, output])
-      return { ok: result.exitCode === 0 && !result.timedOut && !result.truncated,
-        format, artifact: request.output, ...result }
+      const ok = result.exitCode === 0 && !result.timedOut && !result.truncated
+      if (!ok) return { ok: false, format, artifact: request.output, ...result }
+      await workspacePath(request.output, [suffix])
+      const data = await readFile(output)
+      if (!data.length || data.length > MAX_ARTIFACT_BYTES)
+        throw new Error('Compiler output is empty or exceeds 8 MiB')
+      const digest = sha256(data)
+      builtArtifacts.set(output, { digest, bytes: data.length })
+      return { ok: true, format, artifact: request.output,
+        sha256: digest, bytes: data.length, ...result }
     }
     case 'stage': {
+      if (!options.allowStage) throw new Error('Artifact staging requires --allow-stage')
       const source = await workspacePath(request.artifact, ['.nqri', '.s'])
       const outputName = request.output || ('dist/' + basename(source))
       if (typeof outputName !== 'string' || !outputName.replace(/\\/g, '/').startsWith('dist/')) {
@@ -158,11 +217,21 @@ async function handle(request) {
       const normalizedOutput = relative(root, output).split(sep).join('/')
       if (!normalizedOutput.startsWith('dist/')) throw new Error('Staged artifacts must remain under dist/')
       if (source === output) throw new Error('Staging output must differ from the input')
+      const produced = builtArtifacts.get(source)
+      if (!produced) throw new Error('Staging requires a successful build in this session')
       const bytes = await readFile(source)
+      if (bytes.length !== produced.bytes || sha256(bytes) !== produced.digest)
+        throw new Error('Build artifact changed since verification')
       await mkdir(dirname(output), { recursive: true })
-      await copyFile(source, output)
+      await workspacePath(outputName, [extname(source)])
+      const temp = join(dirname(output), '.' + basename(output) + '.' + randomUUID() + '.tmp')
+      try {
+        await writeFile(temp, bytes, { flag: 'wx', mode: 0o600 })
+        await workspacePath(outputName, [extname(source)])
+        await rename(temp, output)
+      } finally { await rm(temp, { force: true }) }
       return { ok: true, artifact: outputName, bytes: bytes.length,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
+        sha256: produced.digest,
         note: 'Local staging only; deploy or link using an explicit platform tool.' }
     }
     case 'run': {
