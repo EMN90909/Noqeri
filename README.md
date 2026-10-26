@@ -172,6 +172,16 @@ version = "0.1.0"
 
 NQON is a separate text data format, **not** the compiled bytecode format. Read [NQON's specification](Doc/NQON.md) or [Getting started](Doc/GETTING_STARTED.md).
 
+## Web, database, WebSocket and AI hardening
+
+The [October 2026 framework hardening matrix](Doc/FRAMEWORK_HARDENING_2026_10.md)
+documents improved session expiry, concurrent rendering, TLS reverse-proxy
+origin validation, typed SQL results, fragmented WebSocket message reassembly,
+native tensor update safety, and real-browser security regression tests.
+These are **developer-preview enhancements**, not evidence that production
+TLS/authz, full typed-NIR web compilation, canonical NoeSQL ACID conformance
+or complete WebSocket socket transport have been delivered.
+
 ## What works today
 
 The table describes **code present in this repository**, not a guarantee of production or cross-platform certification.
