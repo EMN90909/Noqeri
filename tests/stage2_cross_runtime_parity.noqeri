@@ -1,0 +1,42 @@
+// Cross-runtime deterministic parity fixture for the current qualified subset.
+// Run verify() via the rebuilt Stage-2 NQRI compiler; print(verify())
+// through Stage-0 reference execution and Linux x86-64 native AOT.
+function twice(value: int): int = value * 2
+
+function oddTotal(values: []int): int {
+    let sum: int = 0
+    for item in values {
+        if item % 2 == 0 { continue }
+        sum = sum + item
+        if sum >= 9 { break }
+    }
+    return sum
+}
+function verify(): int {
+    let values: [int; 5] = [1,2,3,4,5]
+    if oddTotal(slice(values)) != 9 { return 1 }
+    if twice(21) != 42 { return 2 }
+    let zeroCount: int = 0
+    repeat 0 { zeroCount = zeroCount + 1 }
+    repeat -3 { zeroCount = zeroCount + 1 }
+    if zeroCount != 0 { return 3 }
+
+    let visits: int = 0
+    repeat 3 {
+        repeat 3 {
+            visits = visits + 1
+            if visits % 2 == 0 { continue }
+            if visits == 7 { break }
+        }
+    }
+    if visits != 9 { return 4 }
+
+    let items: int = 0
+    for item in values {
+        items = items + item
+        if items >= 6 { break }
+    }
+    if items != 6 { return 5 }
+    return 0
+}
+print(verify())

@@ -9,6 +9,8 @@ on:
       - 'examples/simplicity/for_collections.noqeri'
       - 'examples/simplicity/short_functions.noqeri'
       - 'tests/repeat_loop.noqeri'
+      - 'tests/stage2_cross_runtime_parity.noqeri'
+      - 'tests/stage2_invalid_repeat_type.noqeri'
       - '.github/workflows/stage2-nqri-execution.yml'
   workflow_dispatch:
 permissions:
@@ -23,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -S . -B build-stage2-nqri -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
-          cmake --build build-stage2-nqri --target noqeri-nqri --parallel 2
+          cmake --build build-stage2-nqri --target noqeri-nqri noqeri --parallel 2
           sha256sum -c Compiler/selfhost/trusted-stage1.sha256
           ./build-stage2-nqri/noqeri-nqri has-export Compiler/selfhost/trusted-stage1.nqri stage2CompileToNqri
       - name: Rebuild current Stage-2 NQRI module
@@ -51,3 +53,26 @@ jobs:
           result=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/functions.nqri checkShortFunctions)
           echo "Stage-2 expression functions: $result"
           test "$result" = "0"
+
+      - name: Differential execution across Stage-0, Stage-2 NQRI and native AOT
+        run: |
+          set -euo pipefail
+          ./build-stage2-nqri/noqeri check tests/stage2_cross_runtime_parity.noqeri
+          stage0=$(./build-stage2-nqri/noqeri run tests/stage2_cross_runtime_parity.noqeri)
+          ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri tests/stage2_cross_runtime_parity.noqeri build-stage2-nqri/cross-runtime.nqri 3
+          stage2=$(./build-stage2-nqri/noqeri-nqri build-stage2-nqri/cross-runtime.nqri verify)
+          node scripts/native-build.mjs tests/stage2_cross_runtime_parity.noqeri build-stage2-nqri/cross-native --compiler=build-stage2-nqri/noqeri
+          native=$(./build-stage2-nqri/cross-native)
+          echo "Stage-0: $stage0; Stage-2 NQRI: $stage2; native AOT: $native"
+          test "$stage0" = "0"
+          test "$stage2" = "0"
+          test "$native" = "0"
+      - name: Invalid counted-loop type rejected in both compilers
+        run: |
+          set -euo pipefail
+          if ./build-stage2-nqri/noqeri check tests/stage2_invalid_repeat_type.noqeri; then
+            echo "Stage-0 improperly accepted string loop count"; exit 1
+          fi
+          if ./build-stage2-nqri/noqeri-nqri compile build-stage2-nqri/stage2.nqri tests/stage2_invalid_repeat_type.noqeri build-stage2-nqri/invalid.nqri 3; then
+            echo "Stage-2 improperly accepted string loop count"; exit 1
+          fi

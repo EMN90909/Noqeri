@@ -1,0 +1,6 @@
+// Reject a non-numeric counted loop in Stage-0 and Stage-2.
+function verify(): int {
+    repeat "three" { return 1 }
+    return 0
+}
+print(verify())
