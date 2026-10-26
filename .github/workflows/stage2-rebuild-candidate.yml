@@ -11,7 +11,7 @@ on:
       - 'Include/noqeri/**'
       - '.github/workflows/stage2-rebuild-candidate.yml'
 permissions:
-  contents: read
+  contents: write
 jobs:
   cross-compiler-nqri:
     runs-on: ubuntu-24.04
@@ -74,3 +74,54 @@ jobs:
             build-stage2-candidate/stage1-gcc.nqri
             build-stage2-candidate/proof.json
           retention-days: 7
+      - name: Pin only independently reproduced and self-rebuilt Stage-1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,re,shutil
+          root=Path('Compiler/selfhost')
+          proof=json.loads(Path('build-stage2-candidate/proof.json').read_text())
+          candidate=Path('build-stage2-candidate/stage1-gcc.nqri')
+          actual=hashlib.sha256(candidate.read_bytes()).hexdigest()
+          assert proof['stage1_sha256']==actual
+          assert proof['gcc_clang_stage1_byte_equal'] is True
+          assert proof['stage2_stage3_byte_equal'] is True
+          assert proof['stage2_sha256']==proof['stage3_sha256']
+          assert proof['source_commit']==os.environ['GITHUB_SHA']
+          shutil.copyfile(candidate,root/'trusted-stage1.nqri')
+          (root/'trusted-stage1.sha256').write_text(
+              actual+'  Compiler/selfhost/trusted-stage1.nqri\n')
+          (root/'stage1-seed.sha256').write_text(actual+'  noqeri-stage1.nqri\n')
+          old=json.loads((root/'stage1-seed.json').read_text())
+          old.update({
+             'seed_sha256':actual,'seed_bytes':candidate.stat().st_size,
+             'source_commit':proof['source_commit'],
+             'workflow_run_id':int(os.environ['RUN_ID']),
+             'workflow_run_number':int(os.environ['RUN_NUMBER']),
+             'stage2_sha256':proof['stage2_sha256'],
+             'stage3_sha256':proof['stage3_sha256'],
+             'stage2_stage3_byte_equal':True,
+             'gcc_clang_stage1_byte_equal':True,
+             'stage1_independently_trusted':False,
+             'provenance_note':'GCC and Clang Stage-0 NQRI seed candidates were byte-identical; Stage 2 and Stage 3 rebuilt the identical NQRI bytecode compiler in GitHub Actions run '+os.environ['RUN_ID']+'. This is an internally verified pin, not independent attestation or native self-hosting.'
+          })
+          (root/'stage1-seed.json').write_text(json.dumps(old,indent=2)+'\n')
+          doc=root/'BOOTSTRAP.md'
+          previous=doc.read_text()
+          previous=re.sub(r'sha256 [a-f0-9]{64}', 'sha256 '+actual,previous,count=1)
+          previous=re.sub(r'bytes  [0-9]+','bytes  '+str(candidate.stat().st_size),previous,count=1)
+          doc.write_text(previous)
+          print('Pinning reproducibly rebuilt Stage-1',actual)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Compiler/selfhost/trusted-stage1.nqri Compiler/selfhost/trusted-stage1.sha256 Compiler/selfhost/stage1-seed.sha256 Compiler/selfhost/stage1-seed.json Compiler/selfhost/BOOTSTRAP.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore(bootstrap): refresh reproducible Stage-1 NQRI pin after Stage-2/3 byte equality'
+          git push origin HEAD:main
