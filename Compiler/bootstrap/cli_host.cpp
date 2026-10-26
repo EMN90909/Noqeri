@@ -24,7 +24,7 @@ void usage() {
     std::cout << "noqeri " << NOQERI_COMPILER_VERSION << "\nusage: noqeri <command> [options]\n\n"
               << "  new <name> [dir]                 create a Noqeri project\n"
               << "  lex <file>                        print lexer tokens\n"
-              << "  check [file] [-O...]              parse and type-check module graph\n"
+              << "  check [file] [-O...] [--diagnostics=json]  check code with actionable errors\n"
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
@@ -73,6 +73,39 @@ CompileOptions optionsFromArgs(int argc, char** argv, const std::string& target)
         else if (std::string(argv[i]) == "--unsafe") options.allowUnsafe = true;
     }
     return options;
+}
+
+
+std::string jsonEscape(const std::string& input) {
+    std::string output;
+    for (unsigned char c : input) {
+        switch (c) {
+            case '"': output+="\\\""; break;
+            case '\\': output+="\\\\"; break;
+            case '\n': output+="\\n"; break;
+            case '\r': output+="\\r"; break;
+            case '\t': output+="\\t"; break;
+            default:
+                if (c<0x20) {
+                    const char* hex="0123456789abcdef";
+                    output+="\\u00";
+                    output+=hex[c>>4];
+                    output+=hex[c&15];
+                } else output+=static_cast<char>(c);
+        }
+    }
+    return output;
+}
+
+void printJsonDiagnostics(const Diagnostics& diagnostics,const std::string& fallback) {
+    for(const auto& item:diagnostics.items()) {
+        std::cerr<<"{\"severity\":\"error\",\"code\":\""<<jsonEscape(item.code)
+                 <<"\",\"message\":\""<<jsonEscape(item.message)
+                 <<"\",\"file\":\""<<jsonEscape(diagnostics.sourceName(item.span.source,fallback))
+                 <<"\",\"line\":"<<item.span.line<<",\"column\":"<<item.span.column
+                 <<",\"end_column\":"<<item.span.column+std::max<std::size_t>(1,item.span.end-item.span.start)
+                 <<",\"help\":\""<<jsonEscape(item.help)<<"\"}\n";
+    }
 }
 
 struct SourceSelection {
@@ -558,7 +591,12 @@ int main(int argc, char** argv) {
         auto options = optionsFromArgs(argc, argv, selected->target);
         if (cmd == "bootstrap-seed") options.allowUnsafe = true;
         auto compilation = compileFile(path, options);
-        if (compilation.diagnostics.hasErrors()) { compilation.diagnostics.print(path.string()); return 1; }
+        if (compilation.diagnostics.hasErrors()) {
+            const bool jsonMode = cmd == "check" && std::any_of(argv+2,argv+argc,[](const char* a){return std::string(a)=="--diagnostics=json";});
+            if(jsonMode)printJsonDiagnostics(compilation.diagnostics,path.string());
+            else compilation.diagnostics.print(path.string());
+            return 1;
+        }
         if (cmd == "check") {
             std::cout << "check succeeded: " << path << " modules=" << (compilation.modules ? compilation.modules->modules().size() : 1) << " target=" << options.target << "\n";
             return 0;
