@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Bundled Noqeri-authored UI components: no React, JSX, TypeScript or npm.
 module noqeri.web.ui
 
