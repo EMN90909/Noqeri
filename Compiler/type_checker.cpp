@@ -339,6 +339,19 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
                     "use homogeneous scalar values; strings and records require owned clone/drop lowering");
             }
             if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
+               literal && init.element) {
+                // Owned scalar storage does not perform implicit element casts.
+                // Reject mixtures such as [1.5, 2] instead of reinterpreting
+                // an integer's bits as a floating-point element at runtime.
+                for(const auto& item:literal->elements) {
+                    const Type actual=checkExpr(item);
+                    if(actual!=*init.element)
+                        diagnostics_.error("NQR-T3082",item->span,
+                            "growable "+init.element->name()+" list contains a "+actual.name()+" element",
+                            "make every list literal element the same type; explicitly write 2.0 rather than 2");
+                }
+            }
+            if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
                literal && literal->elements.size()>1000000) {
                 diagnostics_.error("NQR-T3071",s->span,"growable list literal exceeds the one-million-element limit");
             }
