@@ -114,10 +114,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.4" --jq '.object.sha' 2>/dev/null || true)"
-          if [[ -n "$existing" && "$existing" != "$GITHUB_SHA" ]]; then
-            echo "Refusing to move existing v0.1.4 tag ($existing)" >&2
-            exit 1
+          # gh api prints an HTTP 404 JSON body to stdout even when the request
+          # fails. Test its exit status before reading the tag SHA.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.4" > existing-tag.json 2>/dev/null; then
+            existing="$(jq -r '.object.sha // empty' existing-tag.json)"
+            if [[ -z "$existing" || "$existing" != "$GITHUB_SHA" ]]; then
+              echo "Refusing to move existing v0.1.4 tag ($existing)" >&2
+              exit 1
+            fi
+          else
+            # Only a 404 permits a new release. Deny auth, transient and
+            # rate-limit failures rather than mistaking them for an absent tag.
+            code="$(gh api -i "repos/$GITHUB_REPOSITORY/git/ref/tags/v0.1.4" 2>/dev/null | head -1 || true)"
+            case "$code" in
+              *" 404 "*|*" 404") echo "v0.1.4 tag does not yet exist" ;;
+              *) echo "Cannot verify v0.1.4 tag safely: $code" >&2; exit 1 ;;
+            esac
           fi
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Public GitHub Release v0.1.4 — experimental developer preview
