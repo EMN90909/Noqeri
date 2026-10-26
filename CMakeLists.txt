@@ -22,6 +22,18 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
+# Lightweight AI: first-party Apache library and GPL CLI host.
+# All training and inference run locally on the CPU without Python/Node or
+# heavyweight ML/LLM dependencies. No autonomous shell/network privileges.
+add_library(noqeri_ai STATIC Runtime/native/ai_runtime.cpp)
+target_include_directories(noqeri_ai PUBLIC
+ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
+ $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_compile_features(noqeri_ai PUBLIC cxx_std_17)
+add_executable(noqeri-ai Tools/ai/noqeri_ai.cpp)
+target_link_libraries(noqeri-ai PRIVATE noqeri_ai)
+target_compile_features(noqeri-ai PRIVATE cxx_std_17)
+
 # Portable native web static compiler/preview server: no Node.js or JavaScript tooling.
 add_executable(noqeri-web Compiler/bootstrap/web_native.cpp)
 target_compile_features(noqeri-web PRIVATE cxx_std_17)
@@ -98,6 +110,8 @@ function(noqeri_apply_warnings target)
 endfunction()
 noqeri_apply_warnings(noqeri)
 noqeri_apply_warnings(noqeri-nqri)
+noqeri_apply_warnings(noqeri_ai)
+noqeri_apply_warnings(noqeri-ai)
 noqeri_apply_warnings(noqeri-web)
 noqeri_apply_warnings(noqeri_abi)
 # Android app embedding: native compiler and interpreter run inside an APK
@@ -310,7 +324,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
+install(TARGETS noqeri-ai RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(TARGETS noqeri noqeri-nqri noqeri-web noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# Header installed through existing public include/noqeri rule.
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")
 install(DIRECTORY Modules/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Modules FILES_MATCHING PATTERN "*.noqeri")
