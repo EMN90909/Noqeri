@@ -391,7 +391,11 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         if(statement.empty())throw std::runtime_error("empty query");
         // These values are injected into escaped HTML and may never be used for writes.
         if(app.project.database.engine=="noesql") {
-            if(statement.find(" get ")==std::string::npos)throw std::runtime_error("NoeSQL view query must use get");
+            const auto split=statement.find(' ');
+            if(split==std::string::npos || !validName(statement.substr(0,split)) ||
+               statement.substr(split+1,4)!="get " ||
+               statement.find_first_of("\r\n;{}")!=std::string::npos)
+                throw std::runtime_error("NoeSQL view query must be a single table get statement");
         }else {
             auto pos=statement.find_first_not_of(" \t\r\n");
             if(pos==std::string::npos||lower(statement.substr(pos,6))!="select")
