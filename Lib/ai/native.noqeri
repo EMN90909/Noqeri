@@ -80,3 +80,40 @@ extern function nq_ai_tape_execute(request: *AiTapeRequest): isize
 export function ai_native_tape(request: *AiTapeRequest): isize {
     return nq_ai_tape_execute(request)
 }
+
+record AiBpeRequest {
+    corpus: *u8
+    corpus_length: usize
+    text: *u8
+    text_length: usize
+    max_merges: usize
+    tokens: *usize
+    token_capacity: usize
+    token_count: *usize
+}
+extern function nq_ai_bpe_encode(request: *AiBpeRequest): isize
+export function ai_native_bpe_encode(request: *AiBpeRequest): isize {
+    return nq_ai_bpe_encode(request)
+}
+record AiTransformerRequest {
+    corpus: *u8
+    corpus_length: usize
+    prompt: *u8
+    prompt_length: usize
+    context: usize
+    hidden: usize
+    steps: usize
+    merges: usize
+    output_tokens: usize
+    learning_rate: float
+    seed: u32
+    backend: u32
+    output: *u8
+    output_capacity: usize
+    output_length: *usize
+    training_loss: *float
+}
+extern function nq_ai_transformer_train_generate(request: *AiTransformerRequest): isize
+export function ai_native_transformer_train_generate(request: *AiTransformerRequest): isize {
+    return nq_ai_transformer_train_generate(request)
+}

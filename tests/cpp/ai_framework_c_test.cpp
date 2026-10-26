@@ -3,6 +3,9 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <string>
+#include <algorithm>
+#include <cstdint>
 
 int main() {
     double a[4]={1,2,3,4}, b[4]={5,6,7,8};
@@ -79,6 +82,50 @@ int main() {
     steps[0].rows=1;logits[0]=std::numeric_limits<double>::quiet_NaN();
     if(nq_ai_tape_execute(&tape)!=-5||lossOutput[0]!=-99)return 26;
     if(nq_ai_tape_execute(nullptr)!=-1)return 27;
+
+    // Deterministic BPE, capacity safety and bounded CPU transformer.
+    const std::string corpus="hello world\nhello world\nhello world\nhello world\n";
+    const std::string word="hello";
+    std::size_t ids[32]{},idCount=999;
+    nq_ai_bpe_request bpe{
+        reinterpret_cast<const std::uint8_t*>(corpus.data()),corpus.size(),
+        reinterpret_cast<const std::uint8_t*>(word.data()),word.size(),
+        4,ids,32,&idCount};
+    if(nq_ai_bpe_encode(&bpe)!=0||!idCount||idCount>word.size())return 28;
+    std::size_t original[32]{};
+    std::copy_n(ids,idCount,original);
+    const auto originalCount=idCount;
+    if(nq_ai_bpe_encode(&bpe)!=0||idCount!=originalCount||
+       !std::equal(original,original+idCount,ids))return 29;
+    idCount=999;bpe.token_capacity=0;
+    if(nq_ai_bpe_encode(&bpe)!=-3||idCount!=999)return 30;
+    bpe.token_capacity=32;bpe.max_merges=33;
+    if(nq_ai_bpe_encode(&bpe)!=-2||idCount!=999)return 31;
+    bpe.max_merges=4;
+    const std::string bad="bad\tinput";
+    bpe.text=reinterpret_cast<const std::uint8_t*>(bad.data());
+    bpe.text_length=bad.size();
+    if(nq_ai_bpe_encode(&bpe)!=-5||idCount!=999)return 32;
+    if(nq_ai_bpe_encode(nullptr)!=-1)return 33;
+    std::uint8_t generated[256]{};
+    std::size_t generatedLength=999;
+    double trainLoss=-99;
+    nq_ai_transformer_request model{
+        reinterpret_cast<const std::uint8_t*>(corpus.data()),corpus.size(),
+        reinterpret_cast<const std::uint8_t*>(word.data()),word.size(),
+        3,4,2,2,2,0.025,42,0,generated,256,&generatedLength,&trainLoss
+    };
+    if(nq_ai_transformer_train_generate(&model)!=0||generatedLength==0||
+       generatedLength>256||!std::isfinite(trainLoss))return 34;
+    const std::string expected(reinterpret_cast<const char*>(generated),generatedLength);
+    if(nq_ai_transformer_train_generate(&model)!=0||
+       std::string(reinterpret_cast<const char*>(generated),generatedLength)!=expected)return 35;
+    generatedLength=999;trainLoss=-99;generated[0]=99;model.output_capacity=1;
+    if(nq_ai_transformer_train_generate(&model)!=-3||
+       generatedLength!=999||trainLoss!=-99||generated[0]!=99)return 36;
+    model.output_capacity=256;model.steps=0;
+    if(nq_ai_transformer_train_generate(&model)!=-2||generatedLength!=999)return 37;
+    if(nq_ai_transformer_train_generate(nullptr)!=-1)return 38;
     std::cout<<"Native AI tensor C ABI passes\n";
     return 0;
 }

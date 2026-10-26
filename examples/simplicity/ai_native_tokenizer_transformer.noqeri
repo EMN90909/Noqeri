@@ -1,0 +1,44 @@
+// Explicit opt-in native CPU BPE and tiny causal transformer test.
+import "../../Lib/ai/native.noqeri"
+function verify(): int {
+    let corpus: [u8; 48] = [104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8,104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8,104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8,104 as u8,101 as u8,108 as u8,108 as u8,111 as u8,32 as u8,119 as u8,111 as u8,114 as u8,108 as u8,100 as u8,10 as u8]
+    let prompt: [u8; 5] = [104 as u8,101 as u8,108 as u8,108 as u8,111 as u8]
+    let ids: [usize; 32]
+    let count: usize = 0 as usize
+    let bpe: AiBpeRequest
+    bpe.corpus = &corpus[0]
+    bpe.corpus_length = 48 as usize
+    bpe.text = &prompt[0]
+    bpe.text_length = 5 as usize
+    bpe.max_merges = 4 as usize
+    bpe.tokens = &ids[0]
+    bpe.token_capacity = 32 as usize
+    bpe.token_count = &count
+    if ai_native_bpe_encode(&bpe) != 0 as isize { return 1 }
+    if count == 0 as usize || count > 5 as usize { return 2 }
+    let generated: [u8; 256]
+    let written: usize = 0 as usize
+    let loss: float = 0.0
+    let t: AiTransformerRequest
+    t.corpus = &corpus[0]
+    t.corpus_length = 48 as usize
+    t.prompt = &prompt[0]
+    t.prompt_length = 5 as usize
+    t.context = 3 as usize
+    t.hidden = 4 as usize
+    t.steps = 2 as usize
+    t.merges = 2 as usize
+    t.output_tokens = 2 as usize
+    t.learning_rate = 0.025
+    t.seed = 42 as u32
+    t.backend = 0 as u32
+    t.output = &generated[0]
+    t.output_capacity = 256 as usize
+    t.output_length = &written
+    t.training_loss = &loss
+    if ai_native_transformer_train_generate(&t) != 0 as isize { return 3 }
+    if written == 0 as usize || written > 256 as usize { return 4 }
+    if loss <= 0.0 || loss > 10.0 { return 5 }
+    return 0
+}
+print(verify())

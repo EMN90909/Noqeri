@@ -116,3 +116,16 @@ insufficient buffers fail without writing partial outputs. See
 This is **not** automatic compiler-managed tensors, reusable graph handles,
 Stage-2 VM integration, native source-level closures, or full transformer
 training in Noqeri.
+
+## Native BPE and bounded single-call transformer training
+
+`ai_native_bpe_encode` provides deterministic ASCII/LF tokenization into a
+caller-owned token buffer. `ai_native_transformer_train_generate` trains a
+small CPU causal transformer from explicit caller-owned bytes, generates a
+bounded response and returns the training loss. Model ownership is local to
+the invocation; no network access, file I/O, leaked pointers or persistent
+model handles. Validation failures leave all outputs untouched.
+
+These remain experimental single-call AOT research APIs, **not** Unicode
+tokenization, reusable model training, a GPU system or portable NQRI calls.
+See `examples/simplicity/ai_native_tokenizer_transformer.noqeri`.

@@ -75,6 +75,35 @@ typedef struct nq_ai_tape_request {
 // -3 insufficient output storage; -4 invalid graph/gradient; -5 SDK failure.
 // On any nonzero return, the output, gradient and shape fields are unchanged.
 int64_t nq_ai_tape_execute(const nq_ai_tape_request *request);
+
+typedef struct nq_ai_bpe_request {
+    const uint8_t *corpus;
+    size_t corpus_length;
+    const uint8_t *text;
+    size_t text_length;
+    size_t max_merges;
+    size_t *tokens;
+    size_t token_capacity;
+    size_t *token_count;
+} nq_ai_bpe_request;
+// 0 success; -1 null pointer; -2 bounds; -3 capacity; -5 SDK/input.
+int64_t nq_ai_bpe_encode(const nq_ai_bpe_request *request);
+
+typedef struct nq_ai_transformer_request {
+    const uint8_t *corpus;
+    size_t corpus_length;
+    const uint8_t *prompt;
+    size_t prompt_length;
+    size_t context, hidden, steps, merges, output_tokens;
+    double learning_rate;
+    uint32_t seed, backend;
+    uint8_t *output;
+    size_t output_capacity;
+    size_t *output_length;
+    double *training_loss;
+} nq_ai_transformer_request;
+// Fresh transient model: no retained caller pointers, network or file access.
+int64_t nq_ai_transformer_train_generate(const nq_ai_transformer_request *request);
 #ifdef __cplusplus
 }
 #endif

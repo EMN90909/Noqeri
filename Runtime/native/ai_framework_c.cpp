@@ -150,3 +150,53 @@ extern "C" int64_t nq_ai_tape_execute(const nq_ai_tape_request* r) {
     } catch (const std::exception&) { return -5; }
       catch (...) { return -5; }
 }
+
+extern "C" int64_t nq_ai_bpe_encode(const nq_ai_bpe_request* r) {
+    if (!r || !r->corpus || !r->text || !r->tokens || !r->token_count) return -1;
+    if (r->corpus_length < 16 || r->corpus_length > 65536 ||
+        r->text_length > 4096 || r->max_merges > 32) return -2;
+    try {
+        std::string corpus(reinterpret_cast<const char*>(r->corpus),r->corpus_length);
+        std::string text(reinterpret_cast<const char*>(r->text),r->text_length);
+        auto encoder=noqeri_ai::framework::SubwordTokenizer::train(corpus,r->max_merges);
+        auto tokens=encoder.encode(text);
+        if(tokens.size()>r->token_capacity)return -3;
+        std::copy(tokens.begin(),tokens.end(),r->tokens);
+        *r->token_count=tokens.size();
+        return 0;
+    } catch(const std::exception&) { return -5; } catch(...) { return -5; }
+}
+extern "C" int64_t nq_ai_transformer_train_generate(
+    const nq_ai_transformer_request* r) {
+    if (!r || !r->corpus || !r->prompt || !r->output ||
+        !r->output_length || !r->training_loss) return -1;
+    if(r->corpus_length < 16 || r->corpus_length > 65536 ||
+       r->prompt_length > 4096 || !r->context || r->context > 16 ||
+       r->hidden < 2 || r->hidden > 24 ||
+       !r->steps || r->steps > 10000 || r->merges > 32 ||
+       !r->output_tokens || r->output_tokens > 64 || r->backend > 3 ||
+       !std::isfinite(r->learning_rate) ||
+       r->learning_rate < 0.000001 || r->learning_rate > 0.1) return -2;
+    try {
+        std::string corpus(reinterpret_cast<const char*>(r->corpus),r->corpus_length);
+        std::string prompt(reinterpret_cast<const char*>(r->prompt),r->prompt_length);
+        noqeri_ai::framework::TransformerOptions opt;
+        opt.context=r->context; opt.hidden=r->hidden; opt.steps=r->steps;
+        opt.merges=r->merges; opt.learning_rate=r->learning_rate; opt.seed=r->seed;
+        switch(r->backend){
+            case 0:opt.backend=noqeri_ai::framework::Backend::Scalar;break;
+            case 1:opt.backend=noqeri_ai::framework::Backend::Tiled;break;
+            case 2:opt.backend=noqeri_ai::framework::Backend::Simd;break;
+            default:opt.backend=noqeri_ai::framework::Backend::Auto;break;
+        }
+        double loss=0;
+        auto model=noqeri_ai::framework::train_transformer(corpus,opt,&loss);
+        auto output=noqeri_ai::framework::generate_transformer(
+            model,prompt,r->output_tokens,0.0,r->seed,opt.backend);
+        if(output.size()>r->output_capacity)return -3;
+        std::copy(output.begin(),output.end(),r->output);
+        *r->output_length=output.size();
+        *r->training_loss=loss;
+        return 0;
+    } catch(const std::exception&) { return -5; } catch(...) { return -5; }
+}
