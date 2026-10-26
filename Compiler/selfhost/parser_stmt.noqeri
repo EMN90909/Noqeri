@@ -357,7 +357,15 @@ function nqStmtParseFunction(source: []u8, start: usize, nodes: []NqAstNode, cou
         }
         let parameter: isize = firstParam
         while parameter >= 0 as isize {
-            if nodes[parameter as usize].extra < 0 as isize { return nqAstNoNode() }
+            if nodes[parameter as usize].extra < 0 as isize {
+                if (modifiers / nqAstFlagExport()) % 2 as u32 != 0 as u32 ||
+                   (modifiers / nqAstFlagExtern()) % 2 as u32 != 0 as u32 ||
+                   (maybeGeneric.kind == nqTokenOperator() && maybeGeneric.first == 60 as u8) {
+                    return nqAstNoNode()
+                }
+                // Stage-2 semantic analysis must establish a unique
+                // scalar type from direct literal callers, or reject it.
+            }
             parameter = nodes[parameter as usize].next
         }
         let exprEnd: usize = bodyToken.end
