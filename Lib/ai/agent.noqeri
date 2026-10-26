@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: Apache-2.0
+module noqeri.ai.agent
+
+// Bounded agent-state policy. Host callbacks supply tool execution and must
+// enforce their own authorization. The agent may not grant its own rights.
+record AgentBudget {
+    maxSteps: int
+    steps: int
+    maxToolCalls: int
+    calls: int
+}
+
+export function ai_budget_valid(maxSteps: int, maxToolCalls: int): bool {
+    return maxSteps > 0 && maxSteps <= 10000 && maxToolCalls >= 0 &&
+           maxToolCalls <= maxSteps
+}
+
+export function ai_can_step(steps: int, maxSteps: int): bool {
+    return maxSteps > 0 && maxSteps <= 10000 && steps >= 0 && steps < maxSteps
+}
+
+export function ai_can_call_tool(calls: int, maxToolCalls: int, approved: bool): bool {
+    return approved && calls >= 0 && maxToolCalls >= 0 && calls < maxToolCalls
+}
+
+export function ai_select_class(probability: float): int {
+    if probability >= 0.5 { return 1 }
+    return 0
+}
+
+// No hidden shell, filesystem or network authority in an ordinary Noqeri module.
+export function ai_stop_required(steps: int, maxSteps: int,
+                                 calls: int, maxToolCalls: int): bool {
+    return !ai_can_step(steps, maxSteps) || calls > maxToolCalls
+}
