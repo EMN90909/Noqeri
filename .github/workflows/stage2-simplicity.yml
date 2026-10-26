@@ -11,6 +11,7 @@ on:
       - 'Compiler/selfhost/semantic_program.noqeri'
       - 'Compiler/selfhost/lower.noqeri'
       - 'Lib/std/numeric.noqeri'
+      - 'Lib/std/file.noqeri'
       - 'tests/stage2_repeat_parity.noqeri'
       - 'tests/check_stage2_repeat.py'
       - 'examples/simplicity/**'
@@ -39,7 +40,7 @@ jobs:
         run: cmake --build build-simplicity --target noqeri --parallel 2
       - name: Check self-hosted compiler source with Stage-0
         run: ./build-simplicity/noqeri check Compiler/selfhost/main.noqeri --unsafe
-      - name: Verify Stage-2 repeat parsing, semantics and lowering
+      - name: Typecheck Stage-2 parser and lowering test harness
         run: python3 tests/check_stage2_repeat.py ./build-simplicity/noqeri tests/stage2_repeat_parity.noqeri
       - name: Run practical numeric aggregation and filtering example
         run: |
@@ -57,6 +58,8 @@ jobs:
           ./build-simplicity/noqeri check examples/simplicity/for_collections.noqeri
           ./build-simplicity/noqeri run examples/simplicity/for_collections.noqeri | grep -Fx FOR_SLICE_PASS
           if ./build-simplicity/noqeri check tests/invalid_for_keyword.noqeri; then exit 1; fi
+      - name: Check bounded file convenience APIs
+        run: ./build-simplicity/noqeri check examples/simplicity/bounded_files.noqeri
       - name: Boolean equality runtime regression
         run: |
           set -euo pipefail

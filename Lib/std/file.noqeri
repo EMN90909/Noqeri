@@ -78,3 +78,49 @@ export function file_size(handle: usize): isize {
 
 export function file_status_ok(status: isize): bool { return status >= 0 as isize }
 export function file_status_error(status: isize): bool { return status < 0 as isize }
+
+// Convenience API with explicit caller-owned capacity and status returns.
+// It is not an allocation-returning string API: decoding UTF-8 and typed
+// Result<T> propagation remain explicit higher-level steps.
+//
+// Returns the number of bytes read, or a negative status. A file that exceeds
+// the destination capacity is rejected (-5) rather than silently truncated.
+export function readText(path: string, destination: []u8): isize {
+    let opened: isize = file_open_read(path)
+    if opened < 0 as isize { return opened }
+    let used: usize = 0 as usize
+    let failure: isize = 0 as isize
+    while used < len(destination) && failure == 0 as isize {
+        let step: isize = fileRead(opened as usize, &destination[used], len(destination) - used)
+        if step < 0 as isize { failure = step }
+        else if step == 0 as isize { break }
+        else { used = used + step as usize }
+    }
+    // On an exactly-full buffer, distinguish EOF from truncated input.
+    if failure == 0 as isize && used == len(destination) {
+        let extra: [u8; 1]
+        let step: isize = fileRead(opened as usize, &extra[0], 1 as usize)
+        if step > 0 as isize { failure = -5 as isize }
+        else if step < 0 as isize { failure = step }
+    }
+    let closed: isize = file_close(opened as usize)
+    if failure < 0 as isize { return failure }
+    if closed < 0 as isize { return closed }
+    return used as isize
+}
+
+// Writes only the bytes supplied; no hidden encoding or newline conversion.
+// Returns byte count or negative status, always attempts close. Do not use as
+// a transactional replace; an interrupted write can leave a partial file.
+export function writeText(path: string, contents: []u8): isize {
+    let opened: isize = file_open_replace(path)
+    if opened < 0 as isize { return opened }
+    let written: isize = file_write_all(opened as usize, contents)
+    let flushed: isize = 0 as isize
+    if written >= 0 as isize { flushed = file_flush(opened as usize) }
+    let closed: isize = file_close(opened as usize)
+    if written < 0 as isize { return written }
+    if flushed < 0 as isize { return flushed }
+    if closed < 0 as isize { return closed }
+    return written
+}

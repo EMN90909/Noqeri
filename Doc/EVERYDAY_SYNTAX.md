@@ -10,16 +10,18 @@ guarantees in the Stage-0 bootstrap and Stage-2 self-hosted compilers.
 repeat 4 { print("hello") }
 ```
 
-The Stage-2 frontend now parses counted repetition into a dedicated
+The Stage-2 source implementation parses counted repetition into a dedicated
 `nqAstRepeat()` AST node. Semantic analysis requires a numeric count.
 The NIR lowering evaluates the count once, converts it to `int`, skips
 zero/negative counts, decrements **before** the body, and ensures `continue`
 advances without locking up. Nested loops have independent loop-head and
 break-chain state. The bootstrap compiler already supports `repeat`.
 
-This is **front-end / NIR parity**, not proof that the entire Stage-2 native
-self-hosted compiler has passed reproducible bootstrap and release gates.
-The Stage-2 proof certificate remains fail-closed.
+The Stage-2 implementation type-checks through Stage-0, but its *runtime
+parity is not yet qualified*: the initial execution of the self-hosted
+AST/NIR regression under the Stage-0 reference interpreter crashed with
+heap corruption. Consequently no Stage-2 execution claim is made.
+The Stage-2 bootstrap/rebuild proof certificate remains fail-closed.
 
 ## Simple iteration
 
@@ -31,8 +33,8 @@ for price in prices {
 ```
 
 Stage-0 desugars this into a lexical block with one iterable binding,
-index and a while loop. Stage-2 uses a dedicated AST node, numeric primitive
-type propagation, a bounded loop index and bounds-checked NIR memory access.
+index and a while loop. Stage-2 has a dedicated AST node and intended
+bounds-checked NIR lowering; its actual runtime parity remains unqualified.
 For now the supported iterables are typed fixed arrays and slices.
 
 ## Collections: first ergonomic, nonallocating operations
@@ -86,3 +88,14 @@ remain the nonexception error pathways.
 The goal is fewer characters **without** hidden dynamic typing, implicit
 network access, or unbounded memory. No empirical Python/Lua simplicity
 ranking is claimed.
+
+## Bounded file convenience
+
+`Lib/std/file.noqeri` now provides `readText(path, destination)` and
+`writeText(path, bytes)`: the caller owns buffers, and both operations return
+byte counts or negative statuses. `readText` detects and rejects a file
+that does not fit in the supplied buffer. This is not the proposed
+`readText(path)?` string-and-typed-result API: automatic allocation, UTF-8
+decoding and `?` propagation are not yet implemented. The functions
+require supported file-host ABI services; the CI currently type-checks the
+API rather than exercising real filesystem integration.

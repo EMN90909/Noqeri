@@ -1,0 +1,11 @@
+// File convenience calls return byte count or a negative status;
+// callers own memory and decide whether to propagate or display the error.
+import "../../Lib/std/file.noqeri"
+function load(path: string): isize {
+    let bytes: [u8; 4096]
+    return readText(path, slice(bytes))
+}
+function save(path: string): isize {
+    let hello: [u8; 5] = [72 as u8,101 as u8,108 as u8,108 as u8,111 as u8]
+    return writeText(path, slice(hello))
+}
