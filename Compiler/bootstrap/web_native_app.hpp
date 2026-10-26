@@ -748,7 +748,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                                         if(value.size()>512)throw std::runtime_error("database binding too long");
                                         params.push_back({param.name,std::move(value)});
                                     }
-                                    (void)executeDatabase(app.project.database,mutation.query,params);
+                                    try {(void)executeDatabase(app.project.database,mutation.query,params);}
+                                    catch(const std::exception&) {throw NativeDatabaseFailure{};}
                                 }else {
                                     auto value=applyMutation(mutation,updated,fields);
                                     if(value.size()>512)throw std::runtime_error("action result too long");
@@ -798,7 +799,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     sessionCsrf=session->second.csrf;
                     } // release state lock before slow, read-only database queries and rendering
                     for(const auto& [name,statement]:rendered.queries)
-                        rendered.globals[name]=executeDatabase(rendered.database,statement,{});
+                        try {rendered.globals[name]=executeDatabase(rendered.database,statement,{});}
+                        catch(const std::exception&) {throw NativeDatabaseFailure{};}
                     const AppRenderContext context{path,sessionCsrf};
                     const auto body=rendered.hasLayout?
                         renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
@@ -808,6 +810,9 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                 }
             }
             }
+        } catch(const NativeDatabaseFailure&) {
+            std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"database_failure\"}\n";
+            appReply(client,503,"Database temporarily unavailable");
         } catch(const std::exception& e) {
             std::cerr<<"noqeri-web request error: "<<e.what()<<"\n";
             appReply(client,400,"Bad Request");
