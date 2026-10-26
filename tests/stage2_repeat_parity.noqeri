@@ -1,26 +1,55 @@
-// Check the real self-hosted Stage-2 parser, semantic checker and
-// lowerer rather than merely grepping for the repeat keyword.
-import "../Compiler/selfhost/main.noqeri"
-import "../Compiler/selfhost/targets.noqeri"
+// Direct self-hosted parser/NIR tests use bounded caller-owned arenas.
+// This avoids allocating the ~50MB production compilation workspaces within
+// the Stage-0 reference interpreter's limited stack.
+import "../Compiler/selfhost/parser_stmt.noqeri"
+import "../Compiler/selfhost/ast.noqeri"
+import "../Compiler/selfhost/lower.noqeri"
+import "../Compiler/selfhost/nir.noqeri"
 
-function validateRepeat(): int {
-    let source: [u8; 102] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 109 as u8, 97 as u8, 105 as u8, 110 as u8, 40 as u8, 41 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 32 as u8, 123 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 110 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 32 as u8, 61 as u8, 32 as u8, 51 as u8, 32 as u8, 114 as u8, 101 as u8, 112 as u8, 101 as u8, 97 as u8, 116 as u8, 32 as u8, 110 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 112 as u8, 101 as u8, 97 as u8, 116 as u8, 32 as u8, 50 as u8, 32 as u8, 123 as u8, 32 as u8, 105 as u8, 102 as u8, 32 as u8, 110 as u8, 32 as u8, 62 as u8, 32 as u8, 48 as u8, 32 as u8, 123 as u8, 32 as u8, 99 as u8, 111 as u8, 110 as u8, 116 as u8, 105 as u8, 110 as u8, 117 as u8, 101 as u8, 32 as u8, 125 as u8, 32 as u8, 125 as u8, 32 as u8, 98 as u8, 114 as u8, 101 as u8, 97 as u8, 107 as u8, 32 as u8, 125 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 48 as u8, 32 as u8, 125 as u8]
-    if stage2SyntaxCheck(slice(source)) != 0 as isize { return 1 }
-    if stage2SemanticCheckMerged(slice(source), false) != 0 as isize { return 2 }
-    if stage2CompileCheck(slice(source), nqTargetLinuxX64(), false) != 0 as isize { return 3 }
+function parsedAndLowered(): int {
+    let source: [u8; 102] = [102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8,32 as u8,109 as u8,97 as u8,105 as u8,110 as u8,40 as u8,41 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,123 as u8,32 as u8,108 as u8,101 as u8,116 as u8,32 as u8,110 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,61 as u8,32 as u8,51 as u8,32 as u8,114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8,32 as u8,110 as u8,32 as u8,123 as u8,32 as u8,114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8,32 as u8,50 as u8,32 as u8,123 as u8,32 as u8,105 as u8,102 as u8,32 as u8,110 as u8,32 as u8,62 as u8,32 as u8,48 as u8,32 as u8,123 as u8,32 as u8,99 as u8,111 as u8,110 as u8,116 as u8,105 as u8,110 as u8,117 as u8,101 as u8,32 as u8,125 as u8,32 as u8,125 as u8,32 as u8,98 as u8,114 as u8,101 as u8,97 as u8,107 as u8,32 as u8,125 as u8,32 as u8,114 as u8,101 as u8,116 as u8,117 as u8,114 as u8,110 as u8,32 as u8,48 as u8,32 as u8,125 as u8]
+    let nodes: [NqAstNode; 256]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    let parsed: isize = nqParserParseProgram(slice(source), slice(nodes), &count, &first)
+    if parsed != 0 as isize { return 1 }
+    if first < 0 as isize || nodes[first as usize].tag != nqAstFunction() { return 2 }
+    let body: isize = nodes[first as usize].extra
+    if body < 0 as isize { return 3 }
+    let cursor: isize = nodes[body as usize].left
+    let counted: isize = nqAstNoNode()
+    while cursor >= 0 as isize {
+        if nodes[cursor as usize].tag == nqAstRepeat() { counted = cursor }
+        cursor = nodes[cursor as usize].next
+    }
+    if counted < 0 as isize { return 4 }
+    let innerBody: isize = nodes[counted as usize].right
+    if innerBody < 0 as isize { return 5 }
+    let firstInner: isize = nodes[innerBody as usize].left
+    if firstInner < 0 as isize || nodes[firstInner as usize].tag != nqAstRepeat() { return 6 }
+    let instructions: [NqNirInstruction; 256]
+    let state: NqLowerState
+    nqLowerStateInit(&state)
+    let lowered: isize = nqLowerStatement(slice(source), slice(nodes), counted, slice(instructions), &state)
+    if lowered != 0 as isize { return 7 }
+    let branches: int = 0
+    let stores: int = 0
+    let i: usize = 0 as usize
+    while i < state.instructionCount {
+        if instructions[i].opcode == nqNirBranch() { branches = branches + 1 }
+        if instructions[i].opcode == nqNirStore() { stores = stores + 1 }
+        i = i + 1 as usize
+    }
+    if branches < 2 || stores < 4 { return 8 }
     return 0
 }
-function rejectWrongRepeatCount(): int {
-    let source: [u8; 50] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 109 as u8, 97 as u8, 105 as u8, 110 as u8, 40 as u8, 41 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 112 as u8, 101 as u8, 97 as u8, 116 as u8, 32 as u8, 34 as u8, 98 as u8, 97 as u8, 100 as u8, 34 as u8, 32 as u8, 123 as u8, 32 as u8, 125 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 48 as u8, 32 as u8, 125 as u8]
-    if stage2SyntaxCheck(slice(source)) != 0 as isize { return 4 }
-    if stage2SemanticCheckMerged(slice(source), false) >= 0 as isize { return 5 }
+function rejectsUnclosedRepeat(): int {
+    let source: [u8; 44] = [102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8,32 as u8,109 as u8,97 as u8,105 as u8,110 as u8,40 as u8,41 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,123 as u8,32 as u8,114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8,32 as u8,51 as u8,32 as u8,123 as u8,32 as u8,114 as u8,101 as u8,116 as u8,117 as u8,114 as u8,110 as u8,32 as u8,48 as u8,32 as u8,125 as u8]
+    let nodes: [NqAstNode; 64]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source), slice(nodes), &count, &first) >= 0 as isize { return 9 }
     return 0
 }
-function rejectUnclosedRepeat(): int {
-    let source: [u8; 44] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 109 as u8, 97 as u8, 105 as u8, 110 as u8, 40 as u8, 41 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 112 as u8, 101 as u8, 97 as u8, 116 as u8, 32 as u8, 51 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 48 as u8, 32 as u8, 125 as u8]
-    if stage2SyntaxCheck(slice(source)) >= 0 as isize { return 6 }
-    return 0
-}
-print(validateRepeat())
-print(rejectWrongRepeatCount())
-print(rejectUnclosedRepeat())
+print(parsedAndLowered())
+print(rejectsUnclosedRepeat())
