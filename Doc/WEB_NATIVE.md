@@ -1,5 +1,8 @@
 # Noqeri Web — native, zero-JavaScript mode
 
+**New: interactive native applications.** [WEB_NATIVE_ACTIONS.md](WEB_NATIVE_ACTIONS.md) documents the standalone `noqeri-web serve-app` path for JavaScript-free server-rendered buttons, forms, session state and durable key/value data. The static `build` path described below remains unchanged.
+
+
 The Noqeri web framework now has a **separate compiled native static mode**. A Noqeri source file describes pages, themes, and reusable UI components. The standalone `noqeri-web` program compiles them directly to static HTML/CSS; **neither building nor viewing these pages requires Node.js, npm, JavaScript, or a JavaScript engine**. The optional preview HTTP server is implemented natively, without Node.
 
 ## Compile and run
