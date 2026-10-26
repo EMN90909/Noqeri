@@ -18,7 +18,7 @@ jobs:
       - name: Configure lightweight C++17 toolchain
         run: cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
       - name: Build language compiler and native AI runtime
-        run: cmake --build build-ai --target noqeri noqeri-ai noqeri-ai-runtime-test --parallel 2
+        run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test --parallel 2
       - name: Run native training, model integrity and agent budget tests
         run: ctest --test-dir build-ai -R '^noqeri-ai-runtime$' --output-on-failure
       - name: Compile typed Noqeri AI modules and run agent integration
