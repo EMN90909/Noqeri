@@ -336,7 +336,7 @@ jobs:
           run: |
             set -eu
             cmake -S . -B build-freebsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
-            cmake --build build-freebsd --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 1
+            cmake --build build-freebsd --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath --parallel 1
             cmake --install build-freebsd --prefix stage
             ./stage/bin/noqeri --version
             ./stage/bin/noqeri check examples/hello.noqeri
@@ -380,7 +380,7 @@ jobs:
           run: |
             set -eu
             cmake -S . -B build-openbsd -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "-DNOQERI_PACKAGE_TARGET=$RELEASE_TARGET"
-            cmake --build build-openbsd --target noqeri noqeri-nqri noqeri_graphics_fastpath --parallel 1
+            cmake --build build-openbsd --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath --parallel 1
             cmake --install build-openbsd --prefix stage
             ./stage/bin/noqeri --version
             ./stage/bin/noqeri check examples/hello.noqeri
