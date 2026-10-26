@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.3 development" src="https://img.shields.io/badge/version-0.1.3%20development-F59E0B"></a>
-  <a href="LICENSE"><img alt="GPL-3.0-only license" src="https://img.shields.io/badge/license-GPL--3.0--only-2563EB"></a>
+  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.4 developer preview" src="https://img.shields.io/badge/version-0.1.4%20preview-F59E0B"></a>
+  <a href="LICENSE"><img alt="GPL toolchain, Apache libraries" src="https://img.shields.io/badge/license-GPL--3.0--only-2563EB"></a>
   <a href="Doc/PRODUCTION_READINESS.md"><img alt="Experimental development" src="https://img.shields.io/badge/readiness-experimental-64748B"></a>
 </p>
 
@@ -27,7 +27,18 @@
 
 Noqeri is an evolving **statically typed, general-purpose programming language** developed by [Noethric](https://noethric.xyz). It combines inferred local variables and a compact application-oriented syntax with lower-level capabilities such as fixed-width integers, pointers, slices, atomics, native interfaces and explicit compiler targets.
 
-This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.3`, a development version, not a production-qualified release.**
+This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.4`, an experimental developer preview, not a production-qualified release.** See [v0.1.4 scope and release gates](Doc/V0_1_4_RELEASE.md) and [component-specific licenses](LICENSES.md).
+
+## Native web app preview (v0.1.4)
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build --target noqeri-web
+./build/noqeri-web compile examples/native_web_fullstack ./my-noqeri-app
+./my-noqeri-app 8080
+```
+
+The bundled app uses a C++17 bootstrap renderer, not typed-NIR web code generation. Shared layouts, dynamic route parameters, HTML-native validated actions, optional Basic authentication and bounded concurrent ingress are preview features. WebSocket framing is tested, but full WebSocket handshake/transport, production TLS/authz, and transactional multi-engine NoeSQL integration remain unqualified. Compiler/toolchain source is GPL-3.0-only; first-party independent libraries are intended to be Apache-2.0 subject to source provenance and individual notices.
 
 ## A first look
 
