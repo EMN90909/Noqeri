@@ -84,7 +84,7 @@ void compileApplication(const fs::path& input,const fs::path& executable,const c
         if(pid<0)throw std::runtime_error("failed creating native compiler process");
         if(pid==0) {
             ::execlp(cxx.c_str(),cxx.c_str(),"-std=c++17","-O2","-pthread",
-                     staging.c_str(),"-o",partial.c_str(),static_cast<char*>(nullptr));
+                     staging.c_str(),"-o",partial.c_str(),"-ldl",static_cast<char*>(nullptr));
             _exit(127);
         }
         int status=0;
