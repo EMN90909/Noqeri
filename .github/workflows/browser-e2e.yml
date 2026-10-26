@@ -1,0 +1,37 @@
+name: Browser E2E native web security smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/bootstrap/web_native*'
+      - 'tests/browser_e2e.mjs'
+      - 'examples/native_web_actions/**'
+      - '.github/workflows/browser-e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/bootstrap/web_native*'
+      - 'tests/browser_e2e.mjs'
+      - 'examples/native_web_actions/**'
+      - '.github/workflows/browser-e2e.yml'
+permissions:
+  contents: read
+jobs:
+  chromium-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test-only browser runtime
+        run: |
+          npm install --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Build native web tool (not a browser JS runtime)
+        run: |
+          cmake -S . -B build-browser -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-browser --target noqeri-web --parallel 2
+      - name: Run actual Chromium end-to-end session and XSS assertions
+        run: node tests/browser_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
