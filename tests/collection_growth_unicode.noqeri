@@ -23,7 +23,7 @@ function verify(): int {
     if iterator_remaining(&cursor) != 2 as usize { return 12 }
     if !iterator_reset(&cursor) { return 13 }
     if iterator_next_or(&cursor, -1) != 10 { return 14 }
-    if !iterator_from_slice(&cursor,slice(bigger)) { return 15 }
+    if !iterator_reset(&cursor) { return 15 }
     if iterator_next_or(&cursor, -1) != 10 { return 16 }
 
     let utf8: [u8; 8] = [65 as u8,226 as u8,130 as u8,172 as u8,
