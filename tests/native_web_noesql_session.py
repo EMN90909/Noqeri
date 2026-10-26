@@ -77,6 +77,17 @@ route "/" {
         assert "users add { name: $name }" in callback_log
         assert "A & B <script>" in callback_log
         assert "name:text" not in callback_log
+        assert "BEGIN" in callback_log and "COMMIT" in callback_log
+        status,_,next_page=request("GET",cookie=cookie)
+        assert status==200
+        new_token=re.search(r'name="_nq_csrf" value="([^"]+)"',next_page).group(1)
+        failed=urllib.parse.urlencode({
+            "_nq_action":action,"_nq_csrf":new_token,"name":"INJECT_FAILURE"})
+        status,_,body=request("POST",failed,cookie)
+        assert status==503 and "Database temporarily unavailable" in body
+        callback_log=(root/"callbacks.log").read_text()
+        tail=callback_log.split("BEGIN")[-1]
+        assert "ROLLBACK" in tail and "COMMIT" not in tail,callback_log
     finally:
         server.terminate()
         try:server.communicate(timeout=3)
