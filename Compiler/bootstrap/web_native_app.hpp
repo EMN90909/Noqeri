@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Native server-driven Noqeri interactions. Included only by web_native.cpp.
 // No JS runtime. Every mutation is an explicitly declared, bounded server action.
 // Deliberately localhost-only; not a production HTTP stack.
