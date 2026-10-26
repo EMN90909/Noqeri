@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           ./build-beginner-list/noqeri nqri tests/beginner_growable_lists.noqeri build-beginner-list/lists.nqri
-          output=$(./build-beginner-list/noqeri-nqri build-beginner-list/lists.nqri)
+          output=$(./build-beginner-list/noqeri-nqri build-beginner-list/lists.nqri __entry)
           echo "NQRI: $output"
           test "$output" = "$(printf '3\n0')"
       - name: Native Linux AOT auto links owned storage with no special flags
