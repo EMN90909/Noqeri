@@ -1,0 +1,94 @@
+name: Attach verified OS and CPU SDKs to v0.1.4
+on:
+  workflow_run:
+    workflows: ["Noqeri cross-platform distributions"]
+    types: [completed]
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    name: Publish successful real OS/CPU builds to existing v0.1.4
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.1.4
+      RELEASE_TAG_SHA: 50606b6c491dfde2c8a9f4db624a82f8839621b3
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      SOURCE_RUN: ${{ github.event.workflow_run.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm immutable release and trusted build provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sed -nE 's/^project\(noqeri VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)" = "0.1.4"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha)" = "$RELEASE_TAG_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" \
+             --jq '[.head_sha,.head_branch,.event] | @tsv' \
+             | grep -Fx "$(printf '%s\tmain\tpush' "$SOURCE_SHA")"
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq 'select(.isDraft == false and .isPrerelease == true) | .isPrerelease' \
+            | grep -Fx true
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          pattern: noqeri-*
+          merge-multiple: true
+          path: artifacts
+      - name: Verify real compiler/VM architecture, SDK contents and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/distribution/verify_v014_assets.py \
+            artifacts "$SOURCE_SHA" "$RELEASE_TAG_SHA" "$SOURCE_RUN"
+          (cd artifacts && sha256sum -c SHA256SUMS-platform-v014)
+      - name: Publish verified downloads without moving tag or replacing existing files
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > existing.txt
+          mkdir -p previous
+          for path in artifacts/*; do
+            [[ -s "$path" ]] || continue
+            name="$(basename "$path")"
+            if grep -Fxq "$name" existing.txt; then
+              gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "$name" --dir previous
+              if ! cmp -s "previous/$name" "$path"; then
+                echo "Refusing to overwrite an existing asset with different bytes: $name" >&2
+                exit 1
+              fi
+              continue
+            fi
+            gh release upload "$RELEASE_TAG" "$path" --repo "$GITHUB_REPOSITORY"
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > release-assets.txt
+          for path in artifacts/*; do
+            [[ -s "$path" ]] || continue
+            grep -Fxq "$(basename "$path")" release-assets.txt
+          done
+      - name: Report exact target coverage; don't claim absent CPUs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          with open("artifacts/v0.1.4-platform-manifest.json") as f:
+              report=json.load(f)
+          print("Published verified platform targets:",len(report["available"]))
+          print("Targets:",", ".join(report["available"]))
+          print("Missing:",", ".join(report["unavailable"]))
+          print("Android debug APK:",report["android_debug_apk"])
+          if report["unavailable"] or not report["android_debug_apk"]:
+              raise SystemExit("Only a partial multi-architecture release could be qualified; published artifacts remain downloadable")
+          PY
