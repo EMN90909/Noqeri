@@ -232,6 +232,14 @@ Stage-2 parser/semantic/lowering source has been updated, but its
 The Stage-0 examples and static Stage-2 source checks pass CI.
 See [everyday syntax implementation and status](Doc/EVERYDAY_SYNTAX.md).
 
+### Beginner functions, imports, collections and errors
+
+[Beginner language and API conventions](Doc/BEGINNER_LANGUAGE_APIS.md) define
+private single-return inference, canonical quoted `import "std/list"` /
+`import "noqeri/ui" as ui`, consistent bounded collection helpers and
+machine-readable, actionable compiler diagnostics. These are Stage-0/framework
+incremental capabilities, not complete Stage-2 or growable collection parity.
+
 ### Useful compiler commands
 
 These commands belong to the **Stage-0 `noqeri` executable** built above, not to the restricted self-hosted Stage-2 CLI.

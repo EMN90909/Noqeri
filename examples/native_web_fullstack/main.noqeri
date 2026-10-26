@@ -1,5 +1,5 @@
 // Full-stack preview: shared layout, dynamic routes, sessions, HTML-native forms.
-import noqeri/ui as ui
+import "noqeri/ui" as ui
 
 let greeting = "Welcome"
 let submissions = 0

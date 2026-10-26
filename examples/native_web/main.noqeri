@@ -1,5 +1,5 @@
 // A complete web application authored in Noqeri. No handwritten JS, HTML or CSS.
-import noqeri/ui as ui
+import "noqeri/ui" as ui
 
 let count = 0
 

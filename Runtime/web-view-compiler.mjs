@@ -133,8 +133,18 @@ export function parseView(source) {
         if(!bare&&!local)fail('unsafe JavaScript module specifier');
         need('as');imports.push({kind:'js',specifier:value,alias:ident()});
       }else{
-        const namespace=ident();need('/');const pkg=ident();const alias=accept('as')?ident():pkg;
-        imports.push({kind:'package',specifier:namespace+'/'+pkg,alias});
+        let specifier,alias;
+        if(tokens[at].kind==='str'){
+          specifier=take().value;
+          if(!/^noqeri\/[A-Za-z_][A-Za-z_0-9]*$/.test(specifier))
+            fail('package imports use a quoted module name such as import "noqeri/ui" as ui');
+          alias=accept('as')?ident():specifier.split('/')[1];
+        }else{
+          // Read old unquoted source without making it the recommended style.
+          const namespace=ident();need('/');const pkg=ident();
+          specifier=namespace+'/'+pkg;alias=accept('as')?ident():pkg;
+        }
+        imports.push({kind:'package',specifier,alias});
       }
     }else if(accept('let')||accept('const')){
       const mutable=tokens[at-1].value==='let',name=ident();need('=');

@@ -20,60 +20,60 @@ record Outcome<T> {
     ok: bool
 }
 
-export function error_init(out: *Error, code: isize, domain: string, message: string): void {
+export function error_init(out: *Error, code: isize, domain: string, message: string): void { unsafe { 
     out.code = code
     out.domain = domain
     out.message = message
-}
+ }}
 
-export function error_clear(out: *Error): void {
+export function error_clear(out: *Error): void { unsafe { 
     out.code = 0 as isize
     out.domain = ""
     out.message = ""
-}
+ }}
 
-export function error_is_set(error: *Error): bool { return error.code != 0 as isize }
+export function error_is_set(error: *Error): bool { unsafe {  return error.code != 0 as isize  }}
 
-export function result_init_ok<T>(out: *Result<T>, value: T): void {
+export function result_init_ok<T>(out: *Result<T>, value: T): void { unsafe { 
     out.value = value
     out.error = 0 as isize
     out.ok = true
-}
+ }}
 
-export function result_init_error<T>(out: *Result<T>, fallback: T, error: isize): void {
+export function result_init_error<T>(out: *Result<T>, fallback: T, error: isize): void { unsafe { 
     out.value = fallback
     out.error = error
     out.ok = false
-}
+ }}
 
-export function result_is_ok<T>(result: *Result<T>): bool { return result.ok }
-export function result_is_error<T>(result: *Result<T>): bool { return !result.ok }
-export function result_value_or<T>(result: *Result<T>, fallback: T): T { if result.ok { return result.value } return fallback }
-export function result_error_or<T>(result: *Result<T>, fallback: isize): isize { if result.ok { return fallback } return result.error }
+export function result_is_ok<T>(result: *Result<T>): bool { unsafe {  return result.ok  }}
+export function result_is_error<T>(result: *Result<T>): bool { unsafe {  return !result.ok  }}
+export function result_value_or<T>(result: *Result<T>, fallback: T): T { if result.ok { unsafe {  return result.value  }} return fallback }
+export function result_error_or<T>(result: *Result<T>, fallback: isize): isize { if result.ok { unsafe {  return fallback  }} return result.error }
 
-export function result_init_from_status<T>(out: *Result<T>, value: T, fallback: T, status: isize): void {
+export function result_init_from_status<T>(out: *Result<T>, value: T, fallback: T, status: isize): void { unsafe { 
     if status < 0 as isize { result_init_error(out, fallback, status) return }
     result_init_ok(out, value)
-}
+ }}
 
-export function outcome_init_ok<T>(out: *Outcome<T>, value: T): void {
+export function outcome_init_ok<T>(out: *Outcome<T>, value: T): void { unsafe { 
     out.value = value
     error_clear(&out.error)
     out.ok = true
-}
+ }}
 
-export function outcome_init_error<T>(out: *Outcome<T>, fallback: T, code: isize, domain: string, message: string): void {
+export function outcome_init_error<T>(out: *Outcome<T>, fallback: T, code: isize, domain: string, message: string): void { unsafe { 
     out.value = fallback
     error_init(&out.error, code, domain, message)
     out.ok = false
-}
+ }}
 
-export function outcome_is_ok<T>(outcome: *Outcome<T>): bool { return outcome.ok }
-export function outcome_is_error<T>(outcome: *Outcome<T>): bool { return !outcome.ok }
-export function outcome_value_or<T>(outcome: *Outcome<T>, fallback: T): T { if outcome.ok { return outcome.value } return fallback }
-export function outcome_error_code<T>(outcome: *Outcome<T>): isize { if outcome.ok { return 0 as isize } return outcome.error.code }
-export function outcome_error_domain<T>(outcome: *Outcome<T>): string { if outcome.ok { return "" } return outcome.error.domain }
-export function outcome_error_message<T>(outcome: *Outcome<T>): string { if outcome.ok { return "" } return outcome.error.message }
+export function outcome_is_ok<T>(outcome: *Outcome<T>): bool { unsafe {  return outcome.ok  }}
+export function outcome_is_error<T>(outcome: *Outcome<T>): bool { unsafe {  return !outcome.ok  }}
+export function outcome_value_or<T>(outcome: *Outcome<T>, fallback: T): T { if outcome.ok { unsafe {  return outcome.value  }} return fallback }
+export function outcome_error_code<T>(outcome: *Outcome<T>): isize { if outcome.ok { unsafe {  return 0 as isize  }} return outcome.error.code }
+export function outcome_error_domain<T>(outcome: *Outcome<T>): string { if outcome.ok { unsafe {  return ""  }} return outcome.error.domain }
+export function outcome_error_message<T>(outcome: *Outcome<T>): string { if outcome.ok { unsafe {  return ""  }} return outcome.error.message }
 
 // ABI/status helpers. `throw` encodes a positive code as -(code+1), so decoding
 // must reverse that transform instead of merely negating the status.
@@ -82,3 +82,8 @@ export function result_status_error(status: isize): bool { return status < 0 as 
 export function result_error_code(status: isize): isize { if status < 0 as isize { return -status - 1 as isize } return 0 as isize }
 export function result_encode_error(code: isize): isize { if code < 0 as isize { return code } return -code - 1 as isize }
 export function result_attempt_allowed(attempt: usize, max_attempts: usize): bool { return attempt < max_attempts }
+
+ // One status check across file, fs, HTTP handle, JSON parser and native AI APIs.
+ // Native status >= 0 is success; boolean and HTTP status APIs are distinct.
+ export function status_ok(status: isize): bool { return status >= 0 as isize }
+ export function status_error(status: isize): bool { return status < 0 as isize }

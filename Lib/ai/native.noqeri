@@ -117,3 +117,6 @@ extern function nq_ai_transformer_train_generate(request: *AiTransformerRequest)
 export function ai_native_transformer_train_generate(request: *AiTransformerRequest): isize {
     return nq_ai_transformer_train_generate(request)
 }
+
+// Nonnegative native host status indicates success.
+export function ai_native_ok(status: isize): bool { return status >= 0 as isize }

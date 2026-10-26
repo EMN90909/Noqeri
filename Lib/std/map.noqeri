@@ -10,34 +10,34 @@ record Map<K, V> {
     capacity: usize
 }
 
-export function map_length<K,V>(map: *Map<K,V>): usize { return map.length }
-export function map_capacity<K,V>(map: *Map<K,V>): usize { return map.capacity }
-export function map_empty<K,V>(map: *Map<K,V>): bool { return map.length == 0 as usize }
-export function map_full<K,V>(map: *Map<K,V>): bool { return map.length >= map.capacity }
-export function map_invariant<K,V>(map: *Map<K,V>): bool { if map.length > map.capacity { return false } if map.capacity > 0 as usize && (map.keys == null || map.values == null) { return false } return true }
+export function map_length<K,V>(map: *Map<K,V>): usize { unsafe {  return map.length  }}
+export function map_capacity<K,V>(map: *Map<K,V>): usize { unsafe {  return map.capacity  }}
+export function map_empty<K,V>(map: *Map<K,V>): bool { unsafe {  return map.length == 0 as usize  }}
+export function map_full<K,V>(map: *Map<K,V>): bool { unsafe {  return map.length >= map.capacity  }}
+export function map_invariant<K,V>(map: *Map<K,V>): bool { if map.length > map.capacity { return false } if map.capacity > 0 as usize && (map.keys == null || map.values == null) { unsafe {  return false  }} return true }
 
-export function map_find_index<K: Eq + Copy,V>(map: *Map<K,V>, key: K): isize {
+export function map_find_index<K: Eq + Copy,V>(map: *Map<K,V>, key: K): isize { unsafe { 
     if map.keys == null { return -1 as isize }
     let i: usize = 0 as usize
     while i < map.length { if map.keys[i] == key { return i as isize } i = i + 1 as usize }
     return -1 as isize
-}
+ }}
 
-export function map_contains<K: Eq + Copy,V>(map: *Map<K,V>, key: K): bool { return map_find_index(map, key) >= 0 as isize }
+export function map_contains<K: Eq + Copy,V>(map: *Map<K,V>, key: K): bool { unsafe {  return map_find_index(map, key) >= 0 as isize  }}
 
-export function map_value_ref<K: Eq + Copy,V>(map: *Map<K,V>, key: K): *V {
+export function map_value_ref<K: Eq + Copy,V>(map: *Map<K,V>, key: K): *V { unsafe { 
     let index: isize = map_find_index(map, key)
     if index < 0 as isize || map.values == null { return null as *V }
     return &map.values[index as usize]
-}
+ }}
 
-export function map_get_or<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K, fallback: V): V {
+export function map_get_or<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K, fallback: V): V { unsafe { 
     let value: *V = map_value_ref(map, key)
     if value == null { return fallback }
     return *value
-}
+ }}
 
-export function map_put<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K, value: V): bool {
+export function map_put<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K, value: V): bool { unsafe { 
     if map.keys == null || map.values == null { return false }
     let found: isize = map_find_index(map, key)
     if found >= 0 as isize { map.values[found as usize] = value return true }
@@ -46,9 +46,9 @@ export function map_put<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K, value: V):
     map.values[map.length] = value
     map.length = map.length + 1 as usize
     return true
-}
+ }}
 
-export function map_remove<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K): bool {
+export function map_remove<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K): bool { unsafe { 
     let found: isize = map_find_index(map, key)
     if found < 0 as isize || map.keys == null || map.values == null { return false }
     let index: usize = found as usize
@@ -60,9 +60,9 @@ export function map_remove<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K): bool {
     }
     map.length = map.length - 1 as usize
     return true
-}
+ }}
 
-export function map_clear<K,V>(map: *Map<K,V>): void { map.length = 0 as usize }
+export function map_clear<K,V>(map: *Map<K,V>): void { unsafe {  map.length = 0 as usize  }}
 
 // Parallel-slice compatibility helpers.
 export function map_find<K: Eq + Copy>(keys: []K, key: K): isize { let i: usize = 0 as usize while i < len(keys) { if keys[i] == key { return i as isize } i = i + 1 as usize } return -1 as isize }
@@ -71,3 +71,8 @@ export function map_lengths_valid<K,V>(keys: []K, values: []V): bool { return le
 export function map_is_empty<K,V>(keys: []K, values: []V): bool { return len(keys) == 0 as usize && len(values) == 0 as usize }
 export function map_count<K,V>(keys: []K, values: []V): usize { if len(keys) < len(values) { return len(keys) } return len(values) }
 export function map_has_duplicate_keys<K: Eq + Copy>(keys: []K): bool { let i: usize = 0 as usize while i < len(keys) { let j: usize = i + 1 as usize while j < len(keys) { if keys[i] == keys[j] { return true } j = j + 1 as usize } i = i + 1 as usize } return false }
+// Simple names wrap existing bounded or native-host APIs; no hidden allocation.
+
+export function map_size<K,V>(map: *Map<K,V>): usize { unsafe {  return map_length(map)  }}
+export function map_has<K: Eq + Copy,V>(map: *Map<K,V>, key: K): bool { unsafe {  return map_contains(map,key)  }}
+export function map_add<K: Eq + Copy,V: Copy>(map: *Map<K,V>, key: K, value: V): bool { unsafe {  return map_put(map,key,value)  }}

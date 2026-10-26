@@ -1,5 +1,5 @@
 // Fully Noqeri-authored pages. No Node.js or JavaScript at build or runtime.
-import noqeri/ui as ui
+import "noqeri/ui" as ui
 
 theme {
     primary: "#304ac0"

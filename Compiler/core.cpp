@@ -53,6 +53,29 @@ void Diagnostics::error(std::string code,Span span,std::string message,std::stri
         else if(code=="NQR-T3012")help="Pass the number of arguments declared in the function signature.";
         else if(code=="NQR-T3013")help="Pass a value of the expected type or convert it explicitly with as.";
         else if(code=="NQR-T3014")help="Use let instead of const if this binding must change.";
+        else if(code=="NQR-L1000")help="Remove this character or replace it with an operator or punctuation supported by Noqeri.";
+        else if(code=="NQR-P2004")help="Assign to a declared variable or writable field, for example score = 10.";
+        else if(code=="NQR-P2010")help="Only functions can be exported or external: export function name(...): Type { ... }.";
+        else if(code=="NQR-P2011")help="Initialize the variable (let count = 0) or state its type (let count: int).";
+        else if(code=="NQR-P2012")help="Initialize const immediately, for example const limit = 10.";
+        else if(code=="NQR-P2021")help="Write function square(x: int) = x * x or annotate the return explicitly.";
+        else if(code=="NQR-P2022")help="Use for item in values { ... } with an array or slice.";
+        else if(code=="NQR-T3001")help="Change the initializer to match the declared type; use an explicit as cast for deliberate numeric conversions.";
+        else if(code=="NQR-T3003")help="Rename one declaration or move it into a different scope.";
+        else if(code=="NQR-T3006")help="Use numeric operands for arithmetic and bool for logical operators.";
+        else if(code=="NQR-T3007")help="Replace the operand with int or float, or convert it explicitly.";
+        else if(code=="NQR-T3010")help="Call a named function, such as print(value), instead of calling this expression.";
+        else if(code=="NQR-T3021")help="Remove the duplicate declaration or make its parameter and return types match the forward declaration.";
+        else if(code=="NQR-T3024")help="Check the field spelling and the record declaration.";
+        else if(code=="NQR-T3025")help="Use an integer index, for example values[0].";
+        else if(code=="NQR-T3026")help="Index an array or slice with [index], or use a record field with .name.";
+        else if(code=="NQR-T3034")help="Start with a nonempty collection such as [1, 2], or give the empty array an explicit type.";
+        else if(code=="NQR-T3035")help="Use compatible element types such as [1, 2, 3] rather than mixing numbers and strings.";
+        else if(code=="NQR-T3057")help="Move break inside a repeat, while or for loop.";
+        else if(code=="NQR-T3058")help="Move continue inside a repeat, while or for loop.";
+        else if(code=="NQR-M6000"||code=="NQR-M6002")help="Use import \"./helper.noqeri\" for local files or import \"std/list\" for the standard library.";
+        else if(code=="NQR-T3060"||code=="NQR-T3061")help="Add a return annotation, for example function answer(): int { return 42 }.";
+        else help="Review the highlighted expression and the expected syntax/type; compare it with the matching example in Doc/LANGUAGE_REFERENCE.md.";
     }
     items_.push_back({std::move(code),std::move(message),span,std::move(help)});
 }

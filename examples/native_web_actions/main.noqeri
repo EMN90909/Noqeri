@@ -1,5 +1,5 @@
 // Native server-rendered application: zero browser JS, Node.js, npm or browser WASM.
-import noqeri/ui as ui
+import "noqeri/ui" as ui
 
 let clicks = 0
 let visitor = "Guest"

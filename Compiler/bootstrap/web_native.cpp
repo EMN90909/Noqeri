@@ -364,8 +364,15 @@ public:
                 identifier();
                 while (take(".")) identifier();
             } else if (take("import")) {
-                if (library || !take("noqeri")) fail("web-native only supports import noqeri/ui");
-                expect("/"); expect("ui"); expect("as");
+                if(library) fail("native web UI imports are not allowed inside library components");
+                if(peek().quoted) {
+                    if(literalString()!="noqeri/ui")
+                        fail("use import \"noqeri/ui\" as ui for the native UI library");
+                } else {
+                    if(!take("noqeri"))fail("use import \"noqeri/ui\" as ui");
+                    expect("/");expect("ui"); // deprecated legacy spelling
+                }
+                expect("as");
                 if (!p.uiAlias.empty()) fail("duplicate noqeri/ui import");
                 p.uiAlias=identifier();
             } else if (take("component")) component();

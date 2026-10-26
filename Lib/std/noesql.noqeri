@@ -130,3 +130,6 @@ export function database_last_error(db: *Database): string {
         return noesqlHostLastError(db.handle)
     }
 }
+
+ // Connection readiness is explicit; string results alone do not prove success.
+ export function database_ok(db: *Database): bool { return database_is_open(db) }

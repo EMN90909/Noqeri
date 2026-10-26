@@ -1,0 +1,55 @@
+name: Noqeri beginner syntax and API conformance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/type_checker.cpp'
+      - 'Compiler/core.cpp'
+      - 'Compiler/modules.cpp'
+      - 'Compiler/bootstrap/parser_host.cpp'
+      - 'Compiler/bootstrap/web_native.cpp'
+      - 'Runtime/web-view-compiler.mjs'
+      - 'Lib/std/**'
+      - 'Lib/ai/native.noqeri'
+      - 'tests/beginner_syntax.py'
+      - 'tests/beginner_view_imports.test.mjs'
+      - '.github/workflows/beginner-syntax.yml'
+  push:
+    branches: [main, feature/beginner-inference-imports-diagnostics-20261026]
+    paths:
+      - 'Compiler/type_checker.cpp'
+      - 'Compiler/core.cpp'
+      - 'Compiler/modules.cpp'
+      - 'Compiler/bootstrap/parser_host.cpp'
+      - 'Compiler/bootstrap/web_native.cpp'
+      - 'Runtime/web-view-compiler.mjs'
+      - 'Lib/std/**'
+      - 'Lib/ai/native.noqeri'
+      - 'tests/beginner_syntax.py'
+      - 'tests/beginner_view_imports.test.mjs'
+      - '.github/workflows/beginner-syntax.yml'
+permissions:
+  contents: read
+jobs:
+  beginner:
+    name: Compiler, stdlib and browser module conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configure native compiler
+        run: cmake -S . -B build-beginner -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+      - name: Compile Stage-0
+        run: cmake --build build-beginner --target noqeri noqeri-web --parallel 2
+      - name: Exercise inference, imports, collections and repair hints
+        run: python3 tests/beginner_syntax.py ./build-beginner/noqeri .
+      - name: Test quoted browser module import compatibility
+        run: node --test tests/beginner_view_imports.test.mjs tests/web-views.test.mjs tests/web-framework.test.mjs
+      - name: Check native quoted UI import and existing web behavior
+        run: |
+          ./build-beginner/noqeri-web build examples/native_web_static build-beginner/native-ui
+          test -s build-beginner/native-ui/index.html
+          python3 tests/native_web_actions.py ./build-beginner/noqeri-web examples/native_web_actions

@@ -43,3 +43,7 @@ export function http_client_redirect(status: int): bool { return status >= 300 &
 export function http_client_error(status: int): bool { return status >= 400 && status < 500 }
 export function http_server_error(status: int): bool { return status >= 500 && status < 600 }
 export function http_client_retryable(status: int): bool { return status == 408 || status == 425 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504 }
+// Simple names wrap existing bounded or native-host APIs; no hidden allocation.
+
+export function http_client_request_ok(handle: isize): bool { return handle >= 0 as isize }
+export function http_client_response_ok(status: int): bool { return http_client_success(status) }

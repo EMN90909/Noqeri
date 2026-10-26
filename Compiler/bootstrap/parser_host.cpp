@@ -120,7 +120,16 @@ StmtPtr Parser::declaration(){
         return functionDeclaration(isExtern,isExport);
     }
     if(check(TokenKind::Module)&&isNameKind(nextKind(1))){advance();return moduleDeclaration();}
-    if(check(TokenKind::Import)&&nextKind(1)==TokenKind::String){advance();return importDeclaration();}
+    if(check(TokenKind::Import)){
+        advance();
+        if(!check(TokenKind::String)){
+            diagnostics_.error("NQR-P2023",peek().span,
+                "module imports require a quoted path",
+                "write import \"std/list\" for a standard module or import \"./helpers.noqeri\" for a local file");
+            throw ParseError("parse");
+        }
+        return importDeclaration();
+    }
     if(check(TokenKind::Record)&&isNameKind(nextKind(1))&&nextKind(2)==TokenKind::LBrace){advance();return recordDeclaration();}
     if(match({TokenKind::Let}))return letDeclaration(false);
     if(match({TokenKind::Const}))return letDeclaration(true);
@@ -201,15 +210,9 @@ StmtPtr Parser::functionDeclaration(bool isExtern,bool isExport){
     fn->span=name.span;fn->name=name.lexeme;fn->genericParams=std::move(genericParams);fn->params=std::move(params);fn->returnType=ret;fn->isExtern=isExtern;fn->isExport=isExport;
     if(isExtern){match({TokenKind::Semicolon});fn->body=std::make_shared<BlockStmt>();return fn;}
     if(match({TokenKind::Equal})){
-        // This is a statically typed expression body, not a new inference or
-        // dynamic-call path. Keep ABI/API contracts explicit across stages.
-        if(!ret || std::any_of(fn->params.begin(),fn->params.end(),
-                              [](const Parameter& p){return !p.annotation;})){
-            diagnostics_.error("NQR-P2021",name.span,
-                "single-expression functions require parameter and return types",
-                "write function add(a: int, b: int): int = a + b");
-            throw ParseError("parse");
-        }
+        // An expression body can infer a return type when its parameters are
+        // fully typed; the type checker owns inference and public ABI rules.
+        // Preserve explicit return annotations where the author supplies one.
         auto value=expression();
         match({TokenKind::Semicolon});
         auto result=std::make_shared<ReturnStmt>();

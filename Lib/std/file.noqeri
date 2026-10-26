@@ -124,3 +124,6 @@ export function writeText(path: string, contents: []u8): isize {
     if closed < 0 as isize { return closed }
     return written
 }
+// Simple names wrap existing bounded or native-host APIs; no hidden allocation.
+
+export function file_ok(status: isize): bool { return file_status_ok(status) }
