@@ -24,7 +24,7 @@ void usage() {
     std::cout << "noqeri " << NOQERI_COMPILER_VERSION << "\nusage: noqeri <command> [options]\n\n"
               << "  new <name> [dir]                 create a Noqeri project\n"
               << "  lex <file>                        print lexer tokens\n"
-              << "  check [file] [-O...]              parse and type-check module graph\n"
+              << "  check [file] [-O...] [--json]     check source with machine-readable errors\n"
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
@@ -310,6 +310,8 @@ int runStress(int argc, char** argv) {
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 0; }
     const std::string cmd = argv[1];
+    const bool jsonCheck = cmd == "check" && std::any_of(argv + 2, argv + argc,
+        [](const char* arg) { return std::string(arg) == "--json"; });
     if (cmd == "--version" || cmd == "version") {
         std::cout << "noqeri " << NOQERI_COMPILER_VERSION << "\nlanguage=" << NOQERI_LANGUAGE_VERSION
                   << "\nedition=" << NOQERI_EDITION << "\nabi=" << NOQERI_ABI_VERSION
@@ -475,7 +477,12 @@ int main(int argc, char** argv) {
         }
         Diagnostics selectionDiagnostics;
         auto selected = selectSource(argc, argv, selectionDiagnostics);
-        if (!selected) { selectionDiagnostics.print("project.nqon"); return 1; }
+        if (!selected) {
+            if(jsonCheck) std::cout << "{\"schema\":1,\"ok\":false,\"diagnostics\":"
+                                   << selectionDiagnostics.toJson("project.nqon") << "}\n";
+            else selectionDiagnostics.print("project.nqon");
+            return 1;
+        }
         auto path = selected->source;
         if (cmd == "lex") {
             auto source = readTextFile(path);
@@ -558,8 +565,19 @@ int main(int argc, char** argv) {
         auto options = optionsFromArgs(argc, argv, selected->target);
         if (cmd == "bootstrap-seed") options.allowUnsafe = true;
         auto compilation = compileFile(path, options);
-        if (compilation.diagnostics.hasErrors()) { compilation.diagnostics.print(path.string()); return 1; }
+        if (compilation.diagnostics.hasErrors()) {
+            if(jsonCheck) std::cout << "{\"schema\":1,\"ok\":false,\"diagnostics\":"
+                                   << compilation.diagnostics.toJson(path.string()) << "}\n";
+            else compilation.diagnostics.print(path.string());
+            return 1;
+        }
         if (cmd == "check") {
+            if(jsonCheck) {
+                std::cout << "{\"schema\":1,\"ok\":true,\"diagnostics\":[],\"modules\":"
+                          << (compilation.modules ? compilation.modules->modules().size() : 1)
+                          << "}\n";
+                return 0;
+            }
             std::cout << "check succeeded: " << path << " modules=" << (compilation.modules ? compilation.modules->modules().size() : 1) << " target=" << options.target << "\n";
             return 0;
         }
@@ -628,7 +646,12 @@ int main(int argc, char** argv) {
         usage();
         return 1;
     } catch (const std::exception& e) {
-        std::cerr << "NQR-C0001: " << e.what() << "\n";
+        if(jsonCheck) {
+            Diagnostics d;
+            d.error("NQR-C0001",{},e.what(),"Verify the source path and compiler arguments.");
+            std::cout << "{\"schema\":1,\"ok\":false,\"diagnostics\":"
+                      << d.toJson() << "}\n";
+        } else std::cerr << "NQR-C0001: " << e.what() << "\n";
         return 1;
     }
 }

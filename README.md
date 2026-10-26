@@ -186,6 +186,16 @@ The table describes **code present in this repository**, not a guarantee of prod
 | **Packages & data** | Package/lockfile tooling, portable NQON, Registry API experiments and NoeSQL adapters | Canonical NoeSQL and Registry integration is not end-to-end production-verified |
 | **Distributed computing** | Experimental TLS, WAL, bounded remote bytecode execution and optional Linux RDMA provider | Native distributed-address lowering, hardware tests and automatic safe failover remain incomplete |
 
+### Agent-friendly diagnostics and development loop
+
+The Stage-0 compiler now supports source-highlighted, beginner-friendly errors
+and `noqeri check src/main.noqeri --json` for structured feedback. An optional
+offline, bounded JSON-lines agent host can read/edit Noqeri source, re-check,
+emit bytecode or assembly, and stage the resulting artifact. It does not
+automatically execute untrusted code or deploy to a remote environment.
+
+See [Agent development loop](Doc/AGENT_DEVELOPMENT_LOOP.md).
+
 ### Useful compiler commands
 
 These commands belong to the **Stage-0 `noqeri` executable** built above, not to the restricted self-hosted Stage-2 CLI.

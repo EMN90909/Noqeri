@@ -1,6 +1,7 @@
 #include "noe.hpp"
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -14,8 +15,95 @@ bool integerSigned(TypeKind kind){switch(kind){case TypeKind::I8:case TypeKind::
 CompileResult compileProgram(Program program,Diagnostics diagnostics,const CompileOptions&options,std::shared_ptr<ModuleGraph>graph={}){CompileResult result;result.ast=std::move(program);result.diagnostics=std::move(diagnostics);result.modules=std::move(graph);if(result.diagnostics.hasErrors())return result;GenericEngine generics;if(!generics.monomorphize(result.ast,result.diagnostics))return result;TypeChecker checker(result.diagnostics);if(!checker.check(result.ast))return result;if(!SafetyAnnotator{}.check(result.ast,result.diagnostics,options.allowUnsafe))return result;BorrowChecker borrowChecker;if(!borrowChecker.check(result.ast,result.diagnostics))return result;Lowerer lowerer;result.nir=lowerer.lower(result.ast);NirAnalyzer analyzer;analyzer.analyze(result.ast,result.nir);Optimizer optimizer;optimizer.optimize(result.nir,options.optimization);analyzer.rebuildControlFlow(result.nir);return result;}
 }
 const char* tokenKindName(TokenKind k){switch(k){case TokenKind::Eof:return"eof";case TokenKind::Identifier:return"identifier";case TokenKind::Integer:return"integer";case TokenKind::Float:return"float";case TokenKind::String:return"string";case TokenKind::LineComment:return"line-comment";case TokenKind::BlockComment:return"block-comment";case TokenKind::Let:return"let";case TokenKind::Const:return"const";case TokenKind::Function:return"function";case TokenKind::If:return"if";case TokenKind::Else:return"else";case TokenKind::While:return"while";case TokenKind::Repeat:return"repeat";case TokenKind::Break:return"break";case TokenKind::Continue:return"continue";case TokenKind::Return:return"return";case TokenKind::True:return"true";case TokenKind::False:return"false";case TokenKind::Null:return"null";case TokenKind::Import:return"import";case TokenKind::Module:return"module";case TokenKind::Record:return"record";case TokenKind::Class:return"class";case TokenKind::Extern:return"extern";case TokenKind::Export:return"export";case TokenKind::Volatile:return"volatile";case TokenKind::As:return"as";case TokenKind::Throw:return"throw";case TokenKind::Try:return"try";case TokenKind::Unsafe:return"unsafe";case TokenKind::LParen:return"(";case TokenKind::RParen:return")";case TokenKind::LBrace:return"{";case TokenKind::RBrace:return"}";case TokenKind::LBracket:return"[";case TokenKind::RBracket:return"]";case TokenKind::Comma:return",";case TokenKind::Colon:return":";case TokenKind::Semicolon:return";";case TokenKind::Dot:return".";case TokenKind::At:return"@";case TokenKind::Plus:return"+";case TokenKind::Minus:return"-";case TokenKind::Star:return"*";case TokenKind::Slash:return"/";case TokenKind::Percent:return"%";case TokenKind::Ampersand:return"&";case TokenKind::Bang:return"!";case TokenKind::BangEqual:return"!=";case TokenKind::Equal:return"=";case TokenKind::EqualEqual:return"==";case TokenKind::Less:return"<";case TokenKind::LessEqual:return"<=";case TokenKind::Greater:return">";case TokenKind::GreaterEqual:return">=";case TokenKind::AndAnd:return"&&";case TokenKind::OrOr:return"||";}return"?";}
-void Diagnostics::error(std::string code,Span span,std::string message,std::string help){if(code.rfind("NOE-",0)==0||code.rfind("RIC-",0)==0)code.replace(0,4,"NQR-");items_.push_back({std::move(code),std::move(message),span,std::move(help)});}
-void Diagnostics::print(const std::string&fallbackSourceName)const{for(const auto&d:items_){const auto source=sourceName(d.span.source,fallbackSourceName);std::cerr<<d.code<<": "<<d.message<<"\n --> "<<source<<':'<<d.span.line<<':'<<d.span.column<<"\n";if(!d.help.empty())std::cerr<<" help: "<<d.help<<"\n";}}
+namespace {
+std::string jsonQuoted(const std::string& value) {
+    std::ostringstream out;
+    out << '"';
+    for (unsigned char c : value) {
+        switch(c) {
+            case '"': out << "\\\""; break;
+            case '\\': out << "\\\\"; break;
+            case '\n': out << "\\n"; break;
+            case '\r': out << "\\r"; break;
+            case '\t': out << "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                        << static_cast<unsigned int>(c) << std::dec;
+                } else out << static_cast<char>(c);
+        }
+    }
+    out << '"';
+    return out.str();
+}
+}
+void Diagnostics::error(std::string code,Span span,std::string message,std::string help) {
+    if(code.rfind("NOE-",0)==0||code.rfind("RIC-",0)==0)code.replace(0,4,"NQR-");
+    if(help.empty()) {
+        if(code=="NQR-L1001")help="Add a closing double quote (\") to the string.";
+        else if(code=="NQR-L1002")help="Close the comment with */.";
+        else if(code=="NQR-L1003")help="Write at least one hexadecimal digit after 0x, for example 0xFF.";
+        else if(code=="NQR-P2001")help="Write a value or expression here, such as 42, name, or add(1, 2).";
+        else if(code=="NQR-P2000")help="Check the preceding punctuation or closing bracket.";
+        else if(code=="NQR-T3000")help="Use a built-in type (int, float, bool, string) or declare a record type.";
+        else if(code=="NQR-T3002")help="Declare this name with let or const before using it, or check the spelling.";
+        else if(code=="NQR-T3011")help="Check the function name, or declare a function with that name.";
+        else if(code=="NQR-T3004")help="Use a boolean expression, for example count > 0 or ready == true.";
+        else if(code=="NQR-T3005")help="Return a value matching the function's declared return type.";
+        else if(code=="NQR-T3012")help="Pass the number of arguments declared in the function signature.";
+        else if(code=="NQR-T3013")help="Pass a value of the expected type or convert it explicitly with as.";
+        else if(code=="NQR-T3014")help="Use let instead of const if this binding must change.";
+    }
+    items_.push_back({std::move(code),std::move(message),span,std::move(help)});
+}
+void Diagnostics::print(const std::string& fallbackSourceName) const {
+    for(const auto& d:items_) {
+        const auto source=sourceName(d.span.source,fallbackSourceName);
+        std::cerr << "error[" << d.code << "]: " << d.message
+                  << "\n --> " << source << ':' << d.span.line << ':' << d.span.column << "\n";
+        const auto found=sourceTexts_.find(d.span.source);
+        if(found!=sourceTexts_.end() && !found->second.empty() && d.span.line>0) {
+            const auto& text=found->second;
+            std::size_t begin=0;
+            bool valid=true;
+            for(std::size_t i=1;i<d.span.line;++i) {
+                const auto pos=text.find('\n',begin);
+                if(pos==std::string::npos) {valid=false;break;}
+                begin=pos+1;
+            }
+            if(valid) {
+                auto end=text.find('\n',begin);
+                if(end==std::string::npos)end=text.size();
+                if(end>begin && text[end-1]=='\r')--end;
+                const std::string sourceLine=text.substr(begin,end-begin);
+                const std::size_t offset=std::min(d.span.column>0?d.span.column-1:0,sourceLine.size());
+                const std::size_t length=std::max<std::size_t>(1,std::min<std::size_t>(80,
+                    d.span.end>d.span.start?d.span.end-d.span.start:1));
+                const std::string gutter=std::to_string(d.span.line);
+                std::cerr << ' ' << gutter << " | " << sourceLine << '\n'
+                          << ' ' << std::string(gutter.size(),' ') << " | "
+                          << std::string(offset,' ') << std::string(length,'^') << "\n";
+            }
+        }
+        if(!d.help.empty())std::cerr << " help: " << d.help << "\n";
+    }
+}
+std::string Diagnostics::toJson(const std::string& fallbackSourceName) const {
+    std::ostringstream out;
+    out << '[';
+    for(std::size_t i=0;i<items_.size();++i) {
+        const auto& d=items_[i];
+        if(i)out << ',';
+        out << "{\"severity\":\"error\",\"code\":" << jsonQuoted(d.code)
+            << ",\"message\":" << jsonQuoted(d.message)
+            << ",\"file\":" << jsonQuoted(sourceName(d.span.source,fallbackSourceName))
+            << ",\"span\":{\"start\":" << d.span.start << ",\"end\":" << d.span.end
+            << ",\"line\":" << d.span.line << ",\"column\":" << d.span.column
+            << "},\"help\":" << jsonQuoted(d.help) << '}';
+    }
+    out << ']';
+    return out.str();
+}
 bool Type::isInteger()const{switch(kind){case TypeKind::I8:case TypeKind::I16:case TypeKind::I32:case TypeKind::I64:case TypeKind::U8:case TypeKind::U16:case TypeKind::U32:case TypeKind::U64:case TypeKind::Isize:case TypeKind::Usize:case TypeKind::Int:return true;default:return false;}}
 std::size_t Type::size()const{switch(kind){case TypeKind::Bool:case TypeKind::I8:case TypeKind::U8:return 1;case TypeKind::I16:case TypeKind::U16:return 2;case TypeKind::I32:case TypeKind::U32:return 4;case TypeKind::I64:case TypeKind::U64:case TypeKind::Int:case TypeKind::Float:case TypeKind::Isize:case TypeKind::Usize:case TypeKind::Pointer:case TypeKind::String:case TypeKind::Null:case TypeKind::Generic:return 8;case TypeKind::Record:return recordSize;case TypeKind::Slice:return 16;case TypeKind::Array:{if(!element)return 0;const auto bytes=element->size();if(count!=0&&bytes>std::numeric_limits<std::size_t>::max()/count)throw std::overflow_error("fixed array size exceeds addressable range");return bytes*count;}default:return 0;}}
 std::size_t Type::alignment()const{if(kind==TypeKind::Record)return recordAlignment?recordAlignment:1;if(kind==TypeKind::Slice)return 8;if(kind==TypeKind::Array&&element)return element->alignment();auto s=size();return s?s:1;}
@@ -24,5 +112,5 @@ bool Type::operator==(const Type&o)const{if(kind!=o.kind||isVolatile!=o.isVolati
 Type typeFromName(const std::string&raw){std::string n=raw;if(n.rfind("*",0)==0){n.erase(0,1);bool vol=false;if(n.rfind("volatile ",0)==0){vol=true;n.erase(0,9);}Type p;p.kind=TypeKind::Pointer;p.isVolatile=vol;p.pointee=std::make_shared<Type>(typeFromName(n));return p;}if(n.rfind("[]",0)==0){Type s;s.kind=TypeKind::Slice;s.element=std::make_shared<Type>(typeFromName(n.substr(2)));return s;}if(n.size()>3&&n.front()=='['&&n.back()==']'){auto semi=n.rfind(';');if(semi!=std::string::npos){Type a;a.kind=TypeKind::Array;a.element=std::make_shared<Type>(typeFromName(n.substr(1,semi-1)));try{a.count=static_cast<std::size_t>(std::stoull(n.substr(semi+1,n.size()-semi-2),nullptr,0));}catch(...){a.count=0;}return a;}}if(n=="void")return simpleType(TypeKind::Void);if(n=="null")return simpleType(TypeKind::Null);if(n=="bool")return simpleType(TypeKind::Bool);if(n=="i8")return simpleType(TypeKind::I8);if(n=="i16")return simpleType(TypeKind::I16);if(n=="i32")return simpleType(TypeKind::I32);if(n=="i64")return simpleType(TypeKind::I64);if(n=="u8")return simpleType(TypeKind::U8);if(n=="u16")return simpleType(TypeKind::U16);if(n=="u32")return simpleType(TypeKind::U32);if(n=="u64")return simpleType(TypeKind::U64);if(n=="isize")return simpleType(TypeKind::Isize);if(n=="usize")return simpleType(TypeKind::Usize);if(n=="int"||n=="int64")return simpleType(TypeKind::Int);if(n=="float"||n=="float64")return simpleType(TypeKind::Float);if(n=="string")return simpleType(TypeKind::String);Type r;r.kind=TypeKind::Record;r.recordName=n;return r;}
 bool canAssign(Type target,Type value){if(target.kind==TypeKind::Unknown||value.kind==TypeKind::Unknown||target.kind==TypeKind::Generic||value.kind==TypeKind::Generic)return true;if(target==value)return true;if(target.isInteger()&&value.isInteger()){const auto tb=integerBits(target.kind),vb=integerBits(value.kind);const bool ts=integerSigned(target.kind),vs=integerSigned(value.kind);if(ts==vs)return tb>=vb;if(ts&&!vs)return tb>vb;return false;}if(target.kind==TypeKind::Float&&value.isInteger())return true;if(target.kind==TypeKind::Pointer&&value.kind==TypeKind::Null)return true;if(target.kind==TypeKind::Pointer&&value.kind==TypeKind::Pointer&&target.pointee&&value.pointee)return target.pointee->kind==TypeKind::Void||value.pointee->kind==TypeKind::Void||*target.pointee==*value.pointee;return false;}
 std::string readTextFile(const std::filesystem::path&path){std::ifstream in(path,std::ios::binary);if(!in)throw std::runtime_error("cannot open file: "+path.string());std::ostringstream out;out<<in.rdbuf();if(in.bad()||(in.fail()&&!in.eof()))throw std::runtime_error("cannot read file: "+path.string());return out.str();}
-CompileResult compileSource(const std::string&source){return compileSource(source,CompileOptions{});}CompileResult compileSource(const std::string&source,const CompileOptions&options){Diagnostics d;auto syntax=preprocessGenericSyntax(source);Lexer lexer(syntax.source,d);auto tokens=lexer.lex();if(d.hasErrors())return compileProgram({},std::move(d),options);Parser parser(std::move(tokens),d);auto program=parser.parse();applyGenericSyntax(program,syntax);return compileProgram(std::move(program),std::move(d),options);}CompileResult compileFile(const std::filesystem::path&path){return compileFile(path,CompileOptions{});}CompileResult compileFile(const std::filesystem::path&path,const CompileOptions&options){Diagnostics d;auto graph=std::make_shared<ModuleGraph>();if(!graph->load(path,d))return compileProgram({},std::move(d),options,graph);Program merged=graph->mergedProgram();return compileProgram(std::move(merged),std::move(d),options,std::move(graph));}
+CompileResult compileSource(const std::string&source){return compileSource(source,CompileOptions{});}CompileResult compileSource(const std::string&source,const CompileOptions&options){Diagnostics d;d.registerSource(0,"<memory>",source);auto syntax=preprocessGenericSyntax(source);Lexer lexer(syntax.source,d);auto tokens=lexer.lex();if(d.hasErrors())return compileProgram({},std::move(d),options);Parser parser(std::move(tokens),d);auto program=parser.parse();applyGenericSyntax(program,syntax);return compileProgram(std::move(program),std::move(d),options);}CompileResult compileFile(const std::filesystem::path&path){return compileFile(path,CompileOptions{});}CompileResult compileFile(const std::filesystem::path&path,const CompileOptions&options){Diagnostics d;auto graph=std::make_shared<ModuleGraph>();if(!graph->load(path,d))return compileProgram({},std::move(d),options,graph);Program merged=graph->mergedProgram();return compileProgram(std::move(merged),std::move(d),options,std::move(graph));}
 } // namespace noe
