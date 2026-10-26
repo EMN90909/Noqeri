@@ -1,0 +1,89 @@
+name: Publish previously qualified Noqeri v0.1.4 AI patch
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-verified-v014-ai-patch.yml']
+permissions:
+  contents: read
+jobs:
+  attach-verified-ai:
+    name: Attach five tested native AI patches to v0.1.4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.1.4
+      ORIGINAL_TAG_SHA: 50606b6c491dfde2c8a9f4db624a82f8839621b3
+      PATCH_BUILD_SHA: 1cabe9c282a4dabfa41bd7b210c979bbe6bc31a0
+      PATCH_RUN_ID: '40325587839'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify immutable tag, source run and five successful native builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$ORIGINAL_TAG_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PATCH_RUN_ID" \
+            --jq '[.head_sha,.head_branch,.event] | @tsv' \
+            | grep -Fx "$(printf '%s\tmain\tpush' "$PATCH_BUILD_SHA")"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$PATCH_RUN_ID/jobs?per_page=100" \
+            --jq '.jobs[] | [.name,.conclusion] | @tsv' > build-evidence.tsv
+          for platform in linux-x86_64 linux-aarch64 windows-x86_64 macos-x86_64 macos-aarch64; do
+            case "$platform" in
+              linux-x86_64) target='ubuntu-24.04, linux-x86_64, tar.gz' ;;
+              linux-aarch64) target='ubuntu-24.04-arm, linux-aarch64, tar.gz' ;;
+              windows-x86_64) target='windows-2022, windows-x86_64, zip' ;;
+              macos-x86_64) target='macos-15-intel, macos-x86_64, tar.gz' ;;
+              macos-aarch64) target='macos-15, macos-aarch64, tar.gz' ;;
+            esac
+            grep -Fxq "$(printf 'build (%s)\tsuccess' "$target")" build-evidence.tsv
+          done
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq \
+            'select(.isDraft==false and .isPrerelease==true) | .isPrerelease' | grep -Fx true
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 40325587839
+          github-token: ${{ github.token }}
+          pattern: v014-ai-*
+          merge-multiple: true
+          path: artifacts
+      - name: Verify native CPU architecture and actual patch source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/distribution/verify_ai_patch.py artifacts "$PATCH_BUILD_SHA"
+          (cd artifacts && sha256sum -c SHA256SUMS-v014-ai-patch)
+      - name: Publish patch packages and verified checksums without replacing assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > before.txt
+          mkdir -p previous
+          for path in artifacts/*; do
+            name="$(basename "$path")"
+            if grep -Fxq "$name" before.txt; then
+              gh release download "$RELEASE_TAG" --pattern "$name" --dir previous
+              cmp -s "$path" "previous/$name" || {
+                echo "Refusing to overwrite nonidentical release asset: $name" >&2; exit 1;
+              }
+            else
+              gh release upload "$RELEASE_TAG" "$path" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > after.txt
+          for path in artifacts/*; do grep -Fxq "$(basename "$path")" after.txt; done
+      - name: Update public release notes without modifying immutable tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > notes.md
+          if ! grep -Fq '<!-- NOQERI_AI_PATCH -->' notes.md; then
+            printf '\n%s\n' '<!-- NOQERI_AI_PATCH -->' '### Offline AI training and bounded agent patch (post-tag)' >> notes.md
+            printf '%s\n' 'Native CPU logistic SGD training, typed Noqeri learning modules and default-deny bounded local model-driven agents. Not LLM pretraining or production-qualified unrestricted autonomy.' >> notes.md
+            printf 'Patch source commit: %s; original tag commit: %s. The v0.1.4 tag remains unchanged.\n' "$PATCH_BUILD_SHA" "$ORIGINAL_TAG_SHA" >> notes.md
+            printf '%s\n' 'See v0.1.4-ai-patch-manifest.json and SHA256SUMS-v014-ai-patch assets for hashes and provenance.' >> notes.md
+            gh release edit "$RELEASE_TAG" --notes-file notes.md
+          fi
