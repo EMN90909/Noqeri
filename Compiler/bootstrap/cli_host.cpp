@@ -29,6 +29,10 @@ void usage() {
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
+              << "  web compile <app-dir> <binary>     compile JS-free full-stack native executable\n"
+              << "  web build <app-dir> <output>       emit static HTML/CSS routes\n"
+              << "  web serve-app <app-dir> [port]     launch native form/action server (local only)\n"
+              << "  web drivers                       inspect native database adapter availability\n"
               << "  shader [file] [out.wgsl] --stage=compute|fragment|vertex  emit WebGPU WGSL\n"
               << "  db <script.nqd> [data.nqdb]       legacy NoqeriDB compatibility (not NoeSQL)\n"
               << "  sql <NoeSQL-command> [args...]    use canonical native NoeSQL engine (NOESQL_BIN)\n"
@@ -309,6 +313,31 @@ int main(int argc, char** argv) {
                   << "\ndefault-target=" << NOQERI_DEFAULT_TARGET << "\npackage-format=" << NOQERI_PACKAGE_FORMAT
                   << "\nregistry-protocol=" << NOQERI_REGISTRY_PROTOCOL << "\n";
         return 0;
+    }
+    // Unified user-facing CLI dispatches the framework subcommands to the
+    // native web tool while preserving `web <source.noqeri>` browser NIR
+    // output. Never use a shell to build or invoke the executable.
+    if (cmd == "web" && argc >= 3) {
+        const std::string operation=argv[2];
+        if(operation=="compile"||operation=="build"||operation=="serve"||
+           operation=="serve-app"||operation=="drivers") {
+#if !defined(_WIN32)
+            const char* configured=std::getenv("NOQERI_WEB_BIN");
+            std::filesystem::path sibling=std::filesystem::absolute(argv[0]).parent_path()/"noqeri-web";
+            const std::string executable=configured&&*configured?
+                std::string(configured):(std::filesystem::exists(sibling)?sibling.string():std::string("noqeri-web"));
+            std::vector<char*> forwarded;
+            forwarded.push_back(const_cast<char*>(executable.c_str()));
+            for(int i=2;i<argc;++i)forwarded.push_back(argv[i]);
+            forwarded.push_back(nullptr);
+            ::execvp(executable.c_str(),forwarded.data());
+            std::cerr<<"NQR-W7101: native web tool not executable; set NOQERI_WEB_BIN or install noqeri-web\n";
+            return 1;
+#else
+            std::cerr<<"NQR-W7102: native full-stack web mode currently requires POSIX host\n";
+            return 2;
+#endif
+        }
     }
     if (cmd == "stress" || cmd == "--stress") return runStress(argc, argv);
     if (cmd == "targets") {

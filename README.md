@@ -31,6 +31,17 @@ This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written 
 
 ## Native web app preview (v0.1.4)
 
+Use the **single Noqeri CLI** for native static sites, JS-free full-stack
+applications and database-driver discovery. `noqeri web <file.noqeri>`
+continues to emit a browser ES module for backward compatibility.
+
+```sh
+noqeri web compile examples/native_web_fullstack ./my-noqeri-app
+noqeri web build examples/native_web_static ./my-static-site
+noqeri web drivers
+```
+
+
 ```sh
 cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build --target noqeri-web

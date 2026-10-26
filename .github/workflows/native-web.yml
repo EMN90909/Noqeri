@@ -19,7 +19,7 @@ jobs:
       - name: Configure native C++ bootstrap
         run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
       - name: Build Noqeri native web and WebSocket frame validator
-        run: cmake --build build-native-web --target noqeri-web noqeri-websocket-frame-test -j2
+        run: cmake --build build-native-web --target noqeri noqeri-web noqeri-websocket-frame-test -j2
       - name: Native static web and RFC6455 frame regression tests
         run: ctest --test-dir build-native-web -R '^(noqeri-native-web|noqeri-websocket-frame)$' --output-on-failure
       - name: Ensure static site uses HTML/CSS only
@@ -53,5 +53,7 @@ jobs:
         run: python3 tests/native_web_auth.py ./build-native-web/noqeri-web examples/native_web_fullstack
       - name: Test native web database adapters without changing NoeSQL
         run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
+      - name: Qualify one Noqeri compiler CLI for static and native full-stack apps
+        run: python3 tests/native_web_unified_cli.py ./build-native-web/noqeri ./build-native-web/noqeri-web examples/native_web_fullstack examples/native_web_static
       - name: Qualify in-process native NoeSQL v2 ABI contract (mock provider)
         run: python3 tests/native_web_noesql_session.py ./build-native-web/noqeri-web .
