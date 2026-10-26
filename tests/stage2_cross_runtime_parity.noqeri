@@ -29,7 +29,7 @@ function verify(): int {
             if visits == 7 { break }
         }
     }
-    if visits != 9 { return 4 }
+    if visits != 7 { return 4 }
 
     let items: int = 0
     for item in values {
