@@ -691,7 +691,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         appReply(client,403,"Session expired");
                     } else if(!publicOrigin.empty() ?
                               req.origin!=publicOrigin :
-                              (req.origin!="http://127.0.0.1:"+std::to_string(port)&&
+                              (!req.origin.empty()&&
+                               req.origin!="http://127.0.0.1:"+std::to_string(port)&&
                                req.origin!="http://localhost:"+std::to_string(port))) {
                         appReply(client,403,"Invalid origin");
                     } else {
