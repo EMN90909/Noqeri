@@ -1,5 +1,8 @@
 # Noqeri Web Framework (experimental)
 
+[Framework qualification matrix](WEB_FRAMEWORK_QUALIFICATION.md) documents the UI/HTTP/WebSocket hardening, test evidence and outstanding production gates. The expanded UI library adds PageHeader, SectionHeading, Panel, EmptyState, FieldHint, FieldError, SecondaryLink, FooterNote, SubmitButton and TextAreaField to the original components.
+
+
 For JavaScript-free **server-driven** actions, forms, session state and persisted data, see [WEB_NATIVE_ACTIONS.md](WEB_NATIVE_ACTIONS.md). For strictly static output use [WEB_NATIVE.md](WEB_NATIVE.md).
 
 
