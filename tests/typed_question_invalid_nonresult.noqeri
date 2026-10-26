@@ -1,5 +1,5 @@
 import "../Lib/std/result.noqeri"
-function invalid(status: int): int {
+function invalid(status: bool): bool {
     let value = status?
     return value
 }
