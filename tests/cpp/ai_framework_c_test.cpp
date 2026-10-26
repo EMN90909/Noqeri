@@ -117,9 +117,9 @@ int main() {
     };
     if(nq_ai_transformer_train_generate(&model)!=0||generatedLength==0||
        generatedLength>256||!std::isfinite(trainLoss))return 34;
-    const std::string expected(reinterpret_cast<const char*>(generated),generatedLength);
+    const std::string expectedGeneration(reinterpret_cast<const char*>(generated),generatedLength);
     if(nq_ai_transformer_train_generate(&model)!=0||
-       std::string(reinterpret_cast<const char*>(generated),generatedLength)!=expected)return 35;
+       std::string(reinterpret_cast<const char*>(generated),generatedLength)!=expectedGeneration)return 35;
     generatedLength=999;trainLoss=-99;generated[0]=99;model.output_capacity=1;
     if(nq_ai_transformer_train_generate(&model)!=-3||
        generatedLength!=999||trainLoss!=-99||generated[0]!=99)return 36;
