@@ -1,5 +1,25 @@
 # Noqeri installers, 32-bit builds and binary downloads
 
+## Public v0.1.4 platform downloads
+
+The existing [v0.1.4 developer preview](https://github.com/EMN90909/Noqeri/releases/tag/v0.1.4) initially included a Linux x86-64 SDK. The distribution workflow now builds **all installable targets before staging their archives**, including the main compiler, NQRI VM, native web CLI, shared compiler ABI and graphics runtime. A separate `attach-v014-platforms.yml` workflow automatically collects **successful actual native build artifacts** from the trusted main-branch distribution run, verifies binary CPU headers and SDK payloads, and adds them directly to the **existing public v0.1.4 release**, without moving its immutable tag or replacing previous assets.
+
+Every new platform asset is checked against `SHA256SUMS-platform-v014`, and `v0.1.4-platform-manifest.json` records the exact `package_source_commit`, immutable `release_tag_commit`, distribution CI run ID, downloadable files and *available/unavailable target matrix*. Since platform packaging fixes may be committed **after** the v0.1.4 tag, source provenance is explicitly declared; a post-tag platform binary must never be presented as compiled from the original tag commit. The original release files remain immutable.
+
+The intended binary-host matrix covers **16 platform targets**: Linux 32-bit x86, x86-64, ARM64; Windows x86, x86-64, ARM64; macOS x86-64 and Apple Silicon; Android ARMv7 (32-bit), ARM64, x86 (32-bit), x86-64; FreeBSD x86-64/ARM64; OpenBSD x86-64/ARM64. There is also an optional development/debug-signed Android APK incorporating all four Android ABIs. **A target is downloadable only after its job succeeds and the asset appears in the public release**—a matrix entry is not proof of an actual working download. Android CLI binaries cross-compile without device execution; installer signing/notarization remains outstanding.
+
+The request for *every CPU architecture* is not feasible within this version. No claims are made for 32-bit macOS, PowerPC, RISC-V, MIPS, SPARC, s390x, 32-bit BSD, or other targets lacking a qualifying runtime, native compiler and architecture-specific tests. The host compiler working on a CPU does not imply Noqeri emits native code for that CPU.
+
+To verify after publication:
+
+```sh
+gh release view v0.1.4 --repo EMN90909/Noqeri --json assets --jq '.assets[].name'
+gh release download v0.1.4 --repo EMN90909/Noqeri --pattern 'SHA256SUMS-platform-v014'
+gh release download v0.1.4 --repo EMN90909/Noqeri --pattern 'v0.1.4-platform-manifest.json'
+```
+
+
+
 The **Noqeri cross-platform distributions** workflow
 (`.github/workflows/distribution.yml`) builds the Stage-0 compiler,
 the portable NQRI virtual machine and Noqeri SDK sources, then packages
@@ -38,22 +58,22 @@ interpreter are separate from the native backend.
 
 ## Package naming and file types
 
-For a source version `0.1.3` and matching git tag `v0.1.3`,
+For a source version `0.1.4` and matching git tag `v0.1.4`,
 examples of GitHub release assets are:
 
-- `noqeri-v0.1.3-linux-x86.tar.gz`: 32-bit Linux portable SDK
-- `noqeri-v0.1.3-linux-x86.bin`: native Linux i386 compiler executable
-- `noqeri-nqri-v0.1.3-linux-x86.bin`: native i386 NQRI VM
-- `noqeri-0.1.3-linux-x86.deb`: native Debian-family installer
-- `noqeri-0.1.3-linux-x86.rpm`: native RPM-family installer
-- `noqeri-v0.1.3-windows-x86.exe`: 32-bit Windows compiler executable
-- `noqeri-0.1.3-windows-x86-setup.exe`: Windows installer, not the compiler
-- `noqeri-0.1.3-windows-x86.msi`: Windows Installer package
-- `noqeri-0.1.3-macos-aarch64.pkg`: macOS installer
-- `noqeri-0.1.3-android-armv7-termux.deb`: Termux package for 32-bit ARM
-- `noqeri-0.1.3-android-universal-debug.apk`: four-ABI sideloadable app
-- `noqeri-0.1.3-freebsd-x86_64.pkg`: FreeBSD pkg(8) package
-- `noqeri-0.1.3-openbsd-x86_64.pkg.tgz`: OpenBSD pkg_add(1) package
+- `noqeri-v0.1.4-linux-x86.tar.gz`: 32-bit Linux portable SDK
+- `noqeri-v0.1.4-linux-x86.bin`: native Linux i386 compiler executable
+- `noqeri-nqri-v0.1.4-linux-x86.bin`: native i386 NQRI VM
+- `noqeri-0.1.4-linux-x86.deb`: native Debian-family installer
+- `noqeri-0.1.4-linux-x86.rpm`: native RPM-family installer
+- `noqeri-v0.1.4-windows-x86.exe`: 32-bit Windows compiler executable
+- `noqeri-0.1.4-windows-x86-setup.exe`: Windows installer, not the compiler
+- `noqeri-0.1.4-windows-x86.msi`: Windows Installer package
+- `noqeri-0.1.4-macos-aarch64.pkg`: macOS installer
+- `noqeri-0.1.4-android-armv7-termux.deb`: Termux package for 32-bit ARM
+- `noqeri-0.1.4-android-universal-debug.apk`: four-ABI sideloadable app
+- `noqeri-0.1.4-freebsd-x86_64.pkg`: FreeBSD pkg(8) package
+- `noqeri-0.1.4-openbsd-x86_64.pkg.tgz`: OpenBSD pkg_add(1) package
 
 A standalone executable still needs the correct operating system
 loader and system C/C++ libraries. **`.bin` is a filename extension,
@@ -80,35 +100,35 @@ installer UI. OpenBSD pkg_add installs to `/usr/local`.
 **Debian/Ubuntu x86-64 or i386**
 
 ```sh
-sudo apt install ./noqeri-0.1.3-linux-x86.deb
+sudo apt install ./noqeri-0.1.4-linux-x86.deb
 noqeri --version
 ```
 
 **Fedora/RHEL RPM family**
 
 ```sh
-sudo dnf install ./noqeri-0.1.3-linux-x86_64.rpm
+sudo dnf install ./noqeri-0.1.4-linux-x86_64.rpm
 noqeri --version
 ```
 
 **macOS**
 
 ```sh
-sudo installer -pkg noqeri-0.1.3-macos-aarch64.pkg -target /
+sudo installer -pkg noqeri-0.1.4-macos-aarch64.pkg -target /
 /usr/local/bin/noqeri --version
 ```
 
 **FreeBSD**
 
 ```sh
-sudo pkg add ./noqeri-0.1.3-freebsd-x86_64.pkg
+sudo pkg add ./noqeri-0.1.4-freebsd-x86_64.pkg
 /usr/local/bin/noqeri --version
 ```
 
 **OpenBSD**
 
 ```sh
-doas pkg_add ./noqeri-0.1.3-openbsd-x86_64.pkg.tgz
+doas pkg_add ./noqeri-0.1.4-openbsd-x86_64.pkg.tgz
 /usr/local/bin/noqeri --version
 ```
 
@@ -120,7 +140,7 @@ an installer. 32-bit Windows uses the x86 build; x86-64 uses x64.
 the Termux shell:
 
 ```sh
-dpkg -i noqeri-0.1.3-android-aarch64-termux.deb
+dpkg -i noqeri-0.1.4-android-aarch64-termux.deb
 noqeri --version
 ```
 
