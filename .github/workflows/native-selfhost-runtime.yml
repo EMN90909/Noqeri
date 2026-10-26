@@ -1,6 +1,7 @@
 name: NQRI self-host and native AOT qualification
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
