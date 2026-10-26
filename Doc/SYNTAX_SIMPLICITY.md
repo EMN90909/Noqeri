@@ -45,7 +45,7 @@ repeat 5 {
 }
 ```
 
-The bootstrap compiler supports this spelling. The Stage-2 parser, semantics and lowering now include a dedicated counted-loop path and focused regression tests. Those sources type-check in the bootstrap compiler. After fixing aggregate address lowering, six bounded parser/NIR tests execute under the Stage-0 interpreter and pass AddressSanitizer. This is **not** the full Stage-2 bytecode or native self-host qualification: the complete bootstrap/equivalence gates remain required.
+The bootstrap compiler supports this spelling. The Stage-2 parser, semantics and lowering now include a dedicated counted-loop path and focused regression tests. Those sources type-check in the bootstrap compiler. After fixing aggregate address lowering, six bounded parser/NIR tests execute under the Stage-0 interpreter and pass AddressSanitizer. Subsequent independent [GCC/Clang Stage-1 and Stage-2/3 NQRI byte-equality](https://github.com/EMN90909/Noqeri/actions/runs/40370068449) and [actual Stage-2 NQRI loop/function execution](https://github.com/EMN90909/Noqeri/actions/runs/40371256165) passed. **Native executable self-hosting remains unqualified.**
 
 Functions stay explicit where types communicate an API boundary:
 
@@ -112,3 +112,5 @@ Track completion rate, median/p90 time, help events and failure reasons. Compare
 > If the compiler can safely infer something, the beginner should not have to write it. If inference could hide dangerous behavior or make meaning unstable, keep it explicit.
 
 This rule is intentionally stricter than "fewest characters wins." Noqeri is trying to remove ceremony, not information.
+
+See [the verified feature-completion matrix](SYNTAX_IMPLEMENTATION_STATUS.md); a green Stage-2 build does not imply the unimplemented proposals are available.

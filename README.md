@@ -227,7 +227,7 @@ typing, growable-list literal, string interpolation, `?.`, `??`, lambda
 filtering, or `?` propagation yet.
 
 Stage-2 parser/semantic/lowering source has been updated, but its
-**executable parity is not qualified** pending
+**native-code self-hosting remains unqualified**; the [Stage-2 NQRI bytecode and execution checks passed](https://github.com/EMN90909/Noqeri/actions/runs/40371256165) after resolving
 [Stage-2 reference-interpreter corruption #115](https://github.com/EMN90909/Noqeri/issues/115).
 The Stage-0 examples and static Stage-2 source checks pass CI.
 See [everyday syntax implementation and status](Doc/EVERYDAY_SYNTAX.md).
@@ -362,3 +362,5 @@ Contributions and bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.m
 Noqeri is licensed under **GPL-3.0-only**, except where a component explicitly provides different terms. See [LICENSE](LICENSE) and [LICENSES.md](LICENSES.md) for details.
 
 <p align="center">Built by <a href="https://noethric.xyz"><strong>Noethric</strong></a>.</p>
+
+For a precise matrix of completed vs proposed beginner syntax and native AI bindings, see [syntax and runtime implementation status](Doc/SYNTAX_IMPLEMENTATION_STATUS.md). It distinguishes verified NQRI bytecode selfhosting from unimplemented native selfhosting and unimplemented syntax proposals.

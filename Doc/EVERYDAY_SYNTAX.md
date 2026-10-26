@@ -24,7 +24,7 @@ host's eight-byte scalar storage cell). The fix makes aggregate addresses refer
 to their allocated backing storage and ASan passes the six bounded tests.
 This establishes **bounded parser/lowering execution** only; it does not prove
 a full Stage-2 NQRI bootstrap, all semantic/backend compatibility, or native
-self-hosting. See [issue #115](https://github.com/EMN90909/Noqeri/issues/115).
+self-hosting. Subsequent [reproducible bytecode bootstrap](https://github.com/EMN90909/Noqeri/actions/runs/40370068449) and [actual Stage-2 NQRI execution](https://github.com/EMN90909/Noqeri/actions/runs/40371256165) now verify the NQRI path for the three covered syntax forms; native selfhosting is still unqualified. See [issue #115](https://github.com/EMN90909/Noqeri/issues/115).
 The Stage-2 bootstrap/rebuild proof certificate remains fail-closed.
 
 ## Simple iteration
@@ -38,7 +38,7 @@ for price in prices {
 
 Stage-0 desugars this into a lexical block with one iterable binding,
 index and a while loop. Stage-2 has a dedicated AST node and intended
-bounds-checked NIR lowering; its actual runtime parity remains unqualified.
+bounds-checked NIR lowering; its actual runtime parity for this limited array/slice case now passes the [Stage-2 NQRI execution gate](https://github.com/EMN90909/Noqeri/actions/runs/40371256165).
 For now the supported iterables are typed fixed arrays and slices.
 
 ## Collections: first ergonomic, nonallocating operations
@@ -81,8 +81,8 @@ The following remain **design targets, not implemented syntax**:
   conversion across bootstrap, native and Stage-2 backends.
 - `readText(path)?`: file capabilities need a bounded, platform-independent
   adapter and typed propagation, not an unchecked `string` allocation.
-- `?.`, `??`, collection lambdas, high-order `map`/`filter`, and native
-  Noqeri AI framework bindings: specification and parity remain pending.
+- `?.`, `??`, collection lambdas, high-order `map`/`filter`, and full native
+  Noqeri AI framework bindings: specification and parity remain pending. GEMM, softmax and SGD have separate [verified native-AOT entry points](https://github.com/EMN90909/Noqeri/actions/runs/40373362461).
 
 Canonical imports remain `import "./relative.noqeri"` and
 `import package "namespace/name"`; versions belong in the NQON project
@@ -103,3 +103,5 @@ that does not fit in the supplied buffer. This is not the proposed
 decoding and `?` propagation are not yet implemented. The functions
 require supported file-host ABI services; the CI currently type-checks the
 API rather than exercising real filesystem integration.
+
+For the evidence-backed complete feature matrix, see [Syntax and runtime implementation status](SYNTAX_IMPLEMENTATION_STATUS.md).

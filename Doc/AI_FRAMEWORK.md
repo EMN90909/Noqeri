@@ -97,6 +97,6 @@ The source API now exposes bounded GEMM, row-wise or causally masked
 softmax, and gradient-clipped SGD through caller-owned buffers. Each
 operation returns a status and rejects invalid dimensions, capacities,
 modes and nonfinite inputs without partially modifying the output.
-These bindings do not yet execute under the Stage-2 NQRI VM or Stage-0
+These three bindings are [end-to-end qualified in native Noqeri AOT](https://github.com/EMN90909/Noqeri/actions/runs/40373362461), including capacity/error behavior; they do not yet execute under the Stage-2 NQRI VM or Stage-0
 reference interpreter. Complete autodifferentiation graphs and model
 training still require the native C++ SDK/CLI.

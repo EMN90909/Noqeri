@@ -1,9 +1,19 @@
 # Changelog
 
+### 2026-10-26 — verified Stage-2 bytecode parity and native AI bindings
+
+- Fixed Stage-0 record/array address-of corruption, validated with AddressSanitizer and executable Stage-2 parser/NIR regression.
+- Reproduced and pinned a new byte-identical Stage-1 NQRI compiler from GCC/Clang builds; Stage-2 and Stage-3 NQRI compilers rebuilt byte-identically.
+- Proved actual Stage-2 NQRI compilation/execution for `repeat`, fixed array/slice `for-in`, and typed expression-bodied functions.
+- Added Linux x86-64 native SSE2 floating-point arithmetic and opt-in typed Noqeri-to-native AI GEMM/softmax/SGD APIs, including caller-buffer validation and end-to-end execution tests.
+- **Not included**: automatic unannotated function signature inference, growable List/anonymous record literals, typed interpolation, lambdas, `?.`/`??`/typed `?`, full iteration protocol, complete autodiff/transformer API, or native machine-code self-hosting.
+- Verified capability matrix: [Doc/SYNTAX_IMPLEMENTATION_STATUS.md](Doc/SYNTAX_IMPLEMENTATION_STATUS.md).
+
+
 ### 2026-10-26 — syntax simplicity and experimental Stage-2 counted repetition
 
 - Implement typed single-expression functions `function twice(x: int): int = x * 2` and `for item in items` for typed arrays/slices in Stage-0.
-- Add matching Stage-2 parser, AST, semantic and NIR source implementations for `repeat`, typed expression bodies and `for-in`. Source typecheck is green but runtime parity remains blocked by [issue #115](https://github.com/EMN90909/Noqeri/issues/115).
+- Add matching Stage-2 parser, AST, semantic and NIR source implementations for `repeat`, typed expression bodies and `for-in`. Source typecheck and bounded NIR execution were later proven; original blocker [#115](https://github.com/EMN90909/Noqeri/issues/115) was closed after heap fix, NQRI rebuild proof and representative Stage-2 runtime tests.
 - Add bounded no-allocation numeric sum/checked sum, mean, count, filter and elementwise-map helpers, plus caller-owned `readText`/`writeText` file wrappers.
 - Add executable Stage-0 examples and focused CI verification, including diagnostic and negative-syntax tests.
 - Defer private inferred argument types, allocator-owned List literals, anonymous record literals, string interpolation, `?.`/`??`, typed `?` propagation, and full iterator/AI-framework binding syntax until semantic/backend parity is demonstrated.
