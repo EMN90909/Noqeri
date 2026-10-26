@@ -34,6 +34,7 @@ install(FILES
  Compiler/bootstrap/web_native_app.hpp
  Compiler/bootstrap/web_native_db.hpp
  Compiler/bootstrap/web_native_bundle.hpp
+ Compiler/bootstrap/web_native_noesql_v2.hpp
  DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Compiler/bootstrap)
 install(FILES LICENSES.md LICENSES/Apache-2.0.txt
  DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/licenses)
