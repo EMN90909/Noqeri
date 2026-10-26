@@ -762,7 +762,9 @@ void serve(const fs::path& input,int port) {
 #endif
 #include "web_native_db.hpp"
 #include "web_native_app.hpp"
+#include "web_native_bundle.hpp"
 } // namespace
+#if !defined(NOQERI_WEB_BUNDLED)
 int main(int argc,char** argv) {
     try {
         if (argc==2 && std::string(argv[1])=="drivers") {
@@ -789,6 +791,13 @@ int main(int argc,char** argv) {
             std::cout<<"mysql: not compiled\n";
 #endif
             return 0;
+        }
+        if(argc==4&&std::string(argv[1])=="compile") {
+#if !defined(_WIN32)
+            compileApplication(argv[2],argv[3],argv[0]);return 0;
+#else
+            throw std::runtime_error("native app compiler requires a POSIX host");
+#endif
         }
         if (argc>=2 && std::string(argv[1])=="serve-app" && (argc==3||argc==4||argc==5)) {
 #if !defined(_WIN32)
@@ -825,10 +834,13 @@ int main(int argc,char** argv) {
         std::cerr<<"Usage: noqeri-web build <project-dir> <output-dir>\n"
                  <<"       noqeri-web serve <output-dir> [port]  (localhost-only, POSIX)\n"
                  <<"       noqeri-web serve-app <source-dir> [port] [state-file]  (server actions, POSIX)\n"
-                 <<"       noqeri-web drivers      show available external DB provider status\n";
+                 <<"       noqeri-web drivers      show available external DB provider status\n"
+                 <<"       noqeri-web compile <source-dir> <native-executable> (POSIX, bootstrap)\n";
         return 2;
     } catch (const std::exception& e) {
         std::cerr<<"noqeri-web: "<<e.what()<<"\n";
         return 1;
     }
 }
+
+#endif // NOQERI_WEB_BUNDLED
