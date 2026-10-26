@@ -29,7 +29,13 @@ namespace {
 struct Token { std::string value; bool quoted = false; std::size_t line = 1; };
 struct Atom { std::string value; bool variable = false; };
 struct Expr { std::vector<Atom> atoms; };
+struct Mutation {
+    std::string target, source, op, field;
+    Expr value;
+};
 struct Node {
+    std::string actionId, eventName;
+    std::vector<Mutation> mutations;
     std::string tag, kind; // "text", "element", "component"
     Expr text;
     std::vector<std::pair<std::string,Expr>> attrs;
@@ -39,6 +45,8 @@ struct Node {
 struct Component { std::vector<std::string> params; std::vector<Node> children; };
 struct Project {
     std::map<std::string,std::string> globals;
+    std::set<std::string> mutableState, persistentState;
+    std::size_t nextActionId = 0;
     std::map<std::string,std::string> theme;
     std::map<std::string,Component> components;
     std::map<std::string,std::vector<Node>> routes;
@@ -114,7 +122,7 @@ std::vector<Token> lex(const std::string& source) {
             while (i<source.size() && std::isdigit(static_cast<unsigned char>(source[i]))) ++i;
             add(source.substr(start,i-start)); continue;
         }
-        if (std::string("{}().,:;=+/").find(c)!=std::string::npos) { add(std::string(1,c)); ++i; continue; }
+        if (std::string("{}().,:;=+/-").find(c)!=std::string::npos) { add(std::string(1,c)); ++i; continue; }
         throw std::runtime_error("unsupported web-native token at line "+std::to_string(line));
     }
     out.push_back({"<eof>",false,line});
@@ -174,6 +182,32 @@ class Parser {
         } while (take("+"));
         return result;
     }
+
+    std::vector<Mutation> mutations() {
+        expect("{");
+        std::vector<Mutation> list;
+        while (!take("}")) {
+            if (list.size()>=8) fail("too many mutations in event");
+            Mutation m; m.target=identifier(); expect("=");
+            if (take("form")) {
+                expect("."); m.field=identifier();
+                if (m.field.rfind("_nq_",0)==0) fail("reserved form field");
+                m.op="field";
+            } else {
+                m.value=expression();
+                m.op="set";
+                // The integer syntax name = name + number is strictly arithmetic.
+                if (m.value.atoms.size()==2 && m.value.atoms[0].variable &&
+                    m.value.atoms[0].value==m.target && !m.value.atoms[1].variable &&
+                    !m.value.atoms[1].value.empty() &&
+                    std::all_of(m.value.atoms[1].value.begin(),m.value.atoms[1].value.end(),
+                        [](char c){return c>='0'&&c<='9';})) m.op="add";
+            }
+            list.push_back(std::move(m)); take(";");
+        }
+        if (list.empty()) fail("event must modify at least one state variable");
+        return list;
+    }
     std::vector<Node> children(int depth=0) {
         if (depth>48) fail("element nesting limit exceeded");
         expect("{"); std::vector<Node> result;
@@ -196,7 +230,16 @@ class Parser {
                            (validName(peek().value) && tokens.at(pos+1).value==":")) {
                     n.kind="element"; n.tag=name;
                     while (peek().value!="{") {
-                        if (take("on")) fail("event handlers require JavaScript; use no-JS links");
+                        if (take("on")) {
+                            expect("."); n.eventName=identifier();
+                            if (!n.actionId.empty() || (n.eventName!="click" && n.eventName!="submit") ||
+                                (n.eventName=="click"&&n.tag!="button") ||
+                                (n.eventName=="submit"&&n.tag!="form"))
+                                fail("native event must be button on.click or form on.submit");
+                            n.actionId=std::to_string(++p.nextActionId);
+                            n.mutations=mutations();
+                            continue;
+                        }
                         const auto key=identifier();
                         expect(":"); n.attrs.push_back({key,expression()});
                     }
@@ -249,11 +292,14 @@ public:
                 if (!p.uiAlias.empty()) fail("duplicate noqeri/ui import");
                 p.uiAlias=identifier();
             } else if (take("component")) component();
-            else if (!library && (take("let")||take("const"))) {
+            else if (!library && (take("let")||take("const")||take("persist"))) {
+                const auto declaration=tokens.at(pos-1).value;
                 const auto name=identifier(); expect("=");
                 const auto value=expression();
                 if (!p.globals.emplace(name,evaluate(value,{},p.globals)).second)
                     fail("duplicate global name");
+                if (declaration=="let") p.mutableState.insert(name);
+                if (declaration=="persist") p.persistentState.insert(name);
             } else if (!library && take("theme")) {
                 expect("{");
                 while (!take("}")) {
@@ -364,6 +410,7 @@ std::string render(const std::vector<Node>& nodes,const Project& p,
             continue;
         }
         if (!allowedTag(n.tag)) throw std::runtime_error("unsafe or unsupported HTML element "+n.tag);
+        if (!n.actionId.empty()) throw std::runtime_error("events require serve-app, not static build");
         result+="<"+n.tag;
         bool blankTarget=false,hasRel=false;
         for (const auto& [key,expr]:n.attrs) {
@@ -588,9 +635,25 @@ void serve(const fs::path& input,int port) {
     }
 }
 #endif
+#include "web_native_app.hpp"
 } // namespace
 int main(int argc,char** argv) {
     try {
+        if (argc>=2 && std::string(argv[1])=="serve-app" && (argc==3||argc==4||argc==5)) {
+#if !defined(_WIN32)
+            int port=8080;
+            if (argc>=4) {
+                const std::string supplied=argv[3];
+                if (supplied.empty()||!std::all_of(supplied.begin(),supplied.end(),
+                    [](char c){return c>='0'&&c<='9';})) throw std::runtime_error("invalid HTTP port");
+                port=std::stoi(supplied);
+            }
+            serveApp(argv[2],port,argc==5?fs::path(argv[4]):fs::path("noqeri-data/state.nqkv"),argv[0]);
+            return 0;
+#else
+            throw std::runtime_error("native app server requires POSIX sockets");
+#endif
+        }
         if (argc>=2 && std::string(argv[1])=="build" && argc==4) {
             build(argv[2],argv[3],argv[0]); return 0;
         }
@@ -609,7 +672,8 @@ int main(int argc,char** argv) {
 #endif
         }
         std::cerr<<"Usage: noqeri-web build <project-dir> <output-dir>\n"
-                 <<"       noqeri-web serve <output-dir> [port]  (localhost-only, POSIX)\n";
+                 <<"       noqeri-web serve <output-dir> [port]  (localhost-only, POSIX)\n"
+                 <<"       noqeri-web serve-app <source-dir> [port] [state-file]  (server actions, POSIX)\n";
         return 2;
     } catch (const std::exception& e) {
         std::cerr<<"noqeri-web: "<<e.what()<<"\n";
