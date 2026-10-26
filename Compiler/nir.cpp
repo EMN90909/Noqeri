@@ -11,15 +11,31 @@ std::string calleeName(const ExprPtr&expr){if(auto n=std::dynamic_pointer_cast<N
 }
 
 Reg Lowerer::emit(NirFunction&fn,NirInstruction ins){if(ins.dest)fn.nextReg=std::max(fn.nextReg,Reg(*ins.dest+1));fn.code.push_back(std::move(ins));return fn.code.back().dest.value_or(0);}
+void Lowerer::closeOwnedLists(NirFunction&fn,std::size_t boundary){
+    for(std::size_t index=ownedListVariables_.size();index>boundary;--index){
+        NirInstruction load;load.op=NirOp::Load;load.dest=fn.nextReg++;
+        load.text=ownedListVariables_[index-1];emit(fn,load);
+        NirInstruction close;close.op=NirOp::Call;close.dest=fn.nextReg++;
+        close.text="nq_list_close";close.args={*load.dest};emit(fn,close);
+    }
+}
 NirProgram Lowerer::lower(const Program&program){
+    ownedListVariables_.clear();
     NirProgram out;out.entry.name="__entry";
     for(const auto&s:program.statements){
         if(auto f=std::dynamic_pointer_cast<FunctionStmt>(s)){
             NirFunction nf;nf.name=f->name;nf.genericParams=f->genericParams;nf.isExtern=f->isExtern||f->isForward;nf.isExport=f->isExport;for(const auto&p:f->params)nf.params.push_back(p.name);
-            if(!f->isExtern&&!f->isForward){for(const auto&x:f->body->statements)lowerStmt(nf,x);if(nf.code.empty()||nf.code.back().op!=NirOp::Return){NirInstruction r;r.op=NirOp::Return;nf.code.push_back(r);}}
+            if(!f->isExtern&&!f->isForward){
+                ownedListVariables_.clear();
+                for(const auto&x:f->body->statements)lowerStmt(nf,x);
+                closeOwnedLists(nf,0);
+                if(nf.code.empty()||nf.code.back().op!=NirOp::Return){NirInstruction r;r.op=NirOp::Return;nf.code.push_back(r);}
+            }
             out.functions.push_back(std::move(nf));
         }else if(!std::dynamic_pointer_cast<RecordStmt>(s)&&!std::dynamic_pointer_cast<ImportStmt>(s)&&!std::dynamic_pointer_cast<ModuleStmt>(s))lowerStmt(out.entry,s);
     }
+    closeOwnedLists(out.entry,0);
+    ownedListVariables_.clear();
     NirInstruction r;r.op=NirOp::Return;out.entry.code.push_back(r);return out;
 }
 void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
@@ -34,10 +50,35 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
                 s->partition->elements});
             return;
         }
+        if(s->inferredGrowableIntList){
+            const auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
+            NirInstruction open;open.op=NirOp::Call;open.dest=fn.nextReg++;
+            open.text="nq_list_new";emit(fn,open);
+            NirInstruction bind;bind.op=NirOp::Store;bind.text=s->name;
+            bind.args={*open.dest};emit(fn,bind);
+            ownedListVariables_.push_back(s->name);
+            for(const auto& element:literal->elements){
+                const Reg value=lowerExpr(fn,element);
+                NirInstruction append;append.op=NirOp::Call;append.dest=fn.nextReg++;
+                append.text="nq_list_append";append.args={*open.dest,value};emit(fn,append);
+            }
+            return;
+        }
         Reg r=0;if(s->zeroInitialized){NirInstruction z;if(s->zeroRequiresStorage){z.op=NirOp::StackAlloc;z.dest=fn.nextReg++;z.width=std::max<std::size_t>(1,s->zeroStorageBytes);}else{z.op=NirOp::Call;z.dest=fn.nextReg++;z.text=s->annotation.value_or("int");}emit(fn,z);r=*z.dest;}else r=lowerExpr(fn,s->initializer);NirInstruction i;i.op=NirOp::Store;i.text=s->name;i.args={r};emit(fn,std::move(i));return;}
     if(auto s=std::dynamic_pointer_cast<ExprStmt>(stmt)){lowerExpr(fn,s->expr);return;}
-    if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){for(auto&x:s->statements)lowerStmt(fn,x);return;}
-    if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){NirInstruction i;i.op=NirOp::Return;if(s->value)i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
+    if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){
+        const std::size_t boundary=ownedListVariables_.size();
+        for(auto&x:s->statements)lowerStmt(fn,x);
+        closeOwnedLists(fn,boundary);
+        ownedListVariables_.resize(boundary);
+        return;
+    }
+    if(auto s=std::dynamic_pointer_cast<ReturnStmt>(stmt)){
+        NirInstruction i;i.op=NirOp::Return;
+        if(s->value)i.args={lowerExpr(fn,s->value)};
+        closeOwnedLists(fn,0);
+        emit(fn,std::move(i));return;
+    }
     if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){NirInstruction i;i.op=NirOp::Throw;i.args={lowerExpr(fn,s->value)};emit(fn,std::move(i));return;}
     if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){Reg c=lowerExpr(fn,s->condition);NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};auto jp=fn.code.size();emit(fn,std::move(j));lowerStmt(fn,s->thenBranch);if(s->elseBranch){NirInstruction end;end.op=NirOp::Jump;auto ep=fn.code.size();emit(fn,std::move(end));fn.code[jp].target=fn.code.size();lowerStmt(fn,s->elseBranch);fn.code[ep].target=fn.code.size();}else fn.code[jp].target=fn.code.size();return;}
     if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!breakJumps_.empty())breakJumps_.back().push_back(pos);return;}
@@ -141,6 +182,19 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
         Reg l=lowerExpr(fn,e->left),r=lowerExpr(fn,e->right);NirInstruction i;i.op=NirOp::Binary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={l,r};emit(fn,i);return*i.dest;
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
+        if(e->growableListMethod){
+            auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee);
+            Reg list=lowerExpr(fn,member->object);
+            NirInstruction call;call.op=NirOp::Call;
+            call.dest=fn.nextReg++;
+            if(e->builtinText=="append"){
+                call.text="nq_list_append";
+                call.args={list,lowerExpr(fn,e->args.front())};
+            }else{
+                call.text="nq_list_length";call.args={list};
+            }
+            emit(fn,call);return *call.dest;
+        }
         std::string name=calleeName(e->callee);
         if(name=="sizeOf"||name=="alignOf"){
             NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;

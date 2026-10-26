@@ -15,6 +15,13 @@ int64_t nq_collection_size(int64_t handle);
 int64_t nq_collection_remove(int64_t handle,int64_t key);
 int64_t nq_collection_clear(int64_t handle);
 int64_t nq_collection_close(int64_t handle);
+// Compiler-generated, checked List<int> hooks. On allocation/capacity or
+// invalid-ownership failure these abort with a diagnostic instead of silently
+// returning an incorrect value. List handles never alias ordinary integers.
+int64_t nq_list_new(void);
+int64_t nq_list_append(int64_t handle,int64_t value);
+int64_t nq_list_length(int64_t handle);
+int64_t nq_list_close(int64_t handle);
 #ifdef __cplusplus
 }
 #endif

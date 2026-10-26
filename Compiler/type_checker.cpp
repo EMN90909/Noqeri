@@ -77,6 +77,40 @@ static std::optional<Type> privateLiteralParameterType(const ExprPtr& expression
     return std::nullopt;
 }
 
+
+// Contextual promotion preserves the meaning of existing fixed array code:
+// only a local unannotated integer array used with an .append method in its
+// same statement block becomes a growable owned List<int>.
+void markGrowableIntLists(const std::vector<StmtPtr>& statements) {
+    std::unordered_set<std::string> appendNames;
+    for(const auto& stmt:statements) {
+        const auto expression=std::dynamic_pointer_cast<ExprStmt>(stmt);
+        if(!expression)continue;
+        const auto call=std::dynamic_pointer_cast<CallExpr>(expression->expr);
+        if(!call)continue;
+        const auto member=std::dynamic_pointer_cast<MemberExpr>(call->callee);
+        if(!member||member->member!="append")continue;
+        const auto name=std::dynamic_pointer_cast<NameExpr>(member->object);
+        if(name)appendNames.insert(name->name);
+    }
+    for(const auto& stmt:statements){
+        if(auto binding=std::dynamic_pointer_cast<LetStmt>(stmt)) {
+            if(!binding->annotation && !binding->isConst &&
+               std::dynamic_pointer_cast<ArrayExpr>(binding->initializer) &&
+               appendNames.count(binding->name))binding->inferredGrowableIntList=true;
+        }else if(auto block=std::dynamic_pointer_cast<BlockStmt>(stmt)){
+            markGrowableIntLists(block->statements);
+        }else if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
+            if(fn->body)markGrowableIntLists(fn->body->statements);
+        }else if(auto loop=std::dynamic_pointer_cast<WhileStmt>(stmt)){
+            if(auto block=std::dynamic_pointer_cast<BlockStmt>(loop->body))markGrowableIntLists(block->statements);
+        }else if(auto condition=std::dynamic_pointer_cast<IfStmt>(stmt)){
+            if(auto yes=std::dynamic_pointer_cast<BlockStmt>(condition->thenBranch))markGrowableIntLists(yes->statements);
+            if(auto no=std::dynamic_pointer_cast<BlockStmt>(condition->elseBranch))markGrowableIntLists(no->statements);
+        }
+    }
+}
+
 TypeChecker::TypeChecker(Diagnostics& diagnostics):diagnostics_(diagnostics){pushScope();currentReturn_=simple(TypeKind::Void);}
 void TypeChecker::pushScope(){scopes_.push_back({});constScopes_.push_back({});}
 void TypeChecker::popScope(){scopes_.pop_back();constScopes_.pop_back();}
@@ -122,6 +156,7 @@ Type TypeChecker::substituteGeneric(const Type& type,const std::unordered_map<st
 }
 
 bool TypeChecker::check(const Program&program){
+    markGrowableIntLists(program.statements);
     functions_.clear();records_.clear();
     functions_["print"]={std::vector<Type>{simple(TypeKind::Unknown)},simple(TypeKind::Void),{}};
     functions_["clockMillis"]={{},simple(TypeKind::I64),{}};
@@ -281,7 +316,27 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
             if(!canAssignValue(declared,init,s->initializer))diagnostics_.error("NOE-T3001",s->span,"cannot assign "+init.name()+" to "+declared.name(),"use an explicit 'as' cast for narrowing or signedness-changing integer conversions");
             define(s->name,declared,s->isConst,s->span);return;
         }
-        Type init=checkExpr(s->initializer);define(s->name,init,s->isConst,s->span);return;
+        Type init=checkExpr(s->initializer);
+        if(s->inferredGrowableIntList){
+            if(init.kind!=TypeKind::Array||!init.element||
+               init.element->kind!=TypeKind::Int){
+                diagnostics_.error("NQR-T3070",s->span,
+                    "growable list literals currently require int elements",
+                    "use integer values such as let numbers = [5, 10]; floating and record lists are not yet supported");
+            }
+            if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
+               literal && literal->elements.size()>1000000) {
+                diagnostics_.error("NQR-T3071",s->span,"growable list literal exceeds the one-million-element limit");
+            }
+            define(s->name,simple(TypeKind::List),false,s->span);
+        }else{
+            if(init.kind==TypeKind::List)
+                diagnostics_.error("NQR-T3072",s->span,
+                    "growable lists cannot be copied or aliased",
+                    "mutate the original list directly; owned list moves and clones are not yet implemented");
+            define(s->name,init,s->isConst,s->span);
+        }
+        return;
     }
     if(auto s=std::dynamic_pointer_cast<ExprStmt>(stmt)){checkExpr(s->expr);return;}
     if(auto s=std::dynamic_pointer_cast<BlockStmt>(stmt)){pushScope();for(const auto&x:s->statements)checkStmt(x);popScope();return;}
@@ -424,6 +479,35 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             return l;case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return simple(TypeKind::Bool);default:return simple(TypeKind::Unknown);}
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
+        if(auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee)){
+            Type receiver=checkExpr(member->object);
+            if(receiver.kind==TypeKind::List){
+                if(member->member=="append"){
+                    if(e->args.size()!=1){
+                        diagnostics_.error("NQR-T3073",e->span,"list.append accepts exactly one int value",
+                                           "write numbers.append(15)");
+                    }else{
+                        Type value=checkExpr(e->args.front());
+                        if(value.kind!=TypeKind::Int)
+                            diagnostics_.error("NQR-T3074",e->args.front()->span,
+                                "List<int>.append expects an int, found "+value.name(),
+                                "append an int value or use an explicit conversion");
+                    }
+                    e->growableListMethod=true;
+                    e->builtinText="append";
+                    return simple(TypeKind::Void);
+                }
+                if(member->member=="length" && e->args.empty()){
+                    e->growableListMethod=true;
+                    e->builtinText="length";
+                    return simple(TypeKind::Usize);
+                }
+                diagnostics_.error("NQR-T3075",e->span,
+                    "unknown growable list method '"+member->member+"'",
+                    "use .append(value) or .length(); indexing and iteration are not yet implemented");
+                return simple(TypeKind::Unknown);
+            }
+        }
         std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
         if(name=="host"||name=="abi"){if(e->args.empty()){diagnostics_.error("NOE-T3015",e->span,name+" requires a service name");return simple(TypeKind::Unknown);}Type service=checkExpr(e->args[0]);if(service.kind!=TypeKind::String&&service.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3016",e->args[0]->span,"service name must be a string");for(std::size_t i=1;i<e->args.size();++i)checkExpr(e->args[i]);return simple(TypeKind::Unknown);}
         if(name=="sizeOf"||name=="alignOf"){

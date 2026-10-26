@@ -100,3 +100,36 @@ extern "C" int64_t nq_collection_close(int64_t id) {
     std::lock_guard<std::mutex> guard(mu);
     return objects.erase(id)?0:-1;
 }
+
+// Beginner List<int> runtime. Errors are explicit fatal run-time errors,
+// rather than silently dropping appends or allowing use-after-release.
+#include <cstdio>
+#include <cstdlib>
+namespace {
+[[noreturn]] void listRuntimeTrap(const char* action,std::int64_t status) {
+    std::fprintf(stderr,"Noqeri List<int> %s failed (status %lld)\\n",
+                 action,static_cast<long long>(status));
+    std::fflush(stderr);
+    std::abort();
+}
+}
+extern "C" int64_t nq_list_new(void) {
+    auto result=nq_collection_new(1);
+    if(result<=0)listRuntimeTrap("allocation",result);
+    return result;
+}
+extern "C" int64_t nq_list_append(int64_t handle,int64_t value) {
+    auto status=nq_collection_add(handle,0,value);
+    if(status!=0)listRuntimeTrap("append",status);
+    return 0;
+}
+extern "C" int64_t nq_list_length(int64_t handle) {
+    auto result=nq_collection_size(handle);
+    if(result<0)listRuntimeTrap("length",result);
+    return result;
+}
+extern "C" int64_t nq_list_close(int64_t handle) {
+    auto status=nq_collection_close(handle);
+    if(status!=0)listRuntimeTrap("close",status);
+    return 0;
+}
