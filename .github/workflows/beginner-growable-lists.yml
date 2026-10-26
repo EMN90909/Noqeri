@@ -1,0 +1,57 @@
+name: Beginner growable List<int> native and NQRI qualification
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/type_checker.cpp'
+      - 'Compiler/nir.cpp'
+      - 'Compiler/core.cpp'
+      - 'Compiler/bootstrap/interpreter_host.cpp'
+      - 'Include/noqeri/**'
+      - 'Runtime/native/owned_collections.cpp'
+      - 'Runtime/native/nqri_vm_part3.inc'
+      - 'scripts/native-build.mjs'
+      - 'tests/beginner_growable_*.noqeri'
+      - '.github/workflows/beginner-growable-lists.yml'
+permissions:
+  contents: read
+jobs:
+  local-owned-lists:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the complete checked compiler and NQRI VM
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-beginner-list -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-beginner-list --target noqeri noqeri-nqri --parallel 2
+      - name: Original beginner syntax executes without list APIs or imports
+        run: |
+          set -euo pipefail
+          ./build-beginner-list/noqeri check tests/beginner_growable_lists.noqeri
+          actual=$(./build-beginner-list/noqeri run tests/beginner_growable_lists.noqeri)
+          echo "Reference runtime: $actual"
+          test "$actual" = "$(printf '3\n0')"
+      - name: C++ compiler emits and NQRI executes an owned growable List
+        run: |
+          set -euo pipefail
+          ./build-beginner-list/noqeri nqri tests/beginner_growable_lists.noqeri build-beginner-list/lists.nqri
+          output=$(./build-beginner-list/noqeri-nqri build-beginner-list/lists.nqri)
+          echo "NQRI: $output"
+          test "$output" = "$(printf '3\n0')"
+      - name: Native Linux AOT auto links owned storage with no special flags
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/beginner_growable_lists.noqeri build-beginner-list/lists-native --compiler=build-beginner-list/noqeri
+          output=$(./build-beginner-list/lists-native)
+          echo "Native AOT: $output"
+          test "$output" = "$(printf '3\n0')"
+      - name: Reject mismatched, fixed and aliased mutable collections
+        run: |
+          set -euo pipefail
+          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri; do
+            if ./build-beginner-list/noqeri check "$path"; then
+              echo "unexpectedly accepted $path"; exit 1
+            fi
+          done

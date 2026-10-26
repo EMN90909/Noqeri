@@ -1,0 +1,16 @@
+// Beginner: no explicit capacity, buffer, FFI, imports or type annotation.
+let numbers = [5, 10]
+numbers.append(15)
+print(numbers.length())
+
+function verify(): int {
+    let local = [1, 2]
+    local.append(3)
+    local.append(-7)
+    if local.length() != 4 as usize { return 1 }
+    let another = [9]
+    another.append(8)
+    if another.length() != 2 as usize { return 2 }
+    return 0
+}
+print(verify())

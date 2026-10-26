@@ -1,0 +1,6 @@
+function verify(): int {
+    let values: [int; 2] = [1,2]
+    values.append(3)
+    return 0
+}
+print(verify())

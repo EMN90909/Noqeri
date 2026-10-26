@@ -1,0 +1,7 @@
+function verify(): int {
+    let values = [1,2]
+    values.append(3)
+    let copy = values
+    return 0
+}
+print(verify())

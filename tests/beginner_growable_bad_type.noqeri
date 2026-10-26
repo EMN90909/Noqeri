@@ -1,0 +1,6 @@
+function verify(): int {
+    let items = [5, 10]
+    items.append("wrong")
+    return 0
+}
+print(verify())
