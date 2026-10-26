@@ -540,6 +540,18 @@ button,input{font:inherit}a{color:var(--nq-primary)}
 .nq-page{width:min(100% - 2rem,72rem);margin:2rem auto}
 .nq-title{margin:.2rem 0 1rem;font-size:clamp(1.8rem,3vw,3rem);line-height:1.15}
 .nq-lead{color:var(--nq-muted);font-size:1.12rem}
+.nq-page-header{margin:0 0 2rem;max-width:56rem}
+.nq-eyebrow{margin:0 0 .5rem;color:var(--nq-primary);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.13em}
+.nq-section-header{margin:1.5rem 0 1rem}
+.nq-section-title{margin:0 0 .45rem;font-size:clamp(1.15rem,2vw,1.55rem);line-height:1.3}
+.nq-muted,.nq-field-help,.nq-footer{color:var(--nq-muted)}
+.nq-field-help{font-size:.85rem}
+.nq-field-error{color:#a32132;font-size:.9rem;font-weight:600}
+.nq-panel{padding:1.5rem;border:1px solid var(--nq-border);border-radius:var(--nq-radius);background:var(--nq-surface)}
+.nq-empty{margin:2rem 0;padding:2rem;border:1px dashed var(--nq-border);border-radius:var(--nq-radius);text-align:center}
+.nq-footer{margin-top:3rem;padding:1.5rem 0;border-top:1px solid var(--nq-border);font-size:.85rem}
+.nq-button-secondary{background:transparent;color:var(--nq-primary)}
+.nq-stack > * + *{margin-top:1rem}
 .nq-card{padding:1.5rem;background:var(--nq-surface);border:1px solid var(--nq-border);border-radius:var(--nq-radius);margin:1rem 0}
 .nq-card-title{margin:0 0 .35rem;font-size:1.2rem}
 .nq-button{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--nq-primary);border-radius:var(--nq-radius);padding:.65rem 1.1rem;background:var(--nq-primary);color:white;cursor:pointer;text-decoration:none;font-weight:600}
