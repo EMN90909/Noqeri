@@ -142,3 +142,17 @@ otherwise evaluates to the original value. Boolean, string and
 noninteger expressions are rejected. The syntax is deliberately **not**
 `Option<T>`/`Result<T,E>` propagation and is subject to executable
 Stage-0 / Stage-2 / native AOT qualification.
+
+## Differential execution qualification (2026-10-26)
+
+The [20-case deterministic property corpus](https://github.com/EMN90909/Noqeri/actions/runs/40401405838)
+passed in Stage-0 and rebuilt Stage-2 NQRI. Three varied fixtures were
+also compiled and run as Linux x86-64 native executables. The generator
+computes expected results independently in Python and tests signed arithmetic,
+array iterations, negative/zero/positive repeat counts, nested breaks and
+continues and branches. This is bounded evidence, **not** a mathematical
+proof of all Stage-2 semantics, native selfhosting, or unimplemented features.
+
+The [postfix status propagation gate](https://github.com/EMN90909/Noqeri/actions/runs/40401036299)
+passed across the same three execution paths for integer-status `?`.
+Full typed `Result<T,E>` and optional chaining `?.` are still outstanding.
