@@ -74,9 +74,13 @@ std::vector<Sample> read_csv(const std::string& filename, bool has_label, std::s
     std::vector<Sample> samples;
     std::size_t dimensions=0;
     std::size_t line_count=0;
-    std::string line;
-    while(std::getline(input,line)) {
+    // Bounded input buffer: std::getline(string) would allocate arbitrarily
+    // large memory before enforcing a CSV line-size limit.
+    char buffer[8194]{};
+    while(input.getline(buffer,sizeof(buffer))) {
         require(++line_count<=max_rows,"row budget exceeded");
+        std::string line(buffer);
+        if(!line.empty()&&line.back()=='\r')line.pop_back(); // Windows CRLF
         require(line.size()<=8192,"CSV line over 8192 bytes");
         require(!line.empty(),"blank CSV row");
         const auto fields=split_csv_line(line);
@@ -94,7 +98,7 @@ std::vector<Sample> read_csv(const std::string& filename, bool has_label, std::s
         }
         samples.push_back(std::move(row));
     }
-    require(!input.bad() && !samples.empty(),"CSV read failure or no data");
+    require(!input.bad() && !input.fail() && !samples.empty(),"CSV read failure, oversized line or no data");
     return samples;
 }
 Model train(const std::vector<Sample>& samples,const Options& options,TrainingReport* report) {
