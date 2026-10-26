@@ -25,7 +25,6 @@ add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # Portable native web static compiler/preview server: no Node.js or JavaScript tooling.
 add_executable(noqeri-web Compiler/bootstrap/web_native.cpp)
 target_compile_features(noqeri-web PRIVATE cxx_std_17)
-target_compile_definitions(noqeri-web PRIVATE NOQERI_UI_SOURCE="\"${CMAKE_SOURCE_DIR}/Lib/web/ui.noqeri\"")
 target_compile_features(noqeri-nqri PRIVATE cxx_std_17)
 target_include_directories(noqeri PRIVATE Include/noqeri Compiler/bootstrap)
 target_compile_features(noqeri PRIVATE cxx_std_17)
