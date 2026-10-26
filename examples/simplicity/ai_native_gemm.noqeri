@@ -1,0 +1,27 @@
+// Native-AOT only: build with scripts/native-build.mjs --ai-framework.
+// No raw pointer dereference is needed by application code; the FFI boundary
+// checks shapes, capacities, backends, and numerical domain.
+import "../../Lib/ai/native.noqeri"
+function verify(): int {
+    let a: [float; 4] = [1.0, 2.0, 3.0, 4.0]
+    let b: [float; 4] = [5.0, 6.0, 7.0, 8.0]
+    let result: [float; 4]
+    let req: AiGemmRequest
+    req.left = &a[0]
+    req.left_rows = 2 as usize
+    req.left_cols = 2 as usize
+    req.right = &b[0]
+    req.right_rows = 2 as usize
+    req.right_cols = 2 as usize
+    req.output = &result[0]
+    req.output_capacity = 4 as usize
+    req.backend = 3 as u32
+    let rc: isize = ai_native_gemm(&req)
+    if rc != 0 as isize { return 1 }
+    if result[0] != 19.0 { return 2 }
+    if result[1] != 22.0 { return 3 }
+    if result[2] != 43.0 { return 4 }
+    if result[3] != 50.0 { return 5 }
+    return 0
+}
+print(verify())

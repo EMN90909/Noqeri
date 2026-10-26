@@ -1,0 +1,48 @@
+name: Noqeri native AI framework ABI
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Include/noqeri/ai_framework_c.h'
+      - 'Runtime/native/ai_framework_c.cpp'
+      - 'Lib/ai/native.noqeri'
+      - 'tests/cpp/ai_framework_c_test.cpp'
+      - 'examples/simplicity/ai_native_gemm.noqeri'
+      - 'scripts/native-build.mjs'
+      - 'CMakeLists.txt'
+      - '.github/workflows/ai-native-ffi.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Include/noqeri/ai_framework_c.h'
+      - 'Runtime/native/ai_framework_c.cpp'
+      - 'Lib/ai/native.noqeri'
+      - 'tests/cpp/ai_framework_c_test.cpp'
+      - 'examples/simplicity/ai_native_gemm.noqeri'
+      - 'scripts/native-build.mjs'
+      - 'CMakeLists.txt'
+      - '.github/workflows/ai-native-ffi.yml'
+permissions:
+  contents: read
+jobs:
+  native-ai-call:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build native tensor/Noqeri toolchain
+        run: |
+          cmake -S . -B build-ai-ffi -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-ai-ffi --target noqeri noqeri_ai noqeri-ai-framework-c-test --parallel 2
+      - name: Test stable C ABI shape, capacity, backend, and NaN safety
+        run: ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-ai-framework-c$'
+      - name: Typecheck ordinary Noqeri native ABI module and application
+        run: ./build-ai-ffi/noqeri check examples/simplicity/ai_native_gemm.noqeri --unsafe
+      - name: Build and run Noqeri AOT app calling native C++ tensor SDK
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs examples/simplicity/ai_native_gemm.noqeri build-ai-ffi/ai-native-program --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-program)
+          echo "Noqeri native AI GEMM check: $result"
+          test "$result" = "0"
+          node -e "const x=require('./build-ai-ffi/ai-native-program.native.json');if(x.execution_model!=='native-aot'||!x.ai_framework_linked||!x.ai_framework_library_sha256)process.exit(1)"

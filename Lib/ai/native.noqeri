@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+module noqeri.ai.native
+
+// Native-AOT framework ABI (Linux x86-64 preview). This is a statically
+// linked native service, not a dynamic eval or implicit network plugin.
+// A project must link libnoqeri_ai explicitly; reference interpreter and
+// portable NQRI VM do not currently implement this native host service.
+record AiGemmRequest {
+    left: *float
+    left_rows: usize
+    left_cols: usize
+    right: *float
+    right_rows: usize
+    right_cols: usize
+    output: *float
+    output_capacity: usize
+    backend: u32
+}
+extern function nq_ai_gemm(request: *AiGemmRequest): isize
+
+// A caller-owned request describes fixed or allocated row-major tensors.
+// The native SDK validates dimensions, backend and tensor values.
+export function ai_native_gemm(request: *AiGemmRequest): isize {
+    return nq_ai_gemm(request)
+}

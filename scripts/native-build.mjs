@@ -52,7 +52,7 @@ function version(command) {
 
 const positional = process.argv.slice(2).filter(arg => !arg.startsWith('--'))
 if (positional.length !== 2) {
-  fail('usage: node scripts/native-build.mjs <source.noqeri> <output> [--compiler=build/noqeri] [--cxx=c++] [--opt=-O3] [--keep-asm]')
+  fail('usage: node scripts/native-build.mjs <source.noqeri> <output> [--compiler=build/noqeri] [--cxx=c++] [--opt=-O3] [--keep-asm] [--ai-framework] [--ai-lib=build/libnoqeri_ai.a]')
 }
 if (process.platform !== 'linux' || process.arch !== 'x64') {
   fail('qualified native AOT builds currently require Linux x86-64; other targets must not be labelled native-qualified yet')
@@ -65,6 +65,8 @@ const compilerPath = compiler.includes('/') || compiler.includes('\\') ? resolve
 const cxx = option('cxx', process.env.CXX || 'c++')
 const optimization = option('opt', '-O3')
 const keepAsm = process.argv.includes('--keep-asm')
+const linkAiFramework = process.argv.includes('--ai-framework')
+const aiLib = resolve(root, option('ai-lib', 'build/libnoqeri_ai.a'))
 
 if (!existsSync(source)) fail(`source does not exist: ${relative(root, source)}`)
 if (!source.endsWith('.noqeri')) fail('source must use the .noqeri extension')
@@ -72,6 +74,8 @@ if (!/^-O(?:0|1|2|3|s|z)$/.test(optimization)) fail(`unsupported optimization fl
 if ((compilerPath.includes('/') || compilerPath.includes('\\')) && !existsSync(compilerPath)) {
   fail(`Noqeri compiler does not exist: ${compilerPath}`)
 }
+
+if (linkAiFramework && !existsSync(aiLib)) fail('native AI framework static library not found; build target noqeri_ai first or pass --ai-lib=PATH')
 
 mkdirSync(dirname(output), { recursive: true })
 const temp = resolve(dirname(output), `.${basename(output)}.native-tmp`)
@@ -95,7 +99,7 @@ try {
     '-c', runnerSource,
     '-o', runnerObject
   ])
-  run(cxx, [programObject, runnerObject, '-o', output])
+  run(cxx, [programObject, runnerObject, ...(linkAiFramework ? [aiLib] : []), '-o', output])
 
   if (!existsSync(output) || statSync(output).size === 0) fail('native executable was not produced')
   chmodSync(output, 0o755)
@@ -123,7 +127,9 @@ try {
     host_adapter_sha256: sha256File(runnerSource),
     cxx,
     cxx_version: version(cxx),
-    optimization
+    optimization,
+    ai_framework_linked: linkAiFramework,
+    ai_framework_library_sha256: linkAiFramework ? sha256File(aiLib) : null
   }
   writeFileSync(`${output}.native.json`, JSON.stringify(provenance, null, 2) + '\n')
   console.log(`native-build: wrote ${relative(root, output)}`)

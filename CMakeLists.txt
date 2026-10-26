@@ -26,7 +26,8 @@ add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # All training and inference run locally on the CPU without Python/Node or
 # heavyweight ML/LLM dependencies. No autonomous shell/network privileges.
 add_library(noqeri_ai STATIC Runtime/native/ai_runtime.cpp Runtime/native/lm_runtime.cpp
- Runtime/native/ai_framework_tensor.cpp Runtime/native/ai_framework_transformer.cpp)
+ Runtime/native/ai_framework_tensor.cpp Runtime/native/ai_framework_transformer.cpp
+ Runtime/native/ai_framework_c.cpp)
 target_include_directories(noqeri_ai PUBLIC
  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
@@ -164,6 +165,11 @@ if(BUILD_TESTING)
  target_compile_features(noqeri-ai-framework-test PRIVATE cxx_std_17)
  noqeri_apply_warnings(noqeri-ai-framework-test)
  add_test(NAME noqeri-ai-framework COMMAND noqeri-ai-framework-test ${CMAKE_BINARY_DIR}/ai-framework-test-data)
+ add_executable(noqeri-ai-framework-c-test tests/cpp/ai_framework_c_test.cpp)
+ target_link_libraries(noqeri-ai-framework-c-test PRIVATE noqeri_ai)
+ target_compile_features(noqeri-ai-framework-c-test PRIVATE cxx_std_17)
+ noqeri_apply_warnings(noqeri-ai-framework-c-test)
+ add_test(NAME noqeri-ai-framework-c COMMAND noqeri-ai-framework-c-test)
 endif()
 if(BUILD_TESTING)
  add_executable(noqeri-websocket-frame-test tests/cpp/websocket_frame_test.cpp)
