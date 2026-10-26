@@ -316,7 +316,7 @@ std::string queryMysql(const DbConfiguration& config,const SqlPrepared& sql) {
     std::vector<MYSQL_BIND> results(count);
     std::vector<unsigned long> sizes(count);
     using NullFlag=std::remove_pointer_t<decltype(MYSQL_BIND{}.is_null)>;
-    std::vector<NullFlag> nulls(count);
+    std::unique_ptr<NullFlag[]> nulls(new NullFlag[count]());
     for(unsigned i=0;i<count;++i) {
         results[i].buffer_type=MYSQL_TYPE_STRING;
         results[i].buffer=buffers[i].data();
