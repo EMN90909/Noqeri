@@ -1,5 +1,14 @@
 # Changelog
 
+### 2026-10-26 — syntax simplicity and experimental Stage-2 counted repetition
+
+- Implement typed single-expression functions `function twice(x: int): int = x * 2` and `for item in items` for typed arrays/slices in Stage-0.
+- Add matching Stage-2 parser, AST, semantic and NIR source implementations for `repeat`, typed expression bodies and `for-in`. Source typecheck is green but runtime parity remains blocked by [issue #115](https://github.com/EMN90909/Noqeri/issues/115).
+- Add bounded no-allocation numeric sum/checked sum, mean, count, filter and elementwise-map helpers, plus caller-owned `readText`/`writeText` file wrappers.
+- Add executable Stage-0 examples and focused CI verification, including diagnostic and negative-syntax tests.
+- Defer private inferred argument types, allocator-owned List literals, anonymous record literals, string interpolation, `?.`/`??`, typed `?` propagation, and full iterator/AI-framework binding syntax until semantic/backend parity is demonstrated.
+
+
 ### Post-tag v0.1.4: optional AI framework and registry package
 
 - Add reverse-mode dense 2D tensor autodiff with a gradient-checked tape, softmax/cross-entropy, embedding row gathering and causal masks.

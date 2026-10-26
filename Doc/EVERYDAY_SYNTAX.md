@@ -20,7 +20,7 @@ break-chain state. The bootstrap compiler already supports `repeat`.
 The Stage-2 implementation type-checks through Stage-0, but its *runtime
 parity is not yet qualified*: the initial execution of the self-hosted
 AST/NIR regression under the Stage-0 reference interpreter crashed with
-heap corruption. Consequently no Stage-2 execution claim is made.
+heap corruption (tracked as [issue #115](https://github.com/EMN90909/Noqeri/issues/115)). Consequently no Stage-2 execution claim is made.
 The Stage-2 bootstrap/rebuild proof certificate remains fail-closed.
 
 ## Simple iteration

@@ -206,6 +206,32 @@ automatically execute untrusted code or deploy to a remote environment.
 
 See [Agent development loop](Doc/AGENT_DEVELOPMENT_LOOP.md).
 
+### Everyday syntax (experimental compiler preview)
+
+The bootstrap compiler now supports typed expression-body functions and
+array/slice iteration, alongside the existing counted `repeat`:
+
+```noqeri
+function double(x: int): int = x * 2
+let values = [1, 2, 3]
+for item in values {
+    print(double(item))
+}
+```
+
+For numeric collections `Lib/std/numeric.noqeri` supplies `sum`,
+`sum_checked`, `average_or`, `count_at_least`, `filter_at_least`,
+and `map_add`. `Lib/std/file.noqeri` has caller-buffer `readText` and
+`writeText` wrappers with status returns. There is no implicit dynamic
+typing, growable-list literal, string interpolation, `?.`, `??`, lambda
+filtering, or `?` propagation yet.
+
+Stage-2 parser/semantic/lowering source has been updated, but its
+**executable parity is not qualified** pending
+[Stage-2 reference-interpreter corruption #115](https://github.com/EMN90909/Noqeri/issues/115).
+The Stage-0 examples and static Stage-2 source checks pass CI.
+See [everyday syntax implementation and status](Doc/EVERYDAY_SYNTAX.md).
+
 ### Useful compiler commands
 
 These commands belong to the **Stage-0 `noqeri` executable** built above, not to the restricted self-hosted Stage-2 CLI.
