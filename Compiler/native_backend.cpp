@@ -69,7 +69,10 @@ FunctionLayout layoutFor(const NirFunction&fn,const std::unordered_map<std::stri
         else if(i.op==NirOp::Store&&!i.args.empty())l.varKinds[i.text]=rk(i.args[0]);
         else if(i.op==NirOp::Load&&i.dest){auto it=l.varKinds.find(i.text);l.regKinds[*i.dest]=it==l.varKinds.end()?ValueKind::Unknown:it->second;}
         else if(i.op==NirOp::Unary&&i.dest&&!i.args.empty())l.regKinds[*i.dest]=i.text=="!"?ValueKind::Bool:rk(i.args[0]);
-        else if((i.op==NirOp::AddressOf||i.op==NirOp::LoadMemory||i.op==NirOp::PtrOffset||i.op==NirOp::Cast||i.op==NirOp::StackAlloc||i.op==NirOp::MakeSlice||i.op==NirOp::SliceData||i.op==NirOp::SliceLen||i.op==NirOp::AtomicLoad||i.op==NirOp::AtomicExchange||i.op==NirOp::AtomicCompareExchange||i.op==NirOp::Try||i.op==NirOp::Intrinsic)&&i.dest)l.regKinds[*i.dest]=ValueKind::Int;
+        else if(i.op==NirOp::LoadMemory&&i.dest)
+            l.regKinds[*i.dest]=i.type.kind==TypeKind::Float?ValueKind::Float:
+                i.type.kind==TypeKind::Bool?ValueKind::Bool:ValueKind::Int;
+        else if((i.op==NirOp::AddressOf||i.op==NirOp::PtrOffset||i.op==NirOp::Cast||i.op==NirOp::StackAlloc||i.op==NirOp::MakeSlice||i.op==NirOp::SliceData||i.op==NirOp::SliceLen||i.op==NirOp::AtomicLoad||i.op==NirOp::AtomicExchange||i.op==NirOp::AtomicCompareExchange||i.op==NirOp::Try||i.op==NirOp::Intrinsic)&&i.dest)l.regKinds[*i.dest]=ValueKind::Int;
         else if(i.op==NirOp::InlineAsm&&i.dest)l.regKinds[*i.dest]=ValueKind::Null;
         else if(i.op==NirOp::Binary&&i.dest&&i.args.size()==2){if(isComparison(i.text))l.regKinds[*i.dest]=ValueKind::Bool;else{auto a=rk(i.args[0]),b=rk(i.args[1]);if(a==ValueKind::String||b==ValueKind::String)l.regKinds[*i.dest]=ValueKind::String;else if(a==ValueKind::Float||b==ValueKind::Float)l.regKinds[*i.dest]=ValueKind::Float;else l.regKinds[*i.dest]=ValueKind::Int;}}
         else if(i.op==NirOp::Call&&i.dest){if(i.text=="print")l.regKinds[*i.dest]=ValueKind::Null;else if(i.text=="clockMillis"||i.text=="textLength")l.regKinds[*i.dest]=ValueKind::Int;else if(i.text=="platform")l.regKinds[*i.dest]=ValueKind::String;else{auto it=returns.find(i.text);l.regKinds[*i.dest]=it==returns.end()?ValueKind::Unknown:it->second;}}
