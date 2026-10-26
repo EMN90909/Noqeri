@@ -1,0 +1,76 @@
+name: Reproducible Stage-1 and Stage-2/Stage-3 parity candidate
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/**'
+      - 'Compiler/bootstrap/**'
+      - 'Compiler/type_checker.cpp'
+      - 'Compiler/nir.cpp'
+      - 'Include/noqeri/**'
+      - '.github/workflows/stage2-rebuild-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  cross-compiler-nqri:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build GCC and Clang Stage-0 compilers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-stage0-gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-stage0-gcc --target noqeri noqeri-nqri --parallel 2
+          cmake -S . -B build-stage0-clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-stage0-clang --target noqeri --parallel 2
+      - name: Generate and compare Stage-1 from independent compilers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-stage2-candidate
+          ./build-stage0-gcc/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-stage2-candidate/stage1-gcc.nqri
+          ./build-stage0-clang/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-stage2-candidate/stage1-clang.nqri
+          cmp build-stage2-candidate/stage1-gcc.nqri build-stage2-candidate/stage1-clang.nqri
+          ./build-stage0-gcc/noqeri-nqri has-export build-stage2-candidate/stage1-gcc.nqri stage2CompileToNqri
+          sha256sum build-stage2-candidate/stage1-*.nqri
+      - name: Compile Stage-2 and Stage-3 and demand byte equality
+        shell: bash
+        timeout-minutes: 14
+        run: |
+          set -euo pipefail
+          ./build-stage0-gcc/noqeri-nqri compile-manifest build-stage2-candidate/stage1-gcc.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-stage2-candidate/stage2.nqri 3
+          ./build-stage0-gcc/noqeri-nqri compile-manifest build-stage2-candidate/stage2.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-stage2-candidate/stage3.nqri 3
+          cmp build-stage2-candidate/stage2.nqri build-stage2-candidate/stage3.nqri
+          sha256sum build-stage2-candidate/stage*.nqri
+          echo 'NQRI Stage-2/Stage-3 byte-equality proof passed'
+      - name: Record reproducible candidate provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os
+          root=Path('build-stage2-candidate')
+          def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+          a=root/'stage1-gcc.nqri';b=root/'stage1-clang.nqri';c=root/'stage2.nqri';d=root/'stage3.nqri'
+          assert a.read_bytes()==b.read_bytes() and c.read_bytes()==d.read_bytes()
+          proof={'schema':1,'source_commit':os.environ['GITHUB_SHA'],
+             'stage1_sha256':sha(a),'stage1_bytes':a.stat().st_size,
+             'gcc_clang_stage1_byte_equal':True,
+             'stage2_sha256':sha(c),'stage3_sha256':sha(d),
+             'stage2_stage3_byte_equal':True,
+             'stage1_independently_trusted':False,
+             'native_codegen':False,'execution_model':'nqri-vm'}
+          (root/'proof.json').write_text(json.dumps(proof,indent=2)+'\n')
+          print(json.dumps(proof,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nqri-compiler-rebuild-provenance
+          path: |
+            build-stage2-candidate/stage1-gcc.nqri
+            build-stage2-candidate/proof.json
+          retention-days: 7
