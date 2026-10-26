@@ -12,6 +12,7 @@ int64_t nq_collection_new(int64_t kind);
 int64_t nq_collection_add(int64_t handle,int64_t key,int64_t value);
 int64_t nq_collection_get(int64_t handle,int64_t key,int64_t* output);
 int64_t nq_collection_set(int64_t handle,int64_t key,int64_t value);
+int64_t nq_collection_pop(int64_t handle,int64_t* output);
 int64_t nq_collection_size(int64_t handle);
 int64_t nq_collection_remove(int64_t handle,int64_t key);
 int64_t nq_collection_clear(int64_t handle);
@@ -24,6 +25,8 @@ int64_t nq_list_append(int64_t handle,int64_t value);
 int64_t nq_list_length(int64_t handle);
 int64_t nq_list_at(int64_t handle,int64_t index);
 int64_t nq_list_set(int64_t handle,int64_t index,int64_t value);
+int64_t nq_list_pop(int64_t handle);
+int64_t nq_list_clear(int64_t handle);
 int64_t nq_list_close(int64_t handle);
 #ifdef __cplusplus
 }

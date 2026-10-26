@@ -23,6 +23,8 @@ private:
         else if(ins.symbol==builtinListSymbol("nq_list_close"))dispatch="nq_list_close";
         else if(ins.symbol==builtinListSymbol("nq_list_at"))dispatch="nq_list_at";
         else if(ins.symbol==builtinListSymbol("nq_list_set"))dispatch="nq_list_set";
+        else if(ins.symbol==builtinListSymbol("nq_list_pop"))dispatch="nq_list_pop";
+        else if(ins.symbol==builtinListSymbol("nq_list_clear"))dispatch="nq_list_clear";
         if(dispatch=="nq_list_new"){
             if(nextGrowingIntList_==std::numeric_limits<std::int64_t>::max())
                 throw RuntimeError("growable list ID space exhausted");
@@ -30,11 +32,23 @@ private:
             growingIntLists_.emplace(id,std::vector<std::int64_t>{});
             return id;
         }
-        if(dispatch=="nq_list_append"||dispatch=="nq_list_length"||dispatch=="nq_list_close"||dispatch=="nq_list_at"||dispatch=="nq_list_set"){
+        if(dispatch=="nq_list_append"||dispatch=="nq_list_length"||dispatch=="nq_list_close"||dispatch=="nq_list_at"||dispatch=="nq_list_set"||dispatch=="nq_list_pop"||dispatch=="nq_list_clear"){
             if(args.empty())throw RuntimeError("growable list handle is missing");
             const auto id=asInt(args[0]);
             auto it=growingIntLists_.find(id);
             if(it==growingIntLists_.end())throw RuntimeError("invalid or released growable list");
+            if(dispatch=="nq_list_pop"){
+                if(args.size()!=1)throw RuntimeError("growable list pop accepts no arguments");
+                if(it->second.empty())throw RuntimeError("cannot pop an empty growable list");
+                const auto value=it->second.back();
+                it->second.pop_back();
+                return value;
+            }
+            if(dispatch=="nq_list_clear"){
+                if(args.size()!=1)throw RuntimeError("growable list clear accepts no arguments");
+                it->second.clear();
+                return std::int64_t{0};
+            }
             if(dispatch=="nq_list_set"){
                 if(args.size()!=3)throw RuntimeError("growable list set requires index and int");
                 const auto index=asInt(args[1]);

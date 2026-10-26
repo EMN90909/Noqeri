@@ -94,7 +94,7 @@ try {
   run(compilerPath, ['build', source, assembly, optimization])
   if (!existsSync(assembly) || statSync(assembly).size === 0) fail('Noqeri compiler did not emit assembly')
 
-  const needsCompilerListRuntime = /\bcall\s+nq_list_(?:new|append|length|close|at|set)\b/.test(readFileSync(assembly, 'utf8'))
+  const needsCompilerListRuntime = /\bcall\s+nq_list_(?:new|append|length|close|at|set|pop|clear)\b/.test(readFileSync(assembly, 'utf8'))
   const compilerListObject = resolve(temp, 'compiler-list-runtime.o')
   if (needsCompilerListRuntime && !linkOwnedCollections) {
     // A beginner's `let values = [5, 10]; values.append(15)` must not

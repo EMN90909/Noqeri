@@ -31,6 +31,12 @@ function verify(): int {
         evenTotal = evenTotal + entry
     }
     if evenTotal != 63 { return 7 }
+    if empty.pop() != 32 { return 9 }
+    if empty.length() != 1 as usize { return 10 }
+    empty.clear()
+    if empty.length() != 0 as usize { return 11 }
+    empty.append(77)
+    if empty[0] != 77 { return 12 }
     return 0
 }
 print(verify())

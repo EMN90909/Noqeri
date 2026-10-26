@@ -67,6 +67,8 @@ function nqLowerListSymbol(which: int): u64 {
     if which == 3 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,108 as u8,101 as u8,110 as u8,103 as u8,116 as u8,104 as u8]),0 as usize,14 as usize) }
     if which == 5 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,97 as u8,116 as u8]),0 as usize,10 as usize) }
     if which == 6 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,115 as u8,101 as u8,116 as u8]),0 as usize,11 as usize) }
+    if which == 7 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,112 as u8,111 as u8,112 as u8]),0 as usize,11 as usize) }
+    if which == 8 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,99 as u8,108 as u8,101 as u8,97 as u8,114 as u8]),0 as usize,13 as usize) }
     return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,99 as u8,108 as u8,111 as u8,115 as u8,101 as u8]),0 as usize,13 as usize)
 }
 function nqLowerListCall(instructions: []NqNirInstruction,state: *NqLowerState,which: int,left: isize,right: isize): isize {
@@ -587,6 +589,21 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
                 let value: isize = nqLowerExpressionInternal(source,nodes,node.right,instructions,state)
                 if value < 0 as isize { return value }
                 return nqLowerListCall(instructions,state,2,receiver,value)
+            }
+            let method: *NqAstNode = &nodes[callee.right as usize]
+            if method.end-method.start == 3 as usize &&
+               source[method.start] == 112 as u8 &&
+               source[method.start+1 as usize] == 111 as u8 &&
+               source[method.start+2 as usize] == 112 as u8 {
+                return nqLowerListCall(instructions,state,7,receiver,nqNirNoValue())
+            }
+            if method.end-method.start == 5 as usize &&
+               source[method.start] == 99 as u8 &&
+               source[method.start+1 as usize] == 108 as u8 &&
+               source[method.start+2 as usize] == 101 as u8 &&
+               source[method.start+3 as usize] == 97 as u8 &&
+               source[method.start+4 as usize] == 114 as u8 {
+                return nqLowerListCall(instructions,state,8,receiver,nqNirNoValue())
             }
             return nqLowerListCall(instructions,state,3,receiver,nqNirNoValue())
         }

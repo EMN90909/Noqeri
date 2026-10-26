@@ -190,3 +190,12 @@ with the same checked index bounds as `numbers[index]` reads. The runtime
 updates the element in place, without exposing a pointer that could become
 invalid when appending causes reallocation. Other element types, borrowing
 `&numbers[index]`, and safe copying or returning a list are not supported.
+
+## Owned list stack methods
+
+The contextually inferred `List<int>` also supports `.pop()` (returns
+and removes the last integer) and `.clear()` (releases all elements but
+retains the list handle). Popping an empty list is a checked runtime error,
+not a sentinel value. Full generic `List<T>`, recoverable typed
+out-of-bounds errors and guaranteed cleanup on every exceptional exit remain
+future work.

@@ -98,6 +98,16 @@ extern "C" int64_t nq_collection_remove(int64_t id,int64_t key) {
     if(c->kind==2)return c->map.erase(key)?0:-4;
     return c->set.erase(key)?0:-4;
 }
+extern "C" int64_t nq_collection_pop(int64_t id,int64_t* output) {
+    if(!output)return -1;
+    std::lock_guard<std::mutex> guard(mu);
+    auto* c=lookup(id);
+    if(!c||c->kind!=1)return -1;
+    if(c->list.empty())return -3;
+    *output=c->list.back();
+    c->list.pop_back();
+    return 0;
+}
 extern "C" int64_t nq_collection_clear(int64_t id) {
     std::lock_guard<std::mutex> guard(mu);
     auto* c=lookup(id);
@@ -153,4 +163,16 @@ extern "C" int64_t nq_list_set(int64_t handle,int64_t index,int64_t value) {
     const auto status=nq_collection_set(handle,index,value);
     if(status!=0)listRuntimeTrap("set",status);
     return value;
+}
+
+extern "C" int64_t nq_list_pop(int64_t handle) {
+    int64_t value=0;
+    const auto status=nq_collection_pop(handle,&value);
+    if(status!=0)listRuntimeTrap("pop",status);
+    return value;
+}
+extern "C" int64_t nq_list_clear(int64_t handle) {
+    const auto status=nq_collection_clear(handle);
+    if(status!=0)listRuntimeTrap("clear",status);
+    return 0;
 }

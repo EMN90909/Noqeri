@@ -96,6 +96,17 @@ jobs:
           node scripts/native-build.mjs tests/beginner_growable_try_cleanup.noqeri build-beginner-list/try-cleanup-native --compiler=build-beginner-list/noqeri
           test "$(./build-beginner-list/try-cleanup-native)" = "0"
 
+      - name: Empty pop rejects at runtime in reference, NQRI and native AOT
+        run: |
+          set -euo pipefail
+          ./build-beginner-list/noqeri check tests/beginner_growable_empty_pop.noqeri
+          if ./build-beginner-list/noqeri run tests/beginner_growable_empty_pop.noqeri; then echo "reference silently popped empty list"; exit 1; fi
+          ./build-beginner-list/noqeri nqri tests/beginner_growable_empty_pop.noqeri build-beginner-list/empty-pop.nqri
+          if ./build-beginner-list/noqeri-nqri build-beginner-list/empty-pop.nqri verify; then echo "NQRI silently popped empty list"; exit 1; fi
+          node scripts/native-build.mjs tests/beginner_growable_empty_pop.noqeri build-beginner-list/empty-pop-native --compiler=build-beginner-list/noqeri
+          ulimit -c 0
+          if ./build-beginner-list/empty-pop-native; then echo "native silently popped empty list"; exit 1; fi
+
       - name: Out-of-range growable index rejects at runtime in all three engines
         run: |
           set -euo pipefail

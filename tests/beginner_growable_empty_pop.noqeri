@@ -1,0 +1,8 @@
+// Pop from empty owned storage is a checked runtime error in every backend.
+function verify(): int {
+    let values = []
+    values.append(12)
+    values.clear()
+    return values.pop()
+}
+print(verify())

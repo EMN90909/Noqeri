@@ -537,9 +537,17 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
                     e->builtinText="length";
                     return simple(TypeKind::Usize);
                 }
+                if(member->member=="pop" && e->args.empty()){
+                    e->growableListMethod=true;e->builtinText="pop";
+                    return simple(TypeKind::Int);
+                }
+                if(member->member=="clear" && e->args.empty()){
+                    e->growableListMethod=true;e->builtinText="clear";
+                    return simple(TypeKind::Void);
+                }
                 diagnostics_.error("NQR-T3075",e->span,
                     "unknown growable list method '"+member->member+"'",
-                    "use .append(value) or .length(); indexing and iteration are not yet implemented");
+                    "use .append(value), .length(), .pop() or .clear()");
                 return simple(TypeKind::Unknown);
             }
         }

@@ -574,6 +574,22 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
                     node.typeCode = nqAstTypeUsize()
                     return nqSemanticOk()
                 }
+                if nqSemanticNameEqual(source,member,slice([112 as u8,111 as u8,112 as u8])) {
+                    if node.extra != 0 as isize { return nqSemanticFail(context,node,nqSemanticBadCall()) }
+                    if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 == 0 as u32 {
+                        node.flags = node.flags + nqAstFlagGrowableIntList()
+                    }
+                    node.typeCode = nqAstTypeInt()
+                    return nqSemanticOk()
+                }
+                if nqSemanticNameEqual(source,member,slice([99 as u8,108 as u8,101 as u8,97 as u8,114 as u8])) {
+                    if node.extra != 0 as isize { return nqSemanticFail(context,node,nqSemanticBadCall()) }
+                    if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 == 0 as u32 {
+                        node.flags = node.flags + nqAstFlagGrowableIntList()
+                    }
+                    node.typeCode = nqAstTypeVoid()
+                    return nqSemanticOk()
+                }
                 return nqSemanticFail(context,node,nqSemanticBadMember())
             }
         }

@@ -255,6 +255,10 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
             if(e->builtinText=="append"){
                 call.text="nq_list_append";
                 call.args={list,lowerExpr(fn,e->args.front())};
+            }else if(e->builtinText=="pop"){
+                call.text="nq_list_pop";call.args={list};
+            }else if(e->builtinText=="clear"){
+                call.text="nq_list_clear";call.args={list};
             }else{
                 call.text="nq_list_length";call.args={list};
             }
