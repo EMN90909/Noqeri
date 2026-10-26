@@ -425,11 +425,11 @@ ExprPtr Parser::call(){
         if(match({TokenKind::LBracket})){auto x=std::make_shared<IndexExpr>();x->object=e;x->index=expression();x->span=previous().span;consume(TokenKind::RBracket,"expected ']' after index");e=x;continue;}
         if(match({TokenKind::Dot})){const auto& m=consumeName("expected field name after '.'");auto x=std::make_shared<MemberExpr>();x->object=e;x->member=m.lexeme;x->span=m.span;e=x;continue;}
         if(match({TokenKind::Question})){
-            // Postfix integer-status propagation uses the exact same typed
-            // Try AST and lowering as the existing 'try expression' form.
+            // Postfix '?' selects integer-status Try or checked typed
+            // Result/Outcome propagation during semantic analysis.
             const auto suffix=previous();
             auto propagate=std::make_shared<UnaryExpr>();
-            propagate->op=TokenKind::Try;
+            propagate->op=TokenKind::Question;
             propagate->operand=e;
             propagate->span=suffix.span;
             e=propagate;

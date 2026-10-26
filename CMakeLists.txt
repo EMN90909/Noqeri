@@ -25,7 +25,7 @@ add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # Hosted, heap-backed int list/map/set ABI for ordinary Noqeri native AOT.
 # Opaque handles are validated; allocation is bounded and explicit close
 # releases ownership. Does not change freestanding bootstrap semantics.
-add_library(noqeri_owned_collections STATIC Runtime/native/owned_collections.cpp)
+add_library(noqeri_owned_collections STATIC Runtime/native/owned_collections.cpp Runtime/native/owned_value_list.cpp Runtime/native/owned_value_map.cpp)
 target_include_directories(noqeri_owned_collections PUBLIC
  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include/noqeri>
  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/noqeri>)
@@ -107,6 +107,9 @@ if(BUILD_TESTING)
  add_executable(noqeri-owned-collections-test tests/cpp/owned_collections_test.cpp)
  target_link_libraries(noqeri-owned-collections-test PRIVATE noqeri_owned_collections Threads::Threads)
  add_test(NAME noqeri-owned-collections COMMAND noqeri-owned-collections-test)
+ add_executable(noqeri-owned-value-list-test tests/cpp/owned_value_list_test.cpp)
+ target_link_libraries(noqeri-owned-value-list-test PRIVATE noqeri_owned_collections Threads::Threads)
+ add_test(NAME noqeri-owned-value-list COMMAND noqeri-owned-value-list-test)
 endif()
 function(noqeri_apply_warnings target)
  if(MSVC)

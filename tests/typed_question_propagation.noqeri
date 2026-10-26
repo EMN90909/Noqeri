@@ -1,0 +1,24 @@
+import "../Lib/std/result.noqeri"
+function verified(source: *Result<int>): *Result<int> {
+    let number = source?
+    if number != 42 { return source }
+    return source
+}
+function twice(source: *Result<int>): *Result<int> {
+    let number = verified(source)?
+    if number == 42 { return source }
+    return source
+}
+function run(): int {
+    let r: Result<int>
+    result_init_ok(&r,42)
+    let first: *Result<int> = twice(&r)
+    if !result_is_ok(first) { return 1 }
+    if result_value_or(first,-1) != 42 { return 2 }
+    result_init_error(&r,-1,-75 as isize)
+    let failed: *Result<int> = twice(&r)
+    if result_is_ok(failed) { return 3 }
+    if result_error_or(failed,0 as isize) != -75 as isize { return 4 }
+    return 0
+}
+print(run())
