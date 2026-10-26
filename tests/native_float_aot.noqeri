@@ -1,0 +1,15 @@
+// SSE2 native-AOT float arithmetic and comparison smoke.
+// Array-backed input is read through memory so runtime SSE operations execute.
+function test(): int {
+    let data: [float; 2] = [1.5, 2.0]
+    let a: float = data[0]
+    let b: float = data[1]
+    let c: float = a * b + 0.25
+    if c != 3.25 { return 1 }
+    if a >= b { return 2 }
+    if !(b > a) { return 3 }
+    if a / b != 0.75 { return 4 }
+    if -a != -1.5 { return 5 }
+    return 0
+}
+print(test())

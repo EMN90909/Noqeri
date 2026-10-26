@@ -509,7 +509,13 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         }
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
-        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";else{diagnostics.error("NQR-N5001",{},"float native code generation is not implemented yet");return false;}store(*i.dest,"rax");break;}
+        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(auto v=std::get_if<double>(&i.literal)){
+            std::uint64_t bits=0;
+            static_assert(sizeof(bits)==sizeof(*v),"native f64 requires 64-bit IEEE storage");
+            std::memcpy(&bits,v,sizeof(bits));
+            out<<"    mov rax, 0x"<<std::hex<<bits<<std::dec<<"\n";
+        }else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";
+        else{diagnostics.error("NQR-N5001",{},"unsupported native literal");return false;}store(*i.dest,"rax");break;}
         case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
@@ -593,8 +599,45 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::Try:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");auto ok=localLabel(fn,pc,"try_ok");out<<"    test rax, rax\n    jns "<<ok<<"\n";restoreSaved();out<<"    leave\n    ret\n"<<ok<<":\n";store(*i.dest,"rax");}break;
         case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n";restoreSaved();out<<"    leave\n    ret\n";}break;
         case NirOp::Cast:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitCast(out,i.text);store(*i.dest,"rax");}break;
-        case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-"){out<<"    neg rax\n";normalizeIntegerResult(out,i.type.kind);}else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;
-        case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float native arithmetic is not implemented yet");return false;}if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}const auto operandKind=i.args[0]<fn.registerTypes.size()?
+        case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-"){if(i.type.kind==TypeKind::Float){
+            out<<"    mov r10, 0x8000000000000000\n    xor rax, r10\n";
+        }else{out<<"    neg rax\n";normalizeIntegerResult(out,i.type.kind);}}else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;
+        case NirOp::Binary:{if(!i.dest||i.args.size()!=2)break;auto a=i.args[0]<l.regKinds.size()?l.regKinds[i.args[0]]:ValueKind::Unknown,b=i.args[1]<l.regKinds.size()?l.regKinds[i.args[1]]:ValueKind::Unknown;if(a==ValueKind::Float||b==ValueKind::Float){
+            // Spill registers carry raw IEEE-754 bits. SSE2 is baseline for
+            // the qualified x86-64 native-AOT target. No implicit float->int
+            // reinterpretation or call-ABI changes are introduced.
+            if(a!=ValueKind::Float||b!=ValueKind::Float){
+                diagnostics.error("NQR-N5001",{},"mixed float operands must be explicitly cast");
+                return false;
+            }
+            load(i.args[0],"rax");
+            load(i.args[1],"r10");
+            out<<"    movq xmm0, rax\n    movq xmm1, r10\n";
+            if(i.text=="+"||i.text=="-"||i.text=="*"||i.text=="/"){
+                if(i.text=="+")out<<"    addsd xmm0, xmm1\n";
+                else if(i.text=="-")out<<"    subsd xmm0, xmm1\n";
+                else if(i.text=="*")out<<"    mulsd xmm0, xmm1\n";
+                else out<<"    divsd xmm0, xmm1\n";
+                out<<"    movq rax, xmm0\n";
+            }else if(i.text=="=="||i.text=="!="||i.text=="<"||
+                     i.text=="<="||i.text==">"||i.text==">="){
+                // UCOMISD sets PF for NaN. Ordered operations must reject
+                // unordered comparisons; != is true for NaN.
+                out<<"    ucomisd xmm0, xmm1\n";
+                if(i.text=="==")out<<"    sete al\n    setnp dl\n    and al, dl\n";
+                else if(i.text=="!=")out<<"    setne al\n    setp dl\n    or al, dl\n";
+                else if(i.text=="<")out<<"    setb al\n    setnp dl\n    and al, dl\n";
+                else if(i.text=="<=")out<<"    setbe al\n    setnp dl\n    and al, dl\n";
+                else if(i.text==">")out<<"    seta al\n";
+                else out<<"    setae al\n";
+                out<<"    movzx rax, al\n";
+            }else{
+                diagnostics.error("NQR-N5001",{},"unsupported native floating-point operator");
+                return false;
+            }
+            store(*i.dest,"rax");
+            break;
+        }if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}const auto operandKind=i.args[0]<fn.registerTypes.size()?
             fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
         const bool unsign=isUnsigned(operandKind)||
             (i.args[1]<fn.registerTypes.size()&&

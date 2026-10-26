@@ -5,6 +5,8 @@ on:
     paths:
       - 'Include/noqeri/ai_framework_c.h'
       - 'Runtime/native/ai_framework_c.cpp'
+      - 'Compiler/native_backend.cpp'
+      - 'tests/native_float_aot.noqeri'
       - 'Lib/ai/native.noqeri'
       - 'tests/cpp/ai_framework_c_test.cpp'
       - 'examples/simplicity/ai_native_gemm.noqeri'
@@ -38,6 +40,13 @@ jobs:
         run: ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-ai-framework-c$'
       - name: Typecheck ordinary Noqeri native ABI module and application
         run: ./build-ai-ffi/noqeri check examples/simplicity/ai_native_gemm.noqeri --unsafe
+      - name: Run SSE2 float arithmetic AOT regression
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs tests/native_float_aot.noqeri build-ai-ffi/native-float --compiler=build-ai-ffi/noqeri
+          result=$(./build-ai-ffi/native-float)
+          echo "Native float arithmetic: $result"
+          test "$result" = "0"
       - name: Build and run Noqeri AOT app calling native C++ tensor SDK
         run: |
           set -euo pipefail
