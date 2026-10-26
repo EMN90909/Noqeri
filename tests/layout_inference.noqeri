@@ -1,0 +1,17 @@
+// Compiler-owned layout helpers must be typed constants without evaluating args.
+record Item {
+    byte: u8
+    count: i64
+}
+function verify(): int {
+    let b: u8 = 0 as u8
+    if sizeOf(b) != 1 as usize { return 1 }
+    if alignOf(b) != 1 as usize { return 2 }
+    let n: int = 0
+    if sizeOf(n) != 8 as usize { return 3 }
+    let recordValue: Item
+    if sizeOf(recordValue) != 16 as usize { return 4 }
+    if alignOf(recordValue) != 8 as usize { return 5 }
+    return 0
+}
+print(verify())

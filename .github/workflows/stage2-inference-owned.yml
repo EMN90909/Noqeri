@@ -31,7 +31,7 @@ jobs:
       - name: Configure and build
         run: |
           cmake -S . -B build-owned -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
-          cmake --build build-owned --target noqeri noqeri-nqri noqeri_owned_collections noqeri-owned-collections-test --parallel 2
+          cmake --build build-owned --target noqeri noqeri-nqri noqeri_owned_collections noqeri-owned-collections-test noqeri-owned-value-list-test --parallel 2
       - name: Type-check self-hosted compiler closure
         run: ./build-owned/noqeri check Compiler/selfhost/main.noqeri --unsafe
       - name: Execute self-hosted inference semantic checks
@@ -62,6 +62,25 @@ jobs:
           ./build-owned/noqeri check tests/owned_collections_native.noqeri --unsafe
           node scripts/native-build.mjs tests/owned_collections_native.noqeri build-owned/owned-app --compiler=build-owned/noqeri --owned-collections --owned-collections-lib=build-owned/libnoqeri_owned_collections.a
           ./build-owned/owned-app | grep -Fx 0
+      - name: Qualify generic Copy lists, alignment and clone-drop runtime
+        run: |
+          ctest --test-dir build-owned -R '^noqeri-owned-value-list$' --output-on-failure
+          ./build-owned/noqeri check tests/owned_generic_native.noqeri --unsafe
+          node scripts/native-build.mjs tests/owned_generic_native.noqeri build-owned/generic-app --compiler=build-owned/noqeri --owned-collections --owned-collections-lib=build-owned/libnoqeri_owned_collections.a
+          ./build-owned/generic-app | grep -Fx 0
+          ./build-owned/noqeri run tests/layout_inference.noqeri | grep -Fx 0
+      - name: Exercise typed postfix question propagation in interpreter and native AOT
+        run: |
+          ./build-owned/noqeri check tests/typed_question_propagation.noqeri --unsafe
+          ./build-owned/noqeri run tests/typed_question_propagation.noqeri --unsafe | grep -Fx 0
+          node scripts/native-build.mjs tests/typed_question_propagation.noqeri build-owned/question-app --compiler=build-owned/noqeri
+          ./build-owned/question-app | grep -Fx 0
+          for bad in tests/typed_question_invalid_nonresult.noqeri tests/typed_question_invalid_return.noqeri; do
+            if ./build-owned/noqeri check "$bad" --unsafe; then
+              echo "invalid typed '?' was accepted: $bad"
+              exit 1
+            fi
+          done
       - name: Validate aggregate string data and typed error fields
         run: |
           ./build-owned/noqeri check tests/interpreter_string_fields.noqeri --unsafe

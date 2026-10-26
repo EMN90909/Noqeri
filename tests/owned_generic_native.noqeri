@@ -1,0 +1,55 @@
+import "../Lib/std/owned_generic.noqeri"
+function verify(): int {
+    let list: OwnedList<int>
+    if owned_generic_list_open(0,&list) <= 0 as isize { return 1 }
+    let i: int = 0
+    while i < 2048 {
+        if owned_generic_list_append(&list,i) < 0 as isize { return 2 }
+        i = i + 1
+    }
+    if owned_generic_list_size(&list) != 2048 as isize { return 3 }
+    let item: Outcome<int>
+    owned_generic_list_get(&list,2047 as isize,-1,&item)
+    if !outcome_is_ok(&item) || outcome_value_or(&item,-1) != 2047 { return 4 }
+    owned_generic_list_get(&list,2048 as isize,-1,&item)
+    if !outcome_is_error(&item) || outcome_error_code(&item) != -3 as isize { return 5 }
+    if owned_generic_list_remove(&list,0 as isize) < 0 as isize { return 6 }
+    owned_generic_list_get(&list,0 as isize,-1,&item)
+    if outcome_value_or(&item,-1) != 1 { return 7 }
+    if owned_generic_list_close(&list) < 0 as isize { return 8 }
+    if owned_generic_list_append(&list,1) >= 0 as isize { return 9 }
+    let small: OwnedList<u8>
+    if owned_generic_list_open(0 as u8,&small) <= 0 as isize { return 10 }
+    if owned_generic_list_append(&small,255 as u8) < 0 as isize { return 11 }
+    let out: Outcome<u8>
+    owned_generic_list_get(&small,0 as isize,0 as u8,&out)
+    if !outcome_is_ok(&out) || outcome_value_or(&out,0 as u8) != 255 as u8 { return 12 }
+    if owned_generic_list_close(&small) < 0 as isize { return 13 }
+
+    let map: OwnedMap<u8,int>
+    if owned_generic_map_open(0 as u8,0,&map) <= 0 as isize { return 14 }
+    if owned_generic_map_put(&map,3 as u8,77) < 0 as isize { return 15 }
+    let value: Outcome<int>
+    owned_generic_map_get(&map,3 as u8,-1,&value)
+    if !outcome_is_ok(&value) || outcome_value_or(&value,-1) != 77 { return 16 }
+    owned_generic_map_get(&map,4 as u8,-1,&value)
+    if !outcome_is_error(&value) || outcome_error_code(&value) != -4 as isize { return 17 }
+    if owned_generic_map_put(&map,3 as u8,88) < 0 as isize { return 18 }
+    if owned_generic_map_size(&map) != 1 as isize { return 19 }
+    if owned_generic_map_remove(&map,3 as u8) < 0 as isize { return 20 }
+    if owned_generic_map_close(&map) < 0 as isize { return 21 }
+
+    let set: OwnedSet<i64>
+    if owned_generic_set_open(0 as i64,&set) <= 0 as isize { return 22 }
+    if owned_generic_set_add(&set,42 as i64) < 0 as isize { return 23 }
+    if owned_generic_set_add(&set,42 as i64) < 0 as isize { return 24 }
+    if owned_generic_set_size(&set) != 1 as isize { return 25 }
+    let present: Outcome<bool>
+    owned_generic_set_has(&set,42 as i64,&present)
+    if !outcome_is_ok(&present) || !outcome_value_or(&present,false) { return 26 }
+    owned_generic_set_has(&set,41 as i64,&present)
+    if !outcome_is_ok(&present) || outcome_value_or(&present,true) { return 27 }
+    if owned_generic_set_close(&set) < 0 as isize { return 28 }
+    return 0
+}
+print(verify())

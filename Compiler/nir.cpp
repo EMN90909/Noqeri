@@ -99,6 +99,28 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
         if(e->op==TokenKind::Ampersand)return lowerAddress(fn,e->operand);
         if(e->op==TokenKind::Star){Reg a=lowerExpr(fn,e->operand);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={a};emit(fn,check);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->memoryWidth;i.isVolatile=e->volatileAccess;i.type=e->memoryType;emit(fn,i);return*i.dest;}
+        if(e->op==TokenKind::Question){
+            // The operand is a borrowed pointer to an Outcome/Result record.
+            // Evaluate once, check the ok byte, early-return the same pointer
+            // on failure, or load the typed scalar value on success.
+            const Reg base=lowerExpr(fn,e->operand);
+            NirInstruction nonnull;nonnull.op=NirOp::CheckNonNull;nonnull.args={base};emit(fn,nonnull);
+            NirInstruction flagPtr;flagPtr.op=NirOp::PtrOffset;flagPtr.dest=fn.nextReg++;
+            flagPtr.args={base};flagPtr.target=e->tryOkOffset;flagPtr.width=1;emit(fn,flagPtr);
+            NirInstruction flag;flag.op=NirOp::LoadMemory;flag.dest=fn.nextReg++;
+            flag.args={*flagPtr.dest};flag.width=1;emit(fn,flag);
+            NirInstruction bad;bad.op=NirOp::JumpIfFalse;bad.args={*flag.dest};
+            const auto badIndex=fn.code.size();emit(fn,bad);
+            NirInstruction valPtr;valPtr.op=NirOp::PtrOffset;valPtr.dest=fn.nextReg++;
+            valPtr.args={base};valPtr.target=e->tryValueOffset;valPtr.width=1;emit(fn,valPtr);
+            NirInstruction load;load.op=NirOp::LoadMemory;load.dest=fn.nextReg++;
+            load.args={*valPtr.dest};load.width=e->tryValueWidth;emit(fn,load);
+            NirInstruction skip;skip.op=NirOp::Jump;const auto skipIndex=fn.code.size();emit(fn,skip);
+            fn.code[badIndex].target=fn.code.size();
+            NirInstruction propagate;propagate.op=NirOp::Return;propagate.args={base};emit(fn,propagate);
+            fn.code[skipIndex].target=fn.code.size();
+            return *load.dest;
+        }
         if(e->op==TokenKind::Try){Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Try;i.dest=fn.nextReg++;i.args={a};emit(fn,i);return*i.dest;}
         Reg a=lowerExpr(fn,e->operand);NirInstruction i;i.op=NirOp::Unary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={a};emit(fn,i);return*i.dest;
     }
@@ -120,6 +142,11 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
         std::string name=calleeName(e->callee);
+        if(name=="sizeOf"||name=="alignOf"){
+            NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;
+            i.literal=static_cast<std::int64_t>(e->builtinCount);
+            emit(fn,i);return *i.dest;
+        }
         if(name=="len"){
             if(e->builtinCountKnown){NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;i.literal=static_cast<std::int64_t>(e->builtinCount);emit(fn,i);return*i.dest;}
             Reg slice=lowerExpr(fn,e->args[0]);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={slice};emit(fn,check);NirInstruction i;i.op=NirOp::SliceLen;i.dest=fn.nextReg++;i.args={slice};emit(fn,i);return*i.dest;

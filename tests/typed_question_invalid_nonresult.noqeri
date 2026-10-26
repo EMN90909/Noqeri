@@ -1,0 +1,5 @@
+import "../Lib/std/result.noqeri"
+function invalid(status: bool): bool {
+    let value = status?
+    return value
+}

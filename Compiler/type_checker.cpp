@@ -349,6 +349,39 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<NameExpr>(expr)){auto t=resolve(e->name);if(t){e->aggregateStorage=t->kind==TypeKind::Array||t->kind==TypeKind::Record||t->kind==TypeKind::Slice;return*t;}if(functions_.count(e->name)||e->name=="host"||e->name=="abi")return simple(TypeKind::Unknown);diagnostics_.error("NOE-T3002",e->span,"unknown symbol '"+e->name+"'");return simple(TypeKind::Unknown);}
     if(auto e=std::dynamic_pointer_cast<UnaryExpr>(expr)){
         Type t=checkExpr(e->operand);
+        if(e->op==TokenKind::Question&&t.isInteger())e->op=TokenKind::Try;
+        if(e->op==TokenKind::Question){
+            const bool sameReturn=insideFunction_&&currentReturn_==t;
+            const bool recordPointer=t.kind==TypeKind::Pointer&&t.pointee&&
+                t.pointee->kind==TypeKind::Record;
+            const bool isResult=recordPointer&&(
+                t.pointee->recordName.rfind("Result__nqg__",0)==0||
+                t.pointee->recordName.rfind("Outcome__nqg__",0)==0);
+            if(!isResult||!sameReturn){
+                diagnostics_.error("NQR-T3067",e->span,
+                    "typed '?' requires a pointer to Result<T> or Outcome<T> and a matching function return type",
+                    "write function process(input: *Result<int>): *Result<int> { let value = input?; return input }");
+                return simple(TypeKind::Unknown);
+            }
+            const auto ok=resolveField(t,"ok"), value=resolveField(t,"value");
+            if(!ok||!value||ok->size!=1||value->size==0||value->size>8){
+                diagnostics_.error("NQR-T3068",e->span,
+                    "typed '?' requires a scalar value and a bool ok field",
+                    "use a Result or Outcome with an int, bool or pointer value; aggregate values need explicit handling");
+                return simple(TypeKind::Unknown);
+            }
+            const Type payload=resolveType(value->typeName,e->span);
+            if(!(payload.isInteger()||payload.kind==TypeKind::Bool||payload.kind==TypeKind::Pointer)){
+                diagnostics_.error("NQR-T3068",e->span,
+                    "typed '?' does not yet lower this value type safely",
+                    "use a Result containing a scalar integer, bool or pointer");
+                return simple(TypeKind::Unknown);
+            }
+            e->tryOkOffset=ok->offset;
+            e->tryValueOffset=value->offset;
+            e->tryValueWidth=value->size;
+            return payload;
+        }
         if(e->op==TokenKind::Try){if(!insideFunction_)diagnostics_.error("NOE-T3036",e->span,"try is only valid inside a function");if(!t.isInteger()&&t.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3037",e->span,"try expects an integer status value");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3038",e->span,"try propagation requires an integer-returning function");return t;}
         if(e->op==TokenKind::Ampersand){bool lvalue=std::dynamic_pointer_cast<NameExpr>(e->operand)||std::dynamic_pointer_cast<MemberExpr>(e->operand)||std::dynamic_pointer_cast<IndexExpr>(e->operand);if(auto u=std::dynamic_pointer_cast<UnaryExpr>(e->operand))lvalue=u->op==TokenKind::Star;if(!lvalue)diagnostics_.error("NOE-T3022",e->span,"address-of requires an addressable value");Type p;p.kind=TypeKind::Pointer;p.pointee=std::make_shared<Type>(t);return p;}
         if(e->op==TokenKind::Star){if(t.kind!=TypeKind::Pointer||!t.pointee){diagnostics_.error("NOE-T3023",e->span,"dereference requires a pointer");return simple(TypeKind::Unknown);}e->memoryWidth=std::max<std::size_t>(1,t.pointee->size());e->volatileAccess=t.isVolatile;e->memoryType=*t.pointee;return e->memoryType;}
@@ -393,6 +426,23 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
         std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
         if(name=="host"||name=="abi"){if(e->args.empty()){diagnostics_.error("NOE-T3015",e->span,name+" requires a service name");return simple(TypeKind::Unknown);}Type service=checkExpr(e->args[0]);if(service.kind!=TypeKind::String&&service.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3016",e->args[0]->span,"service name must be a string");for(std::size_t i=1;i<e->args.size();++i)checkExpr(e->args[i]);return simple(TypeKind::Unknown);}
+        if(name=="sizeOf"||name=="alignOf"){
+            if(e->args.size()!=1){
+                diagnostics_.error("NQR-T3065",e->span,name+" expects one typed value","write sizeOf(value) or alignOf(value)");
+                return simple(TypeKind::Usize);
+            }
+            Type t=checkExpr(e->args[0]);
+            if(t.kind==TypeKind::Unknown||t.kind==TypeKind::Void||t.kind==TypeKind::Generic||
+               t.kind==TypeKind::Null||t.size()==0){
+                diagnostics_.error("NQR-T3066",e->args[0]->span,
+                    "cannot determine the layout of "+t.name(),
+                    "supply a concrete initialized value (generics specialize before layout)");
+            } else {
+                e->builtinCount=name=="sizeOf"?t.size():t.alignment();
+                e->builtinCountKnown=true;
+            }
+            return simple(TypeKind::Usize);
+        }
         if(name=="len"){
             if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array or slice");return simple(TypeKind::Usize);
         }

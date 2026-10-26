@@ -1,0 +1,147 @@
+module noqeri.std.owned_generic
+import "result.noqeri"
+
+// Generic, dynamically growing, native-owned Copy-value list.
+// The host owns element storage and grows it; the caller must close once.
+// T: Copy means the stored value itself is a trivial value. Raw pointers
+// and strings are borrowed pointers: pointee lifetimes remain the caller's.
+extern function nq_value_list_new_copy(width: usize, alignment: usize): isize
+extern function nq_value_list_append(handle: isize, value: *u8): isize
+extern function nq_value_list_get(handle: isize, index: isize, destination: *u8): isize
+extern function nq_value_list_remove(handle: isize, index: isize): isize
+extern function nq_value_list_size(handle: isize): isize
+extern function nq_value_list_clear(handle: isize): isize
+extern function nq_value_list_close(handle: isize): isize
+
+record OwnedList<T> {
+    handle: isize
+}
+
+export function owned_generic_list_open<T: Copy>(example: T, list: *OwnedList<T>): isize {
+    if list == null { return -5 as isize }
+    unsafe { list.handle = 0 as isize }
+    let id: isize = nq_value_list_new_copy(sizeOf(example),alignOf(example))
+    if id > 0 as isize { unsafe { list.handle = id } }
+    return id
+}
+
+export function owned_generic_list_append<T: Copy>(list: *OwnedList<T>, value: T): isize {
+    if list == null { return -5 as isize }
+    unsafe { return nq_value_list_append(list.handle,(&value) as *u8) }
+}
+export function owned_generic_list_size<T>(list: *OwnedList<T>): isize {
+    if list == null { return -5 as isize }
+    unsafe { return nq_value_list_size(list.handle) }
+}
+export function owned_generic_list_remove<T>(list: *OwnedList<T>, index: isize): isize {
+    if list == null { return -5 as isize }
+    unsafe { return nq_value_list_remove(list.handle,index) }
+}
+export function owned_generic_list_clear<T>(list: *OwnedList<T>): isize {
+    if list == null { return -5 as isize }
+    unsafe { return nq_value_list_clear(list.handle) }
+}
+export function owned_generic_list_close<T>(list: *OwnedList<T>): isize {
+    if list == null { return -5 as isize }
+    unsafe {
+        let status: isize = nq_value_list_close(list.handle)
+        if status >= 0 as isize { list.handle = 0 as isize }
+        return status
+    }
+}
+export function owned_generic_list_get<T: Copy>(list: *OwnedList<T>, index: isize, fallback: T, out: *Outcome<T>): void {
+    if out == null { return }
+    let value: T = fallback
+    let status: isize = -5 as isize
+    if list != null { unsafe { status = nq_value_list_get(list.handle,index,(&value) as *u8) } }
+    if status < 0 as isize { outcome_init_error(out,fallback,status,"collections","owned generic list element unavailable") }
+    else { outcome_init_ok(out,value) }
+}
+
+// Copy-value map and set. Integer keys avoid unsound structural byte
+// equality for records, borrowed strings, floating NaNs and padding.
+extern function nq_value_map_new_copy(keyWidth: usize, keyAlignment: usize, valueWidth: usize, valueAlignment: usize): isize
+extern function nq_value_map_put(handle: isize, key: *u8, value: *u8): isize
+extern function nq_value_map_get(handle: isize, key: *u8, value: *u8): isize
+extern function nq_value_map_remove(handle: isize, key: *u8): isize
+extern function nq_value_map_size(handle: isize): isize
+extern function nq_value_map_close(handle: isize): isize
+extern function nq_value_set_new_copy(width: usize, alignment: usize): isize
+extern function nq_value_set_add(handle: isize, value: *u8): isize
+extern function nq_value_set_has(handle: isize, value: *u8): isize
+extern function nq_value_set_remove(handle: isize, value: *u8): isize
+extern function nq_value_set_size(handle: isize): isize
+extern function nq_value_set_close(handle: isize): isize
+
+record OwnedMap<K,V> { handle: isize }
+record OwnedSet<T> { handle: isize }
+
+export function owned_generic_map_open<K: Integer,V: Copy>(key: K, value: V, out: *OwnedMap<K,V>): isize {
+    if out == null { return -5 as isize }
+    unsafe { out.handle = 0 as isize }
+    let id: isize = nq_value_map_new_copy(sizeOf(key),alignOf(key),sizeOf(value),alignOf(value))
+    if id > 0 as isize { unsafe { out.handle = id } }
+    return id
+}
+export function owned_generic_map_put<K: Integer,V: Copy>(map: *OwnedMap<K,V>, key: K, value: V): isize {
+    if map == null { return -5 as isize }
+    unsafe { return nq_value_map_put(map.handle,(&key) as *u8,(&value) as *u8) }
+}
+export function owned_generic_map_get<K: Integer,V: Copy>(map: *OwnedMap<K,V>, key: K, fallback: V, out: *Outcome<V>): void {
+    if out == null { return }
+    let value: V = fallback
+    let status: isize = -5 as isize
+    if map != null { unsafe { status = nq_value_map_get(map.handle,(&key) as *u8,(&value) as *u8) } }
+    if status < 0 as isize { outcome_init_error(out,fallback,status,"collections","map key unavailable") }
+    else { outcome_init_ok(out,value) }
+}
+export function owned_generic_map_remove<K: Integer,V>(map: *OwnedMap<K,V>, key: K): isize {
+    if map == null { return -5 as isize }
+    unsafe { return nq_value_map_remove(map.handle,(&key) as *u8) }
+}
+export function owned_generic_map_size<K,V>(map: *OwnedMap<K,V>): isize {
+    if map == null { return -5 as isize }
+    unsafe { return nq_value_map_size(map.handle) }
+}
+export function owned_generic_map_close<K,V>(map: *OwnedMap<K,V>): isize {
+    if map == null { return -5 as isize }
+    unsafe {
+        let status: isize = nq_value_map_close(map.handle)
+        if status >= 0 as isize { map.handle = 0 as isize }
+        return status
+    }
+}
+export function owned_generic_set_open<T: Integer>(sample: T, out: *OwnedSet<T>): isize {
+    if out == null { return -5 as isize }
+    unsafe { out.handle = 0 as isize }
+    let id: isize = nq_value_set_new_copy(sizeOf(sample),alignOf(sample))
+    if id > 0 as isize { unsafe { out.handle = id } }
+    return id
+}
+export function owned_generic_set_add<T: Integer>(set: *OwnedSet<T>, value: T): isize {
+    if set == null { return -5 as isize }
+    unsafe { return nq_value_set_add(set.handle,(&value) as *u8) }
+}
+export function owned_generic_set_has<T: Integer>(set: *OwnedSet<T>, value: T, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = -5 as isize
+    if set != null { unsafe { status = nq_value_set_has(set.handle,(&value) as *u8) } }
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","set membership failed") }
+    else { outcome_init_ok(out,status == 1 as isize) }
+}
+export function owned_generic_set_remove<T: Integer>(set: *OwnedSet<T>, value: T): isize {
+    if set == null { return -5 as isize }
+    unsafe { return nq_value_set_remove(set.handle,(&value) as *u8) }
+}
+export function owned_generic_set_size<T>(set: *OwnedSet<T>): isize {
+    if set == null { return -5 as isize }
+    unsafe { return nq_value_set_size(set.handle) }
+}
+export function owned_generic_set_close<T>(set: *OwnedSet<T>): isize {
+    if set == null { return -5 as isize }
+    unsafe {
+        let status: isize = nq_value_set_close(set.handle)
+        if status >= 0 as isize { set.handle = 0 as isize }
+        return status
+    }
+}
