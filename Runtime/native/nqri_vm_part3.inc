@@ -22,6 +22,7 @@ private:
         else if(ins.symbol==builtinListSymbol("nq_list_length"))dispatch="nq_list_length";
         else if(ins.symbol==builtinListSymbol("nq_list_close"))dispatch="nq_list_close";
         else if(ins.symbol==builtinListSymbol("nq_list_at"))dispatch="nq_list_at";
+        else if(ins.symbol==builtinListSymbol("nq_list_set"))dispatch="nq_list_set";
         if(dispatch=="nq_list_new"){
             if(nextGrowingIntList_==std::numeric_limits<std::int64_t>::max())
                 throw RuntimeError("growable list ID space exhausted");
@@ -29,11 +30,20 @@ private:
             growingIntLists_.emplace(id,std::vector<std::int64_t>{});
             return id;
         }
-        if(dispatch=="nq_list_append"||dispatch=="nq_list_length"||dispatch=="nq_list_close"||dispatch=="nq_list_at"){
+        if(dispatch=="nq_list_append"||dispatch=="nq_list_length"||dispatch=="nq_list_close"||dispatch=="nq_list_at"||dispatch=="nq_list_set"){
             if(args.empty())throw RuntimeError("growable list handle is missing");
             const auto id=asInt(args[0]);
             auto it=growingIntLists_.find(id);
             if(it==growingIntLists_.end())throw RuntimeError("invalid or released growable list");
+            if(dispatch=="nq_list_set"){
+                if(args.size()!=3)throw RuntimeError("growable list set requires index and int");
+                const auto index=asInt(args[1]);
+                if(index<0 || static_cast<std::uint64_t>(index)>=it->second.size())
+                    throw RuntimeError("growable list assignment out of bounds");
+                const auto value=asInt(args[2]);
+                it->second[static_cast<std::size_t>(index)]=value;
+                return value;
+            }
             if(dispatch=="nq_list_at"){
                 if(args.size()!=2)throw RuntimeError("growable list index requires one integer");
                 const auto index=asInt(args[1]);

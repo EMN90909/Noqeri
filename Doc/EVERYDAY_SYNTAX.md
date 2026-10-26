@@ -182,3 +182,11 @@ or borrowed by address. The compiler closes them on ordinary lexical exits
 and tested integer-status early propagation; it is **not** a fully general
 owned/generic collection with guaranteed cleanup on every exceptional exit.
 [Stage-0/Stage-2/NQRI/native differential gate](https://github.com/EMN90909/Noqeri/actions/runs/40413683668).
+
+## Owned integer-list indexed mutation (experimental)
+
+A contextually inferred owned `List<int>` supports `numbers[index] = value`
+with the same checked index bounds as `numbers[index]` reads. The runtime
+updates the element in place, without exposing a pointer that could become
+invalid when appending causes reallocation. Other element types, borrowing
+`&numbers[index]`, and safe copying or returning a list are not supported.

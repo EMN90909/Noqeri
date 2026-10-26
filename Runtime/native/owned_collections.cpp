@@ -74,6 +74,14 @@ extern "C" int64_t nq_collection_get(int64_t id,int64_t key,int64_t* output) {
     }
     return 0;
 }
+extern "C" int64_t nq_collection_set(int64_t id,int64_t index,int64_t value) {
+    std::lock_guard<std::mutex> guard(mu);
+    auto* c=lookup(id);
+    if(!c||c->kind!=1)return -1;
+    if(index<0||static_cast<std::uint64_t>(index)>=c->list.size())return -3;
+    c->list[static_cast<std::size_t>(index)]=value;
+    return 0;
+}
 extern "C" int64_t nq_collection_size(int64_t id) {
     std::lock_guard<std::mutex> guard(mu);
     const auto* c=lookup(id);
@@ -138,5 +146,11 @@ extern "C" int64_t nq_list_at(int64_t handle,int64_t index) {
     int64_t value=0;
     const auto status=nq_collection_get(handle,index,&value);
     if(status!=0)listRuntimeTrap("index",status);
+    return value;
+}
+
+extern "C" int64_t nq_list_set(int64_t handle,int64_t index,int64_t value) {
+    const auto status=nq_collection_set(handle,index,value);
+    if(status!=0)listRuntimeTrap("set",status);
     return value;
 }

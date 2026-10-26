@@ -66,6 +66,7 @@ function nqLowerListSymbol(which: int): u64 {
     if which == 2 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8]),0 as usize,14 as usize) }
     if which == 3 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,108 as u8,101 as u8,110 as u8,103 as u8,116 as u8,104 as u8]),0 as usize,14 as usize) }
     if which == 5 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,97 as u8,116 as u8]),0 as usize,10 as usize) }
+    if which == 6 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,115 as u8,101 as u8,116 as u8]),0 as usize,11 as usize) }
     return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,99 as u8,108 as u8,111 as u8,115 as u8,101 as u8]),0 as usize,13 as usize)
 }
 function nqLowerListCall(instructions: []NqNirInstruction,state: *NqLowerState,which: int,left: isize,right: isize): isize {
@@ -91,6 +92,29 @@ function nqLowerListCall(instructions: []NqNirInstruction,state: *NqLowerState,w
     instructions[emitted as usize].width = count
     instructions[emitted as usize].typeCode = nqAstTypeInt()
     return reg
+}
+// Writes directly to the list handle; no borrowed element address can escape
+// resizing. All three arguments are evaluated before the call.
+function nqLowerListSet(instructions: []NqNirInstruction,state: *NqLowerState,handle: isize,index: isize,value: isize): isize {
+    let first: isize = nqLowerEmit(instructions,state,nqNirCallArg(),nqNirNoValue())
+    if first < 0 as isize { return first }
+    instructions[first as usize].left = handle
+    instructions[first as usize].immediate = 0 as i64
+    let second: isize = nqLowerEmit(instructions,state,nqNirCallArg(),nqNirNoValue())
+    if second < 0 as isize { return second }
+    instructions[second as usize].left = index
+    instructions[second as usize].immediate = 1 as i64
+    let third: isize = nqLowerEmit(instructions,state,nqNirCallArg(),nqNirNoValue())
+    if third < 0 as isize { return third }
+    instructions[third as usize].left = value
+    instructions[third as usize].immediate = 2 as i64
+    let output: isize = nqLowerAllocRegister(state)
+    let call: isize = nqLowerEmit(instructions,state,nqNirCall(),output)
+    if call < 0 as isize { return call }
+    instructions[call as usize].symbol = nqLowerListSymbol(6)
+    instructions[call as usize].width = 3 as usize
+    instructions[call as usize].typeCode = nqAstTypeInt()
+    return output
 }
 function nqLowerCloseOwnedLists(instructions: []NqNirInstruction,state: *NqLowerState,boundary: usize): isize {
     let cursor: usize = state.ownedCount
@@ -471,6 +495,16 @@ function nqLowerExpressionInternal(source: []u8, nodes: []NqAstNode, nodeIndex: 
         let value: isize = nqLowerExpressionInternal(source, nodes, node.right, instructions, state)
         if value < 0 as isize { return value }
         let target: *NqAstNode = &nodes[node.left as usize]
+        if target.tag == nqAstIndex() && target.left >= 0 as isize &&
+           nodes[target.left as usize].typeCode == nqAstTypeOwnedIntList() {
+            let list: isize = nqLowerExpressionInternal(source,nodes,target.left,instructions,state)
+            if list < 0 as isize { return list }
+            let index: isize = nqLowerExpressionInternal(source,nodes,target.right,instructions,state)
+            if index < 0 as isize { return index }
+            let assigned: isize = nqLowerListSet(instructions,state,list,index,value)
+            if assigned < 0 as isize { return assigned }
+            return value
+        }
         if target.tag == nqAstName() {
             let store: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
             if store < 0 as isize { return store }

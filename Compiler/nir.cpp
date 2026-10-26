@@ -223,7 +223,18 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
         Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;i.type=e->elementType;emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<CastExpr>(expr)){Reg a=lowerExpr(fn,e->value);NirInstruction i;i.op=NirOp::Cast;i.dest=fn.nextReg++;i.text=e->typeName;i.args={a};emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<BinaryExpr>(expr)){
-        if(e->op==TokenKind::Equal){Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
+        if(e->op==TokenKind::Equal){
+            if(auto index=std::dynamic_pointer_cast<IndexExpr>(e->left);
+               index && index->growableListRead){
+                // Preserve left-to-right indexing and RHS side-effect order.
+                Reg list=lowerExpr(fn,index->object);
+                Reg at=lowerExpr(fn,index->index);
+                Reg value=lowerExpr(fn,e->right);
+                NirInstruction call;call.op=NirOp::Call;call.dest=fn.nextReg++;
+                call.text="nq_list_set";call.args={list,at,value};emit(fn,call);
+                return value;
+            }
+            Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
         if(e->op==TokenKind::AndAnd||e->op==TokenKind::OrOr||e->op==TokenKind::QuestionQuestion){
             Reg left=lowerExpr(fn,e->left);
             const std::string temp="$noqeri.logic."+std::to_string(fn.code.size())+"."+std::to_string(fn.nextReg);

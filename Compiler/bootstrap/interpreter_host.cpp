@@ -261,12 +261,20 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                     growingIntLists.emplace(id,std::vector<std::int64_t>{});
                     regs[*i.dest]=id;break;
                 }
-                if(i.text=="nq_list_append"||i.text=="nq_list_length"||i.text=="nq_list_close"||i.text=="nq_list_at"){
+                if(i.text=="nq_list_append"||i.text=="nq_list_length"||i.text=="nq_list_close"||i.text=="nq_list_at"||i.text=="nq_list_set"){
                     if(a.empty())throw std::runtime_error("growable list handle missing");
                     const auto id=asInt(a[0]);
                     auto it=growingIntLists.find(id);
                     if(it==growingIntLists.end())throw std::runtime_error("growable list has been released or is invalid");
-                    if(i.text=="nq_list_at"){
+                    if(i.text=="nq_list_set"){
+                        if(a.size()!=3)throw std::runtime_error("growable list set requires an index and value");
+                        const auto at=asInt(a[1]);
+                        if(at<0 || static_cast<std::uint64_t>(at)>=it->second.size())
+                            throw std::runtime_error("growable list assignment out of bounds");
+                        const auto value=asInt(a[2]);
+                        it->second[static_cast<std::size_t>(at)]=value;
+                        regs[*i.dest]=value;
+                    }else if(i.text=="nq_list_at"){
                         if(a.size()!=2)throw std::runtime_error("growable list index requires one integer");
                         const auto at=asInt(a[1]);
                         if(at<0 || static_cast<std::uint64_t>(at)>=it->second.size())

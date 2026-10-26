@@ -474,6 +474,14 @@ function nqSemanticExpression(source: []u8, nodes: []NqAstNode, nodeIndex: isize
         }
         let targetStatus: isize = nqSemanticExpression(source, nodes, node.left, symbols, context, functions, functionParameters, records, recordCount, fields)
         if targetStatus < 0 as isize { return targetStatus }
+        if target.tag == nqAstIndex() && target.left >= 0 as isize &&
+           nodes[target.left as usize].typeCode == nqAstTypeOwnedIntList() {
+            if nodes[node.right as usize].typeCode != nqAstTypeInt() {
+                return nqSemanticFail(context,node,nqSemanticTypeMismatch())
+            }
+            node.typeCode = nqAstTypeInt()
+            return nqSemanticOk()
+        }
         if !nqSemanticAssignable(nodes[node.right as usize].typeCode, target.typeCode) { return nqSemanticFail(context, node, nqSemanticTypeMismatch()) }
         nqAstApplyType(node, target.typeCode, target.typeSymbol, target.elementTypeCode, target.elementTypeSymbol, target.arrayLength)
         return nqSemanticOk()

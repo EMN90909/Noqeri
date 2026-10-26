@@ -494,11 +494,6 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             return simple(TypeKind::Unknown);
         }
         if(e->op==TokenKind::Equal){Type lhs=checkExpr(e->left),rhs=checkExpr(e->right);
-            if(auto index=std::dynamic_pointer_cast<IndexExpr>(e->left);
-               index && index->growableListRead)
-                diagnostics_.error("NQR-T3080",e->span,
-                    "List<int> index is read-only while the list owns its storage",
-                    "use .append() to add values; indexed replacement is not implemented yet");
             if(lhs.kind==TypeKind::List||rhs.kind==TypeKind::List)
                 diagnostics_.error("NQR-T3077",e->span,
                     "cannot reassign or copy a live owned growable list",
