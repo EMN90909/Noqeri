@@ -105,10 +105,34 @@ std::int64_t negateInt(std::int64_t value){
 NirValue binary(const std::string&op,const NirValue&a,const NirValue&b){if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<std::int64_t>(&b)){if(op=="+")return addInt(*x,*y);if(op=="-")return subInt(*x,*y);if(op=="*")return mulInt(*x,*y);if(op=="/")return divInt(*x,*y);if(op=="%")return modInt(*x,*y);if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;if(op=="<")return*x<*y;if(op=="<=")return*x<=*y;if(op==">")return*x>*y;if(op==">=")return*x>=*y;}if((std::holds_alternative<double>(a)||std::holds_alternative<std::int64_t>(a))&&(std::holds_alternative<double>(b)||std::holds_alternative<std::int64_t>(b))){double x=asDouble(a),y=asDouble(b);if(op=="+")return x+y;if(op=="-")return x-y;if(op=="*")return x*y;if(op=="/")return x/y;if(op=="==")return x==y;if(op=="!=")return x!=y;if(op=="<")return x<y;if(op=="<=")return x<=y;if(op==">")return x>y;if(op==">=")return x>=y;}if(auto x=std::get_if<std::string>(&a))if(auto y=std::get_if<std::string>(&b)){if(op=="+")return*x+*y;if(op=="==")return*x==*y;if(op=="!=")return*x!=*y;}if(auto x=std::get_if<bool>(&a))if(auto y=std::get_if<bool>(&b)){
     if(op=="==")return *x==*y;
     if(op=="!=")return *x!=*y;
-}if(std::holds_alternative<std::monostate>(a)&&std::holds_alternative<std::monostate>(b)){
+}// A typed pointer-null comparison may reach the reference runtime with
+// null represented by monostate and the pointer as a numeric ABI address.
+if(op=="=="||op=="!="){
+    const bool leftNull=std::holds_alternative<std::monostate>(a);
+    const bool rightNull=std::holds_alternative<std::monostate>(b);
+    if(leftNull && std::holds_alternative<std::int64_t>(b)) {
+        const bool eq=std::get<std::int64_t>(b)==0;
+        return op=="==" ? eq : !eq;
+    }
+    if(rightNull && std::holds_alternative<std::int64_t>(a)) {
+        const bool eq=std::get<std::int64_t>(a)==0;
+        return op=="==" ? eq : !eq;
+    }
+    // A boolean emitted as an ABI scalar must retain its truth value
+    // when compared with a bool literal or other runtime bool.
+    if(auto x=std::get_if<bool>(&a))if(auto y=std::get_if<std::int64_t>(&b)) {
+        const bool eq=(*x==(*y!=0));
+        return op=="==" ? eq : !eq;
+    }
+    if(auto x=std::get_if<std::int64_t>(&a))if(auto y=std::get_if<bool>(&b)) {
+        const bool eq=((*x!=0)==*y);
+        return op=="==" ? eq : !eq;
+    }
+}
+if(std::holds_alternative<std::monostate>(a)&&std::holds_alternative<std::monostate>(b)){
     if(op=="==")return true;
     if(op=="!=")return false;
-}if(op=="&&")return truthyValue(a)&&truthyValue(b);if(op=="||")return truthyValue(a)||truthyValue(b);throw std::runtime_error("unsupported binary operation "+op);}
+}if(op=="&&")return truthyValue(a)&&truthyValue(b);if(op=="||")return truthyValue(a)||truthyValue(b);throw std::runtime_error("unsupported binary operation "+op+" (left="+std::to_string(a.index())+", right="+std::to_string(b.index())+")");}
 // NIR comparison results have Boolean type; signedness comes from the
 // LEFT operand. The native backend follows that same rule, including
 // unsigned 64-bit division/modulo for values above INT64_MAX.
@@ -168,6 +192,8 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                     double value=0.0;
                     std::memcpy(&value,&bits,sizeof(value));
                     regs[*i.dest]=value;
+                }else if(i.type.kind==TypeKind::Bool){
+                    regs[*i.dest]=(bits!=0);
                 }else regs[*i.dest]=typedBits(wrapped(bits),i.type.kind);
                 break;
             }
