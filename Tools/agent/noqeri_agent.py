@@ -74,7 +74,7 @@ def main(argv=None):
         # new source edit the same failing compiler command cannot make progress.
         if attempt["ok"] or number == args.max_attempts:
             break
-        break
+        break  # No repeat without a new edit: the caller owns source changes.
     final = {"schema_version": 1, "language": "noqeri",
              "mode": "validate-only", "success": attempts[-1]["ok"],
              "attempts": attempts,
