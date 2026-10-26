@@ -1,6 +1,10 @@
 #include "noe.hpp"
 #include "shader_backend.hpp"
 #include <algorithm>
+#include <cstdlib>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -26,7 +30,8 @@ void usage() {
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
               << "  shader [file] [out.wgsl] --stage=compute|fragment|vertex  emit WebGPU WGSL\n"
-              << "  db <script.nqd> [data.nqdb]       execute a transactional NoqeriDB script\n"
+              << "  db <script.nqd> [data.nqdb]       legacy NoqeriDB compatibility (not NoeSQL)\n"
+              << "  sql <NoeSQL-command> [args...]    use canonical native NoeSQL engine (NOESQL_BIN)\n"
               << "  stress [dir] [--full]             stress-test compiler, libraries and NoqeriDB\n"
               << "  assemble <asm> <object> [target]  run assembler adapter without a shell\n"
               << "  link <output> <object...>          run explicit linker adapter\n"
@@ -317,6 +322,23 @@ int main(int argc, char** argv) {
     if (cmd == "lsp") return LanguageServer{}.run();
     if (cmd == "doctor" || cmd == "release-check") return runProductionDoctor(argc >= 3 ? argv[2] : ".");
     if (cmd == "audit") return runSecurityAudit(argc >= 3 ? argv[2] : ".");
+    if (cmd == "sql" || cmd == "noesql") {
+        if(argc<3) {std::cerr<<"NoeSQL subcommand required (check, run, query, exec, etc.)\n";return 2;}
+        const char* binary=std::getenv("NOESQL_BIN");
+        if(!binary||!*binary) {std::cerr<<"NoeSQL native executable required: set NOESQL_BIN to the binary from EMN90909/NoeSQL\n";return 2;}
+#if !defined(_WIN32)
+        std::vector<char*> forwarded;
+        forwarded.push_back(const_cast<char*>(binary));
+        for(int i=2;i<argc;++i)forwarded.push_back(argv[i]);
+        forwarded.push_back(nullptr);
+        ::execvp(binary,forwarded.data());
+        std::cerr<<"Failed to launch NoeSQL native executable\n";
+        return 1;
+#else
+        std::cerr<<"NoeSQL CLI delegation currently requires a POSIX host\n";
+        return 2;
+#endif
+    }
     if (cmd == "db") {
         if (argc < 3) { std::cerr << "NQR-D8041: db requires a .nqd script\n"; return 1; }
         Diagnostics d;
