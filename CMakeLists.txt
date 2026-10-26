@@ -22,6 +22,10 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
+# Portable native web static compiler/preview server: no Node.js or JavaScript tooling.
+add_executable(noqeri-web Compiler/bootstrap/web_native.cpp)
+target_compile_features(noqeri-web PRIVATE cxx_std_17)
+target_compile_definitions(noqeri-web PRIVATE NOQERI_UI_SOURCE="\"${CMAKE_SOURCE_DIR}/Lib/web/ui.noqeri\"")
 target_compile_features(noqeri-nqri PRIVATE cxx_std_17)
 target_include_directories(noqeri PRIVATE Include/noqeri Compiler/bootstrap)
 target_compile_features(noqeri PRIVATE cxx_std_17)
@@ -52,6 +56,7 @@ function(noqeri_apply_warnings target)
 endfunction()
 noqeri_apply_warnings(noqeri)
 noqeri_apply_warnings(noqeri-nqri)
+noqeri_apply_warnings(noqeri-web)
 noqeri_apply_warnings(noqeri_abi)
 # Android app embedding: native compiler and interpreter run inside an APK
 # via JNI. CLI main() is omitted so a shared library can safely expose the
@@ -127,7 +132,7 @@ if(NOQERI_GRAPHICS_PORTABLE_BUILD)
  # The portable profile deliberately omits Linux-specific mailbox/PGAS services,
  # but its installed SDK must still contain the bytecode VM, public headers,
  # and Noqeri-owned standard/runtime source modules.
- install(TARGETS noqeri noqeri-nqri RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ install(TARGETS noqeri noqeri-nqri noqeri-web RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
  install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri
   FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
  foreach(component IN ITEMS Lib Modules Objects Database Runtime Parser)
@@ -171,6 +176,12 @@ if(BUILD_TESTING)
  set_tests_properties(noqeri-reject-incomplete-hex PROPERTIES WILL_FAIL TRUE)
  add_test(NAME noqeri-nqri-selftest COMMAND noqeri-nqri --selftest)
  add_test(NAME noqeri-version COMMAND noqeri --version)
+ add_test(NAME noqeri-native-web
+  COMMAND ${CMAKE_COMMAND}
+   "-DNOQERI_WEB=$<TARGET_FILE:noqeri-web>"
+   "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+   "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+   -P ${CMAKE_SOURCE_DIR}/tests/cmake/native_web_smoke.cmake)
  add_test(NAME noqeri-check-hello COMMAND noqeri check ${CMAKE_SOURCE_DIR}/examples/hello.noqeri)
  add_test(NAME noqeri-tests COMMAND noqeri test ${CMAKE_SOURCE_DIR}/tests)
  add_test(NAME noqeri-noqeri-owned-components COMMAND noqeri run ${CMAKE_SOURCE_DIR}/tests/noqeri_owned_components.noqeri)
@@ -250,7 +261,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
-install(TARGETS noqeri noqeri-nqri noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS noqeri noqeri-nqri noqeri-web noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")
 install(DIRECTORY Modules/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Modules FILES_MATCHING PATTERN "*.noqeri")
