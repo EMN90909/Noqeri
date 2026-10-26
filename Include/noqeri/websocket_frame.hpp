@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 // Bounded RFC 6455 frame-layer foundation. No sockets, handshake, TLS or JS.
-// Rejects fragmentation until a streaming reassembler is implemented.
+// Includes a bounded fragmentation reassembler. Network handshake/socket transport is separate.
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -58,9 +58,9 @@ inline Decode decode(const std::uint8_t* data, std::size_t size, bool from_clien
     if (first & 0x70) return {Status::invalid, {}, 0}; // extensions/Rsv require negotiation
     const std::uint8_t opcode = first & 0x0f;
     const bool control = opcode >= 8;
-    if (opcode != 1 && opcode != 2 && opcode != 8 && opcode != 9 && opcode != 10)
-        return {Status::invalid, {}, 0}; // no continuation/reassembly in bounded codec
-    if (!fin) return {Status::invalid, {}, 0};
+    if (opcode != 0 && opcode != 1 && opcode != 2 && opcode != 8 && opcode != 9 && opcode != 10)
+        return {Status::invalid, {}, 0};
+    if (control && !fin) return {Status::invalid, {}, 0};
     const bool masked = (second & 0x80) != 0;
     if (masked != from_client) return {Status::invalid, {}, 0};
     std::uint64_t length = second & 0x7f;
@@ -94,7 +94,7 @@ inline Decode decode(const std::uint8_t* data, std::size_t size, bool from_clien
         frame.payload.push_back(static_cast<char>(
             masked ? byte ^ data[offset - 4 + i % 4] : byte));
     }
-    if (opcode == 1 && !valid_utf8(frame.payload))
+    if (opcode == 1 && fin && !valid_utf8(frame.payload))
         return {Status::invalid, {}, 0};
     if (opcode == 8) {
         if (length == 1) return {Status::invalid, {}, 0};
@@ -108,6 +108,51 @@ inline Decode decode(const std::uint8_t* data, std::size_t size, bool from_clien
     }
     return {Status::ok, std::move(frame), offset + static_cast<std::size_t>(length)};
 }
+// A transport feeds complete decoded frames to this state machine. Control
+// frames are delivered immediately and do not interrupt a fragmented message.
+// A frame decoder still enforces masking, lengths, RSV, and control-frame rules.
+struct MessageResult {
+    Status status = Status::invalid;
+    Frame frame;
+};
+class MessageAssembler {
+public:
+    MessageResult push(const Frame& fragment) {
+        if (fragment.opcode >= 8) {
+            if (!fragment.fin || fragment.payload.size() > 125)
+                return fail();
+            return {Status::ok, fragment};
+        }
+        if (fragment.opcode == 0) {
+            if (!active_) return fail(); // orphan continuation
+        } else if (fragment.opcode == 1 || fragment.opcode == 2) {
+            if (active_) return fail(); // interleaved data messages
+            active_ = true;
+            kind_ = fragment.opcode;
+            pending_.clear();
+        } else return fail();
+        if (fragment.payload.size() > max_frame_bytes - pending_.size())
+            return fail(); // message limit, not just per-frame limit
+        pending_.append(fragment.payload);
+        if (!fragment.fin) return {Status::incomplete, {}};
+        Frame whole;
+        whole.opcode = kind_;
+        whole.fin = true;
+        whole.payload = std::move(pending_);
+        reset();
+        if (whole.opcode == 1 && !valid_utf8(whole.payload))
+            return {Status::invalid, {}};
+        return {Status::ok, std::move(whole)};
+    }
+    void reset() noexcept { active_ = false; kind_ = 0; pending_.clear(); }
+    bool awaiting_continuation() const noexcept { return active_; }
+private:
+    MessageResult fail() { reset(); return {Status::invalid, {}}; }
+    bool active_ = false;
+    std::uint8_t kind_ = 0;
+    std::string pending_;
+};
+
 inline std::vector<std::uint8_t> encode_server(std::uint8_t opcode, const std::string& payload) {
     if (opcode != 1 && opcode != 2 && opcode != 8 && opcode != 9 && opcode != 10)
         return {};
