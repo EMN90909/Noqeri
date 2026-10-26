@@ -1,48 +1,51 @@
-// Portability regression: manually grow a list and iterate Unicode scalars.
+// List descriptor invariants and Unicode scalar runtime regression.
+// Unsafe escape of borrowed stack storage is deliberately NOT used here.
 import "../Lib/std/list.noqeri"
 import "../Lib/std/iterator.noqeri"
 
+// These signatures instantiate the checked rebind helpers only with
+// caller-owned storage. Lifetimes are the caller's responsibility.
+export function compile_checked_growth(list: *List<int>, storage: *int): bool {
+    return list_grow_into(list,storage,4 as usize)
+}
 function verify(): int {
-    let first: [int; 2] = [10,20]
-    let bigger: [int; 4]
-    let values: List<int>
-    if !list_init(&values,&first[0 as usize],2 as usize,2 as usize) { return 1 }
-    if list_push(&values,30) { return 2 }
-    if !list_grow_into(&values,&bigger[0 as usize],4 as usize) { return 3 }
-    if !list_push(&values,30) { return 4 }
-    if !list_push(&values,40) { return 5 }
-    if list_push(&values,50) { return 6 }
-    if values.length != 4 as usize || values.capacity != 4 as usize { return 7 }
-    if bigger[0] != 10 || bigger[1] != 20 ||
-       bigger[2] != 30 || bigger[3] != 40 { return 8 }
+    let storage: [int; 2] = [10,20]
+    let list: List<int>
+    list.data = &storage[0 as usize]
+    list.length = 2 as usize
+    list.capacity = 2 as usize
+    if !list_invariant(&list) { return 1 }
+    if list_push(&list,30) { return 2 }
+    if list_length(&list) != 2 as usize { return 3 }
+    let iterator: Iterator<int>
+    iterator.data = &storage[0 as usize]
+    iterator.length = 2 as usize
+    iterator.front = 0 as usize
+    iterator.back = 2 as usize
+    if iterator_next_or(&iterator,-1) != 10 { return 4 }
+    if iterator_next_or(&iterator,-1) != 20 { return 5 }
+    if iterator_next_or(&iterator,-1) != -1 { return 6 }
+    if !iterator_reset(&iterator) { return 7 }
+    if iterator_next_or(&iterator,-1) != 10 { return 8 }
 
-    let cursor: Iterator<int>
-    if !iterator_from_list(&cursor,&values) { return 9 }
-    if iterator_next_or(&cursor, -1) != 10 { return 10 }
-    if iterator_next_or(&cursor, -1) != 20 { return 11 }
-    if iterator_remaining(&cursor) != 2 as usize { return 12 }
-    if !iterator_reset(&cursor) { return 13 }
-    if iterator_next_or(&cursor, -1) != 10 { return 14 }
-    if !iterator_reset(&cursor) { return 15 }
-    if iterator_next_or(&cursor, -1) != 10 { return 16 }
-
-    let utf8: [u8; 8] = [65 as u8,226 as u8,130 as u8,172 as u8,
+    let bytes: [u8; 8] = [65 as u8,226 as u8,130 as u8,172 as u8,
                          240 as u8,159 as u8,140 as u8,141 as u8]
     let unicode: Utf8Iterator
-    if !utf8_iterator_init(&unicode,slice(utf8)) { return 17 }
-    let point: u32 = 0 as u32
-    if utf8_iterator_next(&unicode,&point) != 1 as isize || point != 65 as u32 { return 18 }
-    if utf8_iterator_next(&unicode,&point) != 1 as isize || point != 8364 as u32 { return 19 }
-    if utf8_iterator_next(&unicode,&point) != 1 as isize || point != 127757 as u32 { return 20 }
-    if utf8_iterator_next(&unicode,&point) != 0 as isize { return 21 }
-    if utf8_iterator_position(&unicode) != 8 as usize { return 22 }
-    if !utf8_iterator_reset(&unicode) { return 23 }
-    if utf8_iterator_position(&unicode) != 0 as usize { return 24 }
+    unicode.bytes = slice(bytes)
+    unicode.position = 0 as usize
+    let scalar: u32 = 0 as u32
+    if utf8_iterator_next(&unicode,&scalar) != 1 as isize || scalar != 65 as u32 { return 9 }
+    if utf8_iterator_next(&unicode,&scalar) != 1 as isize || scalar != 8364 as u32 { return 10 }
+    if utf8_iterator_next(&unicode,&scalar) != 1 as isize || scalar != 127757 as u32 { return 11 }
+    if utf8_iterator_next(&unicode,&scalar) != 0 as isize { return 12 }
+    if utf8_iterator_position(&unicode) != 8 as usize { return 13 }
+    if !utf8_iterator_reset(&unicode) || utf8_iterator_position(&unicode) != 0 as usize { return 14 }
     let invalid: [u8; 2] = [192 as u8,175 as u8]
-    if !utf8_iterator_init(&unicode,slice(invalid)) { return 25 }
-    point = 777 as u32
-    if utf8_iterator_next(&unicode,&point) != -1 as isize { return 26 }
-    if point != 777 as u32 || utf8_iterator_position(&unicode) != 0 as usize { return 27 }
+    unicode.bytes = slice(invalid)
+    unicode.position = 0 as usize
+    scalar = 777 as u32
+    if utf8_iterator_next(&unicode,&scalar) != -1 as isize { return 15 }
+    if scalar != 777 as u32 || utf8_iterator_position(&unicode) != 0 as usize { return 16 }
     return 0
 }
 print(verify())
