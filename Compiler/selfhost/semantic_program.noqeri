@@ -136,13 +136,11 @@ function nqSemanticFunctionReturnRef(source: []u8, nodes: []NqAstNode, functionI
         if body.tag == nqAstBlock() && body.extra == 1 as isize && body.left >= 0 as isize {
             let only: *NqAstNode = &nodes[body.left as usize]
             if only.tag == nqAstReturn() && only.left >= 0 as isize {
-                let typed: bool = true
-                let param: isize = fn.right
-                while param >= 0 as isize {
-                    if nodes[param as usize].extra < 0 as isize { typed = false }
-                    param = nodes[param as usize].next
-                }
-                if typed { out.code = nqAstTypeUnknown() }
+                // The private-parameter literal inference prepass resolves
+                // omitted parameter types before checking this body. Leave the
+                // inferred private return pending; the prepass fails closed
+                // if any parameter lacked unambiguous callsite evidence.
+                out.code = nqAstTypeUnknown()
             }
         }
     }
