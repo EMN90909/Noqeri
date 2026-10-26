@@ -77,6 +77,46 @@ jobs:
             [[ -s "$path" ]] || continue
             grep -Fxq "$(basename "$path")" release-assets.txt
           done
+      - name: Update public release notes with exact available targets and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > previous-release-notes.md
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest=json.loads(Path("artifacts/v0.1.4-platform-manifest.json").read_text())
+          source=manifest["package_source_commit"]
+          start="<!-- NOQERI_V014_PLATFORM_ASSETS_START -->"
+          end="<!-- NOQERI_V014_PLATFORM_ASSETS_END -->"
+          covered=", ".join("`"+name+"`" for name in manifest["available"]) or "none"
+          missing=", ".join("`"+name+"`" for name in manifest["unavailable"]) or "none"
+          addition=(
+              start+"\n\n## Multi-platform downloads (verified SDKs)\n\n"
+              "Additional 32-bit/64-bit SDKs, compiler/VM executables and platform "
+              "installers are attached only after native CI checks.\n\n"
+              "**Qualified host targets:** "+covered+"\n\n"
+              "**Targets not yet qualified:** "+missing+"\n\n"
+              "**Four-ABI Android debug APK:** "+("available" if manifest["android_debug_apk"] else "not qualified")+"\n\n"
+              "**Platform package source commit:** `"+source+"`\n\n"
+              "**Original immutable v0.1.4 tag commit:** `"+manifest["release_tag_commit"]+"`\n\n"
+              "These commits can differ because platform packaging was repaired "
+              "after v0.1.4 was tagged. No tag was moved. "
+              "Download `v0.1.4-platform-manifest.json` and "
+              "`SHA256SUMS-platform-v014` to verify exact build provenance and file hashes. "
+              "These are experimental host binaries, not universal CPU instruction-set "
+              "backends or production-certified installers.\n\n"+end
+          )
+          previous=Path("previous-release-notes.md").read_text()
+          if start in previous and end in previous:
+              before,rest=previous.split(start,1)
+              _,after=rest.split(end,1)
+              previous=before.rstrip()+"\n\n"+addition+after
+          else:
+              previous=previous.rstrip()+"\n\n"+addition+"\n"
+          Path("updated-release-notes.md").write_text(previous)
+          PY
+          gh release edit "$RELEASE_TAG" --notes-file updated-release-notes.md --repo "$GITHUB_REPOSITORY"
       - name: Report exact target coverage; don't claim absent CPUs
         shell: bash
         run: |
