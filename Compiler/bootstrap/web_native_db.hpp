@@ -371,11 +371,92 @@ std::string queryMysql(const DbConfiguration& config,const SqlPrepared& sql) {
     return dbRowsJson(headers,rows);
 }
 #endif
+
+#if !defined(_WIN32)
+std::string invokeNoeSqlSessionV2(const std::string& library,
+                                  const std::string& database,const std::string& source,
+                                  const std::vector<DbParameter>& params) {
+    if(library.empty()||library[0]!='/'||library.find('\0')!=std::string::npos)
+        throw std::runtime_error("NoeSQL v2 native provider must be an absolute shared-library path");
+    if(source.empty()||source.size()>65536||params.size()>32)
+        throw std::runtime_error("NoeSQL native request exceeds bound");
+    // Provider module stays loaded for this process. The Rust callback table
+    // owns connection and prepared statement lifetimes; never copy its memory.
+    struct Module { void* handle=nullptr; const NqNoeSqlSessionV2* api=nullptr; };
+    static std::map<std::string,Module> loaded;
+    auto found=loaded.find(library);
+    if(found==loaded.end()) {
+        void* handle=::dlopen(library.c_str(),RTLD_NOW|RTLD_LOCAL);
+        if(!handle)throw std::runtime_error("NoeSQL v2 native provider could not be loaded");
+        auto getter=reinterpret_cast<NqNoeSqlSessionGetter>(::dlsym(handle,"noesql_session_v2_get"));
+        if(!getter) {::dlclose(handle);throw std::runtime_error("NoeSQL v2 getter export absent");}
+        const auto* api=getter();
+        if(!api||api->abi_version!=2||!api->open||!api->close||!api->prepare||
+           !api->release||!api->execute||!api->query||!api->begin||
+           !api->commit||!api->rollback) {
+            ::dlclose(handle);
+            throw std::runtime_error("NoeSQL v2 provider has an invalid callback table");
+        }
+        found=loaded.emplace(library,Module{handle,api}).first;
+    }
+    const auto* api=found->second.api;
+    void* connection=nullptr;
+    if(api->open(api->context,reinterpret_cast<const std::uint8_t*>(database.data()),
+                 database.size(),&connection)!=0||!connection)
+        throw std::runtime_error("NoeSQL v2 open failed");
+    struct Close {
+        const NqNoeSqlSessionV2* api;void* connection;
+        ~Close(){api->close(api->context,connection);}
+    } close{api,connection};
+    void* prepared=nullptr;
+    if(api->prepare(api->context,connection,
+                   reinterpret_cast<const std::uint8_t*>(source.data()),source.size(),
+                   &prepared)!=0||!prepared)
+        throw std::runtime_error("NoeSQL v2 prepare failed");
+    struct Release {
+        const NqNoeSqlSessionV2* api;void* connection;void* statement;
+        ~Release(){api->release(api->context,connection,statement);}
+    } release{api,connection,prepared};
+    std::string json="{";
+    std::set<std::string> seen;
+    for(const auto& param:params) {
+        if(!validName(param.name)||!seen.insert(param.name).second||param.value.size()>4096)
+            throw std::runtime_error("NoeSQL v2 invalid bind");
+        if(json!="{")json+=",";
+        json+=dbJsonQuote(param.name)+":"+dbJsonQuote(param.value);
+    }
+    json+="}";
+    if(json.size()>32768)throw std::runtime_error("NoeSQL v2 binding JSON too large");
+    const bool read=source.find(" get ")!=std::string::npos;
+    if(!read&&api->begin(api->context,connection)!=0)
+        throw std::runtime_error("NoeSQL v2 transaction begin failed");
+    std::array<std::uint8_t,65536> output{};
+    std::size_t written=0;
+    const auto callback=read?api->query:api->execute;
+    const int code=callback(api->context,connection,prepared,
+        reinterpret_cast<const std::uint8_t*>(json.data()),json.size(),
+        output.data(),output.size(),&written);
+    if(code!=0||written>output.size()) {
+        if(!read)api->rollback(api->context,connection);
+        throw std::runtime_error("NoeSQL v2 execution failed");
+    }
+    if(!read&&api->commit(api->context,connection)!=0) {
+        api->rollback(api->context,connection);
+        throw std::runtime_error("NoeSQL v2 commit failed");
+    }
+    return std::string(reinterpret_cast<const char*>(output.data()),written);
+}
+#endif
 std::string executeDatabase(const DbConfiguration& db,const std::string& source,
                             const std::vector<DbParameter>& params) {
     verifyDbConfig(db);
     if(db.engine=="noesql") {
 #if !defined(_WIN32)
+        // A configured native session provider takes precedence and fails
+        // closed; the legacy subprocess adapter remains only when no provider
+        // is configured. The real NoeSQL v2 provider must be built separately.
+        if(const char* native=std::getenv("NOESQL_NATIVE_PROVIDER"))
+            return invokeNoeSqlSessionV2(native,db.path,source,params);
         return runNoeSqlCommand(db,"exec",source,params);
 #else
         throw std::runtime_error("NoeSQL CLI adapter requires POSIX host");
