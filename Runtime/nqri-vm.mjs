@@ -113,6 +113,21 @@ function pointerAdd(base, index, width, immediate = 0n) {
   if (base.kind === 'ptr') return ptr(base.block, base.offset + delta)
   return cellPtr(base.cell, base.offset + delta)
 }
+// The portable reference VM resolves compiler-internal native calls by
+// stable NQRI symbols. Stringifying a source span is insufficient: synthetic
+// list calls have no corresponding identifier in the original source.
+function builtinListSymbol(word) {
+  let hash = 2166136261n
+  for (const byte of new TextEncoder().encode(word)) {
+    hash = (hash * 16777619n + BigInt(byte) + 1n) % 4294967291n
+  }
+  return (hash + 1n).toString()
+}
+const listBuiltins = new Map(
+  ['nq_list_new', 'nq_list_append', 'nq_list_length', 'nq_list_close',
+   'nq_list_at', 'nq_list_set', 'nq_list_pop', 'nq_list_clear']
+    .map(name => [builtinListSymbol(name), name])
+)
 function decodeStringLiteral(bytes) {
   let text = new TextDecoder().decode(bytes)
   if (text.length >= 2 && text[0] === '"' && text.at(-1) === '"') text = text.slice(1, -1)
@@ -173,6 +188,8 @@ export class NqriVm {
     this.stdout = options.stdout ?? (value => process.stdout.write(`${value}\n`))
     this.host = new Map(Object.entries(options.host ?? {}))
     this.steps = 0
+    this.growingLists = new Map()
+    this.nextGrowingListId = 1n
   }
   sourceText(ins) {
     if (!ins || ins.sourceEnd <= ins.sourceStart || ins.sourceEnd > this.module.source.length) return ''
@@ -202,6 +219,34 @@ export class NqriVm {
   }
   hostCall(name, args, ins) {
     if (this.host.has(name)) return this.host.get(name)(...args)
+    const builtin = listBuiltins.get(ins.symbol.toString())
+    if (builtin === 'nq_list_new') {
+      const id = this.nextGrowingListId++
+      if (id >= (1n << 63n)) throw new NqriError('growable list handle space exhausted', ins)
+      this.growingLists.set(id, [])
+      return id
+    }
+    if (builtin) {
+      const id = asBigInt(args[0])
+      const list = this.growingLists.get(id)
+      if (!list) throw new NqriError('invalid or released growable list', ins)
+      if (builtin === 'nq_list_close') { this.growingLists.delete(id); return 0n }
+      if (builtin === 'nq_list_length') return BigInt(list.length)
+      if (builtin === 'nq_list_clear') { list.length = 0; return 0n }
+      if (builtin === 'nq_list_append') {
+        if (list.length >= 1_000_000) throw new NqriError('growable list limit reached', ins)
+        list.push(args[1])
+        return 0n
+      }
+      if (builtin === 'nq_list_pop') {
+        if (list.length === 0) throw new NqriError('cannot pop an empty growable list', ins)
+        return list.pop()
+      }
+      const at = asBigInt(args[1])
+      if (at < 0n || at >= BigInt(list.length)) throw new NqriError('growable list index out of bounds', ins)
+      if (builtin === 'nq_list_set') { list[Number(at)] = args[2]; return args[2] }
+      if (builtin === 'nq_list_at') return list[Number(at)]
+    }
     if (name === 'len') {
       const value = args[0]
       if (isSlice(value)) return BigInt(value.length)
