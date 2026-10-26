@@ -1,5 +1,8 @@
 # Noqeri Web Framework (experimental)
 
+**Without Node.js or JavaScript:** use the separate native static renderer documented in [WEB_NATIVE.md](WEB_NATIVE.md). It builds and serves HTML/CSS without a JS engine. Reactive browser events are not supported in that mode.
+
+
 Noqeri now includes a **Noqeri-authored component library**, static-path client routing, and a design-token theme compiler. A web application can be authored entirely in `.noqeri`: no handwritten React, Vue, TypeScript, JavaScript, HTML, or CSS is required for these features.
 
 ```noqeri
