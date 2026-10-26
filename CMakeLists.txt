@@ -26,7 +26,7 @@ add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 add_executable(noqeri-web Compiler/bootstrap/web_native.cpp)
 target_compile_features(noqeri-web PRIVATE cxx_std_17)
 find_package(Threads REQUIRED)
-target_link_libraries(noqeri-web PRIVATE Threads::Threads)
+target_link_libraries(noqeri-web PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
 # The AOT bundler embeds the GPL bootstrap runtime when producing a standalone
 # app. Package these sources for installed compiler users; no Node.js required.
 install(FILES
