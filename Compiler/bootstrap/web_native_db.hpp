@@ -27,7 +27,7 @@ std::string dbJsonQuote(const std::string& value) {
 }
 // Convert known native numeric and boolean types to valid JSON primitives;
 // unrecognized database types remain escaped JSON strings.
-std::string dbTypedPrimitive(const std::string& value,unsigned type,bool postgres) {
+[[maybe_unused]] std::string dbTypedPrimitive(const std::string& value,unsigned type,bool postgres) {
     if(postgres && type==16) {
         if(value=="t")return "true";
         if(value=="f")return "false";
@@ -52,7 +52,7 @@ std::string dbTypedPrimitive(const std::string& value,unsigned type,bool postgre
     }
     return dbJsonQuote(value);
 }
-std::string dbTypedRowsJson(const std::vector<std::string>& columns,
+[[maybe_unused]] std::string dbTypedRowsJson(const std::vector<std::string>& columns,
                             const std::vector<std::vector<std::string>>& jsonValues) {
     std::string out="[";
     for(const auto& row:jsonValues) {
