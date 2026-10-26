@@ -492,8 +492,6 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
             while (std::getline(ss,segment,'/')) { parts/=segment; ++depth; }
             relative=parts/"index.html";
         }
-        const std::string prefix(depth*3,'.'); // computed explicitly below
-        (void)prefix;
         std::string cssPath;
         for(int d=0;d<depth;++d)cssPath+="../";
         cssPath+="theme.css";
@@ -559,7 +557,7 @@ void serve(const fs::path& input,int port) {
         parts>>method>>path>>protocol>>extra;
         const bool head=method=="HEAD";
         if (method!="GET"&&!head) respond(client,405,"text/plain","Method Not Allowed",false);
-        else if (!extra.empty()||protocol!="HTTP/1.1"&&protocol!="HTTP/1.0"||
+        else if (!extra.empty()||(protocol!="HTTP/1.1"&&protocol!="HTTP/1.0")||
                  path.empty()||path[0]!='/'||path.find('%')!=std::string::npos||
                  path.find('\\')!=std::string::npos||path.find("//")!=std::string::npos||
                  path.find("..")!=std::string::npos||path.find('\0')!=std::string::npos) {
@@ -571,11 +569,15 @@ void serve(const fs::path& input,int port) {
             else if (path.find('.')==std::string::npos) path+="/index.html";
             const fs::path filename=root/path.substr(1);
             std::error_code ec;
-            if (fs::is_regular_file(filename,ec) && !fs::is_symlink(filename,ec) &&
-                fs::file_size(filename,ec)<=2*1024*1024 &&
-                (filename.extension()==".html"||filename.extension()==".css")) {
+            const auto canonicalFile=fs::weakly_canonical(filename,ec);
+            const auto relativeFile=canonicalFile.lexically_relative(root);
+            const bool inside=!ec && !relativeFile.empty() &&
+                *relativeFile.begin()!=".." && !relativeFile.is_absolute();
+            if (inside && fs::is_regular_file(canonicalFile,ec) &&
+                fs::file_size(canonicalFile,ec)<=1024*1024 &&
+                (canonicalFile.extension()==".html"||canonicalFile.extension()==".css")) {
                 const std::string mime=filename.extension()==".css"?"text/css; charset=utf-8":"text/html; charset=utf-8";
-                respond(client,200,mime,readText(filename),head);
+                respond(client,200,mime,readText(canonicalFile),head);
             } else {
                 const auto fallback=root/"404.html";
                 const auto data=fs::is_regular_file(fallback,ec)?readText(fallback):std::string("Not Found");
