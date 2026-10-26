@@ -148,3 +148,11 @@ thread-safe retraining of the same model, GPU implementation, or NQRI VM
 host service. Training is an explicit bounded CPU operation and does not
 expose all weights or graph internals. See
 `examples/simplicity/ai_native_model_session.noqeri`.
+
+## Latest native-AOT qualification
+
+The [model-session CI workflow](https://github.com/EMN90909/Noqeri/actions/runs/40399043109)
+passed both C ABI and ordinary Noqeri AOT tests for train, multiple
+generations, generation into an undersized buffer, release, stale-handle
+rejection and model reuse. These are library-level CPU operations and do
+not add Noqeri language syntax or Stage-2 VM services.
