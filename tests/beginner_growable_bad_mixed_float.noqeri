@@ -1,0 +1,7 @@
+// No implicit numeric promotion inside an owned List<float>.
+function verify(): int {
+    let floats = [1.5, 2]
+    floats.append(3.5)
+    return 0
+}
+print(verify())

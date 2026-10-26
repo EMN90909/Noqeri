@@ -322,23 +322,43 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
                 // The same-scope append provides the required element context.
                 // This subset is intentionally List<int>, never an implicit
                 // untyped/dynamic collection.
-                define(s->name,simple(TypeKind::List),false,s->span);
+                Type list=simple(TypeKind::List);
+                list.element=std::make_shared<Type>(simple(TypeKind::Int));
+                define(s->name,list,false,s->span);
                 return;
             }
         }
         Type init=checkExpr(s->initializer);
         if(s->inferredGrowableIntList){
             if(init.kind!=TypeKind::Array||!init.element||
-               init.element->kind!=TypeKind::Int){
+               (init.element->kind!=TypeKind::Int &&
+                init.element->kind!=TypeKind::Float &&
+                init.element->kind!=TypeKind::Bool)){
                 diagnostics_.error("NQR-T3070",s->span,
-                    "growable list literals currently require int elements",
-                    "use integer values such as let numbers = [5, 10]; floating and record lists are not yet supported");
+                    "growable list literals require int, float or bool elements",
+                    "use homogeneous scalar values; strings and records require owned clone/drop lowering");
+            }
+            if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
+               literal && init.element) {
+                // Owned scalar storage does not perform implicit element casts.
+                // Reject mixtures such as [1.5, 2] instead of reinterpreting
+                // an integer's bits as a floating-point element at runtime.
+                for(const auto& item:literal->elements) {
+                    const Type actual=checkExpr(item);
+                    if(actual!=*init.element)
+                        diagnostics_.error("NQR-T3082",item->span,
+                            "growable "+init.element->name()+" list contains a "+actual.name()+" element",
+                            "make every list literal element the same type; explicitly write 2.0 rather than 2");
+                }
             }
             if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
                literal && literal->elements.size()>1000000) {
                 diagnostics_.error("NQR-T3071",s->span,"growable list literal exceeds the one-million-element limit");
             }
-            define(s->name,simple(TypeKind::List),false,s->span);
+            Type list=simple(TypeKind::List);
+            list.element=init.element?init.element:
+                std::make_shared<Type>(simple(TypeKind::Int));
+            define(s->name,list,false,s->span);
         }else{
             if(init.kind==TypeKind::List && !s->borrowedListLoopCapture)
                 diagnostics_.error("NQR-T3072",s->span,
@@ -474,7 +494,7 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         if(container.kind==TypeKind::List){
             e->growableListRead=true;
             e->elementSize=8;
-            e->elementType=simple(TypeKind::Int);
+            e->elementType=container.element?*container.element:simple(TypeKind::Int);
             return e->elementType;
         }
         if(container.kind==TypeKind::Pointer&&container.pointee){e->elementSize=std::max<std::size_t>(1,container.pointee->size());e->volatileAccess=container.isVolatile;e->elementType=*container.pointee;return e->elementType;}
@@ -519,14 +539,15 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             if(receiver.kind==TypeKind::List){
                 if(member->member=="append"){
                     if(e->args.size()!=1){
-                        diagnostics_.error("NQR-T3073",e->span,"list.append accepts exactly one int value",
+                        diagnostics_.error("NQR-T3073",e->span,"list.append accepts exactly one element",
                                            "write numbers.append(15)");
                     }else{
                         Type value=checkExpr(e->args.front());
-                        if(value.kind!=TypeKind::Int)
+                        const Type expected=receiver.element?*receiver.element:simple(TypeKind::Int);
+                        if(value!=expected)
                             diagnostics_.error("NQR-T3074",e->args.front()->span,
-                                "List<int>.append expects an int, found "+value.name(),
-                                "append an int value or use an explicit conversion");
+                                receiver.name()+".append expects "+expected.name()+", found "+value.name(),
+                                "append an exactly matching element type; no implicit ownership or numeric reinterpretation");
                     }
                     e->growableListMethod=true;
                     e->builtinText="append";
@@ -539,7 +560,8 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
                 }
                 if(member->member=="pop" && e->args.empty()){
                     e->growableListMethod=true;e->builtinText="pop";
-                    return simple(TypeKind::Int);
+                    e->builtinResultType=receiver.element?*receiver.element:simple(TypeKind::Int);
+                    return e->builtinResultType;
                 }
                 if(member->member=="clear" && e->args.empty()){
                     e->growableListMethod=true;e->builtinText="clear";

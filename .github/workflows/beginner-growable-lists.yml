@@ -1,7 +1,8 @@
-name: Beginner growable List<int> native and NQRI qualification
+name: Beginner growable scalar lists native and NQRI qualification
 on:
   push:
     branches: [main]
+  pull_request:
     paths:
       - 'Compiler/selfhost/**'
       - 'Compiler/type_checker.cpp'
@@ -72,7 +73,7 @@ jobs:
       - name: Reject mismatched, fixed and aliased mutable collections
         run: |
           set -euo pipefail
-          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri tests/beginner_growable_bad_index_assignment.noqeri tests/beginner_growable_bad_index_borrow.noqeri; do
+          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_bad_mixed_float.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri tests/beginner_growable_bad_index_assignment.noqeri tests/beginner_growable_bad_index_borrow.noqeri; do
             if ./build-beginner-list/noqeri check "$path"; then
               echo "unexpectedly accepted $path"; exit 1
             fi
@@ -81,11 +82,25 @@ jobs:
       - name: Self-hosted Stage-2 rejects invalid owned list operations
         run: |
           set -euo pipefail
-          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri; do
+          for path in tests/beginner_growable_bad_type.noqeri tests/beginner_growable_bad_mixed_float.noqeri tests/beginner_growable_fixed_array.noqeri tests/beginner_growable_bad_alias.noqeri tests/beginner_growable_bad_return.noqeri tests/beginner_growable_bad_reassign.noqeri; do
             if ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$path" build-beginner-list/invalid-list.nqri 3; then
               echo "Stage-2 unexpectedly accepted $path"; exit 1
             fi
           done
+      - name: Float and bool list semantics match the compiler and execution engines
+        run: |
+          set -euo pipefail
+          src=tests/beginner_growable_scalar_lists.noqeri
+          ./build-beginner-list/noqeri check "$src"
+          test "$(./build-beginner-list/noqeri run "$src")" = "0"
+          ./build-beginner-list/noqeri nqri "$src" build-beginner-list/scalar-lists.nqri
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/scalar-lists.nqri verify)" = "0"
+          test "$(node Runtime/nqri-vm.mjs build-beginner-list/scalar-lists.nqri verify)" = "0"
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/stage2-scalar-lists.nqri 3
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/stage2-scalar-lists.nqri verify)" = "0"
+          node scripts/native-build.mjs "$src" build-beginner-list/scalar-lists-native --compiler=build-beginner-list/noqeri
+          test "$(./build-beginner-list/scalar-lists-native)" = "0"
+
       - name: Owned list cleanup executes before integer-status early propagation
         run: |
           set -euo pipefail

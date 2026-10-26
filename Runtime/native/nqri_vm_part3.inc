@@ -1,6 +1,6 @@
     std::vector<std::uint8_t> copyBytes(const SlicePtr& slice,std::size_t count){if(!slice||!slice->data)throw RuntimeError("expected byte slice");auto r=resolvePointer(slice->data);if(!r.block||count>slice->length||r.offset>r.block->buffer.size()||count>r.block->buffer.size()-r.offset)throw RuntimeError("byte slice copy out of bounds");return std::vector<std::uint8_t>(r.block->buffer.begin()+static_cast<std::ptrdiff_t>(r.offset),r.block->buffer.begin()+static_cast<std::ptrdiff_t>(r.offset+count));}
 private:
-    std::unordered_map<std::int64_t,std::vector<std::int64_t>> growingIntLists_;
+    std::unordered_map<std::int64_t,std::vector<Value>> growingIntLists_;
     std::int64_t nextGrowingIntList_=1;
     struct Frame{std::unordered_map<std::int64_t,Value> regs;std::unordered_map<std::uint64_t,std::shared_ptr<Cell>> cells;std::map<std::size_t,Value> pendingArgs;std::vector<Value> args;std::size_t pc=0;};
     const Value& getReg(Frame& frame,std::int64_t id,const Instruction&){if(id<0)throw RuntimeError("read of negative register");auto it=frame.regs.find(id);if(it==frame.regs.end())throw RuntimeError("read of undefined register "+std::to_string(id));return it->second;}
@@ -29,7 +29,7 @@ private:
             if(nextGrowingIntList_==std::numeric_limits<std::int64_t>::max())
                 throw RuntimeError("growable list ID space exhausted");
             const auto id=nextGrowingIntList_++;
-            growingIntLists_.emplace(id,std::vector<std::int64_t>{});
+            growingIntLists_.emplace(id,std::vector<Value>{});
             return id;
         }
         if(dispatch=="nq_list_append"||dispatch=="nq_list_length"||dispatch=="nq_list_close"||dispatch=="nq_list_at"||dispatch=="nq_list_set"||dispatch=="nq_list_pop"||dispatch=="nq_list_clear"){
@@ -54,7 +54,7 @@ private:
                 const auto index=asInt(args[1]);
                 if(index<0 || static_cast<std::uint64_t>(index)>=it->second.size())
                     throw RuntimeError("growable list assignment out of bounds");
-                const auto value=asInt(args[2]);
+                const auto value=args[2];
                 it->second[static_cast<std::size_t>(index)]=value;
                 return value;
             }
@@ -69,7 +69,7 @@ private:
                 if(args.size()!=2)throw RuntimeError("growable list append requires one int");
                 if(it->second.size()>=1000000)
                     throw RuntimeError("growable list exceeded one-million-element cap");
-                it->second.push_back(asInt(args[1]));
+                it->second.push_back(args[1]);
                 return std::int64_t{0};
             }
             if(dispatch=="nq_list_length")return static_cast<std::int64_t>(it->second.size());

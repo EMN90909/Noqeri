@@ -20,7 +20,7 @@ std::vector<std::unique_ptr<std::uint8_t[]>> allocations;
 // Do not dereference untrusted integer pointers as C strings.
 std::unordered_map<std::uintptr_t,std::string> aggregateStrings;
 std::mutex atomicMutex;
-std::unordered_map<std::int64_t,std::vector<std::int64_t>> growingIntLists;
+std::unordered_map<std::int64_t,std::vector<NirValue>> growingIntLists;
 std::int64_t nextGrowingIntList=1;
 constexpr std::size_t maxGrowingElements=1000000;
 
@@ -258,7 +258,7 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                     if(nextGrowingIntList==std::numeric_limits<std::int64_t>::max())
                         throw std::runtime_error("growable list ID space exhausted");
                     const auto id=nextGrowingIntList++;
-                    growingIntLists.emplace(id,std::vector<std::int64_t>{});
+                    growingIntLists.emplace(id,std::vector<NirValue>{});
                     regs[*i.dest]=id;break;
                 }
                 if(i.text=="nq_list_append"||i.text=="nq_list_length"||i.text=="nq_list_close"||i.text=="nq_list_at"||i.text=="nq_list_set"||i.text=="nq_list_pop"||i.text=="nq_list_clear"){
@@ -279,7 +279,7 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                         const auto at=asInt(a[1]);
                         if(at<0 || static_cast<std::uint64_t>(at)>=it->second.size())
                             throw std::runtime_error("growable list assignment out of bounds");
-                        const auto value=asInt(a[2]);
+                        const auto value=a[2];
                         it->second[static_cast<std::size_t>(at)]=value;
                         regs[*i.dest]=value;
                     }else if(i.text=="nq_list_at"){
@@ -292,7 +292,7 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                         if(a.size()!=2)throw std::runtime_error("growable list append requires one value");
                         if(it->second.size()>=maxGrowingElements)
                             throw std::runtime_error("growable list reached the one-million-element cap");
-                        it->second.push_back(asInt(a[1]));regs[*i.dest]=std::int64_t{0};
+                        it->second.push_back(a[1]);regs[*i.dest]=std::int64_t{0};
                     }else if(i.text=="nq_list_length"){
                         regs[*i.dest]=static_cast<std::int64_t>(it->second.size());
                     }else{
