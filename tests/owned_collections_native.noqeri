@@ -1,0 +1,47 @@
+import "../Lib/std/owned_collections.noqeri"
+function verify(): int {
+    let list: OwnedIntList
+    if owned_list_open(&list) < 0 as isize { return 1 }
+    let i: int = 0
+    while i < 3000 {
+        if owned_list_append(&list,i) < 0 as isize { return 2 }
+        i = i + 1
+    }
+    if owned_list_length(&list) != 3000 as isize { return 3 }
+    let value: Outcome<int>
+    owned_list_get(&list, 2999, &value)
+    if !outcome_is_ok(&value) || outcome_value_or(&value, -1) != 2999 { return 4 }
+    owned_list_get(&list, 4000, &value)
+    if outcome_is_ok(&value) { return 5 }
+    if owned_list_remove(&list,0) < 0 as isize { return 6 }
+    owned_list_get(&list,0,&value)
+    if outcome_value_or(&value,-1) != 1 { return 7 }
+    if owned_list_close(&list) < 0 as isize { return 8 }
+
+    let map: OwnedIntMap
+    if owned_map_open(&map) < 0 as isize { return 9 }
+    i = 0
+    while i < 2000 {
+        if owned_map_put(&map,i,i * 3) < 0 as isize { return 10 }
+        i = i + 1
+    }
+    owned_map_get(&map,42,&value)
+    if outcome_value_or(&value,-1) != 126 { return 11 }
+    if owned_map_length(&map) != 2000 as isize { return 12 }
+    if owned_map_close(&map) < 0 as isize { return 13 }
+
+    let set: OwnedIntSet
+    if owned_set_open(&set) < 0 as isize { return 14 }
+    i = 0
+    while i < 1000 {
+        if owned_set_add(&set,i) < 0 as isize { return 15 }
+        if owned_set_add(&set,i) < 0 as isize { return 16 }
+        i = i + 1
+    }
+    if owned_set_length(&set) != 1000 as isize { return 17 }
+    owned_set_get(&set,99,&value)
+    if outcome_value_or(&value,-1) != 99 { return 18 }
+    if owned_set_close(&set) < 0 as isize { return 19 }
+    return 0
+}
+print(verify())

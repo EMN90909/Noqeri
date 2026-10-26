@@ -1,0 +1,30 @@
+// Common typed Outcome propagation from native service adapters.
+// JSON tokenizer works entirely in Noqeri, so this exercises real execution
+// without depending on an external HTTP, NoeSQL or AI host.
+import "../Lib/std/native_outcome.noqeri"
+function verify(): int {
+    let good: [u8; 4] = [110 as u8,117 as u8,108 as u8,108 as u8]
+    let bad: [u8; 1] = [255 as u8]
+    let parsed: Outcome<isize>
+    native_json_count(slice(good),&parsed)
+    if !outcome_is_ok(&parsed) { return 1 }
+    if outcome_value_or(&parsed,-1 as isize) < 1 as isize { return 2 }
+    native_json_count(slice(bad),&parsed)
+    if !outcome_is_error(&parsed) { return 3 }
+    if outcome_error_domain(&parsed) != "json" { return 4 }
+    let redirected: Outcome<int>
+    if !native_propagate_error(&parsed,&redirected,0) { return 5 }
+    if !outcome_is_error(&redirected) { return 6 }
+    if outcome_error_code(&redirected) != outcome_error_code(&parsed) { return 7 }
+    if outcome_error_domain(&redirected) != "json" { return 8 }
+    let db: Database
+    let tx: Outcome<bool>
+    native_database_ready(&db,&tx)
+    if !outcome_is_error(&tx) || outcome_error_domain(&tx) != "noesql" { return 9 }
+    native_database_commit(&db,&tx)
+    if !outcome_is_error(&tx) || outcome_error_code(&tx) != -1 as isize { return 10 }
+    native_database_rollback(&db,&tx)
+    if !outcome_is_error(&tx) || outcome_error_message(&tx) != "database is not open" { return 11 }
+    return 0
+}
+print(verify())

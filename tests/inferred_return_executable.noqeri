@@ -1,0 +1,11 @@
+// Executable parity: Stage-0, Stage-2 NQRI and x86-64 native AOT.
+function triple(x: int) = x * 3
+function isLarge(x: int) { return x > 20 }
+function mix(a: int, b: int) = triple(a) + b
+function verify(): int {
+    if triple(7) != 21 { return 1 }
+    if !isLarge(triple(8)) { return 2 }
+    if mix(5,2) != 17 { return 3 }
+    return 0
+}
+print(verify())

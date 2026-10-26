@@ -1,0 +1,126 @@
+module noqeri.std.owned_collections
+import "result.noqeri"
+
+// Heap-backed collections for hosted native AOT. All state is owned by the
+// linked native collection runtime, and opaque handles are validated on every
+// access. These are currently int-key/int-value APIs (no unqualified
+// generic allocation/lifetime claims). Open and close as a pair.
+
+extern function nq_collection_new(kind: int): isize
+extern function nq_collection_add(handle: isize, key: int, value: int): isize
+extern function nq_collection_get(handle: isize, key: int, output: *int): isize
+extern function nq_collection_size(handle: isize): isize
+extern function nq_collection_remove(handle: isize, key: int): isize
+extern function nq_collection_clear(handle: isize): isize
+extern function nq_collection_close(handle: isize): isize
+
+record OwnedIntList { handle: isize }
+record OwnedIntMap { handle: isize }
+record OwnedIntSet { handle: isize }
+
+// These create actual growable native containers; no caller buffer or manual
+// reserve size. A negative status reports allocation/runtime failure.
+export function owned_list_open(out: *OwnedIntList): isize {
+    if out == null { return -1 as isize }
+    let id: isize = nq_collection_new(1)
+    if id >= 0 as isize { unsafe { out.handle = id } }
+    return id
+}
+export function owned_map_open(out: *OwnedIntMap): isize {
+    if out == null { return -1 as isize }
+    let id: isize = nq_collection_new(2)
+    if id >= 0 as isize { unsafe { out.handle = id } }
+    return id
+}
+export function owned_set_open(out: *OwnedIntSet): isize {
+    if out == null { return -1 as isize }
+    let id: isize = nq_collection_new(3)
+    if id >= 0 as isize { unsafe { out.handle = id } }
+    return id
+}
+export function owned_list_append(list: *OwnedIntList, value: int): isize {
+    if list == null { return -1 as isize }
+    unsafe { return nq_collection_add(list.handle, 0, value) }
+}
+export function owned_map_put(map: *OwnedIntMap, key: int, value: int): isize {
+    if map == null { return -1 as isize }
+    unsafe { return nq_collection_add(map.handle, key, value) }
+}
+export function owned_set_add(set: *OwnedIntSet, value: int): isize {
+    if set == null { return -1 as isize }
+    unsafe { return nq_collection_add(set.handle, value, value) }
+}
+export function owned_list_length(list: *OwnedIntList): isize {
+    if list == null { return -1 as isize }
+    unsafe { return nq_collection_size(list.handle) }
+}
+export function owned_map_length(map: *OwnedIntMap): isize {
+    if map == null { return -1 as isize }
+    unsafe { return nq_collection_size(map.handle) }
+}
+export function owned_set_length(set: *OwnedIntSet): isize {
+    if set == null { return -1 as isize }
+    unsafe { return nq_collection_size(set.handle) }
+}
+export function owned_list_remove(list: *OwnedIntList, index: int): isize {
+    if list == null { return -1 as isize }
+    unsafe { return nq_collection_remove(list.handle, index) }
+}
+export function owned_map_remove(map: *OwnedIntMap, key: int): isize {
+    if map == null { return -1 as isize }
+    unsafe { return nq_collection_remove(map.handle, key) }
+}
+export function owned_set_remove(set: *OwnedIntSet, value: int): isize {
+    if set == null { return -1 as isize }
+    unsafe { return nq_collection_remove(set.handle, value) }
+}
+export function owned_list_close(list: *OwnedIntList): isize {
+    if list == null { return -1 as isize }
+    unsafe {
+        let status: isize = nq_collection_close(list.handle)
+        if status >= 0 as isize { list.handle = 0 as isize }
+        return status
+    }
+}
+export function owned_map_close(map: *OwnedIntMap): isize {
+    if map == null { return -1 as isize }
+    unsafe {
+        let status: isize = nq_collection_close(map.handle)
+        if status >= 0 as isize { map.handle = 0 as isize }
+        return status
+    }
+}
+export function owned_set_close(set: *OwnedIntSet): isize {
+    if set == null { return -1 as isize }
+    unsafe {
+        let status: isize = nq_collection_close(set.handle)
+        if status >= 0 as isize { set.handle = 0 as isize }
+        return status
+    }
+}
+// Native errors map to the shared Outcome<T> convention. Distinguish a
+// missing key (-4) from a valid zero value; no empty-string sentinels.
+export function owned_list_get(list: *OwnedIntList, index: int, out: *Outcome<int>): void {
+    if out == null { return }
+    let value: int = 0
+    let status: isize = -1 as isize
+    if list != null { unsafe { status = nq_collection_get(list.handle,index,&value) } }
+    if status < 0 as isize { outcome_init_error(out,0,status,"collections","list index not accessible") }
+    else { outcome_init_ok(out,value) }
+}
+export function owned_map_get(map: *OwnedIntMap, key: int, out: *Outcome<int>): void {
+    if out == null { return }
+    let value: int = 0
+    let status: isize = -1 as isize
+    if map != null { unsafe { status = nq_collection_get(map.handle,key,&value) } }
+    if status < 0 as isize { outcome_init_error(out,0,status,"collections","map key not found") }
+    else { outcome_init_ok(out,value) }
+}
+export function owned_set_get(set: *OwnedIntSet, key: int, out: *Outcome<int>): void {
+    if out == null { return }
+    let value: int = 0
+    let status: isize = -1 as isize
+    if set != null { unsafe { status = nq_collection_get(set.handle,key,&value) } }
+    if status < 0 as isize { outcome_init_error(out,0,status,"collections","set item not found") }
+    else { outcome_init_ok(out,value) }
+}

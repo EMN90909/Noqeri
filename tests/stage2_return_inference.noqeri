@@ -1,0 +1,132 @@
+// Stage-2 self-hosted parser + semantic inference qualification.
+// Independently run by Stage-0 reference interpreter (not a textual proxy).
+import "../Compiler/selfhost/parser_stmt.noqeri"
+import "../Compiler/selfhost/semantic_program.noqeri"
+import "../Compiler/selfhost/ast.noqeri"
+
+function test_int_expression(): int {
+    let source: [u8; 30] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 116 as u8, 119 as u8, 105 as u8, 99 as u8, 101 as u8, 40 as u8, 120 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 41 as u8, 32 as u8, 61 as u8, 32 as u8, 120 as u8, 32 as u8, 42 as u8, 32 as u8, 50 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 1 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status < 0 as isize { return 2 }
+    let body: isize = nodes[first as usize].extra
+    let returned: isize = nodes[body as usize].left
+    let value: isize = nodes[returned as usize].left
+    if value < 0 as isize || nodes[value as usize].typeCode != nqAstTypeInt() { return 3 }
+    return 0
+}
+
+function test_bool_block(): int {
+    let source: [u8; 39] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 114 as u8, 101 as u8, 97 as u8, 100 as u8, 121 as u8, 40 as u8, 118 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 41 as u8, 32 as u8, 123 as u8, 32 as u8, 114 as u8, 101 as u8, 116 as u8, 117 as u8, 114 as u8, 110 as u8, 32 as u8, 118 as u8, 32 as u8, 62 as u8, 32 as u8, 48 as u8, 32 as u8, 125 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 4 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status < 0 as isize { return 5 }
+    let body: isize = nodes[first as usize].extra
+    let returned: isize = nodes[body as usize].left
+    let value: isize = nodes[returned as usize].left
+    if value < 0 as isize || nodes[value as usize].typeCode != nqAstTypeBool() { return 6 }
+    return 0
+}
+
+function test_string_literal(): int {
+    let source: [u8; 26] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 103 as u8, 114 as u8, 101 as u8, 101 as u8, 116 as u8, 105 as u8, 110 as u8, 103 as u8, 40 as u8, 41 as u8, 32 as u8, 61 as u8, 32 as u8, 34 as u8, 104 as u8, 105 as u8, 34 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 7 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status < 0 as isize { return 8 }
+    let body: isize = nodes[first as usize].extra
+    let returned: isize = nodes[body as usize].left
+    let value: isize = nodes[returned as usize].left
+    if value < 0 as isize || nodes[value as usize].typeCode != nqAstTypeString() { return 9 }
+    return 0
+}
+
+function test_explicit_abi(): int {
+    let source: [u8; 38] = [101 as u8, 120 as u8, 112 as u8, 111 as u8, 114 as u8, 116 as u8, 32 as u8, 102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 102 as u8, 105 as u8, 120 as u8, 101 as u8, 100 as u8, 40 as u8, 120 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 41 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 32 as u8, 61 as u8, 32 as u8, 120 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 10 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status < 0 as isize { return 11 }
+    
+    return 0
+}
+
+function test_untyped_param(): int {
+    let source: [u8; 22] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 98 as u8, 114 as u8, 111 as u8, 107 as u8, 101 as u8, 110 as u8, 40 as u8, 120 as u8, 41 as u8, 32 as u8, 61 as u8, 32 as u8, 120 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 0 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status >= 0 as isize { return 13 }
+    
+    return 0
+}
+
+function test_recursive(): int {
+    let source: [u8; 31] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 108 as u8, 111 as u8, 111 as u8, 112 as u8, 40 as u8, 120 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 41 as u8, 32 as u8, 61 as u8, 32 as u8, 108 as u8, 111 as u8, 111 as u8, 112 as u8, 40 as u8, 120 as u8, 41 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 0 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status >= 0 as isize { return 15 }
+    
+    return 0
+}
+
+function test_export_implicit(): int {
+    let source: [u8; 31] = [101 as u8, 120 as u8, 112 as u8, 111 as u8, 114 as u8, 116 as u8, 32 as u8, 102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 112 as u8, 117 as u8, 98 as u8, 40 as u8, 120 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 41 as u8, 32 as u8, 61 as u8, 32 as u8, 120 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 0 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status >= 0 as isize { return 17 }
+    
+    return 0
+}
+
+function test_generic_implicit(): int {
+    let source: [u8; 30] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 105 as u8, 100 as u8, 101 as u8, 110 as u8, 116 as u8, 105 as u8, 116 as u8, 121 as u8, 60 as u8, 84 as u8, 62 as u8, 40 as u8, 120 as u8, 58 as u8, 32 as u8, 84 as u8, 41 as u8, 32 as u8, 61 as u8, 32 as u8, 120 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 0 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status >= 0 as isize { return 19 }
+    
+    return 0
+}
+
+function test_void_no_return(): int {
+    let source: [u8; 38] = [102 as u8, 117 as u8, 110 as u8, 99 as u8, 116 as u8, 105 as u8, 111 as u8, 110 as u8, 32 as u8, 111 as u8, 114 as u8, 100 as u8, 105 as u8, 110 as u8, 97 as u8, 114 as u8, 121 as u8, 40 as u8, 41 as u8, 32 as u8, 123 as u8, 32 as u8, 108 as u8, 101 as u8, 116 as u8, 32 as u8, 120 as u8, 58 as u8, 32 as u8, 105 as u8, 110 as u8, 116 as u8, 32 as u8, 61 as u8, 32 as u8, 50 as u8, 32 as u8, 125 as u8]
+    let nodes: [NqAstNode; 128]
+    let count: usize = 0 as usize
+    let first: isize = nqAstNoNode()
+    if nqParserParseProgram(slice(source),slice(nodes),&count,&first) != 0 as isize { return 20 }
+    let status: isize = nqSemanticAnalyzeProgram(slice(source),slice(nodes),&count,first,false)
+    if status < 0 as isize { return 21 }
+    
+    return 0
+}
+
+print(test_int_expression())
+print(test_bool_block())
+print(test_string_literal())
+print(test_explicit_abi())
+print(test_untyped_param())
+print(test_recursive())
+print(test_export_implicit())
+print(test_generic_implicit())
+print(test_void_no_return())

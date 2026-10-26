@@ -52,7 +52,7 @@ function version(command) {
 
 const positional = process.argv.slice(2).filter(arg => !arg.startsWith('--'))
 if (positional.length !== 2) {
-  fail('usage: node scripts/native-build.mjs <source.noqeri> <output> [--compiler=build/noqeri] [--cxx=c++] [--opt=-O3] [--keep-asm] [--ai-framework] [--ai-lib=build/libnoqeri_ai.a]')
+  fail('usage: node scripts/native-build.mjs <source.noqeri> <output> [--compiler=build/noqeri] [--cxx=c++] [--opt=-O3] [--keep-asm] [--ai-framework] [--ai-lib=build/libnoqeri_ai.a] [--owned-collections] [--owned-collections-lib=build/libnoqeri_owned_collections.a]')
 }
 if (process.platform !== 'linux' || process.arch !== 'x64') {
   fail('qualified native AOT builds currently require Linux x86-64; other targets must not be labelled native-qualified yet')
@@ -66,6 +66,8 @@ const cxx = option('cxx', process.env.CXX || 'c++')
 const optimization = option('opt', '-O3')
 const keepAsm = process.argv.includes('--keep-asm')
 const linkAiFramework = process.argv.includes('--ai-framework')
+const linkOwnedCollections = process.argv.includes('--owned-collections')
+const ownedLibrary = resolve(root, option('owned-collections-lib', 'build/libnoqeri_owned_collections.a'))
 const aiLib = resolve(root, option('ai-lib', 'build/libnoqeri_ai.a'))
 
 if (!existsSync(source)) fail(`source does not exist: ${relative(root, source)}`)
@@ -76,6 +78,7 @@ if ((compilerPath.includes('/') || compilerPath.includes('\\')) && !existsSync(c
 }
 
 if (linkAiFramework && !existsSync(aiLib)) fail('native AI framework static library not found; build target noqeri_ai first or pass --ai-lib=PATH')
+if (linkOwnedCollections && !existsSync(ownedLibrary)) fail('native collection library not found; build noqeri_owned_collections or pass --owned-collections-lib=PATH')
 
 mkdirSync(dirname(output), { recursive: true })
 const temp = resolve(dirname(output), `.${basename(output)}.native-tmp`)
@@ -99,7 +102,7 @@ try {
     '-c', runnerSource,
     '-o', runnerObject
   ])
-  run(cxx, [programObject, runnerObject, ...(linkAiFramework ? [aiLib] : []), '-o', output])
+  run(cxx, [programObject, runnerObject, ...(linkAiFramework ? [aiLib] : []), ...(linkOwnedCollections ? [ownedLibrary] : []), '-o', output])
 
   if (!existsSync(output) || statSync(output).size === 0) fail('native executable was not produced')
   chmodSync(output, 0o755)
@@ -129,6 +132,8 @@ try {
     cxx_version: version(cxx),
     optimization,
     ai_framework_linked: linkAiFramework,
+    owned_collections_linked: linkOwnedCollections,
+    owned_collections_library_sha256: linkOwnedCollections ? sha256File(ownedLibrary) : null,
     ai_framework_library_sha256: linkAiFramework ? sha256File(aiLib) : null
   }
   writeFileSync(`${output}.native.json`, JSON.stringify(provenance, null, 2) + '\n')

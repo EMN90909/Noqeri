@@ -371,4 +371,6 @@ Noqeri is licensed under **GPL-3.0-only**, except where a component explicitly p
 
 <p align="center">Built by <a href="https://noethric.xyz"><strong>Noethric</strong></a>.</p>
 
+For the native growable integer collection ABI, cross-stage inference qualification and typed native result conventions, see [Stage-2 inference, owned collections and typed outcomes](Doc/STAGE2_OWNED_RESULTS.md).
+
 For a precise matrix of completed vs proposed beginner syntax and native AI bindings, see [syntax and runtime implementation status](Doc/SYNTAX_IMPLEMENTATION_STATUS.md). It distinguishes verified NQRI bytecode selfhosting from unimplemented native selfhosting and unimplemented syntax proposals.

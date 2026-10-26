@@ -22,6 +22,15 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
+# Hosted, heap-backed int list/map/set ABI for ordinary Noqeri native AOT.
+# Opaque handles are validated; allocation is bounded and explicit close
+# releases ownership. Does not change freestanding bootstrap semantics.
+add_library(noqeri_owned_collections STATIC Runtime/native/owned_collections.cpp)
+target_include_directories(noqeri_owned_collections PUBLIC
+ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include/noqeri>
+ $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/noqeri>)
+target_compile_features(noqeri_owned_collections PUBLIC cxx_std_17)
+
 # Lightweight AI: first-party Apache library and GPL CLI host.
 # All training and inference run locally on the CPU without Python/Node or
 # heavyweight ML/LLM dependencies. No autonomous shell/network privileges.
@@ -92,6 +101,13 @@ target_compile_features(noqeri_abi PUBLIC cxx_std_17)
 target_compile_definitions(noqeri_abi PRIVATE NOQERI_BOOTSTRAP=1)
 set_source_files_properties(Compiler/bootstrap/noqeridb_host.cpp PROPERTIES COMPILE_DEFINITIONS NOQERI_DATABASE_SOURCE=1)
 set_target_properties(noqeri_abi PROPERTIES OUTPUT_NAME noqeri-abi WINDOWS_EXPORT_ALL_SYMBOLS ON)
+# Native owned collections always exercise the actual auto-growing C ABI.
+include(CTest)
+if(BUILD_TESTING)
+ add_executable(noqeri-owned-collections-test tests/cpp/owned_collections_test.cpp)
+ target_link_libraries(noqeri-owned-collections-test PRIVATE noqeri_owned_collections Threads::Threads)
+ add_test(NAME noqeri-owned-collections COMMAND noqeri-owned-collections-test)
+endif()
 function(noqeri_apply_warnings target)
  if(MSVC)
   target_compile_options(${target} PRIVATE /W4 /permissive- /EHsc /wd4456 /wd4701)
@@ -114,6 +130,10 @@ noqeri_apply_warnings(noqeri)
 noqeri_apply_warnings(noqeri-nqri)
 noqeri_apply_warnings(noqeri_ai)
 noqeri_apply_warnings(noqeri-ai)
+noqeri_apply_warnings(noqeri_owned_collections)
+if(TARGET noqeri-owned-collections-test)
+ noqeri_apply_warnings(noqeri-owned-collections-test)
+endif()
 noqeri_apply_warnings(noqeri-web)
 noqeri_apply_warnings(noqeri_abi)
 # Android app embedding: native compiler and interpreter run inside an APK

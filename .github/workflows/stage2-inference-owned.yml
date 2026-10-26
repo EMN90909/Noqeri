@@ -1,0 +1,74 @@
+name: Stage-2 inferred return and owned collections
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/selfhost/**'
+      - 'Compiler/bootstrap/interpreter_host.cpp'
+      - 'tests/interpreter_string_fields.noqeri'
+      - 'Lib/std/owned_collections.noqeri'
+      - 'Lib/std/native_outcome.noqeri'
+      - 'Lib/std/result.noqeri'
+      - 'tests/typed_native_outcomes.noqeri'
+      - 'Runtime/native/owned_collections.cpp'
+      - 'tests/stage2_return_inference.noqeri'
+      - 'tests/inferred_return_executable.noqeri'
+      - 'tests/inferred_return_invalid_export.noqeri'
+      - 'tests/inferred_return_invalid_recursion.noqeri'
+      - 'tests/stage2_repeat_parity.noqeri'
+      - 'tests/cpp/owned_collections_test.cpp'
+      - '.github/workflows/stage2-inference-owned.yml'
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  inference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build
+        run: |
+          cmake -S . -B build-owned -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+          cmake --build build-owned --target noqeri noqeri-nqri noqeri_owned_collections noqeri-owned-collections-test --parallel 2
+      - name: Type-check self-hosted compiler closure
+        run: ./build-owned/noqeri check Compiler/selfhost/main.noqeri --unsafe
+      - name: Execute self-hosted inference semantic checks
+        run: |
+          python3 tests/check_stage2_inference.py ./build-owned/noqeri
+      - name: Rebuild Stage-1/2/3 and prove actual executable inference parity
+        timeout-minutes: 13
+        run: |
+          set -euo pipefail
+          mkdir -p build-owned/qualification
+          ./build-owned/noqeri bootstrap-seed Compiler/selfhost/main.noqeri build-owned/qualification/stage1.nqri
+          ./build-owned/noqeri-nqri compile-manifest build-owned/qualification/stage1.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-owned/qualification/stage2.nqri 3
+          ./build-owned/noqeri-nqri compile-manifest build-owned/qualification/stage2.nqri "$PWD" "$PWD/Compiler/selfhost/stage2-sources.txt" build-owned/qualification/stage3.nqri 3
+          cmp build-owned/qualification/stage2.nqri build-owned/qualification/stage3.nqri
+          ./build-owned/noqeri-nqri compile build-owned/qualification/stage2.nqri tests/inferred_return_executable.noqeri build-owned/qualification/inference.nqri 3
+          test "$(./build-owned/noqeri-nqri build-owned/qualification/inference.nqri verify)" = "0"
+          test "$(./build-owned/noqeri run tests/inferred_return_executable.noqeri)" = "0"
+          node scripts/native-build.mjs tests/inferred_return_executable.noqeri build-owned/qualification/inference-native --compiler=build-owned/noqeri
+          test "$(./build-owned/qualification/inference-native)" = "0"
+          for invalid in tests/inferred_return_invalid_export.noqeri tests/inferred_return_invalid_recursion.noqeri; do
+            if ./build-owned/noqeri check "$invalid"; then echo "Stage-0 accepted invalid $invalid"; exit 1; fi
+            if ./build-owned/noqeri-nqri compile build-owned/qualification/stage2.nqri "$invalid" build-owned/qualification/invalid.nqri 3; then echo "Stage-2 accepted invalid $invalid"; exit 1; fi
+          done
+          echo "PASS: Stage-1/2/3 NQRI rebuild and Stage-0/Stage-2/native inference execution"
+      - name: Qualify dynamically growing host-owned native storage
+        run: |
+          ctest --test-dir build-owned -R '^noqeri-owned-collections$' --output-on-failure
+          ./build-owned/noqeri check tests/owned_collections_native.noqeri --unsafe
+          node scripts/native-build.mjs tests/owned_collections_native.noqeri build-owned/owned-app --compiler=build-owned/noqeri --owned-collections --owned-collections-lib=build-owned/libnoqeri_owned_collections.a
+          ./build-owned/owned-app | grep -Fx 0
+      - name: Validate aggregate string data and typed error fields
+        run: |
+          ./build-owned/noqeri check tests/interpreter_string_fields.noqeri --unsafe
+          ./build-owned/noqeri run tests/interpreter_string_fields.noqeri --unsafe | grep -Fx 0
+      - name: Execute typed native Outcome propagation through the reference VM
+        run: |
+          ./build-owned/noqeri check tests/typed_native_outcomes.noqeri --unsafe
+          ./build-owned/noqeri run tests/typed_native_outcomes.noqeri --unsafe | grep -Fx 0
+      - name: Run Stage-0 inference compatibility suite
+        run: python3 tests/beginner_syntax.py ./build-owned/noqeri .

@@ -5,6 +5,7 @@ import "../Compiler/selfhost/parser_stmt.noqeri"
 import "../Compiler/selfhost/ast.noqeri"
 import "../Compiler/selfhost/lower.noqeri"
 import "../Compiler/selfhost/nir.noqeri"
+import "../Compiler/selfhost/semantic_program.noqeri"
 
 function parsedAndLowered(): int {
     let source: [u8; 102] = [102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8,32 as u8,109 as u8,97 as u8,105 as u8,110 as u8,40 as u8,41 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,123 as u8,32 as u8,108 as u8,101 as u8,116 as u8,32 as u8,110 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,61 as u8,32 as u8,51 as u8,32 as u8,114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8,32 as u8,110 as u8,32 as u8,123 as u8,32 as u8,114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8,32 as u8,50 as u8,32 as u8,123 as u8,32 as u8,105 as u8,102 as u8,32 as u8,110 as u8,32 as u8,62 as u8,32 as u8,48 as u8,32 as u8,123 as u8,32 as u8,99 as u8,111 as u8,110 as u8,116 as u8,105 as u8,110 as u8,117 as u8,101 as u8,32 as u8,125 as u8,32 as u8,125 as u8,32 as u8,98 as u8,114 as u8,101 as u8,97 as u8,107 as u8,32 as u8,125 as u8,32 as u8,114 as u8,101 as u8,116 as u8,117 as u8,114 as u8,110 as u8,32 as u8,48 as u8,32 as u8,125 as u8]
@@ -72,7 +73,10 @@ function rejectsUnannotatedExpressionFunction(): int {
     let nodes: [NqAstNode; 64]
     let count: usize = 0 as usize
     let first: isize = nqAstNoNode()
-    if nqParserParseProgram(slice(source), slice(nodes), &count, &first) >= 0 as isize { return 14 }
+    // The Stage-2 parser now accepts omitted return annotations, but its
+    // semantic pass must reject the unresolved parameter type.
+    if nqParserParseProgram(slice(source), slice(nodes), &count, &first) != 0 as isize { return 0 }
+    if nqSemanticAnalyzeProgram(slice(source), slice(nodes), &count, first, false) >= 0 as isize { return 14 }
     return 0
 }
 print(parsesTypedExpressionFunction())
