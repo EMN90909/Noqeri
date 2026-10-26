@@ -94,3 +94,14 @@ component SecondaryLink(label: string, href: string) {
 component FooterNote(message: string) {
     footer class: "nq-footer" { message }
 }
+
+component SubmitButton(label: string) {
+    button type: "submit" class: "nq-button" { label }
+}
+
+component TextAreaField(labelText: string, fieldId: string, hint: string) {
+    div class: "nq-field" {
+        label for: fieldId { labelText }
+        textarea id: fieldId name: fieldId placeholder: hint {}
+    }
+}
