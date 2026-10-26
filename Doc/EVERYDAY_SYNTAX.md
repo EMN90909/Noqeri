@@ -17,10 +17,14 @@ zero/negative counts, decrements **before** the body, and ensures `continue`
 advances without locking up. Nested loops have independent loop-head and
 break-chain state. The bootstrap compiler already supports `repeat`.
 
-The Stage-2 implementation type-checks through Stage-0, but its *runtime
-parity is not yet qualified*: the initial execution of the self-hosted
-AST/NIR regression under the Stage-0 reference interpreter crashed with
-heap corruption (tracked as [issue #115](https://github.com/EMN90909/Noqeri/issues/115)). Consequently no Stage-2 execution claim is made.
+The Stage-2 parser and bounded AST/NIR tests now execute under the Stage-0
+reference interpreter without heap corruption. AddressSanitizer identified an
+incorrect aggregate address calculation (record addresses were taken from the
+host's eight-byte scalar storage cell). The fix makes aggregate addresses refer
+to their allocated backing storage and ASan passes the six bounded tests.
+This establishes **bounded parser/lowering execution** only; it does not prove
+a full Stage-2 NQRI bootstrap, all semantic/backend compatibility, or native
+self-hosting. See [issue #115](https://github.com/EMN90909/Noqeri/issues/115).
 The Stage-2 bootstrap/rebuild proof certificate remains fail-closed.
 
 ## Simple iteration

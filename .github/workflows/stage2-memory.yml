@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'tests/stage2_ast_smoke.noqeri'
+      - 'tests/stage2_pipeline_execution.noqeri'
       - 'tests/stage2_repeat_parity.noqeri'
       - 'Compiler/bootstrap/interpreter_host.cpp'
       - 'Compiler/type_checker.cpp'

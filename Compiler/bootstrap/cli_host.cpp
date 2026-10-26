@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <random>
 #include <sstream>
@@ -402,8 +403,11 @@ int main(int argc, char** argv) {
         for (int i=2;i<argc;++i)forwarded.push_back(argv[i]);
         forwarded.push_back(nullptr);
 #if defined(_WIN32)
-        const int rc=_spawnvp(_P_WAIT,executable.c_str(),forwarded.data());
-        if(rc>=0)return rc;
+        const intptr_t rc=_spawnvp(_P_WAIT,executable.c_str(),forwarded.data());
+        if(rc>=0){
+            if(rc>std::numeric_limits<int>::max())return 1;
+            return static_cast<int>(rc);
+        }
 #else
         ::execvp(executable.c_str(),forwarded.data());
 #endif

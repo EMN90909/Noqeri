@@ -1,0 +1,13 @@
+// Real source-to-NIR Stage-2 self-host pipeline execution, bounded input.
+// The compiler's large caller-owned workspaces require native host memory.
+import "../Compiler/selfhost/main.noqeri"
+import "../Compiler/selfhost/targets.noqeri"
+
+function stage2PipelineProbe(): int {
+    let source: [u8; 71] = [102 as u8,117 as u8,110 as u8,99 as u8,116 as u8,105 as u8,111 as u8,110 as u8,32 as u8,109 as u8,97 as u8,105 as u8,110 as u8,40 as u8,41 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,123 as u8,32 as u8,108 as u8,101 as u8,116 as u8,32 as u8,110 as u8,58 as u8,32 as u8,105 as u8,110 as u8,116 as u8,32 as u8,61 as u8,32 as u8,50 as u8,32 as u8,114 as u8,101 as u8,112 as u8,101 as u8,97 as u8,116 as u8,32 as u8,110 as u8,32 as u8,123 as u8,32 as u8,110 as u8,32 as u8,61 as u8,32 as u8,110 as u8,32 as u8,45 as u8,32 as u8,49 as u8,32 as u8,125 as u8,32 as u8,114 as u8,101 as u8,116 as u8,117 as u8,114 as u8,110 as u8,32 as u8,110 as u8,32 as u8,125 as u8]
+    if stage2SyntaxCheck(slice(source)) != 0 as isize { return 1 }
+    if stage2SemanticCheckMerged(slice(source), false) != 0 as isize { return 2 }
+    if stage2CompileCheck(slice(source), nqTargetLinuxX64(), false) != 0 as isize { return 3 }
+    return 0
+}
+print(stage2PipelineProbe())

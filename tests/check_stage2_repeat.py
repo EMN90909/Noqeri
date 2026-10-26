@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Typecheck Stage-2 parser/semantic/NIR sources; runtime parity not certified."""
+"""Execute self-host Stage-2 parser/lowering through the Stage-0 compiler."""
 import subprocess
 import sys
 from pathlib import Path
-compiler=Path(sys.argv[1]).resolve()
-sample=Path(sys.argv[2]).resolve()
-check=subprocess.run([str(compiler),"check",str(sample),"--unsafe"],
-                     capture_output=True,text=True,timeout=40)
-assert check.returncode==0,(check.stdout,check.stderr)
-print("PASS: Stage-2 repeat/for/typed-function source and NIR test harness typecheck")
-print("NOTICE: Executing Stage-2 via the Stage-0 interpreter is not yet qualified; "
-      "known memory corruption in the complex self-hosted parser test requires further investigation.")
+
+compiler = Path(sys.argv[1]).resolve()
+source = Path(sys.argv[2]).resolve()
+check = subprocess.run([str(compiler), "check", str(source), "--unsafe"],
+                       capture_output=True, text=True, timeout=40)
+if check.returncode != 0:
+    raise AssertionError(f"Stage-2 harness did not compile: {check.stdout}\n{check.stderr}")
+run = subprocess.run([str(compiler), "run", str(source), "--unsafe"],
+                     capture_output=True, text=True, timeout=80)
+if run.returncode != 0:
+    raise AssertionError(f"Stage-2 harness crashed ({run.returncode}): {run.stdout}\n{run.stderr}")
+expected = ["0"] * 6
+if run.stdout.splitlines() != expected:
+    raise AssertionError(f"Stage-2 runtime parity failed: expected {expected}, got {run.stdout!r}")
+print("PASS: Stage-2 repeat, for-in, expression-function parser and NIR lowering")

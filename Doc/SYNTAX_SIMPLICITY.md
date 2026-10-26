@@ -45,7 +45,7 @@ repeat 5 {
 }
 ```
 
-The bootstrap compiler supports this spelling. The Stage-2 parser, semantics and lowering now include a dedicated counted-loop path and focused regression tests. Those sources type-check in the bootstrap compiler; executable Stage-2 parity is still blocked by a reference-interpreter heap-corruption failure during the self-hosted AST/NIR harness. Do not claim a release-qualified Stage-2 compiler until the executable and bootstrap parity gates pass.
+The bootstrap compiler supports this spelling. The Stage-2 parser, semantics and lowering now include a dedicated counted-loop path and focused regression tests. Those sources type-check in the bootstrap compiler. After fixing aggregate address lowering, six bounded parser/NIR tests execute under the Stage-0 interpreter and pass AddressSanitizer. This is **not** the full Stage-2 bytecode or native self-host qualification: the complete bootstrap/equivalence gates remain required.
 
 Functions stay explicit where types communicate an API boundary:
 

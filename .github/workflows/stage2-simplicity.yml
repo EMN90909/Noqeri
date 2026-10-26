@@ -40,7 +40,7 @@ jobs:
         run: cmake --build build-simplicity --target noqeri --parallel 2
       - name: Check self-hosted compiler source with Stage-0
         run: ./build-simplicity/noqeri check Compiler/selfhost/main.noqeri --unsafe
-      - name: Typecheck Stage-2 parser and lowering test harness
+      - name: Execute Stage-2 parser and lowering test harness
         run: python3 tests/check_stage2_repeat.py ./build-simplicity/noqeri tests/stage2_repeat_parity.noqeri
       - name: Run practical numeric aggregation and filtering example
         run: |
