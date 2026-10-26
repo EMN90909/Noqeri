@@ -26,7 +26,7 @@ function verify(): int {
     if outcome_value_or(&value,-1) != 1 { return 7 }
     if owned_list_close(&list) < 0 as isize { return 8 }
     owned_list_append_result(&list,42,&changed)
-    if !outcome_is_error(&changed) || outcome_error_domain(&changed) != "collections" { return 23 }
+    if !outcome_is_error(&changed) || outcome_error_code(&changed) != -1 as isize { return 23 }
     owned_list_length_result(&list,&count)
     if !outcome_is_error(&count) { return 24 }
 
