@@ -9,27 +9,30 @@ permissions:
 jobs:
   native-web:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Install optional native SQL client headers (SQLite, PostgreSQL, MySQL)
+      - name: Install optional SQL SDKs
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libsqlite3-dev libpq-dev libmariadb-dev
       - name: Configure native C++ bootstrap
         run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
-      - name: Build standalone Noqeri web binary (no Node/npm/JS)
-        run: cmake --build build-native-web --target noqeri-web -j2
-      - name: Native static web regression tests
-        run: ctest --test-dir build-native-web -R '^noqeri-native-web$' --output-on-failure
-      - name: Ensure generated site contains only HTML/CSS
+      - name: Build Noqeri native web and WebSocket frame validator
+        run: cmake --build build-native-web --target noqeri-web noqeri-websocket-frame-test -j2
+      - name: Native static web and RFC6455 frame regression tests
+        run: ctest --test-dir build-native-web -R '^(noqeri-native-web|noqeri-websocket-frame)$' --output-on-failure
+      - name: Ensure static site uses HTML/CSS only
         run: |
           ./build-native-web/noqeri-web build examples/native_web_static build-native-web/website
-          test -f build-native-web/website/index.html
-          test -f build-native-web/website/about/index.html
-          test -f build-native-web/website/theme.css
+          test -s build-native-web/website/index.html
+          test -s build-native-web/website/about/index.html
+          test -s build-native-web/website/theme.css
           if find build-native-web/website -type f \( -name '*.js' -o -name '*.mjs' \) | grep .; then exit 1; fi
-      - name: Verify native HTTP server and independent routing
+          grep -q 'Noqeri UI v2' build-native-web/website/index.html
+          grep -q 'nq-empty' build-native-web/website/index.html
+          grep -q 'nq-button-secondary' build-native-web/website/about/index.html
+      - name: Native HTTP static-route integration
         run: |
           ./build-native-web/noqeri-web serve build-native-web/website 18971 > /tmp/noqeri-native-server.log 2>&1 &
           server_pid=$!
@@ -40,17 +43,7 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:18971/theme.css | grep -q -- '--nq-primary:#304ac0'
           status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18971/missing)
           test "$status" = 404
-      - name: Build and qualify bounded WebSocket frames
-        run: |
-          cmake --build build-native-web --target noqeri-websocket-frame-test -j2
-          ctest --test-dir build-native-web -R '^noqeri-websocket-frame
-        run: |
-          python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions
-      - name: Test native web database adapters and NoeSQL binding protocol
-        run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
- --output-on-failure
-      - name: Test server-driven buttons, forms, session isolation and persisted data
-        run: |
-          python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions
-      - name: Test native web database adapters and NoeSQL binding protocol
+      - name: Test native interactive HTTP security and sessions
+        run: python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Test native web database adapters without changing NoeSQL
         run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
