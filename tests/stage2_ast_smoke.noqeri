@@ -1,0 +1,15 @@
+import "../Compiler/selfhost/ast.noqeri"
+// Minimal record-typed AST write/read to distinguish an element-stride bug
+// from recursive parsing and lowering heap corruption.
+function check(): int {
+    let nodes: [NqAstNode; 4]
+    let count: usize = 0 as usize
+    let a: isize = nqAstArenaPush(slice(nodes), &count, nqAstInteger(), 0 as usize, 2 as usize)
+    if a != 0 as isize { return 1 }
+    let b: isize = nqAstArenaPush(slice(nodes), &count, nqAstInteger(), 2 as usize, 3 as usize)
+    if b != 1 as isize { return 2 }
+    if nodes[0].tag != nqAstInteger() || nodes[1].tag != nqAstInteger() { return 3 }
+    if nodes[0].end != 2 as usize || nodes[1].start != 2 as usize { return 4 }
+    return 0
+}
+print(check())

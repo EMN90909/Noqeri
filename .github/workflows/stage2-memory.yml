@@ -1,0 +1,29 @@
+name: Stage-2 runtime memory qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tests/stage2_ast_smoke.noqeri'
+      - 'tests/stage2_repeat_parity.noqeri'
+      - 'Compiler/bootstrap/interpreter_host.cpp'
+      - 'Compiler/selfhost/ast.noqeri'
+      - '.github/workflows/stage2-memory.yml'
+permissions:
+  contents: read
+jobs:
+  asan-stage2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build reference interpreter with AddressSanitizer
+        run: |
+          cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+          cmake --build build-asan --target noqeri --parallel 2
+      - name: Minimal AST layout smoke
+        run: ./build-asan/noqeri run tests/stage2_ast_smoke.noqeri --unsafe
+      - name: Real Stage-2 parser and lowering smoke
+        run: ./build-asan/noqeri run tests/stage2_repeat_parity.noqeri --unsafe
