@@ -23,8 +23,8 @@ extern "C" int64_t nq_ai_gemm(const nq_ai_gemm_request* request) {
     if (request->backend > 3u) return -4;
     try {
         using namespace noqeri_ai::framework;
-        Matrix a(request->left_rows,request->left_cols);
-        Matrix b(request->right_rows,request->right_cols);
+        noqeri_ai::Matrix a(request->left_rows,request->left_cols);
+        noqeri_ai::Matrix b(request->right_rows,request->right_cols);
         std::copy_n(request->left,a.values.size(),a.values.begin());
         std::copy_n(request->right,b.values.size(),b.values.begin());
         Backend backend=Backend::Auto;
@@ -34,7 +34,7 @@ extern "C" int64_t nq_ai_gemm(const nq_ai_gemm_request* request) {
             case 2:backend=Backend::Simd;break;
             default:break;
         }
-        Matrix result=gemm(a,b,backend);
+        noqeri_ai::Matrix result=gemm(a,b,backend);
         // Write once, after all shape, value and numerical checks succeed.
         std::copy(result.values.begin(),result.values.end(),request->output);
         return 0;
