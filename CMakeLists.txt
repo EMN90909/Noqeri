@@ -150,6 +150,13 @@ if(BUILD_TESTING)
  target_compile_features(noqeri-phi-edge-emitter PRIVATE cxx_std_17)
  target_link_libraries(noqeri-phi-edge-emitter PRIVATE noqeri_abi)
  noqeri_apply_warnings(noqeri-phi-edge-emitter)
+ add_executable(noqeri-loop-simd-emitter
+   tests/cpp/loop_simd_codegen_test.cpp Compiler/native_backend.cpp)
+ target_include_directories(noqeri-loop-simd-emitter PRIVATE
+   Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri-loop-simd-emitter PRIVATE cxx_std_17)
+ target_link_libraries(noqeri-loop-simd-emitter PRIVATE noqeri_abi)
+ noqeri_apply_warnings(noqeri-loop-simd-emitter)
  add_executable(noqeri-simd-codegen-test
    tests/cpp/native_simd_emit_test.cpp Compiler/native_backend.cpp)
  target_include_directories(noqeri-simd-codegen-test PRIVATE
