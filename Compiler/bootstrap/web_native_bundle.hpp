@@ -15,7 +15,7 @@ std::string cppRawLiteral(const std::string& source) {
 }
 fs::path nativeWebCompilerSource(const char* executable) {
     std::vector<fs::path> candidates={
-        fs::path(__FILE__),
+        fs::path(__FILE__).parent_path()/"web_native.cpp",
         fs::current_path()/"Compiler/bootstrap/web_native.cpp",
         fs::absolute(executable).parent_path()/"../share/noqeri/Compiler/bootstrap/web_native.cpp",
         fs::absolute(executable).parent_path()/"../Compiler/bootstrap/web_native.cpp"
