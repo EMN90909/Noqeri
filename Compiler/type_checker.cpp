@@ -340,7 +340,7 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
             }
             define(s->name,simple(TypeKind::List),false,s->span);
         }else{
-            if(init.kind==TypeKind::List)
+            if(init.kind==TypeKind::List && !s->borrowedListLoopCapture)
                 diagnostics_.error("NQR-T3072",s->span,
                     "growable lists cannot be copied or aliased",
                     "mutate the original list directly; owned list moves and clones are not yet implemented");
@@ -568,7 +568,9 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             return simple(TypeKind::Usize);
         }
         if(name=="len"){
-            if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array or slice");return simple(TypeKind::Usize);
+            if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}
+            else if(t.kind==TypeKind::List){e->growableListMethod=true;e->builtinText="length";}
+            else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array, slice or owned list");return simple(TypeKind::Usize);
         }
         if(name=="slice"){
             if(e->args.size()==1){Type a=checkExpr(e->args[0]);if(a.kind!=TypeKind::Array||!a.element){diagnostics_.error("NOE-T3042",e->span,"slice(array) expects a fixed array");return simple(TypeKind::Unknown);}e->builtinCount=a.count;e->builtinCountKnown=true;e->builtinWidth=std::max<std::size_t>(1,a.element->size());Type s;s.kind=TypeKind::Slice;s.element=a.element;return s;}

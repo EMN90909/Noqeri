@@ -238,7 +238,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
         if(e->growableListMethod){
             auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee);
-            Reg list=lowerExpr(fn,member->object);
+            Reg list=lowerExpr(fn,member?member->object:e->args.front());
             NirInstruction call;call.op=NirOp::Call;
             call.dest=fn.nextReg++;
             if(e->builtinText=="append"){

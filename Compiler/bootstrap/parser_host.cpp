@@ -310,6 +310,7 @@ StmtPtr Parser::forStatement(){
     };
     auto collection=std::make_shared<LetStmt>();collection->span=start.span;
     collection->name=collectionName;collection->initializer=source;
+    collection->borrowedListLoopCapture=true;
     auto index=std::make_shared<LetStmt>();index->span=start.span;
     index->name=indexName;index->annotation=std::string("usize");
     index->initializer=makeUsize(makeNumber(0));

@@ -694,7 +694,8 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
         let status: isize = nqSemanticExpression(source, nodes, node.right, symbols, context, functions, functionParameters, records, recordCount, fields)
         if status < 0 as isize { return status }
         let iterable: *NqAstNode = &nodes[node.right as usize]
-        if (iterable.typeCode != nqAstTypeArray() && iterable.typeCode != nqAstTypeSlice()) ||
+        if (iterable.typeCode != nqAstTypeArray() && iterable.typeCode != nqAstTypeSlice() &&
+            iterable.typeCode != nqAstTypeOwnedIntList()) ||
            !nqAstTypeScalar(iterable.elementTypeCode) {
             return nqSemanticFail(context, node, nqSemanticTypeMismatch())
         }

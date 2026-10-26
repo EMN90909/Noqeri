@@ -709,6 +709,8 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         let pointer: isize = data
         if iterable.typeCode == nqAstTypeArray() {
             length = nqLowerEmitConst(instructions, state, iterable.arrayLength as i64, nqAstTypeUsize())
+        } else if iterable.typeCode == nqAstTypeOwnedIntList() {
+            length = nqLowerListCall(instructions,state,3,data,nqNirNoValue())
         } else if iterable.typeCode == nqAstTypeSlice() {
             length = nqLowerAllocRegister(state)
             let lenOp: isize = nqLowerEmit(instructions, state, nqNirSliceLen(), length)
@@ -748,18 +750,24 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
         instructions[guard as usize].left = index
         instructions[guard as usize].right = length
 
-        let address: isize = nqLowerAllocRegister(state)
-        let offset: isize = nqLowerEmit(instructions, state, nqNirPtrAdd(), address)
-        if offset < 0 as isize { return offset }
-        instructions[offset as usize].left = pointer
-        instructions[offset as usize].right = index
-        instructions[offset as usize].width = width
-        let value: isize = nqLowerAllocRegister(state)
-        let load: isize = nqLowerEmit(instructions, state, nqNirLoadMemory(), value)
-        if load < 0 as isize { return load }
-        instructions[load as usize].left = address
-        instructions[load as usize].width = width
-        instructions[load as usize].typeCode = iterable.elementTypeCode
+        let value: isize = nqNirNoValue()
+        if iterable.typeCode == nqAstTypeOwnedIntList() {
+            value = nqLowerListCall(instructions,state,5,pointer,index)
+            if value < 0 as isize { return value }
+        } else {
+            let address: isize = nqLowerAllocRegister(state)
+            let offset: isize = nqLowerEmit(instructions, state, nqNirPtrAdd(), address)
+            if offset < 0 as isize { return offset }
+            instructions[offset as usize].left = pointer
+            instructions[offset as usize].right = index
+            instructions[offset as usize].width = width
+            value = nqLowerAllocRegister(state)
+            let load: isize = nqLowerEmit(instructions, state, nqNirLoadMemory(), value)
+            if load < 0 as isize { return load }
+            instructions[load as usize].left = address
+            instructions[load as usize].width = width
+            instructions[load as usize].typeCode = iterable.elementTypeCode
+        }
         let item: isize = nqLowerEmit(instructions, state, nqNirStore(), nqNirNoValue())
         if item < 0 as isize { return item }
         instructions[item as usize].symbol = nqLowerNodeSymbol(source, nodes, node.left)

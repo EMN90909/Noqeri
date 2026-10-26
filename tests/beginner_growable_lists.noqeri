@@ -9,6 +9,11 @@ function verify(): int {
     local.append(-7)
     if local.length() != 4 as usize { return 1 }
     if local[0] != 1 || local[2] != 3 || local[3] != -7 { return 4 }
+    let sum: int = 0
+    for element in local {
+        sum = sum + element
+    }
+    if sum != -1 { return 6 }
     let another = [9]
     another.append(8)
     if another.length() != 2 as usize { return 2 }
@@ -19,6 +24,11 @@ function verify(): int {
     empty.append(32)
     if empty.length() != 2 as usize { return 3 }
     if empty[0] != 31 || empty[1] != 32 { return 5 }
+    let evenTotal: int = 0
+    for entry in empty {
+        evenTotal = evenTotal + entry
+    }
+    if evenTotal != 63 { return 7 }
     return 0
 }
 print(verify())
