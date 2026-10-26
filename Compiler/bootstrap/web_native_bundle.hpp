@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Stage-0 native web application bundler. Generated app binary embeds the
 // Noqeri source and the library component declarations (no runtime files).
 // This compiles the bootstrap renderer into a native executable, NOT typed NIR.
