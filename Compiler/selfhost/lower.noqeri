@@ -10,7 +10,14 @@ record NqLowerState {
     loopStart: usize
     breakHead: isize
     ownedCount: usize
-    ownedSymbols: [u64; 64]
+    ownedSymbol0: u64
+    ownedSymbol1: u64
+    ownedSymbol2: u64
+    ownedSymbol3: u64
+    ownedSymbol4: u64
+    ownedSymbol5: u64
+    ownedSymbol6: u64
+    ownedSymbol7: u64
 }
 
 export function nqLowerOk(): isize { return 0 }
@@ -29,6 +36,30 @@ export function nqLowerStateInit(out: *NqLowerState): void {
     out.ownedCount = 0 as usize
 }
 
+
+
+function nqLowerOwnedSymbol(state: *NqLowerState, slot: usize): u64 {
+    if slot == 0 as usize { return state.ownedSymbol0 }
+    if slot == 1 as usize { return state.ownedSymbol1 }
+    if slot == 2 as usize { return state.ownedSymbol2 }
+    if slot == 3 as usize { return state.ownedSymbol3 }
+    if slot == 4 as usize { return state.ownedSymbol4 }
+    if slot == 5 as usize { return state.ownedSymbol5 }
+    if slot == 6 as usize { return state.ownedSymbol6 }
+    if slot == 7 as usize { return state.ownedSymbol7 }
+    return 0 as u64
+}
+function nqLowerSetOwnedSymbol(state: *NqLowerState, slot: usize, symbol: u64): bool {
+    if slot == 0 as usize { state.ownedSymbol0 = symbol return true }
+    if slot == 1 as usize { state.ownedSymbol1 = symbol return true }
+    if slot == 2 as usize { state.ownedSymbol2 = symbol return true }
+    if slot == 3 as usize { state.ownedSymbol3 = symbol return true }
+    if slot == 4 as usize { state.ownedSymbol4 = symbol return true }
+    if slot == 5 as usize { state.ownedSymbol5 = symbol return true }
+    if slot == 6 as usize { state.ownedSymbol6 = symbol return true }
+    if slot == 7 as usize { state.ownedSymbol7 = symbol return true }
+    return false
+}
 
 function nqLowerListSymbol(which: int): u64 {
     if which == 1 { return nqNirSymbolId(slice([110 as u8,113 as u8,95 as u8,108 as u8,105 as u8,115 as u8,116 as u8,95 as u8,110 as u8,101 as u8,119 as u8]),0 as usize,11 as usize) }
@@ -67,7 +98,7 @@ function nqLowerCloseOwnedLists(instructions: []NqNirInstruction,state: *NqLower
         let reg: isize = nqLowerAllocRegister(state)
         let load: isize = nqLowerEmit(instructions,state,nqNirLoad(),reg)
         if load < 0 as isize { return load }
-        instructions[load as usize].symbol = state.ownedSymbols[cursor]
+        instructions[load as usize].symbol = nqLowerOwnedSymbol(state,cursor)
         let closed: isize = nqLowerListCall(instructions,state,4,reg,nqNirNoValue())
         if closed < 0 as isize { return closed }
     }
@@ -543,25 +574,19 @@ export function nqLowerStatement(source: []u8, nodes: []NqAstNode, nodeIndex: is
     if node.tag == nqAstExpressionStatement() { let value: isize = nqLowerExpressionInternal(source, nodes, node.left, instructions, state) if value < 0 as isize { return value } return nqLowerOk() }
     if node.tag == nqAstBinding() {
         if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
-            print(7100)
-            if state.ownedCount >= 64 as usize { return nqLowerCapacity() }
+            if state.ownedCount >= 8 as usize { return nqLowerCapacity() }
             let handle: isize = nqLowerListCall(instructions,state,1,nqNirNoValue(),nqNirNoValue())
             if handle < 0 as isize { return handle }
-            print(7101)
             let ownedSymbol: u64 = nqLowerNodeSymbol(source,nodes,node.left)
             let storeList: isize = nqLowerEmit(instructions,state,nqNirStore(),nqNirNoValue())
             if storeList < 0 as isize { return storeList }
             instructions[storeList as usize].left = handle
             instructions[storeList as usize].symbol = ownedSymbol
-            print(7102)
-            state.ownedSymbols[state.ownedCount] = ownedSymbol
+            if !nqLowerSetOwnedSymbol(state,state.ownedCount,ownedSymbol) { return nqLowerCapacity() }
             state.ownedCount = state.ownedCount + 1 as usize
-            print(7103)
             let array: *NqAstNode = &nodes[node.right as usize]
-            print(7104)
             let element: isize = array.right
             while element >= 0 as isize {
-                print(7105)
                 let item: isize = nqLowerExpressionInternal(source,nodes,element,instructions,state)
                 if item < 0 as isize { return item }
                 let appended: isize = nqLowerListCall(instructions,state,2,handle,item)
@@ -919,14 +944,14 @@ export function nqLowerProgram(source: []u8, nodes: []NqAstNode, first: isize, i
             let savedOwnedSymbols: [u64; 64]
             let saveIndex: usize = 0 as usize
             while saveIndex < savedOwnedCount {
-                savedOwnedSymbols[saveIndex] = state.ownedSymbols[saveIndex]
+                savedOwnedSymbols[saveIndex] = nqLowerOwnedSymbol(&state,saveIndex)
                 saveIndex = saveIndex + 1 as usize
             }
             let status: isize = nqLowerFunction(source, nodes, cursor, instructions, &state, &functions[functionCount])
             state.ownedCount = savedOwnedCount
             let restoreIndex: usize = 0 as usize
             while restoreIndex < savedOwnedCount {
-                state.ownedSymbols[restoreIndex] = savedOwnedSymbols[restoreIndex]
+                if !nqLowerSetOwnedSymbol(&state,restoreIndex,savedOwnedSymbols[restoreIndex]) { return nqLowerCapacity() }
                 restoreIndex = restoreIndex + 1 as usize
             }
             if status < 0 as isize { return status }
