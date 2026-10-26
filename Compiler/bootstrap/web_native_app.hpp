@@ -469,6 +469,51 @@ std::size_t layoutSlotCount(const std::vector<Node>& nodes) {
     }
     return count;
 }
+
+bool constantTimeEquals(const std::string& a,const std::string& b) {
+    const auto length=std::max(a.size(),b.size());
+    unsigned mismatch=static_cast<unsigned>(a.size()^b.size());
+    for(std::size_t i=0;i<length;++i) {
+        const auto left=i<a.size()?static_cast<unsigned char>(a[i]):0;
+        const auto right=i<b.size()?static_cast<unsigned char>(b[i]):0;
+        mismatch|=left^right;
+    }
+    return mismatch==0;
+}
+std::string basicDecode(const std::string& input) {
+    if(input.empty()||input.size()>684||input.size()%4!=0)return "";
+    static const std::string chars=
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    for(std::size_t i=0;i<input.size();i+=4) {
+        unsigned values[4]={};
+        bool padded=false;
+        for(int k=0;k<4;++k) {
+            const auto c=input[i+static_cast<std::size_t>(k)];
+            if(c=='=') {
+                if(i+4!=input.size()||k<2)return "";
+                padded=true; values[k]=0;
+            } else {
+                if(padded)return "";
+                const auto at=chars.find(c);
+                if(at==std::string::npos)return "";
+                values[k]=static_cast<unsigned>(at);
+            }
+        }
+        const bool a=input[i+2]=='=',b=input[i+3]=='=';
+        if(a&&!b)return "";
+        if((a&&(values[1]&15))||(b&&!a&&(values[2]&3)))return "";
+        result+=static_cast<char>((values[0]<<2)|(values[1]>>4));
+        if(!a)result+=static_cast<char>((values[1]<<4)|(values[2]>>2));
+        if(!b)result+=static_cast<char>((values[2]<<6)|values[3]);
+    }
+    return result;
+}
+bool nativeBasicAllowed(const std::string& auth,const std::string& expected) {
+    if(expected.empty())return true;
+    if(auth.rfind("Basic ",0)!=0)return false;
+    return constantTimeEquals(basicDecode(auth.substr(6)),expected);
+}
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
               const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
