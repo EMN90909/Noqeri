@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4 — 2026-10-26 (experimental developer preview)
+
+- Align CMake, compiler/language version constants and project manifests with 0.1.4.
+- Add standalone native Noqeri web executable bundling (C++17 bootstrap), layout slots, parameterized routes, server-side byte-length validation and end-to-end tests.
+- Add bounded concurrent HTTP ingestion, optional Basic access control, secure-cookie switch, structured status logging, and typed SQLite query scalars; still localhost-only and experimental.
+- Add WebSocket frame qualification, optional SQL driver inspection, NoeSQL-first backend integration carried forward from 0.1.3.
+- Add scoped GPL-3.0-only toolchain / Apache-2.0 first-party library distribution policy, dual license texts and qualified prerelease workflow.
+- **Not yet complete:** Stage-2 typed NIR web lowering, production TLS/authz/identity lifecycle, real native NoeSQL session ABI provider, multi-backend transaction testing, WebAssembly DOM bridge and cross-platform production certification.
+- See [v0.1.4 qualification and release limitations](Doc/V0_1_4_RELEASE.md).
+
+
 ## 0.1.3-development — 2026-10-23 (version alignment, not a stable release)
 
 - Reset the active C++ compiler, language API, project metadata, and release-report version declarations to 0.1.3 at the user's request. The trusted Stage-1 compiler source and bytecode remain pinned to the historical 0.7.0 bootstrap artifact pending an independently reproducible trust rotation.
