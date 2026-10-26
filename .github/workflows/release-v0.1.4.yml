@@ -71,6 +71,7 @@ jobs:
           python3 tests/native_web_bundle.py ./build-release/noqeri-web examples/native_web_fullstack
           python3 tests/native_web_database.py ./build-release/noqeri-web
           python3 tests/native_web_noesql_session.py ./build-release/noqeri-web .
+          python3 tests/native_web_unified_cli.py ./build-release/noqeri ./build-release/noqeri-web examples/native_web_fullstack examples/native_web_static
       - name: Install and archive redistributable SDK
         shell: bash
         run: |
