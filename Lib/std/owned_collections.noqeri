@@ -22,18 +22,21 @@ record OwnedIntSet { handle: isize }
 // reserve size. A negative status reports allocation/runtime failure.
 export function owned_list_open(out: *OwnedIntList): isize {
     if out == null { return -1 as isize }
+    unsafe { out.handle = 0 as isize }
     let id: isize = nq_collection_new(1)
     if id >= 0 as isize { unsafe { out.handle = id } }
     return id
 }
 export function owned_map_open(out: *OwnedIntMap): isize {
     if out == null { return -1 as isize }
+    unsafe { out.handle = 0 as isize }
     let id: isize = nq_collection_new(2)
     if id >= 0 as isize { unsafe { out.handle = id } }
     return id
 }
 export function owned_set_open(out: *OwnedIntSet): isize {
     if out == null { return -1 as isize }
+    unsafe { out.handle = 0 as isize }
     let id: isize = nq_collection_new(3)
     if id >= 0 as isize { unsafe { out.handle = id } }
     return id
@@ -123,4 +126,61 @@ export function owned_set_get(set: *OwnedIntSet, key: int, out: *Outcome<int>): 
     if set != null { unsafe { status = nq_collection_get(set.handle,key,&value) } }
     if status < 0 as isize { outcome_init_error(out,0,status,"collections","set item not found") }
     else { outcome_init_ok(out,value) }
+}
+
+// Typed adapters for every mutating collection operation. Native status
+// codes are never mistaken for item values; all outputs are initialized.
+export function owned_list_append_result(list: *OwnedIntList, value: int, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_list_append(list,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","list append failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_map_put_result(map: *OwnedIntMap, key: int, value: int, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_map_put(map,key,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","map update failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_set_add_result(set: *OwnedIntSet, value: int, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_set_add(set,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","set insertion failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_list_remove_result(list: *OwnedIntList, index: int, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_list_remove(list,index)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","list removal failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_map_remove_result(map: *OwnedIntMap, key: int, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_map_remove(map,key)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","map key removal failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_set_remove_result(set: *OwnedIntSet, value: int, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_set_remove(set,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","set removal failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_list_length_result(list: *OwnedIntList, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = owned_list_length(list)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"collections","list length failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function owned_map_length_result(map: *OwnedIntMap, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = owned_map_length(map)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"collections","map length failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function owned_set_length_result(set: *OwnedIntSet, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = owned_set_length(set)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"collections","set length failed") }
+    else { outcome_init_ok(out,status) }
 }
