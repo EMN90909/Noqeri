@@ -14,6 +14,28 @@
 - Native SQLite adapter returns typed JSON scalar cells (string, number, null); additional engines continue to use their native client interfaces. There is no automatic NoeSQL-to-SQL conversion and no database engine change in NoeSQL itself.
 - GPL-3.0-only compiler/toolchain and Apache-2.0 project-maintained reusable libraries are documented under `LICENSES.md`; exact source provenance and third-party notices take precedence. Both license texts ship in SDK archives.
 
+## Unified `noqeri web` command
+
+The compiler CLI now serves as the single entry point for the native web
+framework, including standalone executable generation, static builds,
+development HTTP serving and database driver inspection. The older
+`noqeri web <file.noqeri> [module.mjs]` browser module emission remains
+backward compatible and is **not** implicitly converted to native mode.
+
+```sh
+noqeri web compile examples/native_web_fullstack ./my-app
+./my-app 8080
+noqeri web build examples/native_web_static ./dist-static
+noqeri web serve-app examples/native_web_fullstack 8081
+noqeri web drivers
+```
+
+The same Noqeri-authored UI library and theme contract underlie the native
+static build and the server-action runtime; the separate browser ES-module
+compiler is still not unified at the typed NIR level. The v0.1.4 release
+includes the code and binaries for these paths, with actual tests of the
+unified compiler command. No JavaScript is needed for native execution.
+
 ## Compile a native application
 
 ```sh
