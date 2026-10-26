@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <atomic>
+#include <mutex>
+#include <thread>
 #include <cstdint>
 #include <limits>
 #include <memory>
