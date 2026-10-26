@@ -260,6 +260,14 @@ if(BUILD_TESTING)
  set_tests_properties(noqeri-reject-incomplete-hex PROPERTIES WILL_FAIL TRUE)
  add_test(NAME noqeri-nqri-selftest COMMAND noqeri-nqri --selftest)
  add_test(NAME noqeri-version COMMAND noqeri --version)
+ find_program(NOQERI_NODE_EXECUTABLE NAMES node node.exe)
+ if(NOQERI_NODE_EXECUTABLE)
+  add_test(NAME noqeri-agent-loop
+   COMMAND ${CMAKE_COMMAND} -E env
+   "NOQERI_TEST_COMPILER=$<TARGET_FILE:noqeri>"
+   "${NOQERI_NODE_EXECUTABLE}" --test
+   "${CMAKE_SOURCE_DIR}/tests/agent_loop.test.mjs")
+ endif()
  add_test(NAME noqeri-native-web
   COMMAND ${CMAKE_COMMAND}
    "-DNOQERI_WEB=$<TARGET_FILE:noqeri-web>"

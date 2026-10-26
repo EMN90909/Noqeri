@@ -1,0 +1,41 @@
+name: Noqeri compiler diagnostics and agent development loop
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/core.cpp'
+      - 'Compiler/modules.cpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'Include/noqeri/diagnostics.hpp'
+      - 'Tools/agent/**'
+      - 'tests/agent_loop.test.mjs'
+      - 'CMakeLists.txt'
+      - '.github/workflows/agent-loop.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/core.cpp'
+      - 'Compiler/modules.cpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'Include/noqeri/diagnostics.hpp'
+      - 'Tools/agent/**'
+      - 'tests/agent_loop.test.mjs'
+      - 'CMakeLists.txt'
+      - '.github/workflows/agent-loop.yml'
+permissions:
+  contents: read
+jobs:
+  agent-compiler:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configure Stage-0 compiler
+        run: cmake -S . -B build-agent -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+      - name: Build compiler
+        run: cmake --build build-agent --target noqeri --parallel 2
+      - name: Test diagnostic schema and agent loop
+        run: ctest --test-dir build-agent -R '^noqeri-(agent-loop|check-hello)$' --output-on-failure
