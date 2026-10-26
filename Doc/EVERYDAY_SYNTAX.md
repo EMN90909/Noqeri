@@ -105,3 +105,18 @@ require supported file-host ABI services; the CI currently type-checks the
 API rather than exercising real filesystem integration.
 
 For the evidence-backed complete feature matrix, see [Syntax and runtime implementation status](SYNTAX_IMPLEMENTATION_STATUS.md).
+
+## Explicit List growth and UTF-8 iteration
+
+`list_init` and `list_grow_into` provide a checked way to rebind an
+existing `List<T>` to a larger **caller-supplied buffer** without losing
+elements. No implicit allocation or hidden ownership is introduced.
+`iterator_from_slice` and `iterator_from_list` use the existing
+`Iterator<T>` cursor protocol; borrowed iterators must not outlive a
+buffer rebind. `Utf8Iterator` reads validated **Unicode scalar values**,
+not raw UTF-8 bytes, and reports end-of-input separately from malformed
+sequences. The regression is `tests/collection_growth_unicode.noqeri`.
+
+These additions do not yet implement allocator-owned list literals,
+automatic growth, `for-in` on `List<T>`, or automatic custom iterator
+dispatch in the compiler.

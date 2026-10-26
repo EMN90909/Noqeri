@@ -15,6 +15,9 @@ on:
       - 'tests/stage2_repeat_parity.noqeri'
       - 'tests/check_stage2_repeat.py'
       - 'examples/simplicity/**'
+      - 'Lib/std/list.noqeri'
+      - 'Lib/std/iterator.noqeri'
+      - 'tests/collection_growth_unicode.noqeri'
       - '.github/workflows/stage2-simplicity.yml'
   pull_request:
     branches: [main]
@@ -60,6 +63,11 @@ jobs:
           if ./build-simplicity/noqeri check tests/invalid_for_keyword.noqeri; then exit 1; fi
       - name: Check bounded file convenience APIs
         run: ./build-simplicity/noqeri check examples/simplicity/bounded_files.noqeri
+      - name: Typed list growth and Unicode iterator regression
+        run: |
+          set -euo pipefail
+          ./build-simplicity/noqeri check tests/collection_growth_unicode.noqeri --unsafe
+          ./build-simplicity/noqeri run tests/collection_growth_unicode.noqeri --unsafe | grep -Fx 0
       - name: Boolean equality runtime regression
         run: |
           set -euo pipefail

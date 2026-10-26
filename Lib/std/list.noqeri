@@ -82,3 +82,49 @@ export function list_is_empty<T>(items: []T): bool { return len(items) == 0 as u
 export function list_first<T: Copy>(items: []T): T { return items[0 as usize] }
 export function list_last<T: Copy>(items: []T): T { return items[len(items)-1 as usize] }
 export function list_contains<T: Eq + Copy>(items: []T, value: T): bool { let i: usize = 0 as usize while i < len(items) { if items[i] == value { return true } i = i + 1 as usize } return false }
+
+
+// Explicit caller-owned storage growth. The caller/allocator supplies an
+// aligned writable buffer of new_capacity elements, and retains ownership.
+// Copying is memmove-ordered for partially overlapping contiguous buffers.
+// Failed requests never change the existing List descriptor or elements.
+export function list_init<T>(list: *List<T>, storage: *T,
+                             length: usize, capacity: usize): bool {
+    if list == null || length > capacity { return false }
+    if capacity > 0 as usize && storage == null { return false }
+    list.data = storage
+    list.length = length
+    list.capacity = capacity
+    return true
+}
+
+export function list_rebind<T: Copy>(list: *List<T>, storage: *T,
+                                   capacity: usize): bool {
+    if list == null || !list_invariant(list) || capacity < list.length { return false }
+    if capacity > 0 as usize && storage == null { return false }
+    if storage != list.data {
+        if storage as usize > list.data as usize {
+            let i: usize = list.length
+            while i > 0 as usize {
+                i = i - 1 as usize
+                unsafe { storage[i] = list.data[i] }
+            }
+        } else {
+            let i: usize = 0 as usize
+            while i < list.length {
+                unsafe { storage[i] = list.data[i] }
+                i = i + 1 as usize
+            }
+        }
+    }
+    list.data = storage
+    list.capacity = capacity
+    return true
+}
+
+export function list_grow_into<T: Copy>(list: *List<T>,
+                                       larger_storage: *T,
+                                       larger_capacity: usize): bool {
+    if list == null || larger_capacity <= list.capacity { return false }
+    return list_rebind(list, larger_storage, larger_capacity)
+}
