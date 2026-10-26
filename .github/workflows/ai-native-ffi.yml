@@ -11,6 +11,7 @@ on:
       - 'tests/cpp/ai_framework_c_test.cpp'
       - 'examples/simplicity/ai_native_gemm.noqeri'
       - 'examples/simplicity/ai_native_extended.noqeri'
+      - 'examples/simplicity/ai_native_tape.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
       - '.github/workflows/ai-native-ffi.yml'
@@ -54,6 +55,14 @@ jobs:
           node scripts/native-build.mjs examples/simplicity/ai_native_extended.noqeri build-ai-ffi/ai-native-extended --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
           result=$(./build-ai-ffi/ai-native-extended)
           echo "Noqeri native AI softmax/SGD check: $result"
+          test "$result" = "0"
+      - name: Build and execute native Noqeri reverse-mode Tape graph
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_tape.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_tape.noqeri build-ai-ffi/ai-native-tape --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-tape)
+          echo "Noqeri native AI Tape: $result"
           test "$result" = "0"
       - name: Build and run Noqeri AOT app calling native C++ tensor SDK
         run: |

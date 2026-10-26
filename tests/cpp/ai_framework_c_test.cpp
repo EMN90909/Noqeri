@@ -49,6 +49,36 @@ int main() {
     sgd.learning_rate=0.1;g[0]=std::numeric_limits<double>::infinity();
     if(nq_ai_sgd(&sgd)!=-5||updated[0]!=-99)return 18;
     if(nq_ai_softmax(nullptr)!=-1||nq_ai_sgd(nullptr)!=-1)return 19;
+
+    // Stateful graph objects never outlive the C call. Verify reverse-mode
+    // derivative and rejection without partially modifying output buffers.
+    double logits[2]={2,1}, lossOutput[1]={-99}, lossGrad[2]={-99,-99};
+    nq_ai_tape_step steps[2]{};
+    steps[0].operation=0;
+    steps[0].data=logits;
+    steps[0].rows=1;steps[0].cols=2;
+    steps[1].operation=7;
+    steps[1].a=0;steps[1].target=0;
+    std::size_t outRows=999,outCols=999;
+    nq_ai_tape_request tape{steps,2,1,1,0,1,0,lossOutput,1,
+                             lossGrad,2,&outRows,&outCols};
+    if(nq_ai_tape_execute(&tape)!=0)return 21;
+    if(outRows!=1||outCols!=1||
+       std::abs(lossOutput[0]-0.3132616875)>1e-6||
+       std::abs(lossGrad[0]+0.2689414214)>1e-6||
+       std::abs(lossGrad[1]-0.2689414214)>1e-6)return 22;
+    lossOutput[0]=-99;lossGrad[0]=-99;outRows=999;outCols=999;
+    tape.gradient_capacity=1;
+    if(nq_ai_tape_execute(&tape)!=-3||lossOutput[0]!=-99||
+       lossGrad[0]!=-99||outRows!=999||outCols!=999)return 23;
+    tape.gradient_capacity=2;
+    steps[1].a=1; // forbidden forward/self reference
+    if(nq_ai_tape_execute(&tape)!=-4||lossOutput[0]!=-99)return 24;
+    steps[1].a=0;steps[0].rows=0;
+    if(nq_ai_tape_execute(&tape)!=-2||lossOutput[0]!=-99)return 25;
+    steps[0].rows=1;logits[0]=std::numeric_limits<double>::quiet_NaN();
+    if(nq_ai_tape_execute(&tape)!=-5||lossOutput[0]!=-99)return 26;
+    if(nq_ai_tape_execute(nullptr)!=-1)return 27;
     std::cout<<"Native AI tensor C ABI passes\n";
     return 0;
 }

@@ -1,0 +1,45 @@
+// Ordinary Noqeri -> linked native autodiff Tape.
+// A two-class cross entropy and its exact logits gradient.
+import "../../Lib/ai/native.noqeri"
+
+function verify(): int {
+    let logits: [float; 2] = [2.0,1.0]
+    let output: [float; 1]
+    let gradient: [float; 2]
+    let steps: [AiTapeStep; 2]
+    steps[0].operation = 0 as u32
+    steps[0].data = &logits[0]
+    steps[0].rows = 1 as usize
+    steps[0].cols = 2 as usize
+    steps[1].operation = 7 as u32
+    steps[1].a = 0 as usize
+    steps[1].target = 0 as usize
+    let rows: usize = 0 as usize
+    let cols: usize = 0 as usize
+    let request: AiTapeRequest
+    request.steps = &steps[0]
+    request.step_count = 2 as usize
+    request.output_step = 1 as usize
+    request.loss_step = 1 as usize
+    request.gradient_step = 0 as usize
+    request.backward = 1 as u32
+    request.backend = 0 as u32
+    request.output = &output[0]
+    request.output_capacity = 1 as usize
+    request.gradient = &gradient[0]
+    request.gradient_capacity = 2 as usize
+    request.output_rows = &rows
+    request.output_cols = &cols
+    let result: isize = ai_native_tape(&request)
+    if result != 0 as isize { return 1 }
+    if rows != 1 as usize || cols != 1 as usize { return 2 }
+    if output[0] < 0.313 || output[0] > 0.314 { return 3 }
+    if gradient[0] > -0.268 || gradient[0] < -0.270 { return 4 }
+    if gradient[1] < 0.268 || gradient[1] > 0.270 { return 5 }
+    gradient[0] = -99.0
+    request.gradient_capacity = 1 as usize
+    if ai_native_tape(&request) != -3 as isize { return 6 }
+    if gradient[0] != -99.0 { return 7 }
+    return 0
+}
+print(verify())

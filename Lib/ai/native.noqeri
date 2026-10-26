@@ -46,3 +46,37 @@ record AiSgdRequest {
 }
 extern function nq_ai_sgd(request: *AiSgdRequest): isize
 export function ai_native_sgd(request: *AiSgdRequest): isize { return nq_ai_sgd(request) }
+
+record AiTapeStep {
+    operation: u32
+    a: usize
+    b: usize
+    data: *float
+    rows: usize
+    cols: usize
+    scalar: float
+    target: usize
+}
+
+record AiTapeRequest {
+    steps: *AiTapeStep
+    step_count: usize
+    output_step: usize
+    loss_step: usize
+    gradient_step: usize
+    backward: u32
+    backend: u32
+    output: *float
+    output_capacity: usize
+    gradient: *float
+    gradient_capacity: usize
+    output_rows: *usize
+    output_cols: *usize
+}
+extern function nq_ai_tape_execute(request: *AiTapeRequest): isize
+
+// Pure, bounded computation: callers own every tensor and result buffer.
+// C++ Tape objects are destroyed before return; no pointer escapes or leaks.
+export function ai_native_tape(request: *AiTapeRequest): isize {
+    return nq_ai_tape_execute(request)
+}

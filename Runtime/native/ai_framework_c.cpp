@@ -75,3 +75,78 @@ extern "C" int64_t nq_ai_sgd(const nq_ai_sgd_request* r) {
         return 0;
     } catch (const std::exception&) { return -5; } catch (...) { return -5; }
 }
+
+extern "C" int64_t nq_ai_tape_execute(const nq_ai_tape_request* r) {
+    if (!r || !r->steps || !r->output || !r->output_rows || !r->output_cols)
+        return -1;
+    if (!r->step_count || r->step_count > 64 ||
+        r->output_step >= r->step_count || r->backward > 1 ||
+        r->backend > 3) return -2;
+    if (r->backward && (!r->gradient || r->gradient_step >= r->step_count ||
+                        r->loss_step >= r->step_count)) return -4;
+    try {
+        using namespace noqeri_ai::framework;
+        Tape tape;
+        switch (r->backend) {
+            case 0: tape.set_backend(Backend::Scalar); break;
+            case 1: tape.set_backend(Backend::Tiled); break;
+            case 2: tape.set_backend(Backend::Simd); break;
+            default: tape.set_backend(Backend::Auto); break;
+        }
+        std::size_t input_elements=0;
+        for (std::size_t i=0;i<r->step_count;++i) {
+            const auto& s=r->steps[i];
+            if (s.operation > 8) return -4;
+            if (s.operation == 0) {
+                if (!s.data) return -1;
+                if (!s.rows || !s.cols || s.rows > 128 ||
+                    s.cols > 128 || s.rows > 16384 / s.cols)
+                    return -2;
+                const auto elements=s.rows*s.cols;
+                if (input_elements > 262144-elements) return -2;
+                input_elements+=elements;
+                noqeri_ai::Matrix x(s.rows,s.cols);
+                std::copy_n(s.data,elements,x.values.begin());
+                if (tape.leaf(x)!=i) return -5;
+                continue;
+            }
+            if (s.a>=i || ((s.operation==1 || s.operation==2) && s.b>=i))
+                return -4;
+            std::size_t id=0;
+            switch(s.operation) {
+                case 1: id=tape.add(s.a,s.b); break;
+                case 2: id=tape.matmul(s.a,s.b); break;
+                case 3: id=tape.transpose(s.a); break;
+                case 4: id=tape.scale(s.a,s.scalar); break;
+                case 5: id=tape.tanh(s.a); break;
+                case 6:
+                    if(s.target>1) return -4;
+                    id=tape.softmax(s.a,s.target==1);
+                    break;
+                case 7: id=tape.cross_entropy(s.a,s.target); break;
+                case 8: id=tape.last_row(s.a); break;
+                default:return -4;
+            }
+            if(id!=i) return -5;
+        }
+        if (r->backward) {
+            if (r->steps[r->loss_step].operation!=7) return -4;
+            tape.backward(r->loss_step);
+        }
+        const auto& output=tape.value(r->output_step);
+        if(r->output_capacity < output.values.size()) return -3;
+        const noqeri_ai::Matrix* gradient=nullptr;
+        if (r->backward) {
+            gradient=&tape.grad(r->gradient_step);
+            if(r->gradient_capacity < gradient->values.size()) return -3;
+        }
+        // All validation and autodifferentiation finished before any write.
+        std::copy(output.values.begin(),output.values.end(),r->output);
+        if (gradient)
+            std::copy(gradient->values.begin(),gradient->values.end(),r->gradient);
+        *r->output_rows=output.rows;
+        *r->output_cols=output.cols;
+        return 0;
+    } catch (const std::exception&) { return -5; }
+      catch (...) { return -5; }
+}

@@ -100,3 +100,19 @@ modes and nonfinite inputs without partially modifying the output.
 These three bindings are [end-to-end qualified in native Noqeri AOT](https://github.com/EMN90909/Noqeri/actions/runs/40373362461), including capacity/error behavior; they do not yet execute under the Stage-2 NQRI VM or Stage-0
 reference interpreter. Complete autodifferentiation graphs and model
 training still require the native C++ SDK/CLI.
+
+## Bounded differentiable graphs from ordinary Noqeri (AOT preview)
+
+`ai_native_tape(&request)` accepts a caller-owned graph of at most 64
+topologically ordered `AiTapeStep` records. The available operations
+are leaf, add, matmul, transpose, scale, tanh, softmax (optionally causal),
+cross entropy, and last row. The call constructs and destroys a C++ Tape,
+can execute backpropagation from a cross-entropy loss and writes the selected
+output and gradient to caller buffers only after all operations succeed.
+Each leaf is restricted to 128x128 elements, and the sum of leaf elements
+is bounded. Invalid shapes, forward references, non-finite values and
+insufficient buffers fail without writing partial outputs. See
+`examples/simplicity/ai_native_tape.noqeri`.
+This is **not** automatic compiler-managed tensors, reusable graph handles,
+Stage-2 VM integration, native source-level closures, or full transformer
+training in Noqeri.
