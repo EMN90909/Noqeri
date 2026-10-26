@@ -411,6 +411,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Qualify exact architecture, SDK and release provenance verification
+        run: python3 -m unittest discover -s tests -p test_v014_assets.py -v
       - name: Test artifact creation, SDK archives and CPack DEB metadata
         shell: bash
         run: bash tests/scripts/distribution_package_test.sh
