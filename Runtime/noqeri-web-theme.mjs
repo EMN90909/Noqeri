@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Built-in Noqeri design tokens, compiled to CSS for standards-compliant browsers.
 const DEFAULTS = Object.freeze({
   primary:'#3158d5',accent:'#15803d',background:'#f7f8fc',surface:'#ffffff',
