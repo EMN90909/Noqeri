@@ -217,7 +217,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
             Reg list=lowerExpr(fn,e->object);
             Reg index=lowerExpr(fn,e->index);
             NirInstruction call;call.op=NirOp::Call;call.dest=fn.nextReg++;
-            call.text="nq_list_at";call.args={list,index};emit(fn,call);
+            call.text="nq_list_at";call.args={list,index};call.type=e->elementType;emit(fn,call);
             return *call.dest;
         }
         Reg a=lowerAddress(fn,e);NirInstruction i;i.op=NirOp::LoadMemory;i.dest=fn.nextReg++;i.args={a};i.width=e->elementSize;i.isVolatile=e->volatileAccess;i.type=e->elementType;emit(fn,i);return*i.dest;}
@@ -231,7 +231,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
                 Reg at=lowerExpr(fn,index->index);
                 Reg value=lowerExpr(fn,e->right);
                 NirInstruction call;call.op=NirOp::Call;call.dest=fn.nextReg++;
-                call.text="nq_list_set";call.args={list,at,value};emit(fn,call);
+                call.text="nq_list_set";call.args={list,at,value};call.type=index->elementType;emit(fn,call);
                 return value;
             }
             Reg r=lowerExpr(fn,e->right);if(auto n=std::dynamic_pointer_cast<NameExpr>(e->left)){NirInstruction st;st.op=NirOp::Store;st.text=n->name;st.args={r};emit(fn,st);return r;}Reg addr=lowerAddress(fn,e->left);auto info=memoryInfo(e->left);NirInstruction st;st.op=NirOp::StoreMemory;st.args={addr,r};st.width=info.first;st.isVolatile=info.second;emit(fn,st);return r;}
@@ -256,7 +256,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
                 call.text="nq_list_append";
                 call.args={list,lowerExpr(fn,e->args.front())};
             }else if(e->builtinText=="pop"){
-                call.text="nq_list_pop";call.args={list};
+                call.text="nq_list_pop";call.args={list};call.type=e->builtinResultType;
             }else if(e->builtinText=="clear"){
                 call.text="nq_list_clear";call.args={list};
             }else{
