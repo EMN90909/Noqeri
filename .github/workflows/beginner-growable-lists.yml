@@ -30,6 +30,9 @@ jobs:
         run: |
           set -euo pipefail
           ./build-beginner-list/noqeri check tests/beginner_growable_lists.noqeri
+          ./build-beginner-list/noqeri nir tests/beginner_growable_lists.noqeri
+          echo "Reference O0:"
+          ./build-beginner-list/noqeri run tests/beginner_growable_lists.noqeri -O0
           actual=$(./build-beginner-list/noqeri run tests/beginner_growable_lists.noqeri)
           echo "Reference runtime: $actual"
           test "$actual" = "$(printf '3\n0')"
