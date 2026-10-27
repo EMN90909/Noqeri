@@ -5,7 +5,7 @@ const BAD = new Set(['__proto__','prototype','constructor','eval','Function','gl
 const TAGS = new Set('a abbr article aside b blockquote br button caption code dd details div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input label li main nav ol option p picture pre section select small span strong summary table tbody td textarea th thead time tr ul'.split(' '));
 const VOID = new Set('br hr img input'.split(' '));
 const EVENTS = new Set(['click','input','change','submit']);
-const ATTRS = new Set(['id','class','title','role','href','src','alt','type','name','value','placeholder','for','disabled','checked','target','rel','tabindex']);
+const ATTRS = new Set(['id','class','title','role','href','src','alt','type','name','value','placeholder','for','disabled','checked','required','minlength','maxlength','min','max','step','autocomplete','inputmode','target','rel','tabindex']);
 const THEME_KEYS = new Set(['primary','background','surface','text','muted','border','accent','radius']);
 const OPS = {'||':1,'&&':2,'==':3,'!=':3,'<':4,'>':4,'<=':4,'>=':4,'+':5,'-':5,'*':6,'/':6,'%':6};
 const isIdent = x => /^[A-Za-z_][A-Za-z_0-9]*$/.test(x) && !BAD.has(x);
