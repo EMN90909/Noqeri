@@ -60,6 +60,7 @@ struct Atom { std::string value; bool variable = false; };
 struct Expr { std::vector<Atom> atoms; };
 struct DbConfiguration {
     std::string engine="noesql", path, dsnEnvironment, binaryEnvironment="NOESQL_BIN";
+    std::string endpointEnvironment, keyEnvironment, tokenEnvironment;
 };
 struct DbParameterExpr {
     std::string name;
@@ -396,6 +397,9 @@ public:
                     else if(key=="path")p.database.path=value;
                     else if(key=="dsn_env")p.database.dsnEnvironment=value;
                     else if(key=="binary_env")p.database.binaryEnvironment=value;
+                    else if(key=="endpoint_env")p.database.endpointEnvironment=value;
+                    else if(key=="key_env")p.database.keyEnvironment=value;
+                    else if(key=="token_env")p.database.tokenEnvironment=value;
                     else fail("unknown database configuration field");
                     take(",");take(";");
                 }
