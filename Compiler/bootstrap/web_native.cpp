@@ -667,13 +667,16 @@ void writeText(const fs::path& file,const std::string& content) {
     output << content;
     if (!output) throw std::runtime_error("failed writing "+file.string());
 }
-std::string htmlPage(const std::string& page,const std::string& cssPath) {
+std::string htmlPage(const std::string& page,const std::string& cssPath,bool reactive=false) {
+    const std::string scriptPolicy=reactive?"; script-src 'self'":"";
+    const std::string clientScript=reactive?
+        "<script defer src=\"/__nq/reactive.js\"></script>":"";
     return "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; "
-           "style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\">"
+           "style-src 'self'; img-src 'self' data:"+scriptPolicy+"; form-action 'self'; base-uri 'none'\">"
            "<title>Noqeri native web</title><link rel=\"stylesheet\" href=\""+cssPath+
-           "\"></head><body>"+page+"</body></html>\n";
+           "\">"+clientScript+"</head><body>"+page+"</body></html>\n";
 }
 void build(const fs::path& input,const fs::path& output,const char* executable) {
     const fs::path root=fs::weakly_canonical(input);
