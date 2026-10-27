@@ -23,8 +23,34 @@ std::string clientExpr(const Expr& expr,const Project& project,
     std::string result;
     for(const auto& atom:expr.atoms) {
         if(!result.empty())result+="+";
-        if(!atom.variable)result+=clientQuote(atom.value);
-        else if(local.count(atom.value))result+="String(__nq_locals["+clientQuote(atom.value)+"])";
+        if(!atom.variable) {
+            result+=clientQuote(atom.value);
+            continue;
+        }
+        const auto dot=atom.value.find('.');
+        if(dot!=std::string::npos) {
+            const auto root=atom.value.substr(0,dot);
+            if(!project.clientLoads.count(root))
+                throw std::runtime_error("unknown Noqeri client resource: "+root);
+            std::string value="__nq_resources["+clientQuote(root)+"]";
+            auto offset=dot+1;
+            bool first=true;
+            while(offset<atom.value.size()) {
+                const auto next=atom.value.find('.',offset);
+                const auto member=atom.value.substr(offset,next==std::string::npos?
+                    std::string::npos:next-offset);
+                if(!validName(member)||member=="__proto__"||
+                   member=="prototype"||member=="constructor"||
+                   (first&&member!="data"&&member!="loading"&&member!="error"))
+                    throw std::runtime_error("unsafe Noqeri load resource member: "+member);
+                value="__nq_member("+value+","+clientQuote(member)+")";
+                first=false;
+                if(next==std::string::npos)break;
+                offset=next+1;
+            }
+            result+="String("+value+")";
+        } else if(local.count(atom.value))
+            result+="String(__nq_locals["+clientQuote(atom.value)+"])";
         else if(project.globals.count(atom.value))
             result+="String(__nq_state["+clientQuote(atom.value)+"])";
         else throw std::runtime_error("client view unknown variable: "+atom.value);
@@ -38,9 +64,14 @@ std::string clientNodes(const std::vector<Node>& nodes,const Project& project,
 std::string clientEvents(const Node& node,const Project& project,
                          const std::set<std::string>& locals) {
     if(node.actionId.empty())return "{}";
-    if(node.eventName!="click"||node.tag!="button")
-        throw std::runtime_error("native browser views currently support button on.click only");
-    std::string code="{click:()=>{";
+    const bool click=node.eventName=="click"&&node.tag=="button";
+    const bool submit=node.eventName=="submit"&&node.tag=="form";
+    const bool input=(node.eventName=="input"||node.eventName=="change")&&
+        (node.tag=="input"||node.tag=="textarea"||node.tag=="select");
+    if(!click&&!submit&&!input)
+        throw std::runtime_error("Noqeri client events require a matching button, form or input control");
+    std::string code="{"+node.eventName+":(__nq_event)=>{";
+    if(submit)code+="const __nq_fields=__nq_formFields(__nq_event);";
     for(const auto& mutation:node.mutations) {
         if(!project.mutableState.count(mutation.target) &&
            !project.persistentState.count(mutation.target))
@@ -54,8 +85,15 @@ std::string clientEvents(const Node& node,const Project& project,
                   clientQuote(mutation.value.atoms[1].value)+"));";
         } else if(mutation.op=="set")
             code+=target+"="+clientExpr(mutation.value,project,locals)+";";
-        else throw std::runtime_error(
-            "native client actions support set/add only; form, database and validation actions require serve-app");
+        else if(mutation.op=="field") {
+            if(submit) {
+                code+="if(!Object.hasOwn(__nq_fields,"+clientQuote(mutation.field)+"))return;";
+                code+=target+"=__nq_fields["+clientQuote(mutation.field)+"];";
+            } else if(input && (mutation.field=="value"||mutation.field=="checked"))
+                code+=target+"=String(__nq_inputEvent(__nq_event)."+mutation.field+");";
+            else throw std::runtime_error("form field actions require a client submit or input value/checked");
+        } else throw std::runtime_error(
+            "native client actions support set/add/field only; databases and validators require serve-app");
         if(project.persistentState.count(mutation.target))
             code+="__nq_saveStored("+clientQuote(mutation.target)+","+target+");";
     }
@@ -156,13 +194,16 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
             throw std::runtime_error("native client build requires literal safe routes");
 
     std::string js="// Native Noqeri browser build (C++ bootstrap, no Node.js)\n";
-    js+="import {element as __nq_h,createApp as __nq_createApp,createRouter as __nq_createRouter,readStored as __nq_readStored,saveStored as __nq_saveStored} from './__noqeri/runtime.mjs';\n";
+    js+="import {element as __nq_h,createApp as __nq_createApp,createRouter as __nq_createRouter,readStored as __nq_readStored,saveStored as __nq_saveStored,safeMember as __nq_member,inputEvent as __nq_inputEvent,formFields as __nq_formFields} from './__noqeri/runtime.mjs';\n";
     js+="const __nq_state=Object.create(null);\n";
     for(const auto& [name,value]:project.globals)
         js+="__nq_state["+clientQuote(name)+"]=" +
           (project.persistentState.count(name)?
             "__nq_readStored("+clientQuote(name)+","+clientQuote(value)+")":
             clientQuote(value))+";\n";
+    js+="const __nq_resources=Object.create(null);\n";
+    for(const auto& [name,url]:project.clientLoads)
+        js+="__nq_resources["+clientQuote(name)+"]={loading:true,data:null,error:null};\n";
     js+="let __nq_schedule=()=>{}, __nq_router=null;\n";
     for(const auto& [name,component]:project.components) {
         js+="function __nq_component_"+name+"(__nq_args){";
@@ -181,6 +222,12 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
     js+="export function render(path=null){return __nq_h('div',{},__nq_page(path??(__nq_router?__nq_router.path():location.pathname)),{});}\n";
     js+="export function mount(root){if(!root)throw Error('Noqeri root missing');__nq_router=__nq_createRouter(root,()=>__nq_schedule());";
     js+="const app=__nq_createApp(root,render,{hydrate:Boolean(root.childNodes.length)});__nq_schedule=app.schedule;";
+    for(const auto& [name,url]:project.clientLoads) {
+        const auto slot="__nq_resources["+clientQuote(name)+"]";
+        js+="app.load("+clientQuote(url)+",value=>{"+slot+
+            "={loading:false,data:value,error:null};__nq_schedule();},error=>{"+
+            slot+"={loading:false,data:null,error:String(error)};__nq_schedule();});";
+    }
     js+="const dispose=app.dispose.bind(app);app.dispose=()=>{__nq_router.dispose();__nq_router=null;__nq_schedule=()=>{};dispose();};return app;}\n";
     js+="if(typeof document!=='undefined'){const root=document.getElementById('app');if(root)mount(root);}\n";
 
@@ -197,11 +244,14 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
             for(char c:route)if(c=='/')prefix+="../";
             prefix.erase(prefix.size()-3);
         }
-        const auto body=render(nodes,htmlProject);
+        // Async resources have no build-time data. Render an empty app root
+        // instead of falsely prerendering unknown values; CSR mounts it.
+        const auto body=project.clientLoads.empty()?render(nodes,htmlProject):std::string{};
         const std::string head="<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'\">"
             "<link rel=\"stylesheet\" href=\""+prefix+"theme.css\"><title>Noqeri client web</title></head><body>"
-            "<main id=\"app\"><div>"+body+"</div></main><script type=\"module\" src=\""+prefix+"main.mjs\"></script></body></html>\n";
+            "<main id=\"app\">"+(project.clientLoads.empty()?"<div>"+body+"</div>":std::string{})+
+            "</main><noscript>Enable JavaScript to load this page's live data.</noscript><script type=\"module\" src=\""+prefix+"main.mjs\"></script></body></html>\n";
         pages.emplace(target,head);
     }
     // Parse and render ALL routes before writing output: fail closed.
