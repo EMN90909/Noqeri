@@ -104,6 +104,8 @@ jobs:
           test -s build-native-web/native-client-output/__noqeri/runtime.mjs
       - name: Qualify native async client JSON loads and input/form events with Node.js removed
         run: python3 tests/native_web_client_async.py ./build-native-web/noqeri-web
+      - name: Compile Motion natively without Node and reject unsafe animation declarations
+        run: python3 tests/native_web_motion.py ./build-native-web/noqeri-web
       - name: Test absolute native HTTP read deadline and malformed header rejection
         run: python3 tests/native_web_http_deadline.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Qualify in-process native NoeSQL v2 ABI contract (mock provider)
