@@ -102,7 +102,7 @@ struct TransformerOptions {
     double weight_decay = 0.01; // AdamW only, decoupled from gradients
     std::size_t warmup_steps = 0; // <= steps, zero disables warmup
     bool cosine_decay = false;
-    double minimum_learning_rate = 0.0; // cosine floor
+    double minimum_learning_rate = 1e-6; // cosine floor
     double validation_fraction = 0.0; // [0,0.3], optional holdout
 };
 struct TransformerTrainingReport {
