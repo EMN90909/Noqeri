@@ -315,18 +315,39 @@ struct AppRequest {
     bool hasOrigin=false;
 };
 AppRequest receiveAppRequest(int fd) {
-    timeval timeout{};timeout.tv_sec=4;
-    ::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
-    ::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout));
+    // An absolute per-request deadline prevents trickling one byte before every
+    // socket timeout (slowloris). Enforce it across both headers and body.
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(4);
+    timeval sendTimeout{};sendTimeout.tv_sec=4;
+    ::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&sendTimeout,sizeof(sendTimeout));
     std::string received;
     char buffer[4096];
+    auto receiveChunk=[&](std::size_t maximum)->std::size_t {
+        const auto remaining=std::chrono::duration_cast<std::chrono::microseconds>(
+            deadline-std::chrono::steady_clock::now()).count();
+        if(remaining<=0)throw std::runtime_error("HTTP request deadline exceeded");
+        timeval timeout{};
+        timeout.tv_sec=static_cast<decltype(timeout.tv_sec)>(remaining/1000000);
+        timeout.tv_usec=static_cast<decltype(timeout.tv_usec)>(remaining%1000000);
+        if(::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout))!=0)
+            throw std::runtime_error("cannot set request timeout");
+        const auto n=::recv(fd,buffer,std::min(sizeof(buffer),maximum),0);
+        if(n<=0)throw std::runtime_error("incomplete or timed-out HTTP request");
+        return static_cast<std::size_t>(n);
+    };
     while (received.find("\r\n\r\n")==std::string::npos) {
-        const auto n=::recv(fd,buffer,sizeof(buffer),0);
-        if(n<=0)throw std::runtime_error("incomplete HTTP headers");
-        received.append(buffer,static_cast<std::size_t>(n));
+        received.append(buffer,receiveChunk(4096));
         if(received.size()>8192)throw std::runtime_error("HTTP headers too large");
     }
     const auto at=received.find("\r\n\r\n");
+    // Require CRLF framing, rejecting ambiguous bare-LF and lone-CR headers
+    // that an upstream reverse proxy might interpret differently.
+    for(std::size_t i=0;i<at+4;++i) {
+        if(received[i]=='\r'&&(i+1>=at+4||received[i+1]!='\n'))
+            throw std::runtime_error("invalid HTTP header line ending");
+        if(received[i]=='\n'&&(i==0||received[i-1]!='\r'))
+            throw std::runtime_error("invalid HTTP header line ending");
+    }
     std::istringstream head(received.substr(0,at));
     std::string first;std::getline(head,first);
     if(!first.empty()&&first.back()=='\r')first.pop_back();
@@ -342,7 +363,9 @@ AppRequest receiveAppRequest(int fd) {
         throw std::runtime_error("unsafe HTTP path");
     std::string line;std::size_t length=0;bool hasLength=false;
     std::set<std::string> singletonHeaders;
+    std::size_t headerCount=0;
     while(std::getline(head,line)) {
+        if(++headerCount>64)throw std::runtime_error("too many HTTP headers");
         if(!line.empty()&&line.back()=='\r')line.pop_back();
         if(line.empty())continue;
         const auto split=line.find(':');
@@ -394,9 +417,7 @@ AppRequest receiveAppRequest(int fd) {
     req.body=received.substr(at+4);
     if(req.body.size()>length)throw std::runtime_error("excess request body");
     while(req.body.size()<length) {
-        const auto n=::recv(fd,buffer,std::min(sizeof(buffer),length-req.body.size()),0);
-        if(n<=0)throw std::runtime_error("incomplete HTTP body");
-        req.body.append(buffer,static_cast<std::size_t>(n));
+        req.body.append(buffer,receiveChunk(length-req.body.size()));
     }
     return req;
 }
