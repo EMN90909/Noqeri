@@ -117,6 +117,13 @@ jobs:
           node scripts/native-build.mjs "$src" build-beginner-list/lexical-lists-native --compiler=build-beginner-list/noqeri
           test "$(./build-beginner-list/lexical-lists-native)" = "0"
 
+      - name: Shadowed bindings keep the outer fixed-array type
+        run: |
+          set -euo pipefail
+          src=tests/beginner_growable_shadowing_check.noqeri
+          ./build-beginner-list/noqeri check "$src"
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/shadowed-check.nqri 3
+
       - name: Reject incompatible element types after nested empty-list inference
         run: |
           set -euo pipefail
