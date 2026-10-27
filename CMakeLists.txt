@@ -222,6 +222,12 @@ if(BUILD_TESTING)
  target_compile_features(noqeri-ai-autodiff-deep-test PRIVATE cxx_std_17)
  noqeri_apply_warnings(noqeri-ai-autodiff-deep-test)
  add_test(NAME noqeri-ai-autodiff-deep COMMAND noqeri-ai-autodiff-deep-test)
+ # Hardware-only target. Deliberately not added to default CTest:
+ # no physical CL_DEVICE_TYPE_GPU means a hard failure, not a skip/pass.
+ add_executable(noqeri-ai-gpu-hardware-test tests/cpp/ai_gpu_hardware_test.cpp)
+ target_link_libraries(noqeri-ai-gpu-hardware-test PRIVATE noqeri_ai)
+ target_compile_features(noqeri-ai-gpu-hardware-test PRIVATE cxx_std_17)
+ noqeri_apply_warnings(noqeri-ai-gpu-hardware-test)
  add_executable(noqeri-ai-resume-depth-test tests/cpp/ai_resume_depth_test.cpp)
  target_link_libraries(noqeri-ai-resume-depth-test PRIVATE noqeri_ai)
  target_compile_features(noqeri-ai-resume-depth-test PRIVATE cxx_std_17)
