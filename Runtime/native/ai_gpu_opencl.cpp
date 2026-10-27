@@ -42,6 +42,30 @@ __kernel void nq_gemm(__global const float* a,
 )CLC";
 } // namespace
 bool gpu_available() noexcept {return device()!=nullptr;}
+std::string gpu_device_description() {
+    const auto gpu=device();
+    if(!gpu)throw std::runtime_error("Noqeri OpenCL: no physical GPU device");
+    cl_device_type type=0;
+    checked(clGetDeviceInfo(gpu,CL_DEVICE_TYPE,sizeof(type),&type,nullptr),
+            "Noqeri OpenCL: GPU device type query failed");
+    if(!(type & CL_DEVICE_TYPE_GPU))
+        throw std::runtime_error("Noqeri OpenCL: selected device is not a GPU");
+    const auto info=[gpu](cl_device_info key) {
+        std::size_t count=0;
+        checked(clGetDeviceInfo(gpu,key,0,nullptr,&count),
+                "Noqeri OpenCL: GPU device info size failed");
+        if(count==0 || count>2048)
+            throw std::runtime_error("Noqeri OpenCL: invalid device info length");
+        std::string value(count,'\0');
+        checked(clGetDeviceInfo(gpu,key,count,&value[0],nullptr),
+                "Noqeri OpenCL: GPU device info fetch failed");
+        while(!value.empty() && value.back()=='\0')value.pop_back();
+        return value;
+    };
+    return "vendor="+info(CL_DEVICE_VENDOR)+";name="+info(CL_DEVICE_NAME)+
+           ";driver="+info(CL_DRIVER_VERSION);
+}
+
 Matrix gpu_gemm(const Matrix& a,const Matrix& b) {
     if(!a.rows || !a.cols || !b.rows || !b.cols ||
        a.cols!=b.rows || a.rows>2048 || a.cols>2048 || b.cols>2048 ||
@@ -123,6 +147,10 @@ Matrix gpu_gemm(const Matrix& a,const Matrix& b) {
 }
 #else
 bool gpu_available() noexcept {return false;}
+std::string gpu_device_description() {
+    throw std::runtime_error("Noqeri OpenCL: GPU backend was not built");
+}
+
 Matrix gpu_gemm(const Matrix&,const Matrix&) {
     throw std::runtime_error("Noqeri OpenCL: unavailable (build with OpenCL SDK and GPU device)");
 }
