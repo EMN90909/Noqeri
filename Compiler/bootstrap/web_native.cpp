@@ -247,6 +247,22 @@ class Parser {
                 expect(")");
                 if(m.maxLength>256||m.minLength>m.maxLength)fail("invalid validation length bounds");
                 m.op="validate";
+            } else if(m.target=="validateEmail") {
+                expect("(");m.field=identifier();expect(")");
+                m.op="validate_email";
+            } else if(m.target=="validateNumber") {
+                expect("(");m.field=identifier();expect(",");
+                const auto number=[&]()->std::size_t {
+                    if(peek().quoted||peek().value.empty()||
+                       !std::all_of(peek().value.begin(),peek().value.end(),
+                           [](char ch){return ch>='0'&&ch<='9';}))
+                        fail("number validation bound must be a positive integer");
+                    return static_cast<std::size_t>(std::stoul(tokens.at(pos++).value));
+                };
+                m.minLength=number();expect(",");m.maxLength=number();expect(")");
+                if(m.maxLength>1000000||m.minLength>m.maxLength)
+                    fail("number validation bounds must satisfy 0 <= min <= max <= 1000000");
+                m.op="validate_number";
             } else if(m.target=="db") {
                 expect("."); expect("execute"); expect("(");
                 m.op="db"; m.query=literalString();
@@ -478,7 +494,7 @@ std::string safeAttr(const std::string& key) {
     static const std::set<std::string> attrs={
         "id","class","title","role","href","src","alt","type","name","value",
         "placeholder","for","disabled","checked","target","rel","tabindex",
-        "action","method"
+        "action","method","required","minlength","maxlength","min","max","autocomplete"
     };
     if (attrs.count(key)) return key;
     if (key.rfind("aria_",0)==0 || key.rfind("data_",0)==0) {
@@ -548,7 +564,7 @@ std::string render(const std::vector<Node>& nodes,const Project& p,
                 blankTarget=value=="_blank";
             }
             if (attr=="rel") hasRel=true;
-            if (attr=="disabled"||attr=="checked") {
+            if (attr=="disabled"||attr=="checked"||attr=="required") {
                 if (value!="false"&&value!="0"&&value!="") result+=" "+attr;
             } else result+=" "+attr+"=\""+escaped(value)+"\"";
         }
@@ -645,13 +661,16 @@ void writeText(const fs::path& file,const std::string& content) {
     output << content;
     if (!output) throw std::runtime_error("failed writing "+file.string());
 }
-std::string htmlPage(const std::string& page,const std::string& cssPath) {
+std::string htmlPage(const std::string& page,const std::string& cssPath,bool reactive=false) {
+    const std::string scriptPolicy=reactive?"; script-src 'self'":"";
+    const std::string clientScript=reactive?
+        "<script defer src=\"/__nq/reactive.js\"></script>":"";
     return "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; "
-           "style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\">"
+           "style-src 'self'; img-src 'self' data:"+scriptPolicy+"; form-action 'self'; base-uri 'none'\">"
            "<title>Noqeri native web</title><link rel=\"stylesheet\" href=\""+cssPath+
-           "\"></head><body>"+page+"</body></html>\n";
+           "\">"+clientScript+"</head><body>"+page+"</body></html>\n";
 }
 void build(const fs::path& input,const fs::path& output,const char* executable) {
     const fs::path root=fs::weakly_canonical(input);
