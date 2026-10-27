@@ -30,7 +30,9 @@ std::string clientExpr(const Expr& expr,const Project& project,
         const auto dot=atom.value.find('.');
         if(dot!=std::string::npos) {
             const auto root=atom.value.substr(0,dot);
-            if(!project.clientLoads.count(root))
+            const bool isLoad=project.clientLoads.count(root)!=0;
+            const bool isSubscription=project.clientSubscriptions.count(root)!=0;
+            if(!isLoad&&!isSubscription)
                 throw std::runtime_error("unknown Noqeri client resource: "+root);
             std::string value="__nq_resources["+clientQuote(root)+"]";
             auto offset=dot+1;
@@ -41,7 +43,9 @@ std::string clientExpr(const Expr& expr,const Project& project,
                     std::string::npos:next-offset);
                 if(!validName(member)||member=="__proto__"||
                    member=="prototype"||member=="constructor"||
-                   (first&&member!="data"&&member!="loading"&&member!="error"))
+                   (first&&member!="data"&&member!="error"&&
+                    !(isLoad&&member=="loading")&&
+                    !(isSubscription&&member=="connected")))
                     throw std::runtime_error("unsafe Noqeri load resource member: "+member);
                 value="__nq_member("+value+","+clientQuote(member)+")";
                 first=false;
@@ -61,18 +65,14 @@ std::string clientExpr(const Expr& expr,const Project& project,
 std::string clientNodes(const std::vector<Node>& nodes,const Project& project,
                         const std::set<std::string>& locals={},unsigned depth=0);
 
-std::string clientEvents(const Node& node,const Project& project,
-                         const std::set<std::string>& locals) {
-    if(node.actionId.empty())return "{}";
-    const bool click=node.eventName=="click"&&node.tag=="button";
-    const bool submit=node.eventName=="submit"&&node.tag=="form";
-    const bool input=(node.eventName=="input"||node.eventName=="change")&&
-        (node.tag=="input"||node.tag=="textarea"||node.tag=="select");
-    if(!click&&!submit&&!input)
-        throw std::runtime_error("Noqeri client events require a matching button, form or input control");
-    std::string code="{"+node.eventName+":(__nq_event)=>{";
+// Shared, bounded state mutation emitter for DOM events and on.mount.
+std::string clientMutationBody(const std::vector<Mutation>& mutations,
+                               const Project& project,
+                               const std::set<std::string>& locals,
+                               bool submit,bool input) {
+    std::string code;
     if(submit)code+="const __nq_fields=__nq_formFields(__nq_event);";
-    for(const auto& mutation:node.mutations) {
+    for(const auto& mutation:mutations) {
         if(mutation.op=="validate"||mutation.op=="validate_email"||
            mutation.op=="validate_number"||mutation.op=="db")
             throw std::runtime_error("client validation/database actions require serve-app");
@@ -100,8 +100,21 @@ std::string clientEvents(const Node& node,const Project& project,
         if(project.persistentState.count(mutation.target))
             code+="__nq_saveStored("+clientQuote(mutation.target)+","+target+");";
     }
-    code+="__nq_schedule();}}";
+    code+="__nq_schedule();";
     return code;
+}
+
+std::string clientEvents(const Node& node,const Project& project,
+                         const std::set<std::string>& locals) {
+    if(node.actionId.empty())return "{}";
+    const bool click=node.eventName=="click"&&node.tag=="button";
+    const bool submit=node.eventName=="submit"&&node.tag=="form";
+    const bool input=(node.eventName=="input"||node.eventName=="change")&&
+        (node.tag=="input"||node.tag=="textarea"||node.tag=="select");
+    if(!click&&!submit&&!input)
+        throw std::runtime_error("Noqeri client events require a matching button, form or input control");
+    return "{"+node.eventName+":(__nq_event)=>{"+
+           clientMutationBody(node.mutations,project,locals,submit,input)+"}}";
 }
 
 std::string clientNodes(const std::vector<Node>& nodes,const Project& project,
@@ -207,6 +220,8 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
     js+="const __nq_resources=Object.create(null);\n";
     for(const auto& [name,url]:project.clientLoads)
         js+="__nq_resources["+clientQuote(name)+"]={loading:true,data:null,error:null};\n";
+    for(const auto& [name,path]:project.clientSubscriptions)
+        js+="__nq_resources["+clientQuote(name)+"]={connected:false,data:null,error:null};\n";
     js+="let __nq_schedule=()=>{}, __nq_router=null;\n";
     for(const auto& [name,component]:project.components) {
         js+="function __nq_component_"+name+"(__nq_args){";
@@ -231,6 +246,17 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
             "={loading:false,data:value,error:null};__nq_schedule();},error=>{"+
             slot+"={loading:false,data:null,error:String(error)};__nq_schedule();});";
     }
+    for(const auto& [name,path]:project.clientSubscriptions) {
+        const auto slot="__nq_resources["+clientQuote(name)+"]";
+        js+="app.socket("+clientQuote(path)+",value=>{"+slot+
+            "={..."+slot+",...value,error:null};__nq_schedule();},error=>{"+
+            slot+"={..."+slot+",connected:false,error:String(error)};__nq_schedule();});";
+    }
+    if(project.hasClientMount)
+        // Mount actions intentionally share the DOM event validation path:
+        // state assignments only, no arbitrary imported effects or JS calls.
+        js+="{const __nq_event=null;"+
+            clientMutationBody(project.clientMount,project,{},false,false)+"}";
     js+="const dispose=app.dispose.bind(app);app.dispose=()=>{__nq_router.dispose();__nq_router=null;__nq_schedule=()=>{};dispose();};return app;}\n";
     js+="if(typeof document!=='undefined'){const root=document.getElementById('app');if(root)mount(root);}\n";
 
@@ -249,12 +275,14 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
         }
         // Async resources have no build-time data. Render an empty app root
         // instead of falsely prerendering unknown values; CSR mounts it.
-        const auto body=project.clientLoads.empty()?render(nodes,htmlProject):std::string{};
+        const auto body=(project.clientLoads.empty()&&project.clientSubscriptions.empty())?
+            render(nodes,htmlProject):std::string{};
         const std::string head="<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'\">"
             "<link rel=\"stylesheet\" href=\""+prefix+"theme.css\"><title>Noqeri client web</title></head><body>"
-            "<main id=\"app\">"+(project.clientLoads.empty()?"<div>"+body+"</div>":std::string{})+
-            "</main>"+(project.clientLoads.empty()?std::string{}:
+            "<main id=\"app\">"+((project.clientLoads.empty()&&project.clientSubscriptions.empty())?
+                "<div>"+body+"</div>":std::string{})+
+            "</main>"+((project.clientLoads.empty()&&project.clientSubscriptions.empty())?std::string{}:
                 std::string("<noscript>Enable JavaScript to load this page's live data.</noscript>"))+
             "<script type=\"module\" src=\""+prefix+"main.mjs\"></script></body></html>\n";
         pages.emplace(target,head);

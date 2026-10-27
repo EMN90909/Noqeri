@@ -15,7 +15,10 @@ server for public Internet exposure or make the browser DSL compiler self-hosted
 
 **The experimental Node-hosted browser-view compiler is not yet fully ported.**
 The native `build-client` subset does generate browser modules without Node,
-but does not support all features of that experimental compiler. Noqeri-authored
+but does not support all features of that experimental compiler. The native
+client subset now supports same-origin WebSocket `subscribe` and bounded state
+mutations in `on.mount`; arbitrary functions, advanced expressions, JS/package
+imports and general-purpose mount effects remain unported. Noqeri-authored
 source and no handwritten JavaScript do not mean the compiler is self-hosted
 or written entirely in Noqeri itself.
 Node.js is not required by the native static, native browser-client or native
