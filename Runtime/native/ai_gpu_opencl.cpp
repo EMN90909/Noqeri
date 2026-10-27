@@ -64,8 +64,22 @@ struct GpuSession {
             program=clCreateProgramWithSource(ctx,1,&kernel_source,nullptr,&status);
             checked(status,"Noqeri OpenCL: cannot create program");
             if(!program)throw std::runtime_error("Noqeri OpenCL: null program");
-            checked(clBuildProgram(program,1,&gpu,"",nullptr,nullptr),
-                    "Noqeri OpenCL: GPU kernel compilation failed");
+            const cl_int build=clBuildProgram(program,1,&gpu,"",nullptr,nullptr);
+            if(build!=CL_SUCCESS) {
+                std::size_t bytes=0;
+                std::string log;
+                if(clGetProgramBuildInfo(program,gpu,CL_PROGRAM_BUILD_LOG,
+                                         0,nullptr,&bytes)==CL_SUCCESS &&
+                   bytes>0 && bytes<=16384) {
+                    log.resize(bytes);
+                    if(clGetProgramBuildInfo(program,gpu,CL_PROGRAM_BUILD_LOG,
+                                             bytes,&log[0],nullptr)!=CL_SUCCESS)
+                        log.clear();
+                }
+                throw std::runtime_error(
+                    "Noqeri OpenCL: GPU kernel compilation failed (error "+
+                    std::to_string(build)+"): "+log);
+            }
             kernel=clCreateKernel(program,"nq_gemm",&status);
             checked(status,"Noqeri OpenCL: missing GEMM kernel");
             if(!kernel)throw std::runtime_error("Noqeri OpenCL: null kernel");
