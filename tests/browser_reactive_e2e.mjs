@@ -32,13 +32,22 @@ try {
   }
   browser=await chromium.launch({headless:true});
   const page=await browser.newPage();
+  const diagnostics=[];
+  page.on('pageerror',error=>diagnostics.push('pageerror: '+error.message));
+  page.on('console',message=>{if(message.type()==='error')diagnostics.push('console: '+message.text())});
+  page.on('requestfailed',request=>diagnostics.push('request failed: '+request.url()+' '+request.failure()?.errorText));
+  page.on('response',response=>{
+    if(response.url().includes(origin))diagnostics.push('response '+response.status()+' '+response.request().method()+' '+response.url())
+  });
   const response=await page.goto(origin+'/',{waitUntil:'load'});
   assert.equal(response.status(),200);
   assert.match(response.headers()['content-security-policy'],/connect-src 'self'/);
   await page.waitForFunction(()=>document.documentElement.dataset.noqeriHydrated==='1');
   await page.evaluate(()=>{window.__noqeriMain=document.querySelector('main')});
   await page.getByRole('button',{name:'Increment without JavaScript'}).click();
-  await page.getByText('Your clicks: 1').waitFor();
+  await page.waitForTimeout(900);
+  console.log('Reactive click diagnostics:',JSON.stringify({body:(await page.locator('body').innerText()).slice(0,1000),events:diagnostics.slice(-20)}));
+  await page.getByText('Your clicks: 1').waitFor({timeout:6000});
   assert.equal(await page.evaluate(()=>document.querySelector('main')===window.__noqeriMain),true,
     'reactive POST must reuse unchanged main DOM rather than hard reload');
   await page.getByRole('link',{name:'About'}).click();
