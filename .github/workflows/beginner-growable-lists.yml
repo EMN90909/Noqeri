@@ -106,7 +106,9 @@ jobs:
           set -euo pipefail
           src=tests/beginner_growable_lexical_inference.noqeri
           ./build-beginner-list/noqeri check "$src"
-          test "$(./build-beginner-list/noqeri run "$src")" = "0"
+          stage0=$(./build-beginner-list/noqeri run "$src")
+          echo "Stage-0 lexical inference result: $stage0"
+          test "$stage0" = "0"
           ./build-beginner-list/noqeri nqri "$src" build-beginner-list/lexical-lists.nqri
           test "$(./build-beginner-list/noqeri-nqri build-beginner-list/lexical-lists.nqri verify)" = "0"
           test "$(node Runtime/nqri-vm.mjs build-beginner-list/lexical-lists.nqri verify)" = "0"
