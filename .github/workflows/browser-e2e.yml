@@ -13,6 +13,7 @@ on:
     paths:
       - 'Compiler/bootstrap/web_native*'
       - 'tests/browser_e2e.mjs'
+      - 'tests/browser_reactive_e2e.mjs'
       - 'examples/native_web_actions/**'
       - '.github/workflows/browser-e2e.yml'
 permissions:
@@ -34,7 +35,9 @@ jobs:
         run: |
           cmake -S . -B build-browser -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
           cmake --build build-browser --target noqeri-web --parallel 2
-      - name: Run actual Chromium end-to-end session and XSS assertions
+      - name: Run actual Chromium end-to-end session, hydration and navigation performance
+        env:
+          NOQERI_BROWSER_NAV_P95_MS: '800'
         run: |
           node tests/browser_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
           node tests/browser_reactive_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
