@@ -21,6 +21,14 @@ template<typename F> bool rejects(F f) {
     try {f();return false;}catch(const std::exception&) {return true;}
 }
 int main() {
+    // Public matrix dimensions can be modified by consumers: never allow a
+    // wrapped rows*cols product to pass the bounds check and access no storage.
+    Matrix forged;
+    forged.rows=std::numeric_limits<std::size_t>::max()/2+1;
+    forged.cols=2;
+    assert(rejects([&]{forged.at(0,0);}));
+    const Matrix& const_forged=forged;
+    assert(rejects([&]{const_forged.at(0,0);}));
     Matrix a(2,2);a.values={4,7,2,6};
     Matrix rhs(2,2);rhs.values={1,0,0,1};
     auto product=m::matmul(a,rhs);
