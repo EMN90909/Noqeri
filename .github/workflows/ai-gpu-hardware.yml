@@ -1,34 +1,28 @@
-name: Noqeri AI OpenCL physical GPU qualification
-# Intentionally opt-in and hardware-gated. Public CPU-hosted CI only
-# checks GPU fail-closed behavior; it cannot certify GPU execution.
+name: Noqeri AI physical GPU training qualification
+# Only trusted, explicitly requested runs use the self-hosted GPU runner.
+# This workflow does not treat a CPU-only OpenCL ICD as GPU verification.
 on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: noqeri-physical-gpu
+  cancel-in-progress: false
 jobs:
-  gpu-training:
+  physical-gpu:
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, noqeri-gpu]
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Require actual OpenCL GPU ICD and build framework
+      - name: Prove physical device, compare GPU gradients and train model
         shell: bash
-        run: |
-          set -euo pipefail
-          clinfo | tee gpu-opencl-info.txt
-          grep -Eq 'Device Type[[:space:]]+GPU|Device Type[[:space:]]+CL_DEVICE_TYPE_GPU' gpu-opencl-info.txt
-          cmake -S . -B build-gpu -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_AI_OPENCL=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
-          cmake --build build-gpu --target noqeri-ai noqeri-ai-resume-depth-test --parallel 2
-      - name: Verify GPU training, forward and reverse GEMM
-        run: |
-          set -euo pipefail
-          ctest --test-dir build-gpu -R '^noqeri-ai-resume-depth$' --output-on-failure
-          mkdir -p gpu-smoke
-          printf 'hello world\n%.0s' {1..16} > gpu-smoke/corpus.txt
-          ./build-gpu/noqeri-ai transformer train gpu-smoke/corpus.txt gpu-smoke/model.nqtf --layers 2 --precision fp32 --backend opencl --optimizer adamw --steps 20 --batch 2 --rate 0.003 --seed 42
-          ./build-gpu/noqeri-ai transformer evaluate gpu-smoke/model.nqtf gpu-smoke/corpus.txt
-      - name: Retain hardware and accuracy evidence
+        run: bash scripts/ai-gpu-verify.sh gpu-evidence
+      - name: Retain hardware, driver and numerical evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: noqeri-physical-gpu-qualification
-          path: gpu-opencl-info.txt
+          path: gpu-evidence/
+          if-no-files-found: warn
+          retention-days: 30
