@@ -16,6 +16,13 @@ on:
       - 'examples/simplicity/ai_native_model_session.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
+      - 'Include/noqeri/matrix.hpp'
+      - 'Include/noqeri/ai_matrix_c.h'
+      - 'Runtime/native/matrix_advanced.cpp'
+      - 'Runtime/native/ai_matrix_c.cpp'
+      - 'Lib/ai/matrix_native.noqeri'
+      - 'tests/cpp/matrix_advanced_test.cpp'
+      - 'examples/simplicity/ai_native_matrix.noqeri'
       - '.github/workflows/ai-native-ffi.yml'
   pull_request:
     branches: [main]
@@ -27,6 +34,13 @@ on:
       - 'examples/simplicity/ai_native_gemm.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
+      - 'Include/noqeri/matrix.hpp'
+      - 'Include/noqeri/ai_matrix_c.h'
+      - 'Runtime/native/matrix_advanced.cpp'
+      - 'Runtime/native/ai_matrix_c.cpp'
+      - 'Lib/ai/matrix_native.noqeri'
+      - 'tests/cpp/matrix_advanced_test.cpp'
+      - 'examples/simplicity/ai_native_matrix.noqeri'
       - '.github/workflows/ai-native-ffi.yml'
 permissions:
   contents: read
@@ -81,6 +95,26 @@ jobs:
           node scripts/native-build.mjs examples/simplicity/ai_native_model_session.noqeri build-ai-ffi/ai-model-session --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
           result=$(./build-ai-ffi/ai-model-session)
           echo "Noqeri reusable model: $result"
+          test "$result" = "0"
+      - name: Run expanded matrix C++/C ABI regressions
+        run: |
+          cmake --build build-ai-ffi --target noqeri-matrix-test noqeri-matrix-advanced-test --parallel 2
+          ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-matrix(-advanced)?
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs examples/simplicity/ai_native_gemm.noqeri build-ai-ffi/ai-native-program --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-program)
+          echo "Noqeri native AI GEMM check: $result"
+          test "$result" = "0"
+          node -e "const x=require('./build-ai-ffi/ai-native-program.native.json');if(x.execution_model!=='native-aot'||!x.ai_framework_linked||!x.ai_framework_library_sha256)process.exit(1)"
+
+      - name: Typecheck and execute Noqeri native matrix FFI
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_matrix.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_matrix.noqeri build-ai-ffi/ai-native-matrix --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-matrix)
+          echo "Noqeri native matrix check: $result"
           test "$result" = "0"
       - name: Build and run Noqeri AOT app calling native C++ tensor SDK
         run: |
