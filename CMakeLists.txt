@@ -56,6 +56,7 @@ install(FILES
  Compiler/bootstrap/web_native.cpp
  Compiler/bootstrap/web_native_app.hpp
  Compiler/bootstrap/web_native_db.hpp
+ Compiler/bootstrap/web_native_cloud.hpp
  Compiler/bootstrap/web_native_bundle.hpp
  Compiler/bootstrap/web_native_noesql_v2.hpp
  DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Compiler/bootstrap)
@@ -91,6 +92,16 @@ if(NOQERI_WEB_SQL_DRIVERS)
  endif()
 endif()
 
+# Cloud HTTPS adapters are server-only and optional; they never embed API keys
+# in browser modules or require Node.js.
+option(NOQERI_WEB_CLOUD_DRIVERS "Enable native Supabase/Firebase HTTPS REST adapters" ON)
+if(NOQERI_WEB_CLOUD_DRIVERS)
+ find_package(CURL QUIET)
+ if(CURL_FOUND)
+  target_compile_definitions(noqeri-web PRIVATE NOQERI_WEB_CURL=1)
+  target_link_libraries(noqeri-web PRIVATE CURL::libcurl)
+ endif()
+endif()
 target_compile_features(noqeri-nqri PRIVATE cxx_std_17)
 target_include_directories(noqeri PRIVATE Include/noqeri Compiler/bootstrap)
 target_compile_features(noqeri PRIVATE cxx_std_17)
