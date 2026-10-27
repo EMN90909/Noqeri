@@ -477,7 +477,8 @@ bool allowedTag(const std::string& tag) {
 std::string safeAttr(const std::string& key) {
     static const std::set<std::string> attrs={
         "id","class","title","role","href","src","alt","type","name","value",
-        "placeholder","for","disabled","checked","target","rel","tabindex",
+        "placeholder","for","disabled","checked","required","minlength","maxlength",
+        "min","max","step","autocomplete","inputmode","target","rel","tabindex",
         "action","method"
     };
     if (attrs.count(key)) return key;
@@ -548,7 +549,7 @@ std::string render(const std::vector<Node>& nodes,const Project& p,
                 blankTarget=value=="_blank";
             }
             if (attr=="rel") hasRel=true;
-            if (attr=="disabled"||attr=="checked") {
+            if (attr=="disabled"||attr=="checked"||attr=="required") {
                 if (value!="false"&&value!="0"&&value!="") result+=" "+attr;
             } else result+=" "+attr+"=\""+escaped(value)+"\"";
         }
