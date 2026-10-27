@@ -257,7 +257,18 @@ std::string queryPostgres(const DbConfiguration& config,const SqlPrepared& sql) 
     if(!conn)throw std::runtime_error("PostgreSQL connection allocation failed");
     struct Close{PGconn* c;~Close(){PQfinish(c);}} close{conn};
     if(PQstatus(conn)!=CONNECTION_OK)throw std::runtime_error("PostgreSQL connection failed");
-    if(config.engine=="neon"&&!PQsslInUse(conn))throw std::runtime_error("Neon requires TLS");
+    if(config.engine=="neon") {
+        if(!PQsslInUse(conn))throw std::runtime_error("Neon requires TLS");
+        const auto* options=PQconninfo(conn);
+        if(!options)throw std::runtime_error("Neon TLS configuration unavailable");
+        bool verified=false;
+        for(const auto* option=options;option->keyword;++option) {
+            if(std::string(option->keyword)=="sslmode"&&option->val&&
+               std::string(option->val)=="verify-full")verified=true;
+        }
+        PQconninfoFree(const_cast<PQconninfoOption*>(options));
+        if(!verified)throw std::runtime_error("Neon requires sslmode=verify-full");
+    }
     std::vector<const char*> values;for(const auto& v:sql.values)values.push_back(v.c_str());
     PGresult* result=PQexecParams(conn,sql.source.c_str(),static_cast<int>(values.size()),
         nullptr,values.empty()?nullptr:values.data(),nullptr,nullptr,0);
