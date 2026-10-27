@@ -10,7 +10,7 @@ const THEME_KEYS = new Set(['primary','background','surface','text','muted','bor
 const OPS = {'||':1,'&&':2,'==':3,'!=':3,'<':4,'>':4,'<=':4,'>=':4,'+':5,'-':5,'*':6,'/':6,'%':6};
 const isIdent = x => /^[A-Za-z_][A-Za-z_0-9]*$/.test(x) && !BAD.has(x);
 export function isViewSource(source) {
-  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_]|subscribe\s+[A-Za-z_]|persist\s+[A-Za-z_]|route\s+\")/m.test(source);
+  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_]|subscribe\s+[A-Za-z_]|persist\s+[A-Za-z_]|route\s+\"|motion\s+[A-Za-z_]|timeline\s+[A-Za-z_])/m.test(source);
 }
 function tokenize(source) {
   if (typeof source !== 'string' || source.length > 1024 * 1024) throw Error('Noqeri view: source must be at most 1 MiB');
@@ -91,7 +91,7 @@ export function parseView(source) {
     }
     need('}');return actions;
   };
-  const components=[],functions=[],states=[],loads=[],subscriptions=[],imports=[],mounts=[],routes=[];
+  const components=[],functions=[],states=[],loads=[],subscriptions=[],imports=[],mounts=[],routes=[],motions=[],timelines=[];
   let view=null,theme=null;
   function children(){
     return nest(()=>{
@@ -166,6 +166,57 @@ export function parseView(source) {
         params.push(param);if(!accept(',')){if(!is(')'))fail('expected comma in function arguments')}
       }
       need(')');functions.push({name,params,body:parseActions()});
+    }else if(accept('motion')){
+      if(motions.length>=128)fail('too many motion definitions');
+      const name=ident();need('{');
+      const fields=Object.create(null);
+      const numberBounds={
+        duration:[0,30000],delay:[0,30000],stagger:[0,10000],repeat:[0,10],
+        fromOpacity:[0,100],toOpacity:[0,100],fromX:[-2000,2000],toX:[-2000,2000],
+        fromY:[-2000,2000],toY:[-2000,2000],fromScale:[1,400],toScale:[1,400],
+        fromRotation:[-1080,1080],toRotation:[-1080,1080]
+      };
+      while(!is('}')){
+        if(is('<eof>'))fail('unterminated motion declaration');
+        const key=ident();need(':');
+        if(Object.hasOwn(fields,key))fail('duplicate motion property '+key);
+        const value=expr();
+        if(value.kind!=='literal' && !(value.kind==='unary'&&value.op==='-'&&value.right.kind==='literal'&&typeof value.right.value==='number'))
+          fail('Noqeri motion properties must be literals');
+        const resolved=value.kind==='unary'?-value.right.value:value.value;
+        if(Object.hasOwn(numberBounds,key)){
+          const [min,max]=numberBounds[key];
+          if(!Number.isInteger(resolved)||resolved<min||resolved>max)fail('motion number out of range '+key);
+        }else if(key==='target'){
+          if(typeof resolved!=='string'||!/^([.#])[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(resolved))
+            fail('motion target must be a safe .class or #id');
+        }else if(key==='trigger'){
+          if(!['mount','scroll','timeline'].includes(resolved))fail('motion trigger must be mount, scroll or timeline');
+        }else if(key==='ease'){
+          if(!['linear','in','out','inOut','back','smooth'].includes(resolved))fail('unsupported motion ease');
+        }else if(key==='once'||key==='yoyo'){
+          if(typeof resolved!=='boolean')fail('motion flag must be boolean');
+        }else fail('unsupported motion property '+key);
+        fields[key]=resolved;
+        accept(',');accept(';');
+      }
+      need('}');
+      if(!Object.hasOwn(fields,'target'))fail('motion needs target');
+      if(motions.some(m=>m.name===name)||timelines.some(t=>t.name===name))
+        fail('duplicate motion name '+name);
+      motions.push({name,...fields});
+    }else if(accept('timeline')){
+      if(timelines.length>=32)fail('too many motion timelines');
+      const name=ident();need('{');const steps=[];
+      while(!is('}')){
+        if(is('<eof>'))fail('unterminated timeline');
+        if(steps.length>=32)fail('timeline exceeds 32 steps');
+        steps.push(ident());accept(',');accept(';');
+      }
+      need('}');
+      if(!steps.length||timelines.some(t=>t.name===name)||motions.some(m=>m.name===name))
+        fail('empty or duplicate motion timeline');
+      timelines.push({name,steps});
     }else if(accept('component')){
       const name=ident();need('(');const params=[];
       while(!is(')')){const param=ident();if(accept(':')){const t=ident();if(!['string','int','bool','float'].includes(t))fail('unsupported component parameter type '+t)}
@@ -203,7 +254,17 @@ export function parseView(source) {
     symbols.add(name);
   }
   if(routes.length&&symbols.has('navigate'))fail('navigate is reserved in routed views');
-  return {imports,states,loads,subscriptions,components,functions,view,mounts,routes,theme};
+  if(timelines.length&&!motions.length)fail('motion timeline requires motion steps');
+  const allocated=new Set();
+  for(const timeline of timelines)for(const step of timeline.steps){
+    const motion=motions.find(m=>m.name===step);
+    if(!motion||motion.trigger!=='timeline'||allocated.has(step))
+      fail('timeline steps must reference unique motions with trigger timeline: '+step);
+    allocated.add(step);
+  }
+  for(const motion of motions)if(motion.trigger==='timeline'&&!allocated.has(motion.name))
+    fail('timeline motion is missing a timeline: '+motion.name);
+  return {imports,states,loads,subscriptions,components,functions,view,mounts,routes,theme,motions,timelines};
 }
 export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) {
   const ast=parseView(source);
@@ -263,7 +324,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     const source=imp.kind==='js'?imp.specifier:'./'+imp.specifier+'.mjs';
     lines.push('import * as '+imp.alias+' from '+JSON.stringify(source)+';');
   }
-  lines.push('import { element as __h, createApp as __createApp, safeMember as __member, createRouter as __createRouter, inputEvent as __inputEvent, formFields as __formFields, readStored as __readStored, saveStored as __saveStored } from '+JSON.stringify(runtimeImport)+';');
+  lines.push('import { element as __h, createApp as __createApp, safeMember as __member, createRouter as __createRouter, inputEvent as __inputEvent, formFields as __formFields, readStored as __readStored, saveStored as __saveStored'+(ast.motions.length?', createMotion as __createMotion':'')+' } from '+JSON.stringify(runtimeImport)+';');
   for(const state of ast.states)lines.push((state.mutable?'let ':'const ')+state.name+' = '+(state.persistent?'__readStored('+JSON.stringify(state.name)+','+jsExpr(state.value)+')':jsExpr(state.value))+';');
   for(const res of ast.loads)lines.push('let '+res.name+' = {loading:true,data:null,error:null};');
   for(const res of ast.subscriptions)lines.push('let '+res.name+' = {connected:false,data:null,error:null};');
@@ -296,7 +357,12 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
       lines.push('  app.load('+JSON.stringify(r.url)+',value=>{'+r.name+'={loading:false,data:value,error:null};__schedule();},error=>{'+r.name+'={loading:false,data:null,error:String(error)};__schedule();});');
     }
     if(ast.mounts.length)lines.push('  '+actions(ast.mounts,new Set()));
-    if(ast.routes.length)lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{__router?.dispose();__router=null;__schedule=()=>{};__dispose();};');
+    if(ast.motions.length)lines.push('  const __motion=__createMotion(root,'+JSON.stringify(ast.motions)+','+JSON.stringify(ast.timelines)+');app.motion=__motion;');
+    if(ast.routes.length||ast.motions.length)
+      lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{'+
+        (ast.motions.length?'__motion.dispose();':'')+
+        (ast.routes.length?'__router?.dispose();__router=null;':'')+
+        '__schedule=()=>{};__dispose();};');
     lines.push('  return app;');
     lines.push('}');
     lines.push('if(typeof document!=="undefined"){const root=document.getElementById("app");if(root)mount(root);}');

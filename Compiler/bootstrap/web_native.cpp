@@ -97,6 +97,9 @@ struct Project {
     std::map<std::string,std::string> clientSubscriptions;
     std::vector<Mutation> clientMount;
     bool hasClientMount=false;
+    // Motion is a bounded, browser-only declaration set (not executable JS).
+    std::map<std::string,std::map<std::string,std::string>> clientMotions;
+    std::map<std::string,std::vector<std::string>> clientTimelines;
     std::map<std::string,Component> components;
     std::map<std::string,std::vector<Node>> routes;
     std::vector<Node> fallback;
@@ -368,6 +371,79 @@ class Parser {
         }
         return result;
     }
+    void motion() {
+        if(library)fail("motion cannot be declared in UI library components");
+        if(p.clientMotions.size()>=128)fail("too many Noqeri motion declarations");
+        const auto name=identifier();
+        if(name.size()>64||p.clientMotions.count(name)||p.clientTimelines.count(name))
+            fail("duplicate or oversized motion name");
+        expect("{");
+        std::map<std::string,std::string> fields;
+        const std::map<std::string,std::pair<int,int>> numeric={
+            {"duration",{0,30000}},{"delay",{0,30000}},{"stagger",{0,10000}},
+            {"repeat",{0,10}},{"fromOpacity",{0,100}},{"toOpacity",{0,100}},
+            {"fromX",{-2000,2000}},{"toX",{-2000,2000}},
+            {"fromY",{-2000,2000}},{"toY",{-2000,2000}},
+            {"fromScale",{1,400}},{"toScale",{1,400}},
+            {"fromRotation",{-1080,1080}},{"toRotation",{-1080,1080}}
+        };
+        while(!take("}")){
+            if(peek().value=="<eof>")fail("unterminated motion declaration");
+            const auto key=identifier();
+            if(fields.count(key))fail("duplicate Noqeri motion property");
+            expect(":");
+            std::string value;
+            if(key=="target"||key=="trigger"||key=="ease")
+                value=literalString();
+            else if(key=="once"||key=="yoyo"){
+                value=identifier();
+                if(value!="true"&&value!="false")fail("motion flag requires true or false");
+            }else if(numeric.count(key)){
+                const bool minus=take("-");
+                if(peek().quoted||peek().value.empty()||peek().value.size()>6||
+                   !std::all_of(peek().value.begin(),peek().value.end(),[](char c){
+                       return c>='0'&&c<='9';
+                   }))fail("motion numeric property requires a bounded integer");
+                value=(minus?"-":"")+tokens.at(pos++).value;
+                const auto parsed=std::stoi(value);
+                const auto range=numeric.at(key);
+                if(parsed<range.first||parsed>range.second)
+                    fail("motion numeric property outside supported range");
+            } else fail("unsupported Noqeri motion property: "+key);
+            fields.emplace(key,std::move(value));
+            take(",");take(";");
+        }
+        if(!fields.count("target"))fail("motion requires a target selector");
+        const auto& target=fields.at("target");
+        if(target.size()<2||target.size()>66||
+           (target[0]!='.'&&target[0]!='#')||!wordStart(target[1])||
+           !std::all_of(target.begin()+2,target.end(),[](unsigned char c){
+               return std::isalnum(c)||c=='_'||c=='-';
+           }))fail("motion target must be a safe .class or #id");
+        const auto trigger=fields.count("trigger")?fields.at("trigger"):"mount";
+        if(trigger!="mount"&&trigger!="scroll"&&trigger!="timeline")
+            fail("motion trigger must be mount, scroll or timeline");
+        const auto easing=fields.count("ease")?fields.at("ease"):"smooth";
+        if(easing!="linear"&&easing!="in"&&easing!="out"&&
+           easing!="inOut"&&easing!="back"&&easing!="smooth")
+            fail("motion easing is not supported");
+        p.clientMotions.emplace(name,std::move(fields));
+    }
+    void timeline(){
+        if(library)fail("timeline cannot be declared in UI library components");
+        if(p.clientTimelines.size()>=32)fail("too many Noqeri motion timelines");
+        const auto name=identifier();
+        if(name.size()>64||p.clientTimelines.count(name)||p.clientMotions.count(name))
+            fail("duplicate or oversized timeline name");
+        expect("{");std::vector<std::string> steps;
+        while(!take("}")){
+            if(peek().value=="<eof>")fail("unterminated timeline");
+            if(steps.size()>=32)fail("motion timeline exceeds 32 steps");
+            steps.push_back(identifier());take(",");take(";");
+        }
+        if(steps.empty())fail("motion timeline must contain at least one step");
+        p.clientTimelines.emplace(name,std::move(steps));
+    }
     void component() {
         const auto name=identifier();
         expect("("); Component c;
@@ -410,6 +486,8 @@ public:
                 if (!p.uiAlias.empty()) fail("duplicate noqeri/ui import");
                 p.uiAlias=identifier();
             } else if (take("component")) component();
+            else if (!library && take("motion")) motion();
+            else if (!library && take("timeline")) timeline();
             else if (!library && take("load")) {
                 const auto name=identifier();
                 expect("from");
@@ -741,7 +819,8 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     Project project;
     Parser(readText(root/"main.noqeri"),project).parse();
     promoteStandaloneView(project);
-    if(!project.clientLoads.empty()||!project.clientSubscriptions.empty()||project.hasClientMount)
+    if(!project.clientLoads.empty()||!project.clientSubscriptions.empty()||project.hasClientMount||
+       !project.clientMotions.empty()||!project.clientTimelines.empty())
         throw std::runtime_error("browser load/subscribe/mount requires build-client, not static build");
     if (project.routes.empty()) throw std::runtime_error("native web app requires at least one view or route");
     if(project.databaseConfigured||!project.queries.empty())

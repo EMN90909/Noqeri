@@ -304,3 +304,193 @@ export function createRouter(root,onChange) {
     }
   };
 }
+
+
+// Noqeri Motion: an independent Web Animations API adapter. This is NOT GSAP.
+// No arbitrary CSS/JS values are evaluated. Text and form state remain owned
+// by the Noqeri DOM reconciler, not by the motion layer.
+const MOTION_EASE = Object.freeze({
+  linear:'linear',in:'cubic-bezier(.42,0,1,1)',
+  out:'cubic-bezier(0,0,.58,1)',inOut:'cubic-bezier(.42,0,.58,1)',
+  back:'cubic-bezier(.34,1.56,.64,1)',smooth:'cubic-bezier(.22,1,.36,1)'
+});
+const motionNumber=(value,min,max,key)=>{
+  if(!Number.isInteger(value)||value<min||value>max)
+    throw Error('Noqeri motion invalid '+key);
+  return value;
+};
+export function createMotion(root,definitions=[],sequences=[]) {
+  if(!root||typeof root.querySelectorAll!=='function')
+    throw TypeError('Noqeri motion requires a DOM root');
+  if(!Array.isArray(definitions)||definitions.length>128||
+     !Array.isArray(sequences)||sequences.length>32)
+    throw Error('Noqeri motion declaration limit exceeded');
+  const specs=new Map(),timelineNames=new Set(),running=new Map(),watched=new Map();
+  const observers=new Set();
+  let mutationObserver=null,disposed=false,scheduled=false;
+  const reduced=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  for(const item of definitions){
+    if(!item||typeof item!=='object'||typeof item.name!=='string'||
+       !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(item.name)||specs.has(item.name))
+      throw Error('Noqeri motion duplicate or invalid name');
+    const raw=item;
+    const valid=['name','target','trigger','ease','fromOpacity','toOpacity',
+      'fromX','toX','fromY','toY','fromScale','toScale','fromRotation','toRotation',
+      'duration','delay','stagger','repeat','yoyo','once'];
+    if(Object.keys(raw).some(k=>!valid.includes(k)))
+      throw Error('Noqeri motion unsupported property');
+    if(typeof raw.target!=='string'||!/^([.#])[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(raw.target))
+      throw Error('Noqeri motion requires safe class/id target');
+    const spec={
+      name:raw.name,target:raw.target,trigger:raw.trigger??'mount',ease:raw.ease??'smooth',
+      fromOpacity:motionNumber(raw.fromOpacity??100,0,100,'fromOpacity'),
+      toOpacity:motionNumber(raw.toOpacity??100,0,100,'toOpacity'),
+      fromX:motionNumber(raw.fromX??0,-2000,2000,'fromX'),
+      toX:motionNumber(raw.toX??0,-2000,2000,'toX'),
+      fromY:motionNumber(raw.fromY??0,-2000,2000,'fromY'),
+      toY:motionNumber(raw.toY??0,-2000,2000,'toY'),
+      fromScale:motionNumber(raw.fromScale??100,1,400,'fromScale'),
+      toScale:motionNumber(raw.toScale??100,1,400,'toScale'),
+      fromRotation:motionNumber(raw.fromRotation??0,-1080,1080,'fromRotation'),
+      toRotation:motionNumber(raw.toRotation??0,-1080,1080,'toRotation'),
+      duration:motionNumber(raw.duration??500,0,30000,'duration'),
+      delay:motionNumber(raw.delay??0,0,30000,'delay'),
+      stagger:motionNumber(raw.stagger??0,0,10000,'stagger'),
+      repeat:motionNumber(raw.repeat??0,0,10,'repeat'),
+      yoyo:raw.yoyo??false,once:raw.once??true
+    };
+    if(!['mount','scroll','timeline'].includes(spec.trigger)||!Object.hasOwn(MOTION_EASE,spec.ease)||
+       typeof spec.yoyo!=='boolean'||typeof spec.once!=='boolean')
+      throw Error('Noqeri motion invalid trigger/easing/flag');
+    specs.set(spec.name,spec);watched.set(spec.name,new WeakSet());
+  }
+  for(const seq of sequences){
+    if(!seq||typeof seq.name!=='string'||!Array.isArray(seq.steps)||
+       !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(seq.name)||
+       timelineNames.has(seq.name)||specs.has(seq.name)||
+       seq.steps.length<1||seq.steps.length>32)
+      throw Error('Noqeri motion invalid timeline');
+    timelineNames.add(seq.name);
+    for(const name of seq.steps){
+      if(!specs.has(name)||specs.get(name).trigger!=='timeline')
+        throw Error('Noqeri timeline step must use trigger timeline: '+name);
+    }
+  }
+  const keys=s=>({
+    opacity:s.fromOpacity/100,
+    transform:'translate('+s.fromX+'px,'+s.fromY+'px) rotate('+s.fromRotation+'deg) scale('+(s.fromScale/100)+')'
+  });
+  const ends=s=>({
+    opacity:s.toOpacity/100,
+    transform:'translate('+s.toX+'px,'+s.toY+'px) rotate('+s.toRotation+'deg) scale('+(s.toScale/100)+')'
+  });
+  const elements=s=>Array.from(root.querySelectorAll(s.target)).slice(0,256);
+  const animate=(spec,node,delay=0)=>{
+    if(disposed||watched.get(spec.name).has(node))return null;
+    watched.get(spec.name).add(node);
+    // When motion is reduced, the static/no-script final appearance is kept.
+    if(reduced()||typeof node.animate!=='function')return null;
+    const animation=node.animate([keys(spec),ends(spec)],{
+      duration:spec.duration,delay,fill:'both',easing:MOTION_EASE[spec.ease],
+      iterations:spec.repeat+1,direction:spec.yoyo?'alternate':'normal'
+    });
+    if(!running.has(spec.name))running.set(spec.name,new Set());
+    running.get(spec.name).add(animation);
+    return animation;
+  };
+  const run=(spec,offset=0)=>{
+    const matches=elements(spec);
+    matches.forEach((node,index)=>animate(spec,node,offset+spec.delay+index*spec.stagger));
+    return spec.delay+spec.duration*(spec.repeat+1)+
+      spec.stagger*Math.max(0,matches.length-1);
+  };
+  const sequence=(seq)=>{
+    let offset=0;
+    for(const name of seq.steps)offset+=run(specs.get(name),offset);
+  };
+  const scroll=(spec)=>{
+    const marked=watched.get(spec.name);
+    for(const element of elements(spec)){
+      if(marked.has(element))continue;
+      // If IntersectionObserver is unavailable, play immediately.
+      if(typeof IntersectionObserver!=='function'){run(spec);break;}
+      marked.add(element);
+      let entered=false,active=null;
+      const observer=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(disposed||entry.target!==element)continue;
+          if(entry.isIntersecting){
+            if(entered)continue;
+            entered=true;
+            marked.delete(element);
+            const index=elements(spec).indexOf(element);
+            active=animate(spec,element,spec.delay+Math.max(0,index)*spec.stagger);
+            if(spec.once){observer.disconnect();observers.delete(observer);}
+          }else if(!spec.once && entered){
+            // A repeatable scroll reveal restarts on re-entry, but retains
+            // the observer marker to prevent duplicate observer creation.
+            entered=false;
+            active?.cancel();
+            running.get(spec.name)?.delete(active);
+            active=null;
+          }
+        }
+      },{threshold:0.12});
+      observers.add(observer);observer.observe(element);
+    }
+  };
+  const refresh=()=>{
+    if(disposed)return;
+    for(const spec of specs.values()){
+      if(spec.trigger==='mount')run(spec);
+      if(spec.trigger==='scroll')scroll(spec);
+    }
+    for(const seq of sequences)sequence(seq);
+  };
+  refresh();
+  if(typeof MutationObserver==='function'){
+    mutationObserver=new MutationObserver(()=>{
+      if(disposed||scheduled)return;
+      scheduled=true;
+      queueMicrotask(()=>{scheduled=false;refresh();});
+    });
+    mutationObserver.observe(root,{childList:true,subtree:true});
+  }
+  return {
+    refresh,
+    play(name){
+      if(disposed)return false;
+      const seq=sequences.find(x=>x.name===name);
+      if(seq)sequence(seq);
+      else if(specs.has(name))run(specs.get(name));
+      else return false;
+      for(const key of (seq?.steps??[name]))
+        for(const animation of running.get(key)??[])animation.play();
+      return true;
+    },
+    pause(name){
+      if(disposed||(!specs.has(name)&&!timelineNames.has(name)))return false;
+      const seq=sequences.find(x=>x.name===name);
+      for(const key of (seq?.steps??[name]))
+        for(const animation of running.get(key)??[])animation.pause();
+      return true;
+    },
+    reverse(name){
+      if(disposed||(!specs.has(name)&&!timelineNames.has(name)))return false;
+      const seq=sequences.find(x=>x.name===name);
+      for(const key of (seq?.steps??[name]))
+        for(const animation of running.get(key)??[])animation.reverse();
+      return true;
+    },
+    dispose(){
+      if(disposed)return;
+      disposed=true;
+      mutationObserver?.disconnect();
+      for(const observer of observers)observer.disconnect();
+      observers.clear();
+      for(const animations of running.values())
+        for(const animation of animations)animation.cancel();
+      running.clear();
+    }
+  };
+}

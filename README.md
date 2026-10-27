@@ -287,7 +287,7 @@ node Runtime/web-project.mjs examples/web_view dist-web
 node --test tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
 ```
 
-The builder generates HTML and ES modules; it does **not** turn the browser into a JavaScript-free runtime. See [Web Views](Doc/WEB_VIEWS_V1.md), [the example](examples/web_view/main.noqeri), and [web implementation status](Doc/WEB_PROJECT_STATUS.md).
+The builder generates HTML and ES modules; it does **not** turn the browser into a JavaScript-free runtime. See [Web Views](Doc/WEB_VIEWS_V1.md) · [Motion](Doc/WEB_MOTION.md), [the example](examples/web_view/main.noqeri), and [web implementation status](Doc/WEB_PROJECT_STATUS.md).
 
 </details>
 

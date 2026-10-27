@@ -56,6 +56,10 @@ Current accepted Noqeri subset:
   mounts the view, not on the server; arbitrary function or JS calls remain
   unsupported. Pages with subscriptions use client rendering rather than
   incorrectly prerendering missing realtime values.
+- Declarative Noqeri Motion declarations for bounded transform/opacity tweens,
+  easing, stagger, timeline sequencing and viewport enter animations, emitted
+  natively without Node and executed by the Web Animations API. See
+  [Noqeri Motion](WEB_MOTION.md). Reduced-motion preference is honored.
 - The runtime's existing bounded HTML/URL/attribute validation. Unsupported
   actions fail the build rather than silently becoming client-side powers.
 
