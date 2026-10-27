@@ -36,6 +36,7 @@ target_compile_features(noqeri_owned_collections PUBLIC cxx_std_17)
 # heavyweight ML/LLM dependencies. No autonomous shell/network privileges.
 add_library(noqeri_ai STATIC Runtime/native/ai_runtime.cpp Runtime/native/lm_runtime.cpp
  Runtime/native/ai_framework_tensor.cpp Runtime/native/ai_framework_transformer.cpp
+ Runtime/native/ai_optimizer.cpp
  Runtime/native/ai_framework_c.cpp Runtime/native/matrix.cpp
   Runtime/native/matrix_advanced.cpp Runtime/native/ai_matrix_c.cpp)
 target_include_directories(noqeri_ai PUBLIC
