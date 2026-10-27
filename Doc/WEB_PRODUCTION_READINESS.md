@@ -24,6 +24,10 @@ or written entirely in Noqeri itself.
 Node.js is not required by the native static, native browser-client or native
 full-stack paths, nor by browsers consuming their output.
 
+For the native browser animation subset, see [Noqeri Motion](WEB_MOTION.md).
+Motion is progressive browser enhancement, not a GSAP or ScrollTrigger
+compatibility implementation and not server-side animation execution.
+
 For precise supported syntax, limits, route authorization and shared session
 configuration, see [Native client compilation and security](WEB_NATIVE_CLIENT_SECURITY.md).
 
