@@ -145,3 +145,61 @@ export function owned_generic_set_close<T>(set: *OwnedSet<T>): isize {
         return status
     }
 }
+
+// Consistent typed result adapters for generic owned collection operations.
+// The native ABI is still status-based; these adapters preserve error status
+// and initialize the destination on every success/failure path.
+export function owned_generic_list_append_result<T: Copy>(list: *OwnedList<T>, value: T, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_generic_list_append(list,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","generic list append failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_generic_list_remove_result<T>(list: *OwnedList<T>, index: isize, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_generic_list_remove(list,index)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","generic list removal failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_generic_list_size_result<T>(list: *OwnedList<T>, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = owned_generic_list_size(list)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"collections","generic list size failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function owned_generic_map_put_result<K: Integer,V: Copy>(map: *OwnedMap<K,V>, key: K, value: V, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_generic_map_put(map,key,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","generic map update failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_generic_map_remove_result<K: Integer,V>(map: *OwnedMap<K,V>, key: K, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_generic_map_remove(map,key)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","generic map removal failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_generic_map_size_result<K,V>(map: *OwnedMap<K,V>, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = owned_generic_map_size(map)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"collections","generic map size failed") }
+    else { outcome_init_ok(out,status) }
+}
+export function owned_generic_set_add_result<T: Integer>(set: *OwnedSet<T>, value: T, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_generic_set_add(set,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","generic set insertion failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_generic_set_remove_result<T: Integer>(set: *OwnedSet<T>, value: T, out: *Outcome<bool>): void {
+    if out == null { return }
+    let status: isize = owned_generic_set_remove(set,value)
+    if status < 0 as isize { outcome_init_error(out,false,status,"collections","generic set removal failed") }
+    else { outcome_init_ok(out,true) }
+}
+export function owned_generic_set_size_result<T>(set: *OwnedSet<T>, out: *Outcome<isize>): void {
+    if out == null { return }
+    let status: isize = owned_generic_set_size(set)
+    if status < 0 as isize { outcome_init_error(out,-1 as isize,status,"collections","generic set size failed") }
+    else { outcome_init_ok(out,status) }
+}
