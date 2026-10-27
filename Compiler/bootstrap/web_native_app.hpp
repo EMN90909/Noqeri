@@ -442,7 +442,7 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
               const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
         status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
-        status==422?"Unprocessable Content":status==503?"Service Unavailable":"Internal Server Error";
+        status==422?"Unprocessable Content":status==429?"Too Many Requests":status==503?"Service Unavailable":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: "+(mime.rfind("text/css",0)==0 || mime.rfind("text/javascript",0)==0 ?
@@ -872,6 +872,41 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     std::cout<<"noqeri-web: server-rendered app at http://127.0.0.1:"<<port
              <<" (no Node or JavaScript; local development only)\n"<<std::flush;
     std::mutex stateGuard;
+    // Optional per-principal fixed-window limit for a *single* process.
+    // The reverse proxy must enforce shared/IP limits before authentication.
+    unsigned requestsPerMinute=0;
+    if(const char* setting=std::getenv("NOQERI_WEB_RATE_LIMIT_PER_MINUTE")) {
+        const std::string value=setting;
+        if(value.empty()||value.size()>5||
+           !std::all_of(value.begin(),value.end(),[](char ch){return ch>='0'&&ch<='9';}))
+            throw std::runtime_error("rate limit must be an integer 1..10000");
+        requestsPerMinute=static_cast<unsigned>(std::stoul(value));
+        if(requestsPerMinute<1||requestsPerMinute>10000)
+            throw std::runtime_error("rate limit must be 1..10000");
+    }
+    std::mutex rateGuard;
+    struct RequestBudget {
+        unsigned used=0;
+        std::chrono::steady_clock::time_point start;
+    };
+    std::map<std::string,RequestBudget> requestBudgets;
+    auto withinBudget=[&](const std::string& principal)->bool {
+        if(!requestsPerMinute)return true;
+        std::lock_guard<std::mutex> lock(rateGuard);
+        const auto now=std::chrono::steady_clock::now();
+        // Bound memory, including when callers rotate bearer identities.
+        if(requestBudgets.size()>1024)
+            for(auto it=requestBudgets.begin();it!=requestBudgets.end();)
+                if(now-it->second.start>=std::chrono::minutes(1))it=requestBudgets.erase(it);
+                else ++it;
+        if(requestBudgets.size()>=2048&&!requestBudgets.count(principal))return false;
+        auto& budget=requestBudgets[principal];
+        if(now-budget.start>=std::chrono::minutes(1)) {
+            budget.start=now;budget.used=0;
+        }
+        if(budget.used>=requestsPerMinute)return false;
+        ++budget.used;return true;
+    };
     std::atomic<unsigned> activeClients{0};
     constexpr unsigned maxConcurrentClients=32;
     for (;;) {
@@ -897,6 +932,9 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                 appReply(client,401,"Authentication required");
             } else if(!authorization.allowed) {
                 appReply(client,403,"Route access denied");
+            } else if(!withinBudget(authorization.principal.empty()?
+                         std::string("anonymous"):authorization.principal)) {
+                appReply(client,429,"Too Many Requests");
             } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
