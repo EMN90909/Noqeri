@@ -69,8 +69,9 @@ std::string dbJsonQuote(const std::string& value) {
 }
 void verifyDbConfig(const DbConfiguration& config) {
     if(config.engine!="noesql"&&config.engine!="sqlite"&&config.engine!="postgresql"&&
-       config.engine!="duckdb"&&config.engine!="mysql")
-        throw std::runtime_error("unsupported database engine; choose noesql, sqlite, postgresql, duckdb, mysql");
+       config.engine!="duckdb"&&config.engine!="mysql"&&
+       config.engine!="neon"&&config.engine!="supabase"&&config.engine!="firebase")
+        throw std::runtime_error("unsupported database engine; choose noesql, sqlite, postgresql, duckdb, mysql, neon, supabase, firebase");
     if(config.engine=="noesql"||config.engine=="sqlite"||config.engine=="duckdb") {
         if(config.path.empty()||config.path.size()>2048)
             throw std::runtime_error("database path is required");
@@ -80,6 +81,11 @@ void verifyDbConfig(const DbConfiguration& config) {
         if(config.dsnEnvironment.empty()||config.dsnEnvironment.size()>128||
            !validName(config.dsnEnvironment))
             throw std::runtime_error("database connection must name an environment variable");
+        if(config.engine=="supabase"||config.engine=="firebase") {
+            if(config.keyEnvironment.empty()||config.keyEnvironment.size()>128||
+               !validName(config.keyEnvironment))
+                throw std::runtime_error("cloud database requires key_env naming a server-only environment variable");
+        }
     }
 }
 #if !defined(_WIN32)
@@ -251,6 +257,7 @@ std::string queryPostgres(const DbConfiguration& config,const SqlPrepared& sql) 
     if(!conn)throw std::runtime_error("PostgreSQL connection allocation failed");
     struct Close{PGconn* c;~Close(){PQfinish(c);}} close{conn};
     if(PQstatus(conn)!=CONNECTION_OK)throw std::runtime_error("PostgreSQL connection failed");
+    if(config.engine=="neon"&&!PQsslInUse(conn))throw std::runtime_error("Neon requires TLS");
     std::vector<const char*> values;for(const auto& v:sql.values)values.push_back(v.c_str());
     PGresult* result=PQexecParams(conn,sql.source.c_str(),static_cast<int>(values.size()),
         nullptr,values.empty()?nullptr:values.data(),nullptr,nullptr,0);
@@ -469,6 +476,7 @@ std::string invokeNoeSqlSessionV2(const std::string& library,
     return std::string(reinterpret_cast<const char*>(output.data()),written);
 }
 #endif
+#include "web_native_cloud.hpp"
 std::string executeDatabase(const DbConfiguration& db,const std::string& source,
                             const std::vector<DbParameter>& params) {
     verifyDbConfig(db);
@@ -484,7 +492,14 @@ std::string executeDatabase(const DbConfiguration& db,const std::string& source,
         throw std::runtime_error("NoeSQL CLI adapter requires POSIX host");
 #endif
     }
-    const auto prepared=preparePortableSql(source,params,db.engine);
+    if(db.engine=="supabase"||db.engine=="firebase") {
+#ifdef NOQERI_WEB_CURL
+        return executeCloud(db,source,params);
+#else
+        throw std::runtime_error("cloud HTTPS adapters not compiled: install libcurl and rebuild");
+#endif
+    }
+    const auto prepared=preparePortableSql(source,params,db.engine=="neon"?"postgresql":db.engine);
     if(db.engine=="sqlite") {
 #ifdef NOQERI_WEB_SQLITE
         return querySqlite(db,prepared);
@@ -492,7 +507,7 @@ std::string executeDatabase(const DbConfiguration& db,const std::string& source,
         throw std::runtime_error("SQLite adapter not built: install SQLite development package");
 #endif
     }
-    if(db.engine=="postgresql") {
+    if(db.engine=="postgresql"||db.engine=="neon") {
 #ifdef NOQERI_WEB_POSTGRES
         return queryPostgres(db,prepared);
 #else
