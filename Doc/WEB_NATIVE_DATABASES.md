@@ -90,3 +90,8 @@ Further milestones: a direct NoeSQL native session ABI/FFI with bound types, tra
 Set `NOESQL_NATIVE_PROVIDER=/absolute/path/to/provider.so` to use in-process Rust-compatible session callbacks rather than one subprocess per query. Noqeri requires the provider to export `noesql_session_v2_get` returning the canonical callback table with `abi_version=2`. The adapter uses `open`, `prepare`, `query`, `execute`, `begin`, `commit`, `rollback`, `release` and `close`. Its Noqeri-specific wire profile passes bind values as a bounded UTF-8 JSON object of **text** parameters. An invalid configured provider fails closed; only an application with no provider configured uses the existing native CLI fallback.
 
 The integration test uses a mock callback library to verify ABI calls, marshaling and the no-subprocess path. The separate NoeSQL Rust/Zig repository has not yet delivered a qualified real v2 provider for this profile; **do not assert full NoeSQL WAL/transaction correctness or broad production readiness from the mock**. The canonical NoeSQL engine remains owned by the NoeSQL repository, not the Noqeri web compiler.
+
+
+## Cloud providers (experimental)
+
+Native `noqeri-web` also supports server-only Supabase REST, Firebase Realtime Database REST, and Neon/PostgreSQL with verified TLS. Use the HTTPS `dsn_env` and `key_env` configuration; credentials must remain in server environment variables. See [cloud databases and reactive browser capabilities](WEB_CLOUD_REALTIME.md) for exact syntax, authorization limitations, and verification.
