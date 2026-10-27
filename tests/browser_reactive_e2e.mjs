@@ -45,9 +45,15 @@ try {
   await page.waitForFunction(()=>document.documentElement.dataset.noqeriHydrated==='1');
   await page.evaluate(()=>{window.__noqeriMain=document.querySelector('main')});
   await page.getByRole('button',{name:'Increment without JavaScript'}).click();
-  await page.waitForTimeout(900);
-  console.log('Reactive click diagnostics:',JSON.stringify({body:(await page.locator('body').innerText()).slice(0,1000),events:diagnostics.slice(-20)}));
-  await page.getByText('Your clicks: 1').waitFor({timeout:6000});
+  try {
+    await page.getByText('Your clicks: 1').waitFor({timeout:6000});
+  } catch (error) {
+    console.error('Reactive click diagnostics:',JSON.stringify({
+      body:(await page.locator('body').innerText()).slice(0,1000),
+      events:diagnostics.slice(-20)
+    }));
+    throw error;
+  }
   assert.equal(await page.evaluate(()=>document.querySelector('main')===window.__noqeriMain),true,
     'reactive POST must reuse unchanged main DOM rather than hard reload');
   await page.getByRole('link',{name:'About'}).click();
@@ -63,6 +69,41 @@ try {
   await page.getByText('Hello, '+injection).waitFor();
   assert.equal(await page.locator('img[onerror]').count(),0);
   assert.equal(await page.evaluate(()=>document.querySelector('main')===window.__noqeriMain),true);
+  // Real-browser, same-origin GET navigation latency. This measures network +
+  // parsing + DOM reconciliation, not a synthetic JS loop.
+  const elapsed=await page.evaluate(async()=>{
+    const samples=[];
+    for(let i=0;i<32;i++) {
+      const target=i%2===0?'/about':'/';
+      const link=document.querySelector('a[href="'+target+'"]');
+      if(!link)throw Error('missing native route link '+target);
+      const begin=performance.now();
+      await new Promise((resolve,reject)=>{
+        const timeout=setTimeout(()=>reject(Error('SPA navigation timed out')),2500);
+        document.addEventListener('noqeri:updated',()=>{
+          clearTimeout(timeout);resolve();
+        },{once:true});
+        link.click();
+      });
+      if(location.pathname!==target)throw Error('history pathname differs: '+location.pathname);
+      samples.push(performance.now()-begin);
+    }
+    if(performance.getEntriesByType('navigation').length!==1)
+      throw Error('unexpected full-page document navigation');
+    if(document.querySelector('main')!==window.__noqeriMain)
+      throw Error('SPA replaced the existing main layout element');
+    return samples;
+  });
+  const sorted=elapsed.toSorted((a,b)=>a-b);
+  const p50=sorted[Math.ceil(sorted.length*.5)-1];
+  const p95=sorted[Math.ceil(sorted.length*.95)-1];
+  const budget=Number(process.env.NOQERI_BROWSER_NAV_P95_MS||800);
+  assert.ok(Number.isFinite(budget)&&p95<budget,
+    'native browser navigation p95='+p95.toFixed(2)+'ms exceeds '+budget+'ms');
+  console.log('NOQERI_BROWSER_PERFORMANCE',JSON.stringify({
+    samples:elapsed.length,metric:'SSR navigation + DOM reconcile',
+    p50_ms:Number(p50.toFixed(2)),p95_ms:Number(p95.toFixed(2)),budget_ms:budget
+  }));
   console.log('PASS: native Noqeri SSR hydration, same-document navigation, stateful forms and XSS regression');
 } finally {
   await browser?.close();
