@@ -56,6 +56,7 @@ install(FILES
  Compiler/bootstrap/web_native.cpp
  Compiler/bootstrap/web_native_app.hpp
  Compiler/bootstrap/web_native_db.hpp
+ Compiler/bootstrap/web_native_cloud.hpp
  Compiler/bootstrap/web_native_bundle.hpp
  Compiler/bootstrap/web_native_noesql_v2.hpp
  DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Compiler/bootstrap)
@@ -65,6 +66,11 @@ install(FILES LICENSES.md LICENSES/Apache-2.0.txt
 # unavailable adapters fail explicitly (no engine or file format fallback).
 option(NOQERI_WEB_SQL_DRIVERS "Enable discovered native SQL client libraries" ON)
 if(NOQERI_WEB_SQL_DRIVERS)
+ find_package(CURL QUIET)
+ if(CURL_FOUND)
+  target_compile_definitions(noqeri-web PRIVATE NOQERI_WEB_CLOUD_CURL=1)
+  target_link_libraries(noqeri-web PRIVATE CURL::libcurl)
+ endif()
  find_package(SQLite3 QUIET)
  if(SQLite3_FOUND)
   target_compile_definitions(noqeri-web PRIVATE NOQERI_WEB_SQLITE=1)
