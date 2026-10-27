@@ -69,13 +69,28 @@ std::string dbJsonQuote(const std::string& value) {
 }
 void verifyDbConfig(const DbConfiguration& config) {
     if(config.engine!="noesql"&&config.engine!="sqlite"&&config.engine!="postgresql"&&
-       config.engine!="duckdb"&&config.engine!="mysql")
-        throw std::runtime_error("unsupported database engine; choose noesql, sqlite, postgresql, duckdb, mysql");
+       config.engine!="duckdb"&&config.engine!="mysql"&&
+       config.engine!="supabase"&&config.engine!="firebase")
+        throw std::runtime_error("unsupported database engine; choose noesql, sqlite, postgresql, duckdb, mysql, supabase or firebase");
     if(config.engine=="noesql"||config.engine=="sqlite"||config.engine=="duckdb") {
         if(config.path.empty()||config.path.size()>2048)
             throw std::runtime_error("database path is required");
         if(config.engine=="noesql"&&fs::path(config.path).extension()!=".noedb")
             throw std::runtime_error("NoeSQL requires canonical .noedb file; no legacy .nqd/.nqdb fallback");
+    } else if(config.engine=="supabase"||config.engine=="firebase") {
+        if(config.endpointEnvironment.empty()||config.endpointEnvironment.size()>128||
+           !validName(config.endpointEnvironment))
+            throw std::runtime_error("cloud endpoint_env must name an environment variable");
+        if(config.engine=="supabase"&&
+           (config.keyEnvironment.empty()||config.keyEnvironment.size()>128||
+            !validName(config.keyEnvironment)))
+            throw std::runtime_error("Supabase key_env is required");
+        if(config.engine=="firebase"&&
+           (config.tokenEnvironment.empty()||config.tokenEnvironment.size()>128||
+            !validName(config.tokenEnvironment)))
+            throw std::runtime_error("Firebase token_env is required");
+        if(!config.tokenEnvironment.empty()&&!validName(config.tokenEnvironment))
+            throw std::runtime_error("invalid token_env");
     } else {
         if(config.dsnEnvironment.empty()||config.dsnEnvironment.size()>128||
            !validName(config.dsnEnvironment))
@@ -469,6 +484,7 @@ std::string invokeNoeSqlSessionV2(const std::string& library,
     return std::string(reinterpret_cast<const char*>(output.data()),written);
 }
 #endif
+ #include "web_native_cloud.hpp"
 std::string executeDatabase(const DbConfiguration& db,const std::string& source,
                             const std::vector<DbParameter>& params) {
     verifyDbConfig(db);
@@ -482,6 +498,13 @@ std::string executeDatabase(const DbConfiguration& db,const std::string& source,
         return runNoeSqlCommand(db,"exec",source,params);
 #else
         throw std::runtime_error("NoeSQL CLI adapter requires POSIX host");
+#endif
+    }
+    if(db.engine=="supabase"||db.engine=="firebase") {
+#ifdef NOQERI_WEB_CLOUD_CURL
+        return queryCloud(db,source,params);
+#else
+        throw std::runtime_error("cloud database adapter not built: install libcurl");
 #endif
     }
     const auto prepared=preparePortableSql(source,params,db.engine);
