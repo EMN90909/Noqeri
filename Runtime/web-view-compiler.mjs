@@ -299,7 +299,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
       lines.push('  app.load('+JSON.stringify(r.url)+',value=>{'+r.name+'={loading:false,data:value,error:null};__schedule();},error=>{'+r.name+'={loading:false,data:null,error:String(error)};__schedule();});');
     }
     if(ast.mounts.length)lines.push('  '+actions(ast.mounts,new Set()));
-    if(ast.routes.length||ast.subscriptions.length)lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{'+ast.subscriptions.map(sub=>'__socket_'+sub.name+'.close();').join('')+'__router?.dispose();__router=null;__schedule=()=>{};__dispose();};');
+    if(ast.routes.length||ast.subscriptions.length)lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{'+ast.subscriptions.map(sub=>'__socket_'+sub.name+'.close();').join('')+(ast.routes.length?'__router?.dispose();__router=null;':'')+'__schedule=()=>{};__dispose();};');
     lines.push('  return app;');
     lines.push('}');
     lines.push('if(typeof document!=="undefined"){const root=document.getElementById("app");if(root)mount(root);}');
