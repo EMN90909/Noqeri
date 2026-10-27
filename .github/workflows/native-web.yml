@@ -86,5 +86,7 @@ jobs:
         run: python3 tests/native_web_typed_results.py ./build-native-web/noqeri-web
       - name: Qualify one Noqeri compiler CLI for static and native full-stack apps
         run: python3 tests/native_web_unified_cli.py ./build-native-web/noqeri ./build-native-web/noqeri-web examples/native_web_fullstack examples/native_web_static
+      - name: Prove native compile and SSR work when Node.js cannot be found
+        run: python3 tests/native_web_no_node.py ./build-native-web/noqeri ./build-native-web/noqeri-web examples/native_web_static examples/native_web_actions
       - name: Qualify in-process native NoeSQL v2 ABI contract (mock provider)
         run: python3 tests/native_web_noesql_session.py ./build-native-web/noqeri-web .
