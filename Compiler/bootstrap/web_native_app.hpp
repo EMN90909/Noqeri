@@ -782,7 +782,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
     if(!app.project.uiAlias.empty())
         Parser(uiOverride?*uiOverride:readText(uiSource(executable)),app.project,true).parse();
-    if(app.project.routes.empty())throw std::runtime_error("serve-app requires routes");
+    promoteStandaloneView(app.project);
+    if(app.project.routes.empty())throw std::runtime_error("serve-app requires a view or route");
     if(app.project.databaseConfigured)verifyDbConfig(app.project.database);
     if(!app.project.queries.empty()&&!app.project.databaseConfigured)
         throw std::runtime_error("queries require database declaration");
