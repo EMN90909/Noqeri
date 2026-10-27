@@ -41,6 +41,7 @@ noqeri_ai::framework::Backend backend_name(const std::string& name) {
     if(name=="scalar")return Backend::Scalar;
     if(name=="tiled")return Backend::Tiled;
     if(name=="simd")return Backend::Simd;
+    if(name=="opencl")return Backend::OpenCL;
     throw std::runtime_error("invalid tensor backend: "+name);
 }
 void help() {
@@ -54,8 +55,9 @@ void help() {
       "  transformer train <text.txt> <model.nqtf> [--steps N] [--context N] [--hidden N] [--merges N]\n"
       "    [--optimizer sgd|adamw] [--batch N] [--rate LR] [--clip N] [--weight-decay N]\n"
       "    [--schedule constant|cosine] [--warmup N] [--min-rate N] [--validation N]\n"
-      "    [--seed N] [--backend auto|scalar|tiled|simd]\n"
-      "  transformer evaluate <model.nqtf> <text.txt> [--backend auto|scalar|tiled|simd]\n"
+      "    [--layers N] [--precision fp64|fp32|fp16] [--backend auto|scalar|tiled|simd|opencl]\n"
+      "    [--checkpoint FILE] [--resume FILE] [--stop-after N] (restartable training)\n"
+      "  transformer evaluate <model.nqtf> <text.txt> [--backend auto|scalar|tiled|simd|opencl]\n"
       "  transformer generate <model.nqtf> <prompt> [--tokens N] [--temperature X] [--seed N] [--backend auto|scalar|tiled|simd]\n"
       "  --version\n"
       "Training CSV has numeric features then a binary 0/1 label, without a header.\n"
@@ -104,6 +106,16 @@ int main(int argc,char** argv) {
                     else if(flag=="--warmup")options.warmup_steps=nonnegative(value,9999);
                     else if(flag=="--min-rate")options.minimum_learning_rate=decimal(value);
                     else if(flag=="--validation")options.validation_fraction=decimal(value);
+                    else if(flag=="--layers")options.layers=natural(value,4);
+                    else if(flag=="--precision") {
+                        if(value=="fp64")options.precision=Precision::FP64;
+                        else if(value=="fp32")options.precision=Precision::FP32;
+                        else if(value=="fp16")options.precision=Precision::FP16;
+                        else throw std::runtime_error("precision must be fp64, fp32 or fp16");
+                    }
+                    else if(flag=="--checkpoint")options.checkpoint_path=value;
+                    else if(flag=="--resume")options.resume_path=value;
+                    else if(flag=="--stop-after")options.stop_after=natural(value,10000);
                     else throw std::runtime_error("unknown transformer train flag "+flag);
                 }
                 const auto corpus=noqeri_ai::read_language_corpus(argv[3]);
@@ -115,6 +127,10 @@ int main(int argc,char** argv) {
                          <<"transformer_tokens="<<model.tokenizer.encode(corpus).size()
                          <<" vocab="<<model.tokenizer.vocab_size()
                          <<" steps="<<report.optimizer_steps
+                         <<" completed="<<(report.completed?1:0)
+                         <<" layers="<<model.extra_layers.size()+1
+                         <<" precision="<<(options.precision==Precision::FP16?"fp16":
+                                              options.precision==Precision::FP32?"fp32":"fp64")
                          <<" batch="<<options.batch_size
                          <<" optimizer="<<(options.optimizer==TrainingOptimizer::AdamW?"adamw":"sgd")
                          <<" trailing_loss="<<training_loss;
