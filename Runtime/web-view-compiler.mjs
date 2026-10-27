@@ -288,7 +288,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     }else lines.push('export function render(){return __h("div",{},'+nodes(ast.view)+',{});}');
     lines.push('export function mount(root){if(!root)throw Error("Missing Noqeri view root");');
     if(ast.routes.length)lines.push('  __router=__createRouter(root,()=>__schedule());');
-    lines.push('  const app=__createApp(root,render,{hydrate:root.hasChildNodes()});__schedule=app.schedule;');
+    lines.push('  const app=__createApp(root,render,{hydrate:Boolean(root.childNodes?.length)});__schedule=app.schedule;');
     for(const r of ast.subscriptions){
       lines.push('  app.socket('+JSON.stringify(r.url)+',update=>{'+r.name+'={...'+r.name+',...update,error:null};__schedule();},error=>{'+r.name+'={...'+r.name+',error:String(error)};__schedule();});');
     }
