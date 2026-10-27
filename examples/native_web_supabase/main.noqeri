@@ -1,0 +1,21 @@
+// Server-side Supabase PostgREST: configure SUPABASE_REST_URL and SUPABASE_SERVER_TOKEN.
+database {
+  engine: "supabase"
+  dsn_env: "SUPABASE_REST_URL"
+  key_env: "SUPABASE_SERVER_TOKEN"
+}
+query tasks = "GET /tasks?select=id,title"
+route "/" {
+  main {
+    h1 { "Tasks" }
+    pre { tasks }
+    form on.submit {
+      validate(title, 1, 80)
+      db.execute("POST /tasks", title: form.title)
+    } {
+      label { "Task title" }
+      input name: "title" type: "text" required: true {}
+      button type: "submit" { "Add task" }
+    }
+  }
+}
