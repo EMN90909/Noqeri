@@ -1,6 +1,7 @@
 // Fully Node-free browser build via noqeri-web build-client.
 // This is the native C++ view subset: client state, components and routes.
 let count = 0
+persist savedCount = 0
 
 component Heading(label: string) {
     h1 { label }
@@ -22,6 +23,10 @@ route "/" {
         button class: "nq-button" on.click {
             count = count + 1
         } { "Add one" }
+        p { "Saved: " + savedCount }
+        button class: "nq-button" on.click {
+            savedCount = savedCount + 1
+        } { "Save a click" }
     }
 }
 
