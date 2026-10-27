@@ -176,6 +176,35 @@ This is **not** automatic compiler-managed tensors, reusable graph handles,
 Stage-2 VM integration, native source-level closures, or full transformer
 training in Noqeri.
 
+## Native Noqeri AdamW optimizer step (explicit state)
+
+Ordinary native-AOT Noqeri applications can import
+`Lib/ai/optimizer_native.noqeri`, populate an `AiAdamWRequest`,
+and call `ai_native_adamw(&request)`. The C++ implementation is
+`nq_ai_adamw_step` in `Runtime/native/ai_adamw_c.cpp`; its
+public ABI is in `Include/noqeri/ai_framework_c.h`.
+
+The **caller** owns the parameter buffer, gradients, first moments,
+second moments, and three disjoint output buffers. Call `step=1`
+for the first update, and increment it only after status `0`.
+Persist all three output arrays yourself if you need to resume
+optimization between calls. A training checkpoint still needs the
+corresponding model architecture, tokenizer, data split, RNG and
+scheduler position. No built-in resumable `.nqtf` checkpoint is claimed.
+
+The native function clips the supplied gradient vector by global L2
+norm before AdamW, uses bias-corrected moments and decoupled weight
+decay, and stages every output. Nonzero status means **none of the
+three outputs are changed**. The input buffers can alias the
+corresponding output regions, but the three output regions may not
+overlap. No process-global handle is stored. The maximum call size
+is 1,048,576 f64 entries. See
+`examples/simplicity/ai_native_adamw.noqeri`.
+
+This binding is a **Linux x86-64 Noqeri native AOT preview**, not a
+generic Stage-2 VM operator or an online model service. Its ABI tests
+are in `tests/cpp/ai_adamw_c_test.cpp` and the native-AOT CI workflow.
+
 ## Native BPE and bounded single-call transformer training
 
 `ai_native_bpe_encode` provides deterministic ASCII/LF tokenization into a
