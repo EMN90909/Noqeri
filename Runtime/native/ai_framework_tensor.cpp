@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "noqeri/ai_framework.hpp"
+#include "noqeri/matrix.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -124,6 +125,21 @@ std::size_t Tape::tanh(std::size_t a) {
     for(double& z:n.value.values)z=std::tanh(z);
     return append(std::move(n));
 }
+std::size_t Tape::relu(std::size_t a) {
+    Node n;n.op=Op::Relu;n.a=a;n.value=matrix::apply_relu(value(a));
+    return append(std::move(n));
+}
+std::size_t Tape::gelu(std::size_t a) {
+    Node n;n.op=Op::Gelu;n.a=a;n.value=matrix::gelu(value(a));
+    return append(std::move(n));
+}
+std::size_t Tape::layer_norm(std::size_t a,double epsilon) {
+    require(std::isfinite(epsilon) && epsilon>=1e-8 && epsilon<=1,
+            "invalid layer norm epsilon");
+    Node n;n.op=Op::LayerNorm;n.a=a;n.factor=epsilon;
+    n.value=matrix::layer_norm_rows(value(a),epsilon);
+    return append(std::move(n));
+}
 std::size_t Tape::softmax(std::size_t a,bool causal) {
     const Matrix& x=value(a);
     if(causal)require(x.rows==x.cols && x.rows<=256,"causal attention needs square bounded scores");
@@ -208,6 +224,50 @@ void Tape::backward(std::size_t loss) {
                 nodes_[n.a].grad.values[j]+=
                     n.grad.values[j]*(1.0-n.value.values[j]*n.value.values[j]);
             break;
+        case Op::Relu: {
+            const Matrix& source=nodes_[n.a].value;
+            for(std::size_t j=0;j<n.grad.values.size();++j)
+                if(source.values[j]>0)
+                    nodes_[n.a].grad.values[j]+=n.grad.values[j];
+            break;
+        }
+        case Op::Gelu: {
+            const Matrix& source=nodes_[n.a].value;
+            constexpr double k=0.7978845608028654; // sqrt(2/pi)
+            for(std::size_t j=0;j<n.grad.values.size();++j) {
+                const double x=source.values[j];
+                const double t=std::tanh(k*(x+0.044715*x*x*x));
+                const double d=0.5*(1+t)+0.5*x*(1-t*t)*
+                    k*(1+3*0.044715*x*x);
+                nodes_[n.a].grad.values[j]+=n.grad.values[j]*d;
+            }
+            break;
+        }
+        case Op::LayerNorm: {
+            const Matrix& source=nodes_[n.a].value;
+            for(std::size_t i=0;i<source.rows;++i) {
+                long double mean=0,m2=0,gsum=0,gysum=0;
+                for(std::size_t j=0;j<source.cols;++j) {
+                    const long double x=source.at(i,j);
+                    const long double delta=x-mean;
+                    mean+=delta/static_cast<long double>(j+1);
+                    m2+=delta*(x-mean);
+                    gsum+=n.grad.at(i,j);
+                    gysum+=static_cast<long double>(n.grad.at(i,j))*n.value.at(i,j);
+                }
+                const long double count=source.cols;
+                const long double inverse=1/std::sqrt(m2/count+n.factor);
+                const long double mean_g=gsum/count;
+                const long double mean_gy=gysum/count;
+                for(std::size_t j=0;j<source.cols;++j) {
+                    const long double grad=inverse*
+                        (static_cast<long double>(n.grad.at(i,j))-mean_g-
+                         static_cast<long double>(n.value.at(i,j))*mean_gy);
+                    nodes_[n.a].grad.at(i,j)+=static_cast<double>(grad);
+                }
+            }
+            break;
+        }
         case Op::Softmax:
             for(std::size_t i=0;i<n.value.rows;++i) {
                 const std::size_t limit=n.causal?i+1:n.value.cols;
