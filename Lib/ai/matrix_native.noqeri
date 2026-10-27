@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: Apache-2.0
+module noqeri.ai.matrix_native
+
+// Linux x86-64 native AOT preview. Explicitly link libnoqeri_ai.
+// This is not available in the interpreter or portable NQRI VM.
+// Row-major f64 arrays with caller-owned, appropriately sized buffers.
+// On failure the native function does not modify output or output dimensions.
+// Operations 0..24 are defined by Include/noqeri/ai_matrix_c.h.
+record AiMatrixRequest {
+    left: *float
+    left_rows: usize
+    left_cols: usize
+    right: *float
+    right_rows: usize
+    right_cols: usize
+    operation: u32
+    axis: usize
+    epsilon: float
+    output: *float
+    output_capacity: usize
+    output_rows: *usize
+    output_cols: *usize
+}
+extern function nq_ai_matrix_execute(request: *AiMatrixRequest): isize
+
+export function ai_native_matrix(request: *AiMatrixRequest): isize {
+    return nq_ai_matrix_execute(request)
+}
+
+export function ai_native_matrix_ok(code: isize): bool {
+    return code == 0 as isize
+}
