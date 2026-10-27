@@ -1,0 +1,20 @@
+// Server-side Firebase Realtime Database: supply URL and OAuth access token.
+database {
+  engine: "firebase"
+  dsn_env: "FIREBASE_DATABASE_URL"
+  key_env: "FIREBASE_OAUTH_TOKEN"
+}
+query tasks = "GET /tasks.json"
+route "/" {
+  main {
+    h1 { "Realtime Database tasks" }
+    pre { tasks }
+    form on.submit {
+      validate(title, 1, 80)
+      db.execute("POST /tasks.json", title: form.title)
+    } {
+      input name: "title" type: "text" required: true {}
+      button type: "submit" { "Add task" }
+    }
+  }
+}
