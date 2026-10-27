@@ -49,15 +49,17 @@ extern "C" int64_t nq_ai_adamw_step(const nq_ai_adamw_request* r) {
        overlapping(ps,pe,ms,me) || overlapping(ps,pe,vs,ve) ||
        overlapping(ms,me,vs,ve))return -2;
     try {
-        long double norm=0;
+        long double norm_sq=0;
         for(std::size_t i=0;i<r->count;++i) {
             if(!finite_value(r->parameters[i]) || !finite_value(r->gradients[i]) ||
                !finite_value(r->first_moment[i]) || !finite_value(r->second_moment[i]) ||
                r->second_moment[i]<0)return -5;
-            norm=std::hypot(norm,static_cast<long double>(r->gradients[i]));
+            const long double grad=r->gradients[i];
+            norm_sq+=grad*grad;
         }
+        const double norm=std::sqrt(norm_sq);
         const double scale=norm>r->gradient_clip_norm ?
-            static_cast<double>(r->gradient_clip_norm/norm):1.0;
+            r->gradient_clip_norm/norm:1.0;
         const double c1=-std::expm1(static_cast<double>(r->step)*std::log(r->beta1));
         const double c2=-std::expm1(static_cast<double>(r->step)*std::log(r->beta2));
         // Zero beta represents zero historical contribution.
