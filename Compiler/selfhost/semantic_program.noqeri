@@ -334,6 +334,12 @@ function nqSemanticAppendEvidenceInStatement(source: []u8, nodes: []NqAstNode, i
     if stmt.tag == nqAstWhile() || stmt.tag == nqAstRepeat() {
         return nqSemanticAppendEvidenceInStatement(source,nodes,stmt.right,symbol,outElement)
     }
+    if stmt.tag == nqAstFor() && stmt.left >= 0 as isize && stmt.extra >= 0 as isize {
+        // The for-in iteration binding shadows an outer list of the same name.
+        let iterator: *NqAstNode = &nodes[stmt.left as usize]
+        if nqTypeNameSymbol(source,iterator.start,iterator.end) == symbol { return false }
+        return nqSemanticAppendEvidenceInStatement(source,nodes,stmt.extra,symbol,outElement)
+    }
     return false
 }
 
