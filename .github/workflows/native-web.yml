@@ -90,6 +90,8 @@ jobs:
         run: python3 tests/native_web_no_node.py ./build-native-web/noqeri ./build-native-web/noqeri-web examples/native_web_static examples/native_web_actions
       - name: Compile standalone Noqeri view for static and hydrated native server actions
         run: python3 tests/native_web_view_only.py ./build-native-web/noqeri-web
+      - name: Compile native Noqeri browser modules without Node.js
+        run: python3 tests/native_web_client.py ./build-native-web/noqeri-web examples/native_web_client
       - name: Test absolute native HTTP read deadline and malformed header rejection
         run: python3 tests/native_web_http_deadline.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Qualify in-process native NoeSQL v2 ABI contract (mock provider)
