@@ -164,18 +164,70 @@ SubwordTokenizer SubwordTokenizer::train(const std::string& corpus,std::size_t m
     validate_tokenizer(tok);
     return tok;
 }
+TransformerEvaluation evaluate_transformer(const TransformerModel& m,
+                                            const std::string& text,Backend backend) {
+    verify_model(m);
+    check(text.size()>=2 && text.size()<=65536,"evaluation text outside 2..65536 bytes");
+    const auto ids=m.tokenizer.encode(text);
+    check(ids.size()>=2,"evaluation requires at least two tokens");
+    const std::size_t positions=std::min<std::size_t>(256,ids.size()-1);
+    long double loss_total=0;
+    // Evenly spaced teacher-forced positions, deterministic and bounded.
+    for(std::size_t i=0;i<positions;++i) {
+        const std::size_t position=1+((i*(ids.size()-1))/positions);
+        auto graph=forward(m,preceding(ids,position,m.context),backend);
+        const auto loss=graph.tape.cross_entropy(graph.logits,ids[position]);
+        const double value=graph.tape.value(loss).at(0,0);
+        check(std::isfinite(value) && value>=0,"nonfinite evaluation loss");
+        loss_total+=value;
+    }
+    TransformerEvaluation result;
+    result.positions=positions;
+    result.loss=static_cast<double>(loss_total/positions);
+    check(std::isfinite(result.loss) && result.loss<=700,
+          "evaluation perplexity outside finite numeric range");
+    result.perplexity=std::exp(result.loss);
+    return result;
+}
+
 TransformerModel train_transformer(const std::string& corpus,
-                                   const TransformerOptions& opt,double* train_loss) {
+                                   const TransformerOptions& opt,double* train_loss,
+                                   TransformerTrainingReport* report) {
     check(corpus.size()>=16 && corpus.size()<=65536,
           "transformer corpus must contain 16..65536 bytes");
     check(opt.context>=1 && opt.context<=16 && opt.hidden>=2 && opt.hidden<=24 &&
-          opt.steps>=1 && opt.steps<=10000 && opt.merges<=32,
+          opt.steps>=1 && opt.steps<=10000 && opt.merges<=32 &&
+          opt.batch_size>=1 && opt.batch_size<=16 &&
+          opt.steps<=160000/opt.batch_size,
           "transformer training budget exceeded");
     check(std::isfinite(opt.learning_rate) && opt.learning_rate>=0.000001 &&
           opt.learning_rate<=0.1,"invalid transformer learning rate");
+    check(opt.optimizer==TrainingOptimizer::SGD ||
+          opt.optimizer==TrainingOptimizer::AdamW,"invalid optimizer");
+    check(std::isfinite(opt.gradient_clip_norm) && opt.gradient_clip_norm>0 &&
+          opt.gradient_clip_norm<=100,"invalid gradient clipping norm");
+    check(std::isfinite(opt.weight_decay) && opt.weight_decay>=0 &&
+          opt.weight_decay<=1,"invalid weight decay");
+    check(opt.warmup_steps<opt.steps && std::isfinite(opt.minimum_learning_rate) &&
+          opt.minimum_learning_rate>=0.000001 &&
+          opt.minimum_learning_rate<=opt.learning_rate,
+          "invalid learning rate schedule");
+    check(std::isfinite(opt.validation_fraction) && opt.validation_fraction>=0 &&
+          opt.validation_fraction<=0.3,"invalid validation fraction");
+    // Split before fitting BPE to prevent validation text from influencing
+    // vocabulary construction. Validation is never sampled by optimization.
+    std::size_t split=corpus.size();
+    if(opt.validation_fraction>0) {
+        const auto heldout=static_cast<std::size_t>(
+            std::floor(double(corpus.size())*opt.validation_fraction));
+        check(heldout>=16 && split-heldout>=16,
+              "validation split must contain at least 16 bytes per partition");
+        split-=heldout;
+    }
+    const std::string train_text=corpus.substr(0,split);
     TransformerModel m;
-    m.tokenizer=SubwordTokenizer::train(corpus,opt.merges);
-    auto ids=m.tokenizer.encode(corpus);
+    m.tokenizer=SubwordTokenizer::train(train_text,opt.merges);
+    const auto ids=m.tokenizer.encode(train_text);
     check(ids.size()>=8,"tokenized training corpus too small");
     m.context=opt.context;m.hidden=opt.hidden;
     const auto v=m.tokenizer.vocab_size(),d=m.hidden;
@@ -184,30 +236,81 @@ TransformerModel train_transformer(const std::string& corpus,
     m.w1=Matrix(d,d);m.w2=Matrix(d,d);m.output=Matrix(d,v);
     std::mt19937 rng(opt.seed);
     std::uniform_real_distribution<double> uniform(-0.08,0.08);
-    for(Matrix* p:parameters(m))for(double& w:p->values)w=uniform(rng);
+    auto p=parameters(m);
+    for(Matrix* param:p)for(double& w:param->values)w=uniform(rng);
+    AdamWOptimizer adamw(p);
     double sum_loss=0.0;
     std::size_t logged=0;
+    const bool old_sgd=(opt.optimizer==TrainingOptimizer::SGD &&
+                        opt.batch_size==1 && !opt.cosine_decay &&
+                        opt.warmup_steps==0 && opt.gradient_clip_norm==1.0);
     for(std::size_t step=0;step<opt.steps;++step) {
-        // Sample a genuine next-token target; never include the target in context.
-        const auto position=1+std::size_t(rng())%(ids.size()-1);
-        auto graph=forward(m,preceding(ids,position,opt.context),opt.backend);
-        const auto loss=graph.tape.cross_entropy(graph.logits,ids[position]);
-        const auto value=graph.tape.value(loss).at(0,0);
-        check(std::isfinite(value),"nonfinite training loss");
-        graph.tape.backward(loss);
-        const std::size_t handles[]={graph.embeds,graph.wq,graph.wk,graph.wv,
-                                     graph.wo,graph.w1,graph.w2,graph.out};
-        auto p=parameters(m);
-        for(std::size_t i=0;i<p.size();++i)
-            sgd_update(*p[i],graph.tape.grad(handles[i]),opt.learning_rate,1.0);
-        if(step+1>opt.steps-std::min<std::size_t>(100,opt.steps)) {
-            sum_loss+=value;++logged;
+        std::vector<Matrix> accumulated;
+        accumulated.reserve(p.size());
+        for(const Matrix* param:p)
+            accumulated.emplace_back(param->rows,param->cols);
+        for(std::size_t sample=0;sample<opt.batch_size;++sample) {
+            // Target is never part of the source context.
+            const auto position=1+std::size_t(rng())%(ids.size()-1);
+            auto graph=forward(m,preceding(ids,position,opt.context),opt.backend);
+            const auto loss=graph.tape.cross_entropy(graph.logits,ids[position]);
+            const double value=graph.tape.value(loss).at(0,0);
+            check(std::isfinite(value) && value>=0,"nonfinite training loss");
+            graph.tape.backward(loss);
+            const std::size_t handles[]={graph.embeds,graph.wq,graph.wk,graph.wv,
+                                         graph.wo,graph.w1,graph.w2,graph.out};
+            for(std::size_t k=0;k<p.size();++k) {
+                const auto& grad=graph.tape.grad(handles[k]).values;
+                for(std::size_t j=0;j<grad.size();++j) {
+                    accumulated[k].values[j]+=
+                        grad[j]/static_cast<double>(opt.batch_size);
+                    check(std::isfinite(accumulated[k].values[j]) &&
+                          std::abs(accumulated[k].values[j])<=1e8,
+                          "nonfinite accumulated gradient");
+                }
+            }
+            if(step+1>opt.steps-std::min<std::size_t>(100,opt.steps)) {
+                sum_loss+=value/static_cast<double>(opt.batch_size);
+            }
+        }
+        if(step+1>opt.steps-std::min<std::size_t>(100,opt.steps))++logged;
+        std::vector<Matrix*> mutable_grads;
+        std::vector<const Matrix*> grads;
+        for(Matrix& g:accumulated) {mutable_grads.push_back(&g);grads.push_back(&g);}
+        if(!old_sgd)clip_grad_norm(mutable_grads,opt.gradient_clip_norm);
+        double rate=opt.learning_rate;
+        if(opt.cosine_decay || opt.warmup_steps>0)
+            rate=cosine_learning_rate(step,opt.steps,opt.learning_rate,
+                      opt.cosine_decay?opt.minimum_learning_rate:opt.learning_rate,
+                      opt.warmup_steps);
+        if(opt.optimizer==TrainingOptimizer::AdamW) {
+            AdamWOptions options;
+            options.learning_rate=rate;
+            options.weight_decay=opt.weight_decay;
+            adamw.step(p,grads,options);
+        } else {
+            for(std::size_t k=0;k<p.size();++k)
+                sgd_update(*p[k],*grads[k],rate,old_sgd?1.0:100.0);
         }
     }
     verify_model(m);
-    if(train_loss)*train_loss=sum_loss/double(logged);
+    const double trailing=sum_loss/static_cast<double>(logged);
+    check(std::isfinite(trailing),"invalid trailing loss");
+    TransformerTrainingReport result;
+    result.train_loss=trailing;
+    result.optimizer_steps=opt.steps;
+    if(split<corpus.size()) {
+        const auto validation=evaluate_transformer(
+            m,corpus.substr(split),opt.backend);
+        result.validation_loss=validation.loss;
+        result.validation_perplexity=validation.perplexity;
+        result.validation_positions=validation.positions;
+    }
+    if(train_loss)*train_loss=trailing;
+    if(report)*report=result;
     return m;
 }
+
 std::string generate_transformer(const TransformerModel& m,const std::string& prompt,
                                  std::size_t tokens,double temperature,std::uint32_t seed,Backend backend) {
     verify_model(m);
