@@ -1076,6 +1076,9 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         session=app.sessions.end();
                     if(session==app.sessions.end()) {
                         sessionPrune(app,sessionTtl);
+#if defined(NOQERI_WEB_SQLITE)
+                        if(sqliteSessions)sqliteSessions->prune(sessionTtl);
+#endif
                         sid=randomToken();
                         AppSession created;
                         created.csrf=randomToken();
