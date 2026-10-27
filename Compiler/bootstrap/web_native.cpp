@@ -662,7 +662,7 @@ void writeText(const fs::path& file,const std::string& content) {
     if (!output) throw std::runtime_error("failed writing "+file.string());
 }
 std::string htmlPage(const std::string& page,const std::string& cssPath,bool reactive=false) {
-    const std::string scriptPolicy=reactive?"; script-src 'self'":"";
+    const std::string scriptPolicy=reactive?"; script-src 'self'; connect-src 'self'":"";
     const std::string clientScript=reactive?
         "<script defer src=\"/__nq/reactive.js\"></script>":"";
     return "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
