@@ -138,3 +138,55 @@ test('package imports and build assets cannot escape source root',()=>fixture(as
  await writeFile(join(src,'main.noqeri'),'import ui/button as ui\nview { h1 { "Hi" } }')
  await assert.rejects(buildWebProject({source:src,out:join(dir,'dist')}),/UI package missing/)
 }))
+
+
+test('declarative input binding, validation and persistent primitive state',async()=>{
+ const source='persist username = "guest"\nview { form on.submit { username = form.username } { input name: "username" required: true minlength: 2 maxlength: 40 {} button type: "submit" { username } } }';
+ const compiled=compileView(source);
+ assert.match(compiled,/__readStored\("username"/);
+ assert.match(compiled,/__saveStored\("username"/);
+ assert.match(compiled,/__formFields\(__event\)/);
+ assert.match(compiled,/required/);
+ const {readStored,saveStored,inputEvent,formFields}=await import('../Runtime/noqeri-web-runtime.mjs');
+ const previous=globalThis.localStorage;
+ const values=new Map();
+ globalThis.localStorage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value)};
+ try{
+  assert.equal(readStored('theme','default'),'default');
+  assert.equal(saveStored('theme','dark'),true);
+  assert.equal(readStored('theme','light'),'dark');
+  values.set('noqeri:v1:theme','{"admin":true}');
+  assert.equal(readStored('theme','light'),'light');
+  assert.equal(inputEvent({target:{value:'Ada',checked:true}}).value,'Ada');
+  assert.equal(Object.getPrototypeOf(formFields({target:{}})),null);
+ }finally{if(previous===undefined)delete globalThis.localStorage;else globalThis.localStorage=previous}
+});
+test('same-origin reactive WebSocket subscription reconnects only while mounted',async()=>{
+ const oldLocation=globalThis.location,oldSocket=globalThis.WebSocket;
+ const sockets=[];
+ class FakeSocket{
+  constructor(url){this.url=url;this.readyState=1;this.onmessage=null;sockets.push(this)}
+  close(){this.closed=true}
+ }
+ globalThis.location={protocol:'https:',host:'example.test'};
+ globalThis.WebSocket=FakeSocket;
+ try{
+  await imported('subscribe live from "/realtime/events"\nview { p { live.data } }',async module=>{
+   const root=new FakeDocument().createElement('main');
+   const app=module.mount(root);
+   assert.equal(sockets.length,1);
+   assert.equal(sockets[0].url,'wss://example.test/realtime/events');
+   sockets[0].onopen();
+   sockets[0].onmessage({data:JSON.stringify('updated')});
+   await Promise.resolve();
+   assert.equal(find(root,'p').textContent,'updated');
+   app.dispose();
+   assert.equal(sockets[0].closed,true);
+  });
+  assert.throws(()=>compileView('subscribe live from "wss://attacker.test/steal"\nview { p { live.data } }'),/same-origin/);
+  assert.throws(()=>compileView('subscribe live from "//attacker.test"\nview { p { live.data } }'),/same-origin/);
+ }finally{
+  if(oldLocation===undefined)delete globalThis.location;else globalThis.location=oldLocation;
+  if(oldSocket===undefined)delete globalThis.WebSocket;else globalThis.WebSocket=oldSocket;
+ }
+});
