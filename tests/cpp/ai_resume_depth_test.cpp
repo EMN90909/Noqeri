@@ -111,6 +111,29 @@ int main(int argc,char** argv) {
     } else {
         const auto result=gpu_gemm(a,b);
         for(double x:result.values)assert(std::abs(x-4.0)<1e-5);
+        // Verify GPU forward AND GPU backward matrix multiplications
+        // against the scalar gradient reference on physical hardware.
+        Matrix inputs(1,2);inputs.values={0.4,-0.3};
+        Matrix weights(2,2);weights.values={0.2,0.7,-0.5,0.1};
+        Tape physical;physical.set_backend(Backend::OpenCL);
+        physical.set_precision(Precision::FP32);
+        const auto pa=physical.leaf(inputs),pb=physical.leaf(weights);
+        const auto pc=physical.matmul(pa,pb);
+        const auto pl=physical.cross_entropy(pc,1);
+        physical.backward(pl);
+        Tape reference;reference.set_backend(Backend::Scalar);
+        const auto ca=reference.leaf(inputs),cb=reference.leaf(weights);
+        const auto cc=reference.matmul(ca,cb);
+        const auto cl=reference.cross_entropy(cc,1);
+        reference.backward(cl);
+        assert(std::abs(physical.value(pl).at(0,0)-
+                        reference.value(cl).at(0,0))<1e-5);
+        for(std::size_t i=0;i<inputs.values.size();++i)
+            assert(std::abs(physical.grad(pa).values[i]-
+                            reference.grad(ca).values[i])<1e-5);
+        for(std::size_t i=0;i<weights.values.size();++i)
+            assert(std::abs(physical.grad(pb).values[i]-
+                            reference.grad(cb).values[i])<1e-5);
         auto gpu=legacy;gpu.layers=2;
         gpu.backend=Backend::OpenCL;gpu.precision=Precision::FP32;
         gpu.optimizer=TrainingOptimizer::AdamW;gpu.learning_rate=0.003;
