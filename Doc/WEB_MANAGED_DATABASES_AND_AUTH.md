@@ -54,7 +54,7 @@ All five CRUD methods share `list(table,{limit})`, `get(table,id)`, `create(tabl
 
 ## Noqeri browser forms and reactivity
 
-Web views support `on.input`, `on.change` and `on.submit` event actions, with a read-only `event` value that exposes `event.value`, `event.checked`, `event.valid` and `event.form.fieldName` for accepted form values. The runtime prevents normal page navigation for handled client-side submits; HTML required/length attributes are forwarded to the DOM. **Backend validation remains mandatory.**
+Web views support optional `persist setting = "value"` browser-side primitive state and `subscribe changes from "/events"` same-origin WebSocket subscriptions. Persistent primitives use bounded `localStorage` and must **never** hold passwords, identity tokens, session data or other secrets. Subscriptions are attached when the view mounts and closed on disposal. Browser-side persistence does not synchronize across devices and is distinct from the durable SQLite **server** session store.\n\nWeb views support `on.input`, `on.change` and `on.submit` event actions, with a read-only `event` value that exposes `event.value`, `event.checked`, `event.valid` and `event.form.fieldName` for accepted form values; handled `on.submit` actions can also read `form.fieldName`. The runtime prevents normal page navigation for handled client-side submits; HTML required/length attributes are forwarded to the DOM. **Backend validation remains mandatory.**
 
 ```noqeri
 import "noqeri/app" as app

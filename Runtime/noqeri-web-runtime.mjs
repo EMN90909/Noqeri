@@ -169,3 +169,67 @@ export function eventInfo(nativeEvent){
   }
   return Object.freeze({type,value:typeof target?.value==='string'?target.value:'',checked:target?.checked===true,valid:target?.validity?.valid!==false,form:Object.freeze(form)});
 }
+
+const primitive=value=>typeof value==='string'||typeof value==='boolean'||(typeof value==='number'&&Number.isFinite(value));
+const savedName=name=>typeof name==='string'&&/^[A-Za-z_][A-Za-z_0-9]{0,63}$/.test(name);
+export function readStored(name,fallback){
+  if(!savedName(name)||!primitive(fallback))return fallback;
+  try{
+    const raw=globalThis.localStorage?.getItem('noqeri:v1:'+name);
+    if(raw===null||raw===undefined||raw.length>4096)return fallback;
+    const value=JSON.parse(raw);
+    return primitive(value)&&typeof value===typeof fallback?value:fallback;
+  }catch{return fallback}
+}
+export function saveStored(name,value){
+  if(!savedName(name)||!primitive(value))return false;
+  try{
+    const raw=JSON.stringify(value);if(raw.length>4096)return false;
+    globalThis.localStorage?.setItem('noqeri:v1:'+name,raw);
+    return Boolean(globalThis.localStorage);
+  }catch{return false}
+}
+export function inputEvent(e){
+  return Object.freeze({value:typeof e?.target?.value==='string'?e.target.value:'',checked:e?.target?.checked===true});
+}
+export function formFields(e){
+  const result=Object.create(null);
+  if(!e?.target||typeof FormData==='undefined')return result;
+  try{
+    let count=0;
+    for(const [name,value] of new FormData(e.target)){
+      if(++count>64)break;
+      if(savedName(name)&&typeof value==='string'&&value.length<=8192&&!Object.hasOwn(result,name))result[name]=value;
+    }
+  }catch{/* not a form or invalid DOM target */ }
+  return result;
+}
+/** Declarative Noqeri subscribe; only same-origin WebSocket URLs can be constructed. */
+export function subscribeSocket(path,{onMessage=()=>{},onStatus=()=>{}}={}){
+  if(typeof path!=='string'||!/^\/(?!\/)[A-Za-z0-9_/-]*$/.test(path)||path.split('/').includes('..'))
+    throw Error('Noqeri subscribe needs a same-origin absolute path');
+  const location=globalThis.location,WebSocket=globalThis.WebSocket;
+  if(!location||!WebSocket||!/^https?:$/.test(location.protocol))throw Error('Noqeri browser WebSocket unavailable');
+  const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+path;
+  let connection=null,disposed=false,retries=0,timer=null;
+  const open=()=>{
+    if(disposed)return;
+    connection=new WebSocket(url);
+    onStatus('connecting');
+    connection.onopen=()=>{retries=0;onStatus('open')};
+    connection.onmessage=e=>{
+      if(typeof e.data!=='string'||e.data.length>1024*1024)return;
+      let data;try{data=JSON.parse(e.data)}catch{data=e.data}
+      if(!disposed)onMessage(data);
+    };
+    connection.onclose=e=>{
+      onStatus('closed');
+      if(!disposed&&e?.code!==1000&&e?.code!==1008){
+        timer=setTimeout(open,Math.min(30000,500*Math.pow(2,Math.min(retries++,6))));
+      }
+    };
+    connection.onerror=()=>onStatus('error');
+  };
+  open();
+  return {close(){disposed=true;clearTimeout(timer);connection?.close(1000,'');}};
+}

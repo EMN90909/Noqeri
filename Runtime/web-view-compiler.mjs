@@ -10,7 +10,7 @@ const THEME_KEYS = new Set(['primary','background','surface','text','muted','bor
 const OPS = {'||':1,'&&':2,'==':3,'!=':3,'<':4,'>':4,'<=':4,'>=':4,'+':5,'-':5,'*':6,'/':6,'%':6};
 const isIdent = x => /^[A-Za-z_][A-Za-z_0-9]*$/.test(x) && !BAD.has(x);
 export function isViewSource(source) {
-  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_]|route\s+\")/m.test(source);
+  return /(?:^|\n)\s*(?:view\s*\{|component\s+[A-Za-z_]|on\.mount\b|persist\s+|subscribe\s+|import\s+js\s+|function\s+[A-Za-z_]|load\s+[A-Za-z_]|route\s+\")/m.test(source);
 }
 function tokenize(source) {
   if (typeof source !== 'string' || source.length > 1024 * 1024) throw Error('Noqeri view: source must be at most 1 MiB');
@@ -91,7 +91,7 @@ export function parseView(source) {
     }
     need('}');return actions;
   };
-  const components=[],functions=[],states=[],loads=[],imports=[],mounts=[],routes=[];
+  const components=[],functions=[],states=[],loads=[],subscriptions=[],imports=[],mounts=[],routes=[];
   let view=null,theme=null;
   function children(){
     return nest(()=>{
@@ -146,13 +146,19 @@ export function parseView(source) {
         }
         imports.push({kind:'package',specifier,alias});
       }
-    }else if(accept('let')||accept('const')){
-      const mutable=tokens[at-1].value==='let',name=ident();need('=');
-      states.push({name,mutable,value:expr()});
+    }else if(accept('let')||accept('const')||accept('persist')){
+      const kind=tokens[at-1].value,mutable=kind!=='const',persistent=kind==='persist',name=ident();need('=');
+      const value=expr();
+      if(persistent&&(value.kind!=='literal'||!['string','boolean','number'].includes(typeof value.value)))fail('persist requires a primitive literal');
+      states.push({name,mutable,persistent,value});
     }else if(accept('load')){
       const name=ident();need('from');const url=take();
       if(url.kind!=='str'||!/^(?:\/(?!\/)|\.(?:\/|\.\/))/.test(url.value))fail('load endpoint must be a same-origin path');
       loads.push({name,url:url.value});
+    }else if(accept('subscribe')){
+      const name=ident();need('from');const url=take();
+      if(url.kind!=='str'||!/^\/(?!\/)[a-zA-Z0-9_/-]*$/.test(url.value)||url.value.split('/').includes('..'))fail('subscribe requires a same-origin absolute path');
+      subscriptions.push({name,url:url.value});
     }else if(accept('function')){
       const name=ident();need('(');const params=[];
       while(!is(')')){
@@ -192,22 +198,23 @@ export function parseView(source) {
   }
   if(!view&&!routes.length&&!components.length&&!functions.length)fail('view, route, component or function declaration required');
   const symbols=new Set();
-  for(const item of [...imports,...states,...loads,...components,...functions]){
+  for(const item of [...imports,...states,...loads,...subscriptions,...components,...functions]){
     const name=item.alias??item.name;
     if(symbols.has(name)||BAD.has(name)||!isIdent(name))fail('duplicate or forbidden binding '+name);
     symbols.add(name);
   }
-  if(symbols.has('event'))fail('event is reserved for DOM event actions');
+  if(symbols.has('event')||symbols.has('form'))fail('event and form are reserved for DOM event actions');
   if(routes.length&&symbols.has('navigate'))fail('navigate is reserved in routed views');
-  return {imports,states,loads,components,functions,view,mounts,routes,theme};
+  return {imports,states,loads,subscriptions,components,functions,view,mounts,routes,theme};
 }
 export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) {
   const ast=parseView(source);
   if(typeof runtimeImport!=='string'||!/^\.{1,2}\//.test(runtimeImport)||runtimeImport.includes('\\')||runtimeImport.includes('\n'))throw Error('Invalid runtime module import');
-  const bindings=new Set([...ast.imports.map(x=>x.alias),...ast.states.map(x=>x.name),...ast.loads.map(x=>x.name),...ast.components.map(x=>x.name),...ast.functions.map(x=>x.name),...(ast.routes.length?['navigate']:[])]);
+  const bindings=new Set([...ast.imports.map(x=>x.alias),...ast.states.map(x=>x.name),...ast.loads.map(x=>x.name),...ast.subscriptions.map(x=>x.name),...ast.components.map(x=>x.name),...ast.functions.map(x=>x.name),...(ast.routes.length?['navigate']:[])]);
   const aliases=new Set(ast.imports.map(x=>x.alias));
-  const resource=new Set(ast.loads.map(x=>x.name));
+  const resource=new Set([...ast.loads.map(x=>x.name),...ast.subscriptions.map(x=>x.name)]);
   const mutable=new Set(ast.states.filter(x=>x.mutable).map(x=>x.name));
+  const persistent=new Set(ast.states.filter(x=>x.persistent).map(x=>x.name));
   function jsExpr(e,local=new Set()){
     if(e.kind==='literal')return JSON.stringify(e.value);
     if(e.kind==='name'){if(!bindings.has(e.name)&&!local.has(e.name))throw Error('Noqeri view: undeclared name '+e.name);return e.name}
@@ -219,7 +226,8 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
       const root=base(e);
       if(aliases.has(root))return jsExpr(e.object,local)+'['+JSON.stringify(e.name)+']';
       if(root==='event'&&!local.has('event'))throw Error('Noqeri view: event is only available in on.click, on.input, on.change or on.submit actions');
-      if(resource.has(root)||(root==='event'&&local.has('event')))return '__member('+jsExpr(e.object,local)+','+JSON.stringify(e.name)+')';
+      if(root==='form'&&!local.has('form'))throw Error('Noqeri view: form is only available in on.submit actions');
+      if(resource.has(root)||(root==='event'&&local.has('event'))||(root==='form'&&local.has('form')))return '__member('+jsExpr(e.object,local)+','+JSON.stringify(e.name)+')';
       throw Error('Noqeri view: property access requires imported library or loaded resource');
     }
     if(e.kind==='call'){
@@ -237,7 +245,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
       }
       if(a.kind==='assign'){
         if(!mutable.has(a.name))throw Error('Noqeri view: only mutable top-level state may be assigned: '+a.name);
-        return a.name+' = '+jsExpr(a.value,local)+'; __schedule();';
+        return a.name+' = '+jsExpr(a.value,local)+'; '+(persistent.has(a.name)?'__saveStored('+JSON.stringify(a.name)+','+a.name+'); ':'')+'__schedule();';
       }
       if(a.value.kind!=='call')throw Error('Noqeri view: effect must call imported library or component');
       return jsExpr(a.value,local)+';';
@@ -249,7 +257,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
       if(!TAGS.has(n.tag))throw Error('Noqeri view: unsupported HTML tag '+n.tag);
       if(VOID.has(n.tag)&&n.children.length)throw Error('Noqeri view: void tag cannot have children: '+n.tag);
       const attrs='{'+n.attrs.map(([name,val])=>JSON.stringify(name.replace(/^(aria|data)_/,'$1-').replaceAll('_','-'))+':'+jsExpr(val,local)).join(',')+'}';
-      const events='{'+n.events.map(([name,body])=>JSON.stringify(name)+':(__nativeEvent)=>{const event=__eventInfo(__nativeEvent);'+actions(body,new Set([...local,'event']))+'}').join(',')+'}';
+      const events='{'+n.events.map(([name,body])=>JSON.stringify(name)+':(__event)=>{const event=__eventInfo(__event);'+(name==='submit'?'const form=__formFields(__event);':'')+actions(body,new Set([...local,'event',...(name==='submit'?['form']:[])]))+'}').join(',')+'}';
       return '__h('+JSON.stringify(n.tag)+','+attrs+','+nodes(n.children,local)+','+events+')';
     }).join(',')+']';
   }
@@ -258,9 +266,10 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     const source=imp.kind==='js'?imp.specifier:'./'+imp.specifier+'.mjs';
     lines.push('import * as '+imp.alias+' from '+JSON.stringify(source)+';');
   }
-  lines.push('import { element as __h, createApp as __createApp, safeMember as __member, createRouter as __createRouter, eventInfo as __eventInfo } from '+JSON.stringify(runtimeImport)+';');
-  for(const state of ast.states)lines.push((state.mutable?'let ':'const ')+state.name+' = '+jsExpr(state.value)+';');
+  lines.push('import { element as __h, createApp as __createApp, safeMember as __member, createRouter as __createRouter, eventInfo as __eventInfo, formFields as __formFields, readStored as __readStored, saveStored as __saveStored, subscribeSocket as __subscribeSocket } from '+JSON.stringify(runtimeImport)+';');
+  for(const state of ast.states)lines.push((state.mutable?'let ':'const ')+state.name+' = '+(state.persistent?'__readStored('+JSON.stringify(state.name)+','+jsExpr(state.value)+')':jsExpr(state.value))+';');
   for(const res of ast.loads)lines.push('let '+res.name+' = {loading:true,data:null,error:null};');
+  for(const sub of ast.subscriptions)lines.push('let '+sub.name+' = {connected:false,data:null,error:null};');
   lines.push('let __schedule = ()=>{};');
   if(ast.routes.length){
     lines.push('let __router = null;');
@@ -283,11 +292,14 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
     lines.push('export function mount(root){if(!root)throw Error("Missing Noqeri view root");');
     if(ast.routes.length)lines.push('  __router=__createRouter(root,()=>__schedule());');
     lines.push('  const app=__createApp(root,render);__schedule=app.schedule;');
+    for(const sub of ast.subscriptions){
+      lines.push('  const __socket_'+sub.name+'=__subscribeSocket('+JSON.stringify(sub.url)+',{onMessage:value=>{'+sub.name+'={connected:true,data:value,error:null};__schedule();},onStatus:status=>{'+sub.name+'={...'+sub.name+',connected:status==="open"};__schedule();}});');
+    }
     for(const r of ast.loads){
       lines.push('  app.load('+JSON.stringify(r.url)+',value=>{'+r.name+'={loading:false,data:value,error:null};__schedule();},error=>{'+r.name+'={loading:false,data:null,error:String(error)};__schedule();});');
     }
     if(ast.mounts.length)lines.push('  '+actions(ast.mounts,new Set()));
-    if(ast.routes.length)lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{__router?.dispose();__router=null;__schedule=()=>{};__dispose();};');
+    if(ast.routes.length||ast.subscriptions.length)lines.push('  const __dispose=app.dispose.bind(app);app.dispose=()=>{'+ast.subscriptions.map(sub=>'__socket_'+sub.name+'.close();').join('')+'__router?.dispose();__router=null;__schedule=()=>{};__dispose();};');
     lines.push('  return app;');
     lines.push('}');
     lines.push('if(typeof document!=="undefined"){const root=document.getElementById("app");if(root)mount(root);}');
