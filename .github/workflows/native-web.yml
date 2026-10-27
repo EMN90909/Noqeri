@@ -80,6 +80,8 @@ jobs:
         run: python3 tests/native_web_proxy_origin.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Test native route authorization, principal-scoped sessions and method deny
         run: python3 tests/native_web_route_authz.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Enforce optional per-principal request rate limiting
+        run: python3 tests/native_web_rate_limit.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Test shared SQLite WAL session state, CSRF replay defense and process restart
         run: python3 tests/native_web_shared_sessions.py ./build-native-web/noqeri-web examples/native_web_sessions
       - name: Test native web database adapters without changing NoeSQL
