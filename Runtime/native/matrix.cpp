@@ -139,6 +139,10 @@ Matrix conv2d_valid(const Matrix& input,const Matrix& kernel,std::size_t stride)
             "invalid convolution dimensions or stride");
     const std::size_t r=1+(input.rows-kernel.rows)/stride;
     const std::size_t c=1+(input.cols-kernel.cols)/stride;
+    // Bound convolution work before allocating or entering nested loops.
+    // All inputs were shape-checked, so r*c <= 1,048,576.
+    require(kernel.rows<=50000000/(r*c)/kernel.cols,
+            "convolution exceeds 50 million kernel products");
     Matrix out(r,c);
     for(std::size_t i=0;i<r;++i)
         for(std::size_t j=0;j<c;++j) {

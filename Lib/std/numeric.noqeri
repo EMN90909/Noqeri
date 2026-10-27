@@ -73,7 +73,7 @@ export function sum_checked(values: []int, out: *int): bool {
         total = total + value
         i = i + 1 as usize
     }
-    out[0] = total
+    unsafe { out[0] = total }
     return true
 }
 export function average_or(values: []int, fallback: float): float {

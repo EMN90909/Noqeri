@@ -16,6 +16,21 @@ on:
       - 'examples/simplicity/ai_native_model_session.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
+      - 'Include/noqeri/matrix.hpp'
+      - 'Include/noqeri/ai_matrix_c.h'
+      - 'Runtime/native/matrix.cpp'
+      - 'Runtime/native/matrix_advanced.cpp'
+      - 'Runtime/native/ai_matrix_c.cpp'
+      - 'Runtime/native/ai_adamw_c.cpp'
+      - 'Lib/ai/matrix_native.noqeri'
+      - 'Lib/ai/optimizer_native.noqeri'
+      - 'tests/cpp/matrix_test.cpp'
+      - 'tests/cpp/matrix_advanced_test.cpp'
+      - 'tests/cpp/ai_adamw_c_test.cpp'
+      - 'tests/cpp/ai_autodiff_deep_test.cpp'
+      - 'examples/simplicity/ai_native_matrix.noqeri'
+      - 'examples/simplicity/ai_native_adamw.noqeri'
+      - 'examples/simplicity/ai_native_deep_tape.noqeri'
       - '.github/workflows/ai-native-ffi.yml'
   pull_request:
     branches: [main]
@@ -27,6 +42,21 @@ on:
       - 'examples/simplicity/ai_native_gemm.noqeri'
       - 'scripts/native-build.mjs'
       - 'CMakeLists.txt'
+      - 'Include/noqeri/matrix.hpp'
+      - 'Include/noqeri/ai_matrix_c.h'
+      - 'Runtime/native/matrix.cpp'
+      - 'Runtime/native/matrix_advanced.cpp'
+      - 'Runtime/native/ai_matrix_c.cpp'
+      - 'Runtime/native/ai_adamw_c.cpp'
+      - 'Lib/ai/matrix_native.noqeri'
+      - 'Lib/ai/optimizer_native.noqeri'
+      - 'tests/cpp/matrix_test.cpp'
+      - 'tests/cpp/matrix_advanced_test.cpp'
+      - 'tests/cpp/ai_adamw_c_test.cpp'
+      - 'tests/cpp/ai_autodiff_deep_test.cpp'
+      - 'examples/simplicity/ai_native_matrix.noqeri'
+      - 'examples/simplicity/ai_native_adamw.noqeri'
+      - 'examples/simplicity/ai_native_deep_tape.noqeri'
       - '.github/workflows/ai-native-ffi.yml'
 permissions:
   contents: read
@@ -82,6 +112,22 @@ jobs:
           result=$(./build-ai-ffi/ai-model-session)
           echo "Noqeri reusable model: $result"
           test "$result" = "0"
+      - name: Run advanced matrix, AdamW and GELU/LayerNorm regression tests
+        run: |
+          cmake --build build-ai-ffi --target noqeri-matrix-test noqeri-matrix-advanced-test noqeri-adamw-c-test noqeri-ai-autodiff-deep-test --parallel 2
+          ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-matrix(-advanced)?$|^noqeri-adamw-c$|^noqeri-ai-autodiff-deep$'
+      - name: Typecheck and run native Noqeri matrix, AdamW, and differentiable neural graphs
+        run: |
+          set -euo pipefail
+          for name in matrix adamw deep_tape; do
+            source="examples/simplicity/ai_native_${name}.noqeri"
+            output="build-ai-ffi/ai-native-${name}"
+            ./build-ai-ffi/noqeri check "$source" --unsafe
+            node scripts/native-build.mjs "$source" "$output" --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+            result=$("$output")
+            echo "Native Noqeri ${name}: $result"
+            test "$result" = "0"
+          done
       - name: Build and run Noqeri AOT app calling native C++ tensor SDK
         run: |
           set -euo pipefail

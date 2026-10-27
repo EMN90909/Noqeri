@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "noqeri/ai_framework.hpp"
+#include "noqeri/matrix.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -33,10 +34,56 @@ bool simd_available() noexcept {
     return false;
 #endif
 }
+// Quantize GEMM operands but retain FP64 master parameters and gradients.
+// FP16 is an IEEE 754 binary16 storage/rounding emulation on CPU,
+// with float (FP32) accumulation. This is not hardware Tensor Core speedup.
+namespace {
+double cast_compute(double value,Precision precision) {
+    if(precision==Precision::FP64)return value;
+    if(precision==Precision::FP32)return static_cast<double>(static_cast<float>(value));
+    require(precision==Precision::FP16,"unsupported compute precision");
+    require(std::abs(value)<=65504,"binary16 operand overflow");
+    if(value==0)return value;
+    const double magnitude=std::abs(value);
+    if(magnitude<std::ldexp(1.0,-25))return std::copysign(0.0,value);
+    int exponent=0;std::frexp(magnitude,&exponent);
+    const double step=std::ldexp(1.0,std::max(exponent-11,-24));
+    const double rounded=std::nearbyint(magnitude/step)*step;
+    require(rounded<=65504,"binary16 operand overflow after rounding");
+    return std::copysign(rounded,value);
+}
+Matrix compute_gemm(const Matrix& a,const Matrix& b,Precision precision) {
+    valid(a);valid(b);
+    require(a.cols==b.rows && a.rows<=1048576/b.cols &&
+            a.rows<=50000000/(a.cols*b.cols),"invalid compute GEMM shape");
+    Matrix out(a.rows,b.cols);
+    for(std::size_t i=0;i<a.rows;++i)
+        for(std::size_t j=0;j<b.cols;++j) {
+            float sum=0;
+            for(std::size_t k=0;k<a.cols;++k) {
+                const float av=static_cast<float>(
+                    cast_compute(a.at(i,k),precision));
+                const float bv=static_cast<float>(
+                    cast_compute(b.at(k,j),precision));
+                sum=static_cast<float>(sum+av*bv);
+            }
+            out.at(i,j)=sum;
+        }
+    valid(out);return out;
+}
+Matrix transpose_for_grad(const Matrix& m) {
+    Matrix out(m.cols,m.rows);
+    for(std::size_t i=0;i<m.rows;++i)
+        for(std::size_t j=0;j<m.cols;++j)out.at(j,i)=m.at(i,j);
+    return out;
+}
+} // namespace
+
 Matrix gemm(const Matrix& a,const Matrix& b,Backend backend) {
     valid(a);valid(b);
     require(a.cols==b.rows && a.rows<=1048576/b.cols &&
             a.rows<=50000000/(a.cols*b.cols),"incompatible or oversized GEMM");
+    if(backend==Backend::OpenCL)return gpu_gemm(a,b);
     Matrix c(a.rows,b.cols);
     if(backend==Backend::Auto) backend=simd_available()?Backend::Simd:Backend::Tiled;
     if(backend==Backend::Simd && !simd_available())
@@ -81,9 +128,15 @@ std::size_t Tape::append(Node node) {
     return nodes_.size()-1;
 }
 std::size_t Tape::size() const noexcept {return nodes_.size();}
+void Tape::set_precision(Precision precision) {
+    require(precision==Precision::FP64 || precision==Precision::FP32 ||
+            precision==Precision::FP16,"invalid compute precision");
+    precision_=precision;
+}
 void Tape::set_backend(Backend backend) {
     require(backend==Backend::Auto || backend==Backend::Scalar ||
-            backend==Backend::Tiled || backend==Backend::Simd,"unknown tensor backend");
+            backend==Backend::Tiled || backend==Backend::Simd ||
+            backend==Backend::OpenCL,"unknown tensor backend");
     backend_=backend;
 }
 const Matrix& Tape::value(std::size_t id) const {
@@ -104,7 +157,12 @@ std::size_t Tape::add(std::size_t a,std::size_t b) {
     return append(std::move(n));
 }
 std::size_t Tape::matmul(std::size_t a,std::size_t b) {
-    Node n;n.op=Op::Matmul;n.a=a;n.b=b;n.value=gemm(value(a),value(b),backend_);
+    Node n;n.op=Op::Matmul;n.a=a;n.b=b;
+    require(backend_!=Backend::OpenCL || precision_==Precision::FP32,
+            "OpenCL training uses FP32 compute only");
+    n.value=(precision_==Precision::FP64 || backend_==Backend::OpenCL)
+        ?gemm(value(a),value(b),backend_)
+        :compute_gemm(value(a),value(b),precision_);
     return append(std::move(n));
 }
 std::size_t Tape::transpose(std::size_t a) {
@@ -122,6 +180,21 @@ std::size_t Tape::scale(std::size_t a,double factor) {
 std::size_t Tape::tanh(std::size_t a) {
     Node n;n.op=Op::Tanh;n.a=a;n.value=value(a);
     for(double& z:n.value.values)z=std::tanh(z);
+    return append(std::move(n));
+}
+std::size_t Tape::relu(std::size_t a) {
+    Node n;n.op=Op::Relu;n.a=a;n.value=matrix::apply_relu(value(a));
+    return append(std::move(n));
+}
+std::size_t Tape::gelu(std::size_t a) {
+    Node n;n.op=Op::Gelu;n.a=a;n.value=matrix::gelu(value(a));
+    return append(std::move(n));
+}
+std::size_t Tape::layer_norm(std::size_t a,double epsilon) {
+    require(std::isfinite(epsilon) && epsilon>=1e-8 && epsilon<=1,
+            "invalid layer norm epsilon");
+    Node n;n.op=Op::LayerNorm;n.a=a;n.factor=epsilon;
+    n.value=matrix::layer_norm_rows(value(a),epsilon);
     return append(std::move(n));
 }
 std::size_t Tape::softmax(std::size_t a,bool causal) {
@@ -184,6 +257,15 @@ void Tape::backward(std::size_t loss) {
             break;
         case Op::Matmul: {
             const Matrix& a=nodes_[n.a].value;const Matrix& b=nodes_[n.b].value;
+            if(backend_==Backend::OpenCL) {
+                const Matrix ga=gpu_gemm(n.grad,transpose_for_grad(b));
+                const Matrix gb=gpu_gemm(transpose_for_grad(a),n.grad);
+                for(std::size_t i=0;i<ga.values.size();++i)
+                    nodes_[n.a].grad.values[i]+=ga.values[i];
+                for(std::size_t i=0;i<gb.values.size();++i)
+                    nodes_[n.b].grad.values[i]+=gb.values[i];
+                break;
+            }
             for(std::size_t i=0;i<a.rows;++i)
                 for(std::size_t k=0;k<a.cols;++k)
                     for(std::size_t j=0;j<b.cols;++j) {
@@ -208,6 +290,50 @@ void Tape::backward(std::size_t loss) {
                 nodes_[n.a].grad.values[j]+=
                     n.grad.values[j]*(1.0-n.value.values[j]*n.value.values[j]);
             break;
+        case Op::Relu: {
+            const Matrix& source=nodes_[n.a].value;
+            for(std::size_t j=0;j<n.grad.values.size();++j)
+                if(source.values[j]>0)
+                    nodes_[n.a].grad.values[j]+=n.grad.values[j];
+            break;
+        }
+        case Op::Gelu: {
+            const Matrix& source=nodes_[n.a].value;
+            constexpr double k=0.7978845608028654; // sqrt(2/pi)
+            for(std::size_t j=0;j<n.grad.values.size();++j) {
+                const double x=source.values[j];
+                const double t=std::tanh(k*(x+0.044715*x*x*x));
+                const double d=0.5*(1+t)+0.5*x*(1-t*t)*
+                    k*(1+3*0.044715*x*x);
+                nodes_[n.a].grad.values[j]+=n.grad.values[j]*d;
+            }
+            break;
+        }
+        case Op::LayerNorm: {
+            const Matrix& source=nodes_[n.a].value;
+            for(std::size_t i=0;i<source.rows;++i) {
+                long double mean=0,m2=0,gsum=0,gysum=0;
+                for(std::size_t j=0;j<source.cols;++j) {
+                    const long double x=source.at(i,j);
+                    const long double delta=x-mean;
+                    mean+=delta/static_cast<long double>(j+1);
+                    m2+=delta*(x-mean);
+                    gsum+=n.grad.at(i,j);
+                    gysum+=static_cast<long double>(n.grad.at(i,j))*n.value.at(i,j);
+                }
+                const long double count=source.cols;
+                const long double inverse=1/std::sqrt(m2/count+n.factor);
+                const long double mean_g=gsum/count;
+                const long double mean_gy=gysum/count;
+                for(std::size_t j=0;j<source.cols;++j) {
+                    const long double grad=inverse*
+                        (static_cast<long double>(n.grad.at(i,j))-mean_g-
+                         static_cast<long double>(n.value.at(i,j))*mean_gy);
+                    nodes_[n.a].grad.at(i,j)+=static_cast<double>(grad);
+                }
+            }
+            break;
+        }
         case Op::Softmax:
             for(std::size_t i=0;i<n.value.rows;++i) {
                 const std::size_t limit=n.causal?i+1:n.value.cols;

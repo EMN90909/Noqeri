@@ -100,7 +100,7 @@ extern "C" int64_t nq_ai_tape_execute(const nq_ai_tape_request* r) {
         std::size_t input_elements=0;
         for (std::size_t i=0;i<r->step_count;++i) {
             const auto& s=r->steps[i];
-            if (s.operation > 8) return -4;
+            if (s.operation > 11) return -4;
             if (s.operation == 0) {
                 if (!s.data) return -1;
                 if (!s.rows || !s.cols || s.rows > 128 ||
@@ -129,6 +129,9 @@ extern "C" int64_t nq_ai_tape_execute(const nq_ai_tape_request* r) {
                     break;
                 case 7: id=tape.cross_entropy(s.a,s.target); break;
                 case 8: id=tape.last_row(s.a); break;
+                case 9: id=tape.relu(s.a); break;
+                case 10: id=tape.gelu(s.a); break;
+                case 11: id=tape.layer_norm(s.a,s.scalar); break;
                 default:return -4;
             }
             if(id!=i) return -5;

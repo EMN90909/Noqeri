@@ -28,7 +28,8 @@ int main() {
     assert(near(m::sum(a,0).at(0,1),7));
     assert(near(m::mean(a,1).at(1,0),5));
     assert(near(m::variance(a,0).at(0,0),2.25));
-    assert(near(m::normalize_columns(a).at(0,1),-1));
+    // Epsilon regularization intentionally shifts the standardized value.
+    assert(std::abs(m::normalize_columns(a).at(0,1)+1.0)<1e-8);
     assert(near(m::dot(a,a),91));
     assert(near(m::l2_norm(m::ones(1,4)),2));
     assert(near(m::sigmoid(Matrix(1,1,100)).at(0,0),1));
@@ -42,6 +43,8 @@ int main() {
     assert(throws([&]{m::reshape(a,4,2);}));
     assert(throws([&]{m::slice(a,0,3,0,2);}));
     assert(throws([&]{m::conv2d_valid(a,k,0);}));
+    // Guard potentially enormous convolution workloads before iterating.
+    assert(throws([&]{m::conv2d_valid(Matrix(1000,1000),Matrix(30,30));}));
     assert(throws([&]{m::sum(a,2);}));
     assert(throws([&]{m::add(a,Matrix(4,3));}));
     assert(throws([&]{m::scale(a,std::numeric_limits<double>::infinity());}));
