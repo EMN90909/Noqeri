@@ -160,7 +160,8 @@ route "/" {
     port=unused_port()
     proc=start(project,port,root/"state3.nqkv",env)
     try:
-        assert req(port,"GET","/")[0]==400
+        # A provider outage is a service-unavailable response, not a malformed request.
+        assert req(port,"GET","/")[0]==503
     finally:
         stop(proc)
 
