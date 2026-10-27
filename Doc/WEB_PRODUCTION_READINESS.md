@@ -10,12 +10,19 @@ server for public Internet exposure or make the browser DSL compiler self-hosted
 | --- | --- | --- | --- | --- |
 | Native static | `.noqeri` routes and UI | C++17 compiler / `noqeri web build`, **no Node.js** | Pre-rendered HTML/CSS, no client JS | Static output can be hosted on standard static hosting |
 | Native full stack | `.noqeri` routes, forms and actions | C++17 compiler / `noqeri web compile`, **no Node.js** | Native SSR, accessible HTML POST fallback; optional `NOQERI_WEB_REACTIVE=1` for hydrated actions and SPA-style same-origin navigation | **Preview only** without independently qualified authentication, reverse-proxy, TLS and operations |
+| Native browser client subset | `.noqeri` views, components, literal routes, client `on.click` and `persist` | C++17 compiler / `noqeri web build-client`, **no Node.js** | Static prerender, browser hydration/CSR, client-side routing and nonsecret local preferences | Generated files suitable for static hosting; compiler subset is still experimental |
 | Experimental browser views | `.noqeri` view DSL | `Runtime/web-project.mjs`, **Node.js 22+ build-time dependency** | Browser ES modules, CSR and safe static route pre-render/hydration | Experimental, not yet the typed Stage-2 native frontend |
 
-**Never claim that the third row builds without Node.js.** Noqeri-authored
-source and no handwritten JavaScript do not mean the build tool is self-hosted.
-Node.js is not required by the native static or native full-stack paths, nor by
-browsers consuming their output.
+**The experimental Node-hosted browser-view compiler is not yet fully ported.**
+The native `build-client` subset does generate browser modules without Node,
+but does not support all features of that experimental compiler. Noqeri-authored
+source and no handwritten JavaScript do not mean the compiler is self-hosted
+or written entirely in Noqeri itself.
+Node.js is not required by the native static, native browser-client or native
+full-stack paths, nor by browsers consuming their output.
+
+For precise supported syntax, limits, route authorization and shared session
+configuration, see [Native client compilation and security](WEB_NATIVE_CLIENT_SECURITY.md).
 
 ### Standalone Noqeri view, now supported by the native compiler
 
@@ -61,6 +68,12 @@ GitHub Actions now checks all of the following:
   sizes and a four-second absolute request deadline across headers and body.
   Targeted tests cover malformed line endings, TE/CL conflicts and slowly
   trickled requests.
+- Native client module emission and real Chromium checks without a Node build
+  requirement; state updates, route navigation and persisted browser preferences.
+- Route-scoped bearer credentials with method restrictions and principal-bound
+  CSRF sessions. Optional SQLite WAL transactional sessions are tested across
+  two local processes, including replay and server restart. This is **not**
+  a cross-host distributed session service.
 - Native HTTP loopback performance in **both** JavaScript-disabled and hydrated
   server rendering: 120 measured sequential GETs + 120 GETs at 8-client
   concurrency, reusing a session and making fresh HTTP/1.1 connections.
@@ -92,6 +105,9 @@ ctest --test-dir build-release -R '^noqeri-native-web$' --output-on-failure
 
 # Fully Node-free static output:
 ./build-release/noqeri web build examples/native_web_static dist/site
+
+# Node-free compiler emits browser modules with real CSR/hydration:
+./build-release/noqeri web build-client examples/native_web_client dist/browser
 
 # Server-side Noqeri actions with optional browser progressive enhancement:
 NOQERI_WEB_REACTIVE=1 ./build-release/noqeri web serve-app examples/native_web_actions 8080
@@ -140,8 +156,10 @@ operations are qualified.
    structured error telemetry, load/shedding and uptime/rollback procedures.
 4. Test p50/p95/p99 response and interactive latency under the intended real
    workload, including network RTT, CSS/JS cold-cache and slow devices.
-5. Validate durable multi-instance sessions and data consistency before using
-   the single-process in-memory sessions and `.nqkv` store beyond local demos.
+5. Optional SQLite WAL sessions now allow **same-host workers** to share CSRF,
+   identity and ephemeral state. Complete a truly distributed TLS-enabled
+   session backend, cross-host atomic updates, recovery/load tests and tenant
+   consistency qualification before running across machines or regions.
 6. For Node-free **browser-view DSL** builds specifically, port the view parser,
    typed checking, package resolution and safe JavaScript/WASM code emission
    into the native or self-hosted Noqeri compiler. Verify byte-for-byte or
@@ -159,5 +177,6 @@ to same-origin HTML routes; all form mutations remain server-side with
 route-scoped action IDs and rotating CSRF tokens.
 
 Links: [Native actions](WEB_NATIVE_ACTIONS.md),
+[Native client and security operations](WEB_NATIVE_CLIENT_SECURITY.md),
 [Web framework](WEB_FRAMEWORK.md),
 [Qualification matrix](WEB_FRAMEWORK_QUALIFICATION.md).
