@@ -42,8 +42,9 @@ std::string clientEvents(const Node& node,const Project& project,
         throw std::runtime_error("native browser views currently support button on.click only");
     std::string code="{click:()=>{";
     for(const auto& mutation:node.mutations) {
-        if(!project.mutableState.count(mutation.target))
-            throw std::runtime_error("client action must assign a mutable state: "+mutation.target);
+        if(!project.mutableState.count(mutation.target) &&
+           !project.persistentState.count(mutation.target))
+            throw std::runtime_error("client action must assign a mutable or persisted state: "+mutation.target);
         const auto target="__nq_state["+clientQuote(mutation.target)+"]";
         if(mutation.op=="add") {
             if(mutation.value.atoms.size()!=2 ||
