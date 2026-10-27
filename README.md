@@ -58,6 +58,21 @@ noqeri ai lm train corpus.txt model.nqlm --steps 2000
 noqeri ai lm generate model.nqlm "Example" --tokens 32
 ```
 
+The experimental bounded CPU AI framework also supports batched **AdamW**
+training, global-norm gradient clipping, warmup/cosine scheduling, held-out
+perplexity evaluation, and differentiable GELU/ReLU/layer normalization
+operators. Native Noqeri can access explicitly linked optimizer and tensor
+FFI entrypoints; these are not portable VM intrinsics.
+
+```sh
+noqeri ai transformer train corpus.txt tuned.nqtf --optimizer adamw --batch 4 --steps 200 --rate 0.003 --validation 0.1
+noqeri ai transformer evaluate tuned.nqtf corpus.txt
+```
+
+See [AI training and native integration](Doc/AI_FRAMEWORK.md) and
+[advanced matrix API](Doc/AI_MATRIX_ADVANCED.md). The trainer is still a
+bounded single-head research implementation rather than full LLM pretraining.
+
 See [AI and language-model patch guide](Doc/AI_PATCH_V0_1_4.md). Post-tag
 binary add-ons are shipped separately from the immutable v0.1.4 original.
 
