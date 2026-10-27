@@ -415,14 +415,25 @@ export function createMotion(root,definitions=[],sequences=[]) {
       // If IntersectionObserver is unavailable, play immediately.
       if(typeof IntersectionObserver!=='function'){run(spec);break;}
       marked.add(element);
+      let entered=false,active=null;
       const observer=new IntersectionObserver(entries=>{
         for(const entry of entries){
-          if(!entry.isIntersecting||disposed)continue;
-          marked.delete(element);
-          const index=elements(spec).indexOf(element);
-          animate(spec,element,spec.delay+Math.max(0,index)*spec.stagger);
-          if(spec.once){observer.disconnect();observers.delete(observer);}
-          else {observer.unobserve(element);}
+          if(disposed||entry.target!==element)continue;
+          if(entry.isIntersecting){
+            if(entered)continue;
+            entered=true;
+            marked.delete(element);
+            const index=elements(spec).indexOf(element);
+            active=animate(spec,element,spec.delay+Math.max(0,index)*spec.stagger);
+            if(spec.once){observer.disconnect();observers.delete(observer);}
+          }else if(!spec.once && entered){
+            // A repeatable scroll reveal restarts on re-entry, but retains
+            // the observer marker to prevent duplicate observer creation.
+            entered=false;
+            active?.cancel();
+            running.get(spec.name)?.delete(active);
+            active=null;
+          }
         }
       },{threshold:0.12});
       observers.add(observer);observer.observe(element);
