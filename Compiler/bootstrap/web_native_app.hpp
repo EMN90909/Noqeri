@@ -82,8 +82,29 @@ void savePersisted(const AppStore& store,const std::map<std::string,std::string>
     if (!parent.empty()) fs::create_directories(parent);
     const auto temporary=fs::path(store.stateFile.string()+"."+randomToken()+".tmp");
     try {
-        writeText(temporary,data);
+        // Create mode-0600 data files with exclusive creation. A normal
+        // ofstream creates world-readable files under permissive umasks.
+        const int fd=::open(temporary.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
+        if(fd<0)throw std::runtime_error("cannot securely create native state file");
+        std::size_t offset=0;
+        bool complete=true;
+        while(offset<data.size()) {
+            const auto written=::write(fd,data.data()+offset,data.size()-offset);
+            if(written<=0) {complete=false;break;}
+            offset+=static_cast<std::size_t>(written);
+        }
+        if(::fsync(fd)!=0)complete=false;
+        if(::close(fd)!=0)complete=false;
+        if(!complete)throw std::runtime_error("native data write or fsync failed");
         fs::rename(temporary,store.stateFile);
+        // Sync the directory entry as well, so a successful response survives
+        // an ordinary crash/power-loss boundary on supported local filesystems.
+        const auto directory=parent.empty()?fs::path("."):parent;
+        const int dir=::open(directory.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
+        if(dir<0)throw std::runtime_error("cannot open native data directory");
+        const bool synced=::fsync(dir)==0;
+        ::close(dir);
+        if(!synced)throw std::runtime_error("cannot sync native data directory");
     }catch(...) { std::error_code ec;fs::remove(temporary,ec);throw; }
 }
 // Validate and collect actions before accepting requests; never accept action names
@@ -97,13 +118,15 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
             std::size_t databaseCalls=0;
             for(const auto& mutation:n.mutations)if(mutation.op=="db")++databaseCalls;
             std::size_t mutatingCalls=0;
-            for(const auto& mutation:n.mutations)if(mutation.op!="validate")++mutatingCalls;
+            for(const auto& mutation:n.mutations)if(mutation.op!="validate"&&mutation.op!="validate_email"&&
+               mutation.op!="validate_number")++mutatingCalls;
             if(databaseCalls>0&&mutatingCalls!=1)
                 throw std::runtime_error("database actions require one independently committed statement");
             if (!actions.emplace(n.actionId,&n).second)
                 throw std::runtime_error("duplicate native action ID");
             for(const auto& mutation:n.mutations) {
-                if(mutation.op=="validate") {
+                if(mutation.op=="validate"||mutation.op=="validate_email"||
+                   mutation.op=="validate_number") {
                     if(n.eventName!="submit")throw std::runtime_error("field validation requires on.submit");
                     continue;
                 }
@@ -180,7 +203,10 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
         if (!n.actionId.empty() && inForm)
             throw std::runtime_error("native action cannot be nested inside another form");
         if (n.eventName=="click") {
-            result+="<form method=\"post\" action=\""+escaped(ctx.path)+"\">"+
+            result+="<form method=\"post\" action=\""+escaped(ctx.path)+"\""+
+                    (std::getenv("NOQERI_WEB_REACTIVE")&&
+                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
+                     " data-nq-reactive=\"1\"":"")+">"+
                     hiddenAction(n,ctx.csrf);
         }
         result+="<"+n.tag;
@@ -198,12 +224,15 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
             if(attr=="rel")hasRel=true;
             if(attr=="name"&&value.rfind("_nq_",0)==0)
                 throw std::runtime_error("reserved native form field");
-            if(attr=="disabled"||attr=="checked") {
+            if(attr=="disabled"||attr=="checked"||attr=="required") {
                 if(value!="false"&&value!="0"&&!value.empty())result+=" "+attr;
             }else result+=" "+attr+"=\""+escaped(value)+"\"";
         }
         if(blankTarget&&!hasRel)result+=" rel=\"noopener noreferrer\"";
-        if(n.eventName=="submit") result+=" method=\"post\" action=\""+escaped(ctx.path)+"\"";
+        if(n.eventName=="submit") result+=" method=\"post\" action=\""+escaped(ctx.path)+"\""+
+            (std::getenv("NOQERI_WEB_REACTIVE")&&
+             std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
+             " data-nq-reactive=\"1\"":"");
         if(n.eventName=="click") result+=" type=\"submit\"";
         result+=">";
         if(n.eventName=="submit")result+=hiddenAction(n,ctx.csrf);
@@ -394,8 +423,13 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
-        "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\r\n";
-    if(status==401)header+="WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
+        "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:"+
+        std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
+                    std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
+                    "; script-src 'self'":"")+"; form-action 'self'; base-uri 'none'\r\n";
+    if(status==401)header+=std::getenv("NOQERI_WEB_BEARER_TOKEN")?
+        "WWW-Authenticate: Bearer realm=\"Noqeri native preview\"\r\n":
+        "WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
     if(!cookie.empty()) {
         const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
         header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
@@ -526,9 +560,47 @@ bool nativeBasicAllowed(const std::string& auth,const std::string& expected) {
     if(auth.rfind("Basic ",0)!=0)return false;
     return constantTimeEquals(basicDecode(auth.substr(6)),expected);
 }
+// Opt-in progressive enhancement. No client-side framework or Node runtime;
+// server-side validation and CSRF always remain authoritative.
+std::string reactiveClientScript() {
+    return R"NQJS("use strict";
+document.addEventListener("submit", async (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.dataset.nqReactive !== "1") return;
+  if (!form.reportValidity()) return;
+  event.preventDefault();
+  if (form.dataset.nqBusy === "1") return;
+  form.dataset.nqBusy = "1";
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "follow",
+      headers: {"Accept": "text/html"},
+      body: new URLSearchParams(new FormData(form))
+    });
+    if (new URL(response.url).origin !== location.origin ||
+        ![200,422].includes(response.status) ||
+        !(response.headers.get("content-type")||"").includes("text/html"))
+      throw new Error("Noqeri reactive navigation rejected");
+    const next = new DOMParser().parseFromString(await response.text(), "text/html");
+    document.body.replaceChildren(...Array.from(next.body.childNodes)
+      .map((node) => document.importNode(node,true)));
+    history.replaceState(null, "", new URL(response.url).pathname);
+    document.dispatchEvent(new CustomEvent("noqeri:updated"));
+  } catch (_) {
+    location.reload(); // Non-JS fallback remains a normal server-rendered POST.
+  } finally {
+    delete form.dataset.nqBusy;
+  }
+});
+)NQJS";
+}
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
               const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
+    const bool reactive=std::getenv("NOQERI_WEB_REACTIVE")&&
+        std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1";
     const char* configuredUser=std::getenv("NOQERI_WEB_BASIC_USER");
     const char* configuredPassword=std::getenv("NOQERI_WEB_BASIC_PASSWORD");
     if(bool(configuredUser)!=bool(configuredPassword))
@@ -537,6 +609,13 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         throw std::runtime_error("Basic credentials may not be empty");
     const std::string basicExpected=configuredUser?
         std::string(configuredUser)+":"+configuredPassword:"";
+    const char* configuredBearer=std::getenv("NOQERI_WEB_BEARER_TOKEN");
+    const std::string bearerExpected=configuredBearer?configuredBearer:"";
+    if(configuredBearer&&(bearerExpected.size()<32||bearerExpected.size()>512||
+       bearerExpected.find_first_of("\r\n")!=std::string::npos))
+        throw std::runtime_error("Bearer token must be 32..512 bytes without newlines");
+    if(!basicExpected.empty()&&!bearerExpected.empty())
+        throw std::runtime_error("configure either Basic or Bearer authentication, not both");
     // TLS terminates at a separately configured loopback reverse proxy. Never
     // trust X-Forwarded-* from arbitrary callers as an origin authority.
     std::string publicOrigin;
@@ -666,7 +745,10 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             const AppRequest req=receiveAppRequest(client);
             // Authenticate and validate the origin before acquiring the state lock.
             // GET rendering and independent database reads can now run concurrently.
-            if(!nativeBasicAllowed(req.authorization,basicExpected)) {
+            if(!bearerExpected.empty() ?
+               !(req.authorization.rfind("Bearer ",0)==0&&
+                 constantTimeEquals(req.authorization.substr(7),bearerExpected)) :
+               !nativeBasicAllowed(req.authorization,basicExpected)) {
                 appReply(client,401,"Authentication required");
             } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
@@ -680,6 +762,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             const bool head=req.method=="HEAD";
             if(path=="/theme.css"&&req.method!="POST") {
                 appReply(client,200,app.styles,"","",head,"text/css; charset=utf-8");
+            } else if(reactive&&path=="/__nq/reactive.js"&&req.method!="POST") {
+                appReply(client,200,reactiveClientScript(),"","",head,"text/javascript; charset=utf-8");
             } else {
                 const auto page=matchAppRoute(app.project,path);
                 if(!page.nodes) {
@@ -712,9 +796,34 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         else {
                             std::string validationError;
                             for(const auto& mutation:specified->second->mutations) {
-                                if(mutation.op!="validate")continue;
+                                if(mutation.op!="validate"&&mutation.op!="validate_email"&&
+                                   mutation.op!="validate_number")continue;
                                 const auto supplied=fields.find(mutation.field);
                                 const auto length=supplied==fields.end()?0:supplied->second.size();
+                                if(mutation.op=="validate_email") {
+                                    const auto value=supplied==fields.end()?std::string{}:supplied->second;
+                                    const auto at=value.find('@'), dot=value.rfind('.');
+                                    const bool ascii=std::all_of(value.begin(),value.end(),[](unsigned char ch){
+                                        return ch>32 && ch<127 && ch!='<' && ch!='>' && ch!='"' && ch!='\\';
+                                    });
+                                    if(value.size()>254||at==std::string::npos||at==0||
+                                       dot==std::string::npos||dot<=at+1||dot+1>=value.size()||
+                                       value.find('@',at+1)!=std::string::npos||!ascii) {
+                                        validationError="Invalid email address for "+mutation.field;
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                if(mutation.op=="validate_number") {
+                                    std::int64_t number=0;
+                                    if(supplied==fields.end()||!parseDecimal(supplied->second,number)||
+                                       number<static_cast<std::int64_t>(mutation.minLength)||
+                                       number>static_cast<std::int64_t>(mutation.maxLength)) {
+                                        validationError="Invalid number for "+mutation.field;
+                                        break;
+                                    }
+                                    continue;
+                                }
                                 if(length<mutation.minLength||length>mutation.maxLength) {
                                     validationError="Invalid length for "+mutation.field+
                                         " (expected "+std::to_string(mutation.minLength)+
@@ -738,7 +847,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             }
                             if(hasDb&&hasPersist)throw std::runtime_error("cannot atomically mix DB writes and .nqkv persist");
                             for(const auto& mutation:specified->second->mutations) {
-                                if(mutation.op=="validate")continue;
+                                if(mutation.op=="validate"||mutation.op=="validate_email"||
+                                   mutation.op=="validate_number")continue;
                                 if(mutation.op=="db") {
                                     std::vector<DbParameter> params;
                                     for(const auto& param:mutation.dbParams) {
@@ -811,7 +921,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
                         renderApp(*page.nodes,rendered,context);
                     if(body.size()>1024*1024)throw std::runtime_error("generated HTML too large");
-                    appReply(client,200,htmlPage(body,"/theme.css"),newCookie,"",head);
+                    appReply(client,200,htmlPage(body,"/theme.css",reactive),newCookie,"",head);
                 }
             }
             }
