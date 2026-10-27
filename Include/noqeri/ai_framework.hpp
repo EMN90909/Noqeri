@@ -8,7 +8,11 @@
 #include <vector>
 
 namespace noqeri_ai::framework {
-enum class Backend { Scalar, Tiled, Simd, Auto };
+enum class Backend { Scalar, Tiled, Simd, Auto, OpenCL }; // OpenCL requires real GPU device
+// FP16/FP32 compute uses float accumulation, FP64 uses double.
+enum class Precision { FP64, FP32, FP16 };
+bool gpu_available() noexcept;
+Matrix gpu_gemm(const Matrix& a,const Matrix& b);
 bool simd_available() noexcept;
 Matrix gemm(const Matrix& a, const Matrix& b, Backend backend = Backend::Auto);
 
@@ -17,6 +21,7 @@ Matrix gemm(const Matrix& a, const Matrix& b, Backend backend = Backend::Auto);
 class Tape {
 public:
     void set_backend(Backend backend);
+    void set_precision(Precision precision);
     std::size_t leaf(const Matrix& value);
     std::size_t add(std::size_t a, std::size_t b);
     std::size_t matmul(std::size_t a, std::size_t b);
@@ -46,6 +51,7 @@ private:
     };
     std::vector<Node> nodes_;
     Backend backend_ = Backend::Auto;
+    Precision precision_ = Precision::FP64;
     std::size_t append(Node node);
 };
 void sgd_update(Matrix& parameter, const Matrix& gradient,
@@ -60,6 +66,10 @@ struct AdamWOptions {
     double epsilon = 1e-8;
     double weight_decay = 0.01;
 };
+struct AdamWState {
+    std::vector<Matrix> first, second;
+    std::size_t steps = 0;
+};
 class AdamWOptimizer {
 public:
     explicit AdamWOptimizer(const std::vector<Matrix*>& parameters);
@@ -67,6 +77,8 @@ public:
               const std::vector<const Matrix*>& gradients,
               const AdamWOptions& options = {});
     std::size_t steps() const noexcept;
+    AdamWState state() const;
+    void restore(const AdamWState& state);
 private:
     std::vector<Matrix> first_, second_;
     std::size_t steps_ = 0;
@@ -105,6 +117,11 @@ struct TransformerOptions {
     double weight_decay = 0.01; // AdamW only, decoupled from gradients
     std::size_t warmup_steps = 0; // <= steps, zero disables warmup
     bool cosine_decay = false;
+    std::size_t layers = 1; // 1..4 causal attention blocks
+    Precision precision = Precision::FP64;
+    std::string checkpoint_path; // optional .nqck, atomic checkpoint writes
+    std::string resume_path; // resume only matching corpus and options
+    std::size_t stop_after = 0; // 0=finish, otherwise stop after this many total updates
     double minimum_learning_rate = 1e-6; // cosine floor
     double validation_fraction = 0.0; // [0,0.3], optional holdout
 };
@@ -114,6 +131,7 @@ struct TransformerTrainingReport {
     double validation_perplexity = 0.0;
     std::size_t validation_positions = 0;
     std::size_t optimizer_steps = 0;
+    bool completed = true;
 };
 struct TransformerEvaluation {
     double loss = 0.0;
@@ -123,8 +141,10 @@ struct TransformerEvaluation {
 struct TransformerModel {
     SubwordTokenizer tokenizer;
     std::size_t context = 0, hidden = 0;
-    // Single causal self-attention head, residual, one tanh feedforward layer.
+    // First layer fields retained for backwards-compatible C++ consumers.
     Matrix embedding, wq, wk, wv, wo, w1, w2, output;
+    struct Block { Matrix wq,wk,wv,wo,w1,w2; };
+    std::vector<Block> extra_layers; // layers 2..4
 };
 TransformerModel train_transformer(const std::string& corpus,
                                     const TransformerOptions& options,
