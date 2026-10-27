@@ -319,7 +319,8 @@ TransformerEvaluation evaluate_transformer(const TransformerModel& m,
     // Evenly spaced teacher-forced positions, deterministic and bounded.
     for(std::size_t i=0;i<positions;++i) {
         const std::size_t position=1+((i*(ids.size()-1))/positions);
-        auto graph=forward(m,preceding(ids,position,m.context),backend);
+        auto graph=forward(m,preceding(ids,position,m.context),backend,
+                           backend==Backend::OpenCL?Precision::FP32:Precision::FP64);
         const auto loss=graph.tape.cross_entropy(graph.logits,ids[position]);
         const double value=graph.tape.value(loss).at(0,0);
         check(std::isfinite(value) && value>=0,"nonfinite evaluation loss");
@@ -496,7 +497,8 @@ std::string generate_transformer(const TransformerModel& m,const std::string& pr
     std::mt19937 rng(seed);
     for(std::size_t i=0;i<tokens;++i) {
         const auto ctx=preceding(ids,ids.size(),m.context);
-        const auto g=forward(m,ctx,backend);
+        const auto g=forward(m,ctx,backend,
+                             backend==Backend::OpenCL?Precision::FP32:Precision::FP64);
         const Matrix& logits=g.tape.value(g.logits);
         std::size_t selected=0;
         if(temperature==0) {
