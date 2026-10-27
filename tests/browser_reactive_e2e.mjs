@@ -46,7 +46,7 @@ try {
   assert.equal(new URL(page.url()).pathname,'/about');
   assert.equal(await page.evaluate(()=>document.querySelector('main')===window.__noqeriMain),true,
     'client-side navigation should keep matching layout node');
-  await page.goBack({waitUntil:'domcontentloaded'}).catch(()=>{});
+  await page.evaluate(()=>history.back());
   await page.getByText('Your clicks: 1').waitFor();
   const injection='<img src=x onerror=alert(1)>';
   await page.getByRole('textbox',{name:'Your name'}).fill(injection);
