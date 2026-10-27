@@ -36,13 +36,18 @@ target_compile_features(noqeri_owned_collections PUBLIC cxx_std_17)
 # heavyweight ML/LLM dependencies. No autonomous shell/network privileges.
 add_library(noqeri_ai STATIC Runtime/native/ai_runtime.cpp Runtime/native/lm_runtime.cpp
  Runtime/native/ai_framework_tensor.cpp Runtime/native/ai_framework_transformer.cpp
- Runtime/native/ai_framework_c.cpp Runtime/native/matrix.cpp)
+ Runtime/native/ai_framework_c.cpp Runtime/native/matrix.cpp
+  Runtime/native/matrix_advanced.cpp Runtime/native/ai_matrix_c.cpp)
 target_include_directories(noqeri_ai PUBLIC
  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(noqeri_ai PUBLIC cxx_std_17)
 if(BUILD_TESTING)
  add_executable(noqeri-matrix-test tests/cpp/matrix_test.cpp)
+  add_executable(noqeri-matrix-advanced-test tests/cpp/matrix_advanced_test.cpp)
+  target_link_libraries(noqeri-matrix-advanced-test PRIVATE noqeri_ai)
+  target_compile_features(noqeri-matrix-advanced-test PRIVATE cxx_std_17)
+  add_test(NAME noqeri-matrix-advanced COMMAND noqeri-matrix-advanced-test)
  target_link_libraries(noqeri-matrix-test PRIVATE noqeri_ai)
  add_test(NAME noqeri-matrix COMMAND noqeri-matrix-test)
 endif()
