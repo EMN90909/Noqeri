@@ -2,7 +2,7 @@
 // Noqeri browser runtime: tiny keyed-by-position DOM reconciler, no framework.
 // Text always uses textContent. No innerHTML, eval, or dynamic source execution.
 const safeKey = k => /^[a-z][a-z0-9-]*$/.test(k) && !/^on/i.test(k) && !['constructor','prototype','__proto__','style','srcdoc','innerhtml'].includes(k);
-const allowed = k => new Set('id class title role href src alt type name value placeholder for disabled checked target rel tabindex'.split(' ')).has(k) || /^aria-[a-z0-9-]+$/.test(k) || /^data-[a-z0-9-]+$/.test(k);
+const allowed = k => new Set('id class title role href src alt type name value placeholder for disabled checked required minlength maxlength min max step autocomplete inputmode target rel tabindex'.split(' ')).has(k) || /^aria-[a-z0-9-]+$/.test(k) || /^data-[a-z0-9-]+$/.test(k);
 const allowedEvent = new Set(['click','change','input','submit']);
 export function safeMember(object,key) {
   if (object===null||object===undefined)return '';
@@ -21,7 +21,7 @@ function attribute(node,name,value) {
     const raw=String(value).trim();
     if(!/^(?:https:\/\/|\/(?!\/)|\.\.?\/|#|mailto:|tel:)/i.test(raw))throw Error('Unsafe Noqeri URL attribute');
   }
-  if(name==='disabled'||name==='checked'){if(value)node.setAttribute(name,'');else node.removeAttribute(name);return}
+  if(name==='disabled'||name==='checked'||name==='required'){if(value)node.setAttribute(name,'');else node.removeAttribute(name);return}
   if(value===null||value===undefined||value===false){node.removeAttribute(name);return}
   node.setAttribute(name,String(value));
 }
@@ -36,7 +36,13 @@ function syncEvents(node,previous,next){
     if(listeners[kind])listeners[kind].handler=handler;
     else {
       const record={handler,dispatch:null};
-      record.dispatch=e=>record.handler(e);
+      record.dispatch=e=>{
+        if(kind==='submit'){
+          if(e?.target?.reportValidity && !e.target.reportValidity())return;
+          e?.preventDefault?.();
+        }
+        record.handler(e);
+      };
       listeners[kind]=record;
       node.addEventListener(kind,record.dispatch);
     }
@@ -63,10 +69,46 @@ function patch(parent,oldVNode,newVNode,index){
   for(let i=0;i<now.children.length;i++)patch(dom,old?.children?.[i],now.children[i],i);
   while(dom.childNodes.length>now.children.length)dom.removeChild(dom.lastChild);
 }
+// Explicit browser persistence is for nonsecret primitive UI preferences only.
+export function readStored(name,fallback) {
+  if(!/^[A-Za-z_][A-Za-z_0-9]{0,63}$/.test(name))throw Error('Invalid Noqeri persisted state name');
+  if(!['string','number','boolean'].includes(typeof fallback))throw Error('Noqeri persisted state requires primitive');
+  try{
+    const raw=globalThis.localStorage?.getItem('noqeri:v1:'+name);
+    if(!raw||raw.length>4096)return fallback;
+    const value=JSON.parse(raw);
+    return typeof value===typeof fallback && (typeof value!=='number'||Number.isFinite(value))?value:fallback;
+  }catch{return fallback}
+}
+export function saveStored(name,value) {
+  if(!/^[A-Za-z_][A-Za-z_0-9]{0,63}$/.test(name))throw Error('Invalid Noqeri persisted state name');
+  if(!['string','number','boolean'].includes(typeof value)||
+     (typeof value==='number'&&!Number.isFinite(value)))throw Error('Noqeri persisted state requires primitive');
+  const raw=JSON.stringify(value);
+  if(raw.length>4096)throw Error('Noqeri persisted state exceeds limit');
+  try{globalThis.localStorage?.setItem('noqeri:v1:'+name,raw);return true}catch{return false}
+}
+// Event data is a bounded, own-property-only object, never a raw DOM object.
+export function inputEvent(event) {
+  return {value:String(event?.target?.value??'').slice(0,4096),checked:!!event?.target?.checked};
+}
+export function formFields(event) {
+  const values=Object.create(null);
+  const form=event?.target;
+  if(!form||typeof FormData==='undefined')return values;
+  let count=0;
+  for(const [name,value] of new FormData(form)){
+    if(++count>32)throw Error('Noqeri form has too many fields');
+    if(!/^[A-Za-z_][A-Za-z_0-9]{0,63}$/.test(name)||name.startsWith('_nq_'))continue;
+    if(typeof value!=='string'||value.length>4096)throw Error('Noqeri field too large or unsupported');
+    values[name]=value;
+  }
+  return values;
+}
 export function createApp(root,render) {
   if(!root||!root.ownerDocument||typeof render!=='function')throw Error('Noqeri browser root/document unavailable');
   let current=null,queued=false,disposed=false;
-  const controllers=new Set();
+  const controllers=new Set(),sockets=new Set(),reconnects=new Set();
   const paint=()=>{
     if(disposed)return;
     const next=render();
@@ -95,11 +137,53 @@ export function createApp(root,render) {
       }catch(error){if(!disposed)onError(error)}
       finally{clearTimeout(timer);controllers.delete(controller)}
     },
+    socket(path,onUpdate,onError){
+      if(typeof path!=='string'||!/^\/(?!\/)[A-Za-z0-9/_-]{1,256}$/.test(path)||
+         path.includes('..')||path.includes('//'))
+        throw Error('Noqeri WebSocket path must be a fixed same-origin path');
+      if(typeof onUpdate!=='function'||typeof onError!=='function')
+        throw Error('Noqeri WebSocket callbacks are required');
+      if(typeof WebSocket==='undefined'||typeof location==='undefined')
+        throw Error('WebSocket browser transport is unavailable');
+      let closed=false,attempt=0,active=null;
+      const endpoint=(location.protocol==='https:'?'wss://':'ws://')+location.host+path;
+      const connection={close(){closed=true;if(active){active.onclose=null;active.close();}sockets.delete(connection)}};
+      sockets.add(connection);
+      const connect=()=>{
+        if(closed||disposed)return;
+        try{
+          const ws=new WebSocket(endpoint);
+          active=ws;
+          ws.onopen=()=>{attempt=0;onUpdate({connected:true})};
+          ws.onmessage=event=>{
+            try{
+              if(typeof event.data!=='string'||event.data.length>65536)
+                throw Error('Realtime JSON frame exceeds 64 KiB');
+              const data=JSON.parse(event.data);
+              if(!closed&&!disposed)onUpdate({connected:true,data});
+            }catch(e){if(!closed&&!disposed)onError(e)}
+          };
+          ws.onerror=()=>{if(!closed&&!disposed)onError(Error('WebSocket connection failed'))};
+          ws.onclose=()=>{
+            if(closed||disposed)return;
+            onUpdate({connected:false});
+            const delay=Math.min(15000,500*Math.pow(2,Math.min(attempt++,5)));
+            const timer=setTimeout(()=>{reconnects.delete(timer);connect()},delay);
+            reconnects.add(timer);
+          };
+        }catch(e){if(!closed&&!disposed)onError(e)}
+      };
+      connect();
+      return connection;
+    },
     dispose(){
       if(disposed)return;
       disposed=true;
       for(const controller of controllers)controller.abort();
       controllers.clear();
+      for(const socket of [...sockets])socket.close();
+      for(const timer of reconnects)clearTimeout(timer);
+      reconnects.clear();
       // Removing the root's DOM tree removes every registered event handler.
       root.replaceChildren();current=null;
     }
