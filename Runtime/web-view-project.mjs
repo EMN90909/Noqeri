@@ -54,7 +54,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
    }
   }
  }
- let usesNativeUI=false;
+ let usesNativeUI=false,usesNativeApp=false;
  for(const [file,ast] of viewAst){
   for(const i of ast.imports){
    if(i.kind==='js'){
@@ -64,6 +64,11 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
     } else if(!Object.hasOwn(importmap?.imports||{},i.specifier))
      throw Error('import js "'+i.specifier+'" needs explicit web.importmap.json mapping')
    }else{
+    if(i.specifier==='noqeri/app'){
+     usesNativeApp=true;
+     if(outputPaths.has('noqeri/app.mjs'))throw Error('reserved Noqeri app output path');
+     continue;
+    }
     if(i.specifier==='noqeri/ui'){
      usesNativeUI=true;
      if(file!==main)throw Error('bundled noqeri/ui must be imported by the root main.noqeri');
@@ -114,6 +119,10 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
  await mkdir(join(output,'__noqeri'),{recursive:true})
  await copyFile(fileURLToPath(new URL('./noqeri-web-runtime.mjs',import.meta.url)),join(output,'__noqeri/runtime.mjs'));
  await writeFile(join(output,'__noqeri/theme.css'),compileTheme(mainAst.theme));
+ if(usesNativeApp){
+  await mkdir(join(output,'noqeri'),{recursive:true});
+  await copyFile(fileURLToPath(new URL('./noqeri-web-app.mjs',import.meta.url)),join(output,'noqeri/app.mjs'));
+ }
  if(usesNativeUI){
   const ui=await readFile(fileURLToPath(new URL('../Lib/web/ui.noqeri',import.meta.url)),'utf8');
   await mkdir(join(output,'noqeri'),{recursive:true});
@@ -136,5 +145,5 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
    routePages++;
   }
  }
- return {files:all.length+(htmlFiles.length?0:1)+2+(usesNativeUI?1:0)+routePages,html:Math.max(1,htmlFiles.length)+routePages,compiled:entries.size,views:viewAst.size,source:input,output}
+ return {files:all.length+(htmlFiles.length?0:1)+2+(usesNativeUI?1:0)+(usesNativeApp?1:0)+routePages,html:Math.max(1,htmlFiles.length)+routePages,compiled:entries.size,views:viewAst.size,source:input,output}
 }

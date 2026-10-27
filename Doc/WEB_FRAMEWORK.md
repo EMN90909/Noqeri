@@ -57,6 +57,10 @@ Theme keys: `primary`, `accent`, `background`, `surface`, `text`, `muted`, `bord
 
 The generated runtime uses DOM text nodes, not `innerHTML`. Route input is constrained to relative-to-origin absolute paths, and unsafe CSS token values are rejected. Router event listeners are removed on disposal. Importing third-party JavaScript modules remains explicitly opt-in; the bundled UI framework itself has no npm dependencies.
 
-**This remains the experimental web-view compiler, not Stage-2 typed NIR code generation.** Route parameters, SSR/hydration, server rendering, dynamic forms, mature accessibility primitives, source maps, bundling, per-route data loaders and qualified browser E2E testing are still future work. Browsers necessarily consume HTML/CSS/JavaScript standards output; "Noqeri-only" means the application source and UI library, not replacing the browser engine.
+**This remains the experimental web-view compiler, not Stage-2 typed NIR code generation.** Route parameters, SSR/hydration, server rendering, typed async form actions, mature accessibility primitives, source maps, bundling, per-route data loaders and qualified browser E2E testing are still future work. Basic reactive input/submit value handling and a browser WebSocket client are available in the separately qualified opt-in helpers. Browsers necessarily consume HTML/CSS/JavaScript standards output; "Noqeri-only" means the application source and UI library, not replacing the browser engine.
 
 The existing Noqeri native HTTP server library can provide backend endpoints, but the framework does **not** yet automatically compile an integrated server application from this view DSL.
+
+## Managed cloud integrations and authenticated sessions
+
+See [WEB_MANAGED_DATABASES_AND_AUTH.md](WEB_MANAGED_DATABASES_AND_AUTH.md) for server-side Supabase/Firestore/Neon adapters, a SQLite session store, password verification, CSRF tokens, and client-side reactive forms/WebSockets. These are **Node-host integration modules**, not automatically compiled native Noqeri backends or production-certified authentication. The original native stack remains available without a JavaScript engine.

@@ -1,0 +1,31 @@
+name: Managed database and reactive web contract
+on:
+  push:
+    branches: [min, main]
+    paths:
+      - 'Runtime/noqeri-web-app.mjs'
+      - 'Runtime/noqeri-web-runtime.mjs'
+      - 'Runtime/web-managed-databases.mjs'
+      - 'Runtime/noqeri-web-sessions.mjs'
+      - 'Runtime/web-view-compiler.mjs'
+      - 'Runtime/web-view-project.mjs'
+      - 'tests/web-*'
+      - '.github/workflows/managed-web.yml'
+  pull_request:
+    paths:
+      - 'Runtime/**'
+      - 'tests/web-*'
+      - '.github/workflows/managed-web.yml'
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Managed backend and browser integration
+        run: |
+          node --test tests/web-managed-databases.test.mjs tests/web-sessions.test.mjs tests/web-browser-data.test.mjs
+          node --test tests/web-framework.test.mjs tests/web-views.test.mjs tests/web-project.test.mjs

@@ -1,0 +1,17 @@
+// Reactive browser view. No JS written by application author.
+import "noqeri/app" as app
+let email = ""
+let message = "Complete the form to continue."
+route "/" {
+  main class: "nq-page" {
+    h1 { "Noqeri full-stack starter" }
+    form on.submit { message = event.form.email } {
+      label for: "email" { "Email" }
+      input id: "email" name: "email" type: "email" required: true
+            on.input { email = event.value } {}
+      button type: "submit" { "Continue" }
+    }
+    p { email }
+    p { message }
+  }
+}
