@@ -2,7 +2,8 @@
 // Noqeri browser runtime: tiny keyed-by-position DOM reconciler, no framework.
 // Text always uses textContent. No innerHTML, eval, or dynamic source execution.
 const safeKey = k => /^[a-z][a-z0-9-]*$/.test(k) && !/^on/i.test(k) && !['constructor','prototype','__proto__','style','srcdoc','innerhtml'].includes(k);
-const allowed = k => new Set('id class title role href src alt type name value placeholder for disabled checked required minlength maxlength min max step autocomplete inputmode target rel tabindex'.split(' ')).has(k) || /^aria-[a-z0-9-]+$/.test(k) || /^data-[a-z0-9-]+$/.test(k);
+const ATTRIBUTES = new Set('id class title role href src alt type name value placeholder for disabled checked required minlength maxlength min max step autocomplete inputmode target rel tabindex'.split(' '));
+const allowed = k => ATTRIBUTES.has(k) || /^aria-[a-z0-9-]+$/.test(k) || /^data-[a-z0-9-]+$/.test(k);
 const allowedEvent = new Set(['click','change','input','submit']);
 export function safeMember(object,key) {
   if (object===null||object===undefined)return '';
@@ -48,11 +49,13 @@ function syncEvents(node,previous,next){
     }
   }
 }
-function patch(parent,oldVNode,newVNode,index){
+function patch(parent,oldVNode,newVNode,index,hydrating=false){
   const doc=parent.ownerDocument;
   const old=oldVNode?normalize(oldVNode):null,now=normalize(newVNode);
   let dom=parent.childNodes[index];
-  const same=old&&((old.text!==undefined&&now.text!==undefined)||(old.tag&&old.tag===now.tag));
+  // Adopt matching server-rendered nodes on the first pass instead of replacing them.
+  const compatible=dom&&((now.text!==undefined&&dom.nodeType===3)||(now.tag&&dom.nodeType===1&&dom.tagName?.toLowerCase()===now.tag));
+  const same=old?((old.text!==undefined&&now.text!==undefined)||(old.tag&&old.tag===now.tag)):(hydrating&&compatible);
   if(!same){
     const made=now.text!==undefined?doc.createTextNode(now.text):doc.createElement(now.tag);
     if(dom)parent.replaceChild(made,dom);else parent.appendChild(made);
@@ -62,11 +65,14 @@ function patch(parent,oldVNode,newVNode,index){
     if(dom.textContent!==now.text)dom.textContent=now.text;
     return;
   }
-  for(const name of Object.keys(old?.attrs||{}))if(!Object.hasOwn(now.attrs,name))dom.removeAttribute(name);
-  for(const [name,value] of Object.entries(now.attrs))attribute(dom,name,value);
+  if(hydrating&&!old){
+    // Remove stale SSR attributes, but never touch browser-owned input properties.
+    for(const item of Array.from(dom.attributes||[]))if(!Object.hasOwn(now.attrs,item.name))dom.removeAttribute(item.name);
+  }else for(const name of Object.keys(old?.attrs||{}))if(!Object.hasOwn(now.attrs,name))dom.removeAttribute(name);
+  for(const [name,value] of Object.entries(now.attrs))if(!old||old.attrs?.[name]!==value)attribute(dom,name,value);
   if(now.attrs.target==='_blank'&&!now.attrs.rel)dom.setAttribute('rel','noopener noreferrer');
   syncEvents(dom,old?.events||{},now.events);
-  for(let i=0;i<now.children.length;i++)patch(dom,old?.children?.[i],now.children[i],i);
+  for(let i=0;i<now.children.length;i++)patch(dom,old?.children?.[i],now.children[i],i,hydrating&&!old);
   while(dom.childNodes.length>now.children.length)dom.removeChild(dom.lastChild);
 }
 // Explicit browser persistence is for nonsecret primitive UI preferences only.
@@ -105,14 +111,14 @@ export function formFields(event) {
   }
   return values;
 }
-export function createApp(root,render) {
+export function createApp(root,render,{hydrate=false}={}) {
   if(!root||!root.ownerDocument||typeof render!=='function')throw Error('Noqeri browser root/document unavailable');
   let current=null,queued=false,disposed=false;
   const controllers=new Set(),sockets=new Set(),reconnects=new Set();
   const paint=()=>{
     if(disposed)return;
     const next=render();
-    patch(root,current,next,0);
+    patch(root,current,next,0,hydrate&&current===null);
     while(root.childNodes.length>1)root.removeChild(root.lastChild);
     current=next;
   };
