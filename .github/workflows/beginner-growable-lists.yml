@@ -101,6 +101,31 @@ jobs:
           node scripts/native-build.mjs "$src" build-beginner-list/scalar-lists-native --compiler=build-beginner-list/noqeri
           test "$(./build-beginner-list/scalar-lists-native)" = "0"
 
+      - name: Nested append and typed empty list inference agrees across backends
+        run: |
+          set -euo pipefail
+          src=tests/beginner_growable_lexical_inference.noqeri
+          ./build-beginner-list/noqeri check "$src"
+          test "$(./build-beginner-list/noqeri run "$src")" = "0"
+          ./build-beginner-list/noqeri nqri "$src" build-beginner-list/lexical-lists.nqri
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/lexical-lists.nqri verify)" = "0"
+          test "$(node Runtime/nqri-vm.mjs build-beginner-list/lexical-lists.nqri verify)" = "0"
+          ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/stage2-lexical-lists.nqri 3
+          test "$(./build-beginner-list/noqeri-nqri build-beginner-list/stage2-lexical-lists.nqri verify)" = "0"
+          node scripts/native-build.mjs "$src" build-beginner-list/lexical-lists-native --compiler=build-beginner-list/noqeri
+          test "$(./build-beginner-list/lexical-lists-native)" = "0"
+
+      - name: Reject incompatible element types after nested empty-list inference
+        run: |
+          set -euo pipefail
+          src=tests/beginner_growable_bad_empty_inference.noqeri
+          if ./build-beginner-list/noqeri check "$src"; then
+            echo "Stage-0 accepted conflicting list element types"; exit 1
+          fi
+          if ./build-beginner-list/noqeri-nqri compile build-beginner-list/selfhost-stage2.nqri "$src" build-beginner-list/invalid-inferred-list.nqri 3; then
+            echo "Stage-2 accepted conflicting list element types"; exit 1
+          fi
+
       - name: Owned list cleanup executes before integer-status early propagation
         run: |
           set -euo pipefail
