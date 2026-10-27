@@ -4,6 +4,7 @@
 #endif
 #include "noqeri/matrix.hpp"
 #include "noqeri/ai_matrix_c.h"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
