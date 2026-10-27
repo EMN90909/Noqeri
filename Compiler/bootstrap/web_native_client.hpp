@@ -251,7 +251,9 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
             "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'\">"
             "<link rel=\"stylesheet\" href=\""+prefix+"theme.css\"><title>Noqeri client web</title></head><body>"
             "<main id=\"app\">"+(project.clientLoads.empty()?"<div>"+body+"</div>":std::string{})+
-            "</main><noscript>Enable JavaScript to load this page's live data.</noscript><script type=\"module\" src=\""+prefix+"main.mjs\"></script></body></html>\n";
+            "</main>"+(project.clientLoads.empty()?std::string{}:
+                std::string("<noscript>Enable JavaScript to load this page's live data.</noscript>"))+
+            "<script type=\"module\" src=\""+prefix+"main.mjs\"></script></body></html>\n";
         pages.emplace(target,head);
     }
     // Parse and render ALL routes before writing output: fail closed.
