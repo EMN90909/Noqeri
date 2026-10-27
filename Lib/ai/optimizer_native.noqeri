@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+module noqeri.ai.optimizer_native
+
+// CPU-only, explicit native AOT libnoqeri_ai ABI (Linux x86-64 preview).
+// Caller owns and persists first/second moments. No hidden handles.
+// step is 1-based and must be incremented by the application on success.
+// Caller must allocate three disjoint output regions with count f64 elements.
+// Input buffers may alias the corresponding output regions.
+record AiAdamWRequest {
+    parameters: *float
+    gradients: *float
+    first_moment: *float
+    second_moment: *float
+    count: usize
+    step: u64
+    learning_rate: float
+    beta1: float
+    beta2: float
+    epsilon: float
+    weight_decay: float
+    gradient_clip_norm: float
+    output_parameters: *float
+    output_first_moment: *float
+    output_second_moment: *float
+    output_capacity: usize
+    moment_capacity: usize
+}
+extern function nq_ai_adamw_step(request: *AiAdamWRequest): isize
+export function ai_native_adamw(request: *AiAdamWRequest): isize {
+    return nq_ai_adamw_step(request)
+}
