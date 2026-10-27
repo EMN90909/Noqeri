@@ -56,6 +56,12 @@ try {
   await page.getByRole('link',{name:'Home'}).click();
   await page.getByText('Count: 1').waitFor();
   assert.equal(new URL(page.url()).pathname,'/');
+  await page.getByRole('button',{name:'Save a click'}).click();
+  await page.getByText('Saved: 1').waitFor();
+  await page.reload({waitUntil:'load'});
+  await page.getByText('Saved: 1').waitFor();
+  assert.equal(await page.getByText('Count: 0').count(),1,
+    'in-memory state should reset while persisted preferences survive');
   assert.deepEqual(errors,[]);
   console.log('PASS: native no-Node C++ view compiler, SSR first paint, client state and SPA navigation in Chromium');
 }finally{
