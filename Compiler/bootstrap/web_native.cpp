@@ -672,6 +672,15 @@ std::string htmlPage(const std::string& page,const std::string& cssPath,bool rea
            "<title>Noqeri native web</title><link rel=\"stylesheet\" href=\""+cssPath+
            "\">"+clientScript+"</head><body>"+page+"</body></html>\n";
 }
+// A single view is a complete Noqeri web application: treat it as the
+// home route for native static output and server-rendered actions. Explicit
+// routes keep their existing 404 fallback semantics unchanged.
+void promoteStandaloneView(Project& project) {
+    if(project.routes.empty()&&project.hasFallback) {
+        project.routes.emplace("/",std::move(project.fallback));
+        project.hasFallback=false;
+    }
+}
 void build(const fs::path& input,const fs::path& output,const char* executable) {
     const fs::path root=fs::weakly_canonical(input);
     const fs::path dest=fs::absolute(output).lexically_normal();
@@ -679,7 +688,8 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
         throw std::runtime_error("output must not be inside the source project");
     Project project;
     Parser(readText(root/"main.noqeri"),project).parse();
-    if (project.routes.empty()) throw std::runtime_error("native web app requires at least one route");
+    promoteStandaloneView(project);
+    if (project.routes.empty()) throw std::runtime_error("native web app requires at least one view or route");
     if(project.databaseConfigured||!project.queries.empty())
         throw std::runtime_error("database queries require serve-app, not static build");
     if (!project.uiAlias.empty()) Parser(readText(uiSource(executable)),project,true).parse();
