@@ -1,0 +1,47 @@
+// The list can be appended to in nested lexical blocks, not only alongside
+// its declaration. Empty literal element types follow the first scalar
+// literal append, while fixed arrays and shadowing bindings stay unchanged.
+function verify(): int {
+    let readings = []
+    if true {
+        readings.append(1.5)
+    }
+    readings.append(2.5)
+    if readings.length() != 2 as usize { return 1 }
+    if readings[0] + readings[1] != 4.0 { return 2 }
+    if readings.pop() != 2.5 { return 3 }
+
+    let flags = []
+    repeat 2 {
+        flags.append(true)
+    }
+    flags.append(false)
+    if flags.length() != 3 as usize { return 4 }
+    if !flags[0] || !flags[1] || flags[2] { return 5 }
+
+    let numbers = []
+    let nextValue: int = 7
+    let i: int = 0
+    while i < 2 {
+        numbers.append(nextValue)
+        i = i + 1
+    }
+    if numbers.length() != 2 as usize { return 6 }
+    if numbers[0] != 7 || numbers[1] != 7 { return 7 }
+
+    // The nested append refers to its own local; the outer remains an array.
+    let outer = [10, 20]
+    if true {
+        let outer = [99]
+        outer.append(100)
+        if outer.length() != 2 as usize { return 8 }
+    }
+    if len(slice(outer)) != 2 as usize { return 9 }
+    if outer[1] != 20 { return 10 }
+
+    let original = [3, 4]
+    if original[0] != 3 { return 11 }
+    if len(slice(original)) != 2 as usize { return 12 }
+    return 0
+}
+print(verify())
