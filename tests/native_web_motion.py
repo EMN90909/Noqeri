@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="noqeri-motion-") as temp:
         ('motion bad { target: ".a" }\ntimeline intro { absent }\nview { p { "x" } }',"unknown"),
         ('motion bad { target: ".a" }\ntimeline intro { bad }\nview { p { "x" } }',"trigger timeline"),
         ('motion bad { target: ".a" trigger: "timeline" }\ntimeline a { bad }\ntimeline b { bad }\nview { p { "x" } }',"multiple"),
-        ('motion bad { target: ".a" duration: 1.5 }\nview { p { "x" } }',"integer"),
+        ('motion bad { target: ".a" duration: 1.5 }\nview { p { "x" } }',"expected identifier"),
     ]
     for i,(text,error) in enumerate(invalid):
         result,out=run(text,"build-client",i)
