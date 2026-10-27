@@ -284,7 +284,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
   if(ast.view||ast.routes.length){
     if(ast.routes.length){
       const page=ast.routes.reduceRight((fallback,r)=>'(__path==='+JSON.stringify(r.path)+' ? '+nodes(r.children)+' : '+fallback+')',ast.view?nodes(ast.view):'[__h("h1",{},["Page not found"],{})]');
-      lines.push('export function render(){const __path=__router ? __router.path() : "/";return __h("div",{},'+page+',{});}');
+      lines.push('export function render(path=null){const __path=path ?? (__router ? __router.path() : (typeof location!=="undefined" ? location.pathname : "/"));return __h("div",{},'+page+',{});}');
     }else lines.push('export function render(){return __h("div",{},'+nodes(ast.view)+',{});}');
     lines.push('export function mount(root){if(!root)throw Error("Missing Noqeri view root");');
     if(ast.routes.length)lines.push('  __router=__createRouter(root,()=>__schedule());');
