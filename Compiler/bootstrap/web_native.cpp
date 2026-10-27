@@ -809,6 +809,18 @@ int main(int argc,char** argv) {
 #else
             std::cout<<"mysql: not compiled\n";
 #endif
+#ifdef NOQERI_WEB_POSTGRES
+            std::cout<<"neon: compiled via PostgreSQL/libpq (TLS required)\n";
+#else
+            std::cout<<"neon: not compiled\n";
+#endif
+#ifdef NOQERI_WEB_CURL
+            std::cout<<"supabase: compiled (server-side HTTPS)\n";
+            std::cout<<"firebase: compiled (Realtime Database HTTPS)\n";
+#else
+            std::cout<<"supabase: not compiled (libcurl required)\n";
+            std::cout<<"firebase: not compiled (libcurl required)\n";
+#endif
             return 0;
         }
         if(argc==4&&std::string(argv[1])=="compile") {
