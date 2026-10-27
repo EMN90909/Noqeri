@@ -82,8 +82,29 @@ void savePersisted(const AppStore& store,const std::map<std::string,std::string>
     if (!parent.empty()) fs::create_directories(parent);
     const auto temporary=fs::path(store.stateFile.string()+"."+randomToken()+".tmp");
     try {
-        writeText(temporary,data);
+        // Create mode-0600 data files with exclusive creation. A normal
+        // ofstream creates world-readable files under permissive umasks.
+        const int fd=::open(temporary.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
+        if(fd<0)throw std::runtime_error("cannot securely create native state file");
+        std::size_t offset=0;
+        bool complete=true;
+        while(offset<data.size()) {
+            const auto written=::write(fd,data.data()+offset,data.size()-offset);
+            if(written<=0) {complete=false;break;}
+            offset+=static_cast<std::size_t>(written);
+        }
+        if(::fsync(fd)!=0)complete=false;
+        if(::close(fd)!=0)complete=false;
+        if(!complete)throw std::runtime_error("native data write or fsync failed");
         fs::rename(temporary,store.stateFile);
+        // Sync the directory entry as well, so a successful response survives
+        // an ordinary crash/power-loss boundary on supported local filesystems.
+        const auto directory=parent.empty()?fs::path("."):parent;
+        const int dir=::open(directory.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
+        if(dir<0)throw std::runtime_error("cannot open native data directory");
+        const bool synced=::fsync(dir)==0;
+        ::close(dir);
+        if(!synced)throw std::runtime_error("cannot sync native data directory");
     }catch(...) { std::error_code ec;fs::remove(temporary,ec);throw; }
 }
 // Validate and collect actions before accepting requests; never accept action names
