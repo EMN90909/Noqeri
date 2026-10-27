@@ -53,6 +53,8 @@ jobs:
         run: python3 tests/native_web_auth.py ./build-native-web/noqeri-web examples/native_web_fullstack
       - name: Qualify strict HTTP Origin and bounded session expiry
         run: python3 tests/native_web_session_expiry.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Qualify native reactive forms, Bearer gate and private state files
+        run: python3 tests/native_web_reactive_security.py ./build-native-web/noqeri-web
       - name: Qualify HTTPS reverse-proxy Host and Origin boundary
         run: python3 tests/native_web_proxy_origin.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Test native web database adapters without changing NoeSQL
