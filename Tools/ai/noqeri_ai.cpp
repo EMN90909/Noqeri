@@ -43,7 +43,11 @@ void help() {
       "  agent <model.nqai> <numeric-observations.csv> [--max-steps N] [--allow-emit]\n"
       "  lm train <ascii-corpus.txt> <model.nqlm> [--steps N] [--context N] [--hidden N] [--rate LR] [--seed N]\n"
       "  lm generate <model.nqlm> <prompt> [--tokens N] [--temperature X] [--seed N]\n"
-      "  transformer train <text.txt> <model.nqtf> [--steps N] [--context N] [--hidden N] [--merges N] [--backend auto|scalar|tiled|simd]\n"
+      "  transformer train <text.txt> <model.nqtf> [--steps N] [--context N] [--hidden N] [--merges N]\n"
+      "    [--optimizer sgd|adamw] [--batch N] [--rate LR] [--clip N] [--weight-decay N]\n"
+      "    [--schedule constant|cosine] [--warmup N] [--min-rate N] [--validation N]\n"
+      "    [--seed N] [--backend auto|scalar|tiled|simd]\n"
+      "  transformer evaluate <model.nqtf> <text.txt> [--backend auto|scalar|tiled|simd]\n"
       "  transformer generate <model.nqtf> <prompt> [--tokens N] [--temperature X] [--seed N] [--backend auto|scalar|tiled|simd]\n"
       "  --version\n"
       "Training CSV has numeric features then a binary 0/1 label, without a header.\n"
@@ -76,17 +80,60 @@ int main(int argc,char** argv) {
                     else if(flag=="--rate")options.learning_rate=decimal(value);
                     else if(flag=="--seed")options.seed=static_cast<std::uint32_t>(natural(value,4294967295ULL));
                     else if(flag=="--backend")options.backend=backend_name(value);
+                    else if(flag=="--optimizer") {
+                        if(value=="sgd")options.optimizer=TrainingOptimizer::SGD;
+                        else if(value=="adamw")options.optimizer=TrainingOptimizer::AdamW;
+                        else throw std::runtime_error("optimizer must be sgd or adamw");
+                    }
+                    else if(flag=="--batch")options.batch_size=natural(value,16);
+                    else if(flag=="--clip")options.gradient_clip_norm=decimal(value);
+                    else if(flag=="--weight-decay")options.weight_decay=decimal(value);
+                    else if(flag=="--schedule") {
+                        if(value=="cosine")options.cosine_decay=true;
+                        else if(value=="constant")options.cosine_decay=false;
+                        else throw std::runtime_error("schedule must be constant or cosine");
+                    }
+                    else if(flag=="--warmup")options.warmup_steps=natural(value,9999);
+                    else if(flag=="--min-rate")options.minimum_learning_rate=decimal(value);
+                    else if(flag=="--validation")options.validation_fraction=decimal(value);
                     else throw std::runtime_error("unknown transformer train flag "+flag);
                 }
                 const auto corpus=noqeri_ai::read_language_corpus(argv[3]);
                 double training_loss=0;
-                auto model=train_transformer(corpus,options,&training_loss);
+                TransformerTrainingReport report;
+                auto model=train_transformer(corpus,options,&training_loss,&report);
                 save_transformer(model,argv[4]);
                 std::cout<<std::setprecision(9)
                          <<"transformer_tokens="<<model.tokenizer.encode(corpus).size()
                          <<" vocab="<<model.tokenizer.vocab_size()
-                         <<" steps="<<options.steps
-                         <<" trailing_loss="<<training_loss<<"\n";
+                         <<" steps="<<report.optimizer_steps
+                         <<" batch="<<options.batch_size
+                         <<" optimizer="<<(options.optimizer==TrainingOptimizer::AdamW?"adamw":"sgd")
+                         <<" trailing_loss="<<training_loss;
+                if(report.validation_positions)
+                    std::cout<<" validation_loss="<<report.validation_loss
+                             <<" validation_perplexity="<<report.validation_perplexity
+                             <<" validation_positions="<<report.validation_positions;
+                std::cout<<"\n";
+                return 0;
+            }
+            if(action=="evaluate") {
+                if(argc<5)throw std::runtime_error("usage: transformer evaluate <model.nqtf> <corpus.txt>");
+                Backend backend=Backend::Auto;
+                for(int i=5;i<argc;++i) {
+                    const std::string flag=argv[i];
+                    if(i+1>=argc)throw std::runtime_error("missing transformer evaluate option");
+                    const std::string value=argv[++i];
+                    if(flag=="--backend")backend=backend_name(value);
+                    else throw std::runtime_error("unknown transformer evaluate flag "+flag);
+                }
+                const auto model=load_transformer(argv[3]);
+                const auto corpus=noqeri_ai::read_language_corpus(argv[4]);
+                const auto evaluation=evaluate_transformer(model,corpus,backend);
+                std::cout<<std::setprecision(9)
+                         <<"eval_loss="<<evaluation.loss
+                         <<" perplexity="<<evaluation.perplexity
+                         <<" positions="<<evaluation.positions<<"\n";
                 return 0;
             }
             if(action=="generate") {
