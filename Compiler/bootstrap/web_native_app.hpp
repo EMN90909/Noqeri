@@ -8,6 +8,7 @@
 struct AppSession {
     std::map<std::string,std::string> values;
     std::string csrf;
+    std::string principal;
     std::chrono::steady_clock::time_point seen;
 };
 struct AppStore {
@@ -585,6 +586,7 @@ bool nativeBasicAllowed(const std::string& auth,const std::string& expected) {
     if(auth.rfind("Basic ",0)!=0)return false;
     return constantTimeEquals(basicDecode(auth.substr(6)),expected);
 }
+#include "web_native_authz.hpp"
 // Opt-in progressive enhancement. No client-side framework or Node runtime;
 // server-side validation and CSRF always remain authoritative.
 std::string reactiveClientScript() {
@@ -740,6 +742,9 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         throw std::runtime_error("Bearer token must be 32..512 bytes without newlines");
     if(!basicExpected.empty()&&!bearerExpected.empty())
         throw std::runtime_error("configure either Basic or Bearer authentication, not both");
+    const auto routePermissions=loadRoutePermissions();
+    if(!routePermissions.empty()&&(!basicExpected.empty()||!bearerExpected.empty()))
+        throw std::runtime_error("route bearer authorization cannot mix with global Basic/Bearer gates");
     // TLS terminates at a separately configured loopback reverse proxy. Never
     // trust X-Forwarded-* from arbitrary callers as an origin authority.
     std::string publicOrigin;
@@ -868,6 +873,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         std::thread([&,client] {
         try {
             const AppRequest req=receiveAppRequest(client);
+            const auto routePath=req.path.substr(0,req.path.find('?'));
+            const auto authorization=authorizeRoute(routePermissions,req.method,routePath,req.authorization);
             // Authenticate and validate the origin before acquiring the state lock.
             // GET rendering and independent database reads can now run concurrently.
             if(!bearerExpected.empty() ?
@@ -875,6 +882,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                  constantTimeEquals(req.authorization.substr(7),bearerExpected)) :
                !nativeBasicAllowed(req.authorization,basicExpected)) {
                 appReply(client,401,"Authentication required");
+            } else if(!authorization.allowed) {
+                appReply(client,403,"Route access denied");
             } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
             const auto allowedHostB="localhost:"+std::to_string(port);
@@ -882,7 +891,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             if(!req.host.empty()&&req.host!=allowedHostA&&req.host!=allowedHostB&&
                (allowedPublicHost.empty()||req.host!=allowedPublicHost))
                 throw std::runtime_error("Host is not a configured native origin");
-            auto path=req.path.substr(0,req.path.find('?'));
+            auto path=routePath;
             if(path.size()>1&&path.back()=='/')path.pop_back();
             const bool head=req.method=="HEAD";
             if(path=="/theme.css"&&req.method!="POST") {
@@ -901,6 +910,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     std::lock_guard<std::mutex> locked(stateGuard);
                     auto session=app.sessions.find(getSid(req.cookie));
                     if(session==app.sessions.end() ||
+                       session->second.principal!=authorization.principal ||
                        std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
                         appReply(client,403,"Session expired");
                     } else if(!publicOrigin.empty() ?
@@ -1021,11 +1031,15 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         app.sessions.erase(session);
                         session=app.sessions.end();
                     }
+                    if(session!=app.sessions.end() &&
+                       session->second.principal!=authorization.principal)
+                        session=app.sessions.end();
                     if(session==app.sessions.end()) {
                         sessionPrune(app,sessionTtl);
                         sid=randomToken();
                         AppSession created;
                         created.csrf=randomToken();
+                        created.principal=authorization.principal;
                         created.seen=std::chrono::steady_clock::now();
                         for(const auto& name:app.project.mutableState)
                             created.values[name]=app.project.globals.at(name);
