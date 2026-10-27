@@ -16,9 +16,6 @@ void valid(const Matrix& m) {
     for(double v:m.values) require(std::isfinite(v) && std::abs(v)<=1e8,
                                    "invalid matrix element");
 }
-void same(const Matrix& a,const Matrix& b) {
-    require(a.rows==b.rows && a.cols==b.cols,"shape mismatch");
-}
 void checked(Matrix& m) {valid(m);}
 template<class F> Matrix binary(const Matrix& a,const Matrix& b,F fn) {
     valid(a);valid(b);
