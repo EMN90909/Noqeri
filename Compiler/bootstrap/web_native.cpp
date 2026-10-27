@@ -415,7 +415,7 @@ class Parser {
         }
         if(!fields.count("target"))fail("motion requires a target selector");
         const auto& target=fields.at("target");
-        if(target.size()<3||target.size()>66||
+        if(target.size()<2||target.size()>66||
            (target[0]!='.'&&target[0]!='#')||!wordStart(target[1])||
            !std::all_of(target.begin()+2,target.end(),[](unsigned char c){
                return std::isalnum(c)||c=='_'||c=='-';
