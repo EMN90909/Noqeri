@@ -74,6 +74,12 @@ GitHub Actions now checks all of the following:
   CSRF sessions. Optional SQLite WAL transactional sessions are tested across
   two local processes, including replay and server restart. This is **not**
   a cross-host distributed session service.
+- Optional `NOQERI_WEB_RATE_LIMIT_PER_MINUTE` throttles each authorized
+  principal independently. The strict 1..10,000 requests/minute configuration
+  fails closed, and exhausted quotas return HTTP 429. An anonymous preview
+  principal shares one quota; unique-principal records are memory bounded.
+  **This is per-process enforcement**, not cluster-wide distributed throttling;
+  production traffic also needs ingress/shared-rate limits.
 - Native HTTP loopback performance in **both** JavaScript-disabled and hydrated
   server rendering: 120 measured sequential GETs + 120 GETs at 8-client
   concurrency, reusing a session and making fresh HTTP/1.1 connections.
