@@ -20,28 +20,11 @@ jobs:
       - name: Build language compiler and native AI runtime
         run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test noqeri-ai-framework-test noqeri-ai-optimizer-test noqeri-ai-autodiff-deep-test --parallel 2
       - name: Run native training, model integrity and agent budget tests
-        run: ctest --test-dir build-ai -R '^noqeri-(ai|lm)-runtime$|^noqeri-ai-framework$|^noqeri-ai-optimizer --output-on-failure
+        run: ctest --test-dir build-ai -R '^noqeri-(ai|lm)-runtime$|^noqeri-ai-framework$|^noqeri-ai-optimizer$|^noqeri-ai-autodiff-deep$' --output-on-failure
       - name: Compile typed Noqeri AI modules and run agent integration
         run: python3 tests/native_ai.py ./build-ai/noqeri ./build-ai/noqeri-ai examples/ai/online_learning.noqeri
-      - name: Train, evaluate, and replay seeded AdamW model through CLI
+      - name: Train and evaluate seeded AdamW model via CLI
         run: python3 tests/native_transformer_training.py ./build-ai/noqeri-ai
-      - name: Verify installed CLI, public header, model library and .noqeri AI modules
-        shell: bash
-        run: |
-          cmake --install build-ai --prefix "$PWD/ai-stage"
-          test -s ai-stage/bin/noqeri-ai
-          test -s ai-stage/lib/libnoqeri_ai.a
-          test -s ai-stage/include/noqeri/ai.hpp
-          test -s ai-stage/include/noqeri/lm.hpp
-          test -s ai-stage/include/noqeri/ai_framework.hpp
-          test -s ai-stage/share/noqeri/Lib/ai/framework.noqeri
-          test -s ai-stage/share/noqeri/Lib/std/numeric.noqeri
-          test -s ai-stage/share/noqeri/Lib/ai/learn.noqeri
-          test -s ai-stage/share/noqeri/Lib/ai/agent.noqeri
-          ai-stage/bin/noqeri ai --version | grep -F '0.1.4-patch'
- --output-on-failure
-      - name: Compile typed Noqeri AI modules and run agent integration
-        run: python3 tests/native_ai.py ./build-ai/noqeri ./build-ai/noqeri-ai examples/ai/online_learning.noqeri
       - name: Verify installed CLI, public header, model library and .noqeri AI modules
         shell: bash
         run: |
