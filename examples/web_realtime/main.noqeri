@@ -1,0 +1,14 @@
+// Requires an independent same-origin WebSocket endpoint at /ws/updates.
+persist nickname = "Guest"
+subscribe updates from "/ws/updates"
+view {
+  main {
+    h1 { "Welcome " + nickname }
+    form on.submit { nickname = form.nickname } {
+      input name: "nickname" required: true minlength: 2 maxlength: 40 {}
+      button type: "submit" { "Save nickname" }
+    }
+    p { updates.connected }
+    p { updates.data }
+  }
+}
