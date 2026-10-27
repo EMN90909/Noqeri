@@ -39,8 +39,7 @@ jobs:
           grep -F -- '-DNQAI_HAVE_OPENCL=1' build-opencl/compile_commands.json
           cmake --build build-opencl --target noqeri-ai-resume-depth-test noqeri-ai-gpu-hardware-test --parallel 2
       - name: Check CPU-only framework tests with real OpenCL SDK
-        run: ctest --test-dir build-opencl --output-on-failure -R '^noqeri-ai-resume-depth
-
+        run: ctest --test-dir build-opencl --output-on-failure -R '^noqeri-ai-resume-depth$'
       - name: Prove hardware-only test refuses a normal CPU hosted runner
         shell: bash
         run: |
