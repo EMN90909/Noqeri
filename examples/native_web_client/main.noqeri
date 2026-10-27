@@ -1,0 +1,41 @@
+// Fully Node-free browser build via noqeri-web build-client.
+// This is the native C++ view subset: client state, components and routes.
+let count = 0
+
+component Heading(label: string) {
+    h1 { label }
+}
+
+theme {
+    primary: "#304ac0"
+    background: "#f7f8fc"
+}
+
+route "/" {
+    main class: "nq-page" {
+        Heading("Noqeri native client views")
+        nav {
+            a href: "/" { "Home" }
+            a href: "/about" { "About" }
+        }
+        p { "Count: " + count }
+        button class: "nq-button" on.click {
+            count = count + 1
+        } { "Add one" }
+    }
+}
+
+route "/about" {
+    main class: "nq-page" {
+        h1 { "Client-side routing without Node.js" }
+        p { "Count: " + count }
+        a href: "/" { "Home" }
+    }
+}
+
+view {
+    main class: "nq-page" {
+        h1 { "Not found" }
+        a href: "/" { "Home" }
+    }
+}
