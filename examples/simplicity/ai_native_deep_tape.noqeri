@@ -1,0 +1,57 @@
+// Example: differentiated GELU + LayerNorm + dense output from Noqeri AOT.
+// This is a bounded CPU-native graph, not a built-in neural-model syntax.
+import "../../Lib/ai/native.noqeri"
+function verify(): int {
+    let input: [float; 3] = [-0.5, 0.4, 1.2]
+    let weights: [float; 6] = [0.4,-0.2,0.1,0.3,-0.1,0.5]
+    let loss: [float; 1] = [-99.0]
+    let gradients: [float; 3] = [-99.0,-99.0,-99.0]
+    let steps: [AiTapeStep; 6]
+    steps[0].operation = 0 as u32
+    steps[0].data = &input[0]
+    steps[0].rows = 1 as usize
+    steps[0].cols = 3 as usize
+    steps[1].operation = 10 as u32
+    steps[1].a = 0 as usize
+    steps[2].operation = 11 as u32
+    steps[2].a = 1 as usize
+    steps[2].scalar = 0.00001
+    steps[3].operation = 0 as u32
+    steps[3].data = &weights[0]
+    steps[3].rows = 3 as usize
+    steps[3].cols = 2 as usize
+    steps[4].operation = 2 as u32
+    steps[4].a = 2 as usize
+    steps[4].b = 3 as usize
+    steps[5].operation = 7 as u32
+    steps[5].a = 4 as usize
+    steps[5].target = 1 as usize
+    let rows: usize = 0 as usize
+    let cols: usize = 0 as usize
+    let request: AiTapeRequest
+    request.steps = &steps[0]
+    request.step_count = 6 as usize
+    request.output_step = 5 as usize
+    request.loss_step = 5 as usize
+    request.gradient_step = 0 as usize
+    request.backward = 1 as u32
+    request.backend = 0 as u32
+    request.output = &loss[0]
+    request.output_capacity = 1 as usize
+    request.gradient = &gradients[0]
+    request.gradient_capacity = 3 as usize
+    request.output_rows = &rows
+    request.output_cols = &cols
+    if ai_native_tape(&request) != 0 as isize { return 1 }
+    if rows != 1 as usize || cols != 1 as usize { return 2 }
+    if loss[0] <= 0.0 || loss[0] > 20.0 { return 3 }
+    if gradients[0] != gradients[0] { return 4 }
+    if gradients[1] != gradients[1] { return 5 }
+    if gradients[2] != gradients[2] { return 6 }
+    request.gradient_capacity = 1 as usize
+    loss[0] = -99.0
+    if ai_native_tape(&request) != -3 as isize { return 7 }
+    if loss[0] != -99.0 { return 8 }
+    return 0
+}
+print(verify())
