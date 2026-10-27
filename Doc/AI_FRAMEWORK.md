@@ -35,12 +35,12 @@ These options extend the existing trainer without changing the default
 optimizer (SGD, batch size 1). The training loop counts **optimizer updates**
 as steps, so total sampled targets equals steps × batch size. The combined
 budget is capped at 160,000 sampled targets. AdamW defaults to the usual
-\`beta1=0.9\`, \`beta2=0.999\`, and \`eps=1e-8\`, with C++ customization
-available through \`AdamWOptions\`. The AdamW update is staged across all
+`beta1=0.9`, `beta2=0.999`, and `eps=1e-8`, with C++ customization
+available through `AdamWOptions`. The AdamW update is staged across all
 parameter groups; a failed update does not mutate any weight, moment or step
 counter. Invalid gradients fail closed.
 
-\`\`\`sh
+```sh
 noqeri ai transformer train corpus.txt tuned.nqtf \
   --optimizer adamw --batch 4 --steps 500 --rate 0.001 \
   --clip 1 --weight-decay 0.01 \
@@ -49,28 +49,28 @@ noqeri ai transformer train corpus.txt tuned.nqtf \
 
 noqeri ai transformer evaluate tuned.nqtf evaluation.txt
 noqeri ai transformer generate tuned.nqtf "hello" --tokens 24
-\`\`\`
+```
 
 Validation reserves the final requested fraction of *bytes* (0..0.3)
 **before BPE fitting and model training**. The validation partition must
 contain at least 16 bytes, and a deterministic teacher-forced sample of
 at most 256 validation token positions is evaluated after training.
-The reported perplexity is \`exp(mean_cross_entropy)\`; it is not a
+The reported perplexity is `exp(mean_cross_entropy)`; it is not a
 generation-quality, ranking, or general-language benchmark. Evaluation text
 is always supplied independently and is never used for weight updates.
 Holdout and training samples share an ASCII/LF token domain but not their
 training positions. If validation is disabled, no held-out metric is claimed.
 
-The learning rate schedule decays to \`--min-rate\` after warmup. Use
-\`--schedule constant\` (default) to keep a fixed rate after optional warmup.
+The learning rate schedule decays to `--min-rate` after warmup. Use
+`--schedule constant` (default) to keep a fixed rate after optional warmup.
 For AdamW, a much smaller rate such as 0.001–0.003 is usually a better
 starting point than the existing SGD default of 0.025. These are tuning
 starting points, **not guaranteed optimal learning rates**.
 The default SGD path intentionally keeps its legacy elementwise gradient
-clipping behavior for compatibility; use \`--batch\` or \`--clip\` to opt
+clipping behavior for compatibility; use `--batch` or `--clip` to opt
 into the new global-norm clipping path.
 
-\`NQTF1\` serializes model weights and merges, **not optimizer moments,
+`NQTF1` serializes model weights and merges, **not optimizer moments,
 RNG state, sampled positions, schedule progress or resumable checkpoints**.
 Training remains from scratch. It is **not a multi-layer transformer,
 large-scale LLM pretrainer or mixed-precision/GPU runtime**.
