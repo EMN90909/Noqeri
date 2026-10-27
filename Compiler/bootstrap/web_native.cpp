@@ -494,7 +494,7 @@ std::string safeAttr(const std::string& key) {
     static const std::set<std::string> attrs={
         "id","class","title","role","href","src","alt","type","name","value",
         "placeholder","for","disabled","checked","target","rel","tabindex",
-        "action","method","required","minlength","maxlength","min","max","autocomplete"
+        "action","method","required","minlength","maxlength","min","max","step","inputmode","autocomplete"
     };
     if (attrs.count(key)) return key;
     if (key.rfind("aria_",0)==0 || key.rfind("data_",0)==0) {
