@@ -135,6 +135,16 @@ std::string executeCloud(const DbConfiguration& db,const std::string& source,
     curl_easy_setopt(raw,CURLOPT_FOLLOWLOCATION,0L);
     curl_easy_setopt(raw,CURLOPT_SSL_VERIFYPEER,1L);
     curl_easy_setopt(raw,CURLOPT_SSL_VERIFYHOST,2L);
+    // libcurl does not portably honor the curl *command-line* CA env vars.
+    // A trusted server operator may configure an explicit private CA file.
+    // This never disables TLS peer/hostname verification.
+    if(const char* ca=std::getenv("NOQERI_WEB_CA_BUNDLE")) {
+        const std::string caFile(ca);
+        if(caFile.empty()||caFile.size()>2048||
+           caFile.find_first_of("\r\n\0",0,3)!=std::string::npos)
+            throw std::runtime_error("invalid native HTTPS CA bundle configuration");
+        curl_easy_setopt(raw,CURLOPT_CAINFO,caFile.c_str());
+    }
     curl_easy_setopt(raw,CURLOPT_CONNECTTIMEOUT,3L);
     curl_easy_setopt(raw,CURLOPT_TIMEOUT,10L);
     curl_easy_setopt(raw,CURLOPT_NOSIGNAL,1L);
