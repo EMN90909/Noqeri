@@ -55,3 +55,53 @@ test('subsequent reactive paints retain unchanged elements',async()=>{
   assert.equal(span.textContent,'1');
   app.dispose();
 });
+
+
+test('secure server-side VNode serialization escapes text and forbids unsafe attributes',async()=>{
+  const {renderToHtml}=await import('../Runtime/noqeri-web-runtime.mjs');
+  const html=renderToHtml(element('div',{class:'safe'},[
+    element('a',{href:'/about',target:'_blank'},['<script>&"']),
+    element('input',{required:true,value:'a"b'},[])
+  ]));
+  assert.match(html, /&lt;script&gt;&amp;&quot;/);
+  assert.match(html, /rel="noopener noreferrer"/);
+  assert.match(html, /<input required value="a&quot;b">/);
+  assert.throws(()=>renderToHtml(element('a',{href:'javascript:alert(1)'},['bad'])),/Unsafe Noqeri URL/);
+  assert.throws(()=>renderToHtml(element('script',{},['bad'])),/Unsafe Noqeri prerender tag/);
+  assert.throws(()=>renderToHtml(element('p',{},['x'.repeat(1024*1024+1)])),/exceeds 1 MiB/);
+});
+test('zero-HTML Noqeri views prerender real per-route HTML for browser hydration',async()=>{
+  const {mkdtemp,mkdir,writeFile,readFile,rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const {buildWebProject}=await import('../Runtime/web-project.mjs');
+  const dir=await mkdtemp(join(tmpdir(),'noqeri-ssr-route-'));
+  try {
+    const src=join(dir,'src'),out=join(dir,'dist');
+    await mkdir(src);
+    await writeFile(join(src,'main.noqeri'),
+      'let count = 0\nroute "/" { main { h1 { "Landing" } button on.click { count = count + 1 } { "Clicks: " + count } } }\nroute "/about" { main { h1 { "Details" } } }');
+    await buildWebProject({source:src,out});
+    const home=await readFile(join(out,'index.html'),'utf8');
+    const about=await readFile(join(out,'about/index.html'),'utf8');
+    assert.match(home,/<main id="app"><div><main><h1>Landing<\/h1>/);
+    assert.match(home,/Clicks: 0/);
+    assert.doesNotMatch(home,/<h1>Details<\/h1>/);
+    assert.match(about,/<main id="app"><div><main><h1>Details<\/h1>/);
+    assert.doesNotMatch(about,/<h1>Landing<\/h1>/);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
+test('async Noqeri views remain client-rendered when pre-rendering would be misleading',async()=>{
+  const {mkdtemp,mkdir,writeFile,readFile,rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const {buildWebProject}=await import('../Runtime/web-project.mjs');
+  const dir=await mkdtemp(join(tmpdir(),'noqeri-async-view-'));
+  try {
+    const src=join(dir,'src'),out=join(dir,'dist');
+    await mkdir(src);
+    await writeFile(join(src,'main.noqeri'),'load data from "/api/data"\nview { p { data.loading } }');
+    await buildWebProject({source:src,out});
+    assert.match(await readFile(join(out,'index.html'),'utf8'),/<main id="app"><\/main>/);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
