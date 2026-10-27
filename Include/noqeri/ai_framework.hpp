@@ -87,14 +87,35 @@ struct SubwordTokenizer {
                                   std::size_t max_merges = 16);
 };
 
+enum class TrainingOptimizer { SGD, AdamW };
 struct TransformerOptions {
     std::size_t context = 4; // 1..16
     std::size_t hidden = 8;  // 2..24
-    std::size_t steps = 200; // 1..10000
+    std::size_t steps = 200; // 1..10000 optimizer updates
     std::size_t merges = 8;  // 0..32
     double learning_rate = 0.025;
     std::uint32_t seed = 42;
     Backend backend = Backend::Auto;
+    TrainingOptimizer optimizer = TrainingOptimizer::SGD;
+    std::size_t batch_size = 1; // 1..16 independent training samples/step
+    double gradient_clip_norm = 1.0; // maximum global L2 norm
+    double weight_decay = 0.01; // AdamW only, decoupled from gradients
+    std::size_t warmup_steps = 0; // <= steps, zero disables warmup
+    bool cosine_decay = false;
+    double minimum_learning_rate = 0.0; // cosine floor
+    double validation_fraction = 0.0; // [0,0.3], optional holdout
+};
+struct TransformerTrainingReport {
+    double train_loss = 0.0; // trailing training loss
+    double validation_loss = 0.0; // exact 0 when validation disabled
+    double validation_perplexity = 0.0;
+    std::size_t validation_positions = 0;
+    std::size_t optimizer_steps = 0;
+};
+struct TransformerEvaluation {
+    double loss = 0.0;
+    double perplexity = 0.0;
+    std::size_t positions = 0;
 };
 struct TransformerModel {
     SubwordTokenizer tokenizer;
@@ -104,7 +125,12 @@ struct TransformerModel {
 };
 TransformerModel train_transformer(const std::string& corpus,
                                     const TransformerOptions& options,
-                                    double* training_loss = nullptr);
+                                    double* training_loss = nullptr,
+                                    TransformerTrainingReport* report = nullptr);
+// Deterministic, bounded teacher-forced next-token evaluation (max 256 positions).
+TransformerEvaluation evaluate_transformer(const TransformerModel& model,
+                                            const std::string& text,
+                                            Backend backend = Backend::Auto);
 std::string generate_transformer(const TransformerModel& model,
                                  const std::string& prompt,
                                  std::size_t tokens = 24,
