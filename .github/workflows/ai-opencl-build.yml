@@ -1,0 +1,38 @@
+name: Noqeri optional OpenCL accelerator build
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Runtime/native/ai_gpu_opencl.cpp'
+      - 'Runtime/native/ai_framework_tensor.cpp'
+      - 'Include/noqeri/ai_framework.hpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/ai-opencl-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Runtime/native/ai_gpu_opencl.cpp'
+      - 'Runtime/native/ai_framework_tensor.cpp'
+      - 'Include/noqeri/ai_framework.hpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/ai-opencl-build.yml'
+permissions:
+  contents: read
+jobs:
+  opencl-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenCL headers and loader (not a physical GPU)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ocl-icd-opencl-dev opencl-headers
+      - name: Compile the actual GPU-only accelerator source
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-opencl -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_AI_OPENCL=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+          grep -F -- '-DNQAI_HAVE_OPENCL=1' build-opencl/compile_commands.json
+          cmake --build build-opencl --target noqeri-ai-resume-depth-test --parallel 2
+      - name: Test CPU fallback refusal with OpenCL SDK compiled in
+        run: ctest --test-dir build-opencl --output-on-failure -R '^noqeri-ai-resume-depth$'
