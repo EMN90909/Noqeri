@@ -19,9 +19,51 @@ jobs:
       - name: Configure native C++ bootstrap
         run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
       - name: Build Noqeri native web and WebSocket frame validator
-        run: cmake --build build-native-web --target noqeri noqeri-web noqeri-websocket-frame-test -j2
+        run: cmake --build build-native-web --target noqeri noqeri-web noqeri-websocket-frame-test noqeri-web-cloud-test -j2
       - name: Native static web and RFC6455 frame regression tests
-        run: ctest --test-dir build-native-web -R '^(noqeri-native-web|noqeri-websocket-frame)$' --output-on-failure
+        run: ctest --test-dir build-native-web -R '^(noqeri-native-web|noqeri-websocket-frame|noqeri-web-cloud) --output-on-failure
+      - name: Ensure static site uses HTML/CSS only
+        run: |
+          ./build-native-web/noqeri-web build examples/native_web_static build-native-web/website
+          test -s build-native-web/website/index.html
+          test -s build-native-web/website/about/index.html
+          test -s build-native-web/website/theme.css
+          if find build-native-web/website -type f \( -name '*.js' -o -name '*.mjs' \) | grep .; then exit 1; fi
+          grep -q 'Noqeri UI v2' build-native-web/website/index.html
+          grep -q 'nq-empty' build-native-web/website/index.html
+          grep -q 'nq-button-secondary' build-native-web/website/about/index.html
+      - name: Native HTTP static-route integration
+        run: |
+          ./build-native-web/noqeri-web serve build-native-web/website 18971 > /tmp/noqeri-native-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 10 http://127.0.0.1:18971/ -o /tmp/noqeri-native-index.html
+          grep -q 'Build websites with Noqeri' /tmp/noqeri-native-index.html
+          curl --fail --silent --show-error http://127.0.0.1:18971/about/ | grep -q 'Independent web pages'
+          curl --fail --silent --show-error http://127.0.0.1:18971/theme.css | grep -q -- '--nq-primary:#304ac0'
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18971/missing)
+          test "$status" = 404
+      - name: Test native interactive HTTP security and sessions
+        run: python3 tests/native_web_actions.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Test unified native layouts, parameters and form validation
+        run: python3 tests/native_web_fullstack.py ./build-native-web/noqeri-web examples/native_web_fullstack
+      - name: Compile and run independent full-stack native application
+        run: python3 tests/native_web_bundle.py ./build-native-web/noqeri-web examples/native_web_fullstack
+      - name: Qualify native HTTP concurrency, Basic authentication and secure cookies
+        run: python3 tests/native_web_auth.py ./build-native-web/noqeri-web examples/native_web_fullstack
+      - name: Qualify strict HTTP Origin and bounded session expiry
+        run: python3 tests/native_web_session_expiry.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Qualify HTTPS reverse-proxy Host and Origin boundary
+        run: python3 tests/native_web_proxy_origin.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Test native web database adapters without changing NoeSQL
+        run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
+      - name: Preserve SQL typed numbers, text and NULL in native view JSON
+        run: python3 tests/native_web_typed_results.py ./build-native-web/noqeri-web
+      - name: Qualify one Noqeri compiler CLI for static and native full-stack apps
+        run: python3 tests/native_web_unified_cli.py ./build-native-web/noqeri ./build-native-web/noqeri-web examples/native_web_fullstack examples/native_web_static
+      - name: Qualify in-process native NoeSQL v2 ABI contract (mock provider)
+        run: python3 tests/native_web_noesql_session.py ./build-native-web/noqeri-web .
+ --output-on-failure
       - name: Ensure static site uses HTML/CSS only
         run: |
           ./build-native-web/noqeri-web build examples/native_web_static build-native-web/website
