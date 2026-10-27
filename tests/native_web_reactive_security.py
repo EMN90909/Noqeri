@@ -91,10 +91,16 @@ route "/" {
         assert 'data-nq-reactive="1"' in page
         assert '<script defer src="/__nq/reactive.js"></script>' in page
         assert 'script-src &#39;' not in page
+        assert headers["Cache-Control"] == "no-store"
+        assert headers["X-Frame-Options"] == "DENY"
+        assert headers["Cross-Origin-Resource-Policy"] == "same-origin"
+        assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
         assert "connect-src 'self'" in headers["Content-Security-Policy"]
         assert "connect-src 'self'" in page
         code, headers, client = request(p, path="/__nq/reactive.js")
         assert code == 200 and "text/javascript" in headers["Content-Type"]
+        assert headers["Cache-Control"] == "private, max-age=300, must-revalidate"
+        assert request(p, path="/theme.css")[1]["Cache-Control"] == "private, max-age=300, must-revalidate"
         assert "FormData(form)" in client and "noqeri:updated" in client
         assert 'window.addEventListener("popstate"' in client
         assert "reconcile(document.body, incoming.body)" in client
