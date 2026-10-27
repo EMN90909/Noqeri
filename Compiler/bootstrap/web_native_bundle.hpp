@@ -83,8 +83,19 @@ void compileApplication(const fs::path& input,const fs::path& executable,const c
         const pid_t pid=::fork();
         if(pid<0)throw std::runtime_error("failed creating native compiler process");
         if(pid==0) {
-            ::execlp(cxx.c_str(),cxx.c_str(),"-std=c++17","-O2","-pthread",
-                     staging.c_str(),"-o",partial.c_str(),"-ldl",static_cast<char*>(nullptr));
+            // The standalone C++ bootstrap explicitly links the cloud REST
+            // transport only when this application declares a cloud provider.
+            std::vector<std::string> args={cxx,"-std=c++17","-O2","-pthread"};
+            if(project.database.engine=="supabase"||project.database.engine=="firebase")
+                args.emplace_back("-DNOQERI_WEB_CURL=1");
+            args.push_back(staging.string());args.push_back("-o");
+            args.push_back(partial.string());args.push_back("-ldl");
+            if(project.database.engine=="supabase"||project.database.engine=="firebase")
+                args.emplace_back("-lcurl");
+            std::vector<char*> argv;
+            for(auto& arg:args)argv.push_back(const_cast<char*>(arg.c_str()));
+            argv.push_back(nullptr);
+            ::execvp(cxx.c_str(),argv.data());
             _exit(127);
         }
         int status=0;
