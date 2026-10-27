@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: '22'
       - name: Compile and test Noqeri view frontend, runtime and web project
-        run: node --test tests/web-framework.test.mjs tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
+        run: node --test tests/web-hydration.test.mjs tests/web-framework.test.mjs tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
       - name: Build zero-HTML Noqeri web app
         run: |
           node Runtime/web-project.mjs examples/web_view /tmp/noqeri-web-view
