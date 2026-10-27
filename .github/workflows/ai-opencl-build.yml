@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'Runtime/native/ai_gpu_opencl.cpp'
+      - 'tests/cpp/ai_gpu_hardware_test.cpp'
+      - 'scripts/ai-gpu-verify.sh'
       - 'Runtime/native/ai_framework_tensor.cpp'
       - 'Include/noqeri/ai_framework.hpp'
       - 'CMakeLists.txt'
@@ -12,6 +14,8 @@ on:
     branches: [main]
     paths:
       - 'Runtime/native/ai_gpu_opencl.cpp'
+      - 'tests/cpp/ai_gpu_hardware_test.cpp'
+      - 'scripts/ai-gpu-verify.sh'
       - 'Runtime/native/ai_framework_tensor.cpp'
       - 'Include/noqeri/ai_framework.hpp'
       - 'CMakeLists.txt'
@@ -33,6 +37,6 @@ jobs:
           set -euo pipefail
           cmake -S . -B build-opencl -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_AI_OPENCL=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
           grep -F -- '-DNQAI_HAVE_OPENCL=1' build-opencl/compile_commands.json
-          cmake --build build-opencl --target noqeri-ai-resume-depth-test --parallel 2
-      - name: Test CPU fallback refusal with OpenCL SDK compiled in
+          cmake --build build-opencl --target noqeri-ai-resume-depth-test noqeri-ai-gpu-hardware-test --parallel 2
+      - name: Test CPU fallback refusal with OpenCL SDK compiled in (physical GPU test compiled, not executed)
         run: ctest --test-dir build-opencl --output-on-failure -R '^noqeri-ai-resume-depth$'
