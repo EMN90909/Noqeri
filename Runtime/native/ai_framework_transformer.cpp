@@ -8,6 +8,9 @@
 #include <limits>
 #include <map>
 #include <random>
+#include <sstream>
+#include <iterator>
+#include <cstdint>
 #include <stdexcept>
 
 namespace noqeri_ai::framework {
@@ -136,6 +139,128 @@ std::vector<Matrix*> parameters(TransformerModel& m) {
     p.push_back(&m.output);
     return p;
 }
+
+std::uint64_t fnv64(const std::string& input) {
+    std::uint64_t hash=14695981039346656037ULL;
+    for(unsigned char c:input) {hash^=c;hash*=1099511628211ULL;}
+    return hash;
+}
+std::uint64_t training_fingerprint(const std::string& corpus,
+                                   const TransformerOptions& o) {
+    std::ostringstream cfg;
+    cfg<<std::setprecision(17)
+       <<corpus.size()<<":"<<corpus<<"|"
+       <<o.context<<" "<<o.hidden<<" "<<o.steps<<" "<<o.merges<<" "
+       <<o.learning_rate<<" "<<o.seed<<" "<<static_cast<int>(o.backend)<<" "
+       <<static_cast<int>(o.optimizer)<<" "<<o.batch_size<<" "
+       <<o.gradient_clip_norm<<" "<<o.weight_decay<<" "<<o.warmup_steps<<" "
+       <<o.cosine_decay<<" "<<o.minimum_learning_rate<<" "
+       <<o.validation_fraction<<" "<<o.layers<<" "
+       <<static_cast<int>(o.precision);
+    return fnv64(cfg.str());
+}
+struct CheckpointState {
+    std::size_t updates=0,logged=0;
+    double trailing_sum=0;
+    std::mt19937 rng;
+    AdamWState optimizer;
+};
+void save_checkpoint(const std::string& path,const std::string& corpus,
+                     const TransformerOptions& options,
+                     TransformerModel& model,const AdamWOptimizer& adamw,
+                     const std::mt19937& rng,std::size_t updates,
+                     double sum_loss,std::size_t logged) {
+    check(!path.empty() && path.size()<=4096,"invalid checkpoint path");
+    verify_model(model);
+    std::ostringstream payload;
+    payload<<std::setprecision(17)<<training_fingerprint(corpus,options)<<" "
+           <<updates<<" "<<sum_loss<<" "<<logged<<"\n";
+    payload<<rng<<"\n";
+    payload<<model.tokenizer.merges.size()<<"\n";
+    for(auto [a,b]:model.tokenizer.merges)payload<<a<<" "<<b<<"\n";
+    auto p=parameters(model);
+    payload<<p.size()<<"\n";
+    for(const auto* param:p)write_matrix(payload,*param);
+    const auto state=adamw.state();
+    payload<<state.steps<<" "<<state.first.size()<<"\n";
+    for(const auto& m:state.first)write_matrix(payload,m);
+    for(const auto& m:state.second)write_matrix(payload,m);
+    const auto bytes=payload.str();
+    check(bytes.size()<=8388608,"checkpoint exceeds 8 MiB");
+    const auto pending=path+".pending";
+    {
+        std::ofstream out(pending,std::ios::binary|std::ios::trunc);
+        check(bool(out),"cannot open training checkpoint");
+        out<<"NQCK1 "<<bytes.size()<<" "<<fnv64(bytes)<<"\n";
+        out.write(bytes.data(),static_cast<std::streamsize>(bytes.size()));
+        out.flush();
+        check(bool(out),"checkpoint write failed");
+    }
+    std::error_code ec;
+    std::filesystem::rename(pending,path,ec);
+    if(ec) {
+        std::filesystem::remove(pending);
+        throw std::runtime_error("Noqeri framework: checkpoint atomic rename failed");
+    }
+}
+CheckpointState load_checkpoint(const std::string& path,const std::string& corpus,
+                                const TransformerOptions& options,
+                                TransformerModel& model) {
+    std::error_code ec;
+    const auto bytes=std::filesystem::file_size(path,ec);
+    check(!ec && bytes>0 && bytes<=8388608+256,"missing or oversized checkpoint");
+    std::ifstream in(path,std::ios::binary);
+    check(bool(in),"checkpoint cannot be opened");
+    std::string magic;std::size_t length=0;std::uint64_t digest=0;
+    in>>magic>>length>>digest;
+    check(bool(in) && magic=="NQCK1" && length>0 && length<=8388608,
+          "invalid checkpoint header");
+    check(in.get()=='\n',"invalid checkpoint delimiter");
+    std::string data(length,'\0');
+    in.read(data.data(),static_cast<std::streamsize>(length));
+    check(in.gcount()==static_cast<std::streamsize>(length) &&
+          in.peek()==std::char_traits<char>::eof() && fnv64(data)==digest,
+          "corrupted or truncated checkpoint payload");
+    std::istringstream stream(data);
+    std::uint64_t fingerprint=0;
+    CheckpointState state;
+    stream>>fingerprint>>state.updates>>state.trailing_sum>>state.logged;
+    check(bool(stream) && fingerprint==training_fingerprint(corpus,options) &&
+          state.updates<=options.steps &&
+          state.logged<=std::min<std::size_t>(100,state.updates) &&
+          std::isfinite(state.trailing_sum) && state.trailing_sum>=0,
+          "checkpoint training metadata mismatch");
+    stream>>state.rng;
+    check(bool(stream),"truncated checkpoint RNG");
+    std::size_t merges=0;
+    stream>>merges;
+    check(bool(stream) && merges==model.tokenizer.merges.size(),
+          "checkpoint tokenizer mismatch");
+    for(std::size_t i=0;i<merges;++i) {
+        std::size_t a=0,b=0;stream>>a>>b;
+        check(bool(stream) && model.tokenizer.merges[i]==std::make_pair(a,b),
+              "checkpoint BPE mismatch");
+    }
+    auto params=parameters(model);
+    std::size_t param_count=0;
+    stream>>param_count;
+    check(bool(stream) && param_count==params.size(),"checkpoint model depth mismatch");
+    for(Matrix* param:params)
+        *param=read_matrix(stream,param->rows,param->cols);
+    stream>>state.optimizer.steps>>param_count;
+    check(bool(stream) && param_count==params.size() &&
+          (options.optimizer==TrainingOptimizer::SGD ||
+           state.optimizer.steps==state.updates),
+          "checkpoint optimizer update count mismatch");
+    for(Matrix* param:params)
+        state.optimizer.first.push_back(read_matrix(stream,param->rows,param->cols));
+    for(Matrix* param:params)
+        state.optimizer.second.push_back(read_matrix(stream,param->rows,param->cols));
+    std::string remaining;
+    check(!(stream>>remaining),"trailing checkpoint data");
+    verify_model(model);
+    return state;
+}
 } // namespace
 
 std::vector<std::size_t> SubwordTokenizer::encode(const std::string& text) const {
@@ -222,6 +347,15 @@ TransformerModel train_transformer(const std::string& corpus,
           "transformer training budget exceeded");
     check(std::isfinite(opt.learning_rate) && opt.learning_rate>=0.000001 &&
           opt.learning_rate<=0.1,"invalid transformer learning rate");
+    check(opt.precision==Precision::FP64 || opt.precision==Precision::FP32 ||
+          opt.precision==Precision::FP16,"invalid mixed precision mode");
+    check(opt.backend!=Backend::OpenCL || (opt.precision==Precision::FP32 &&
+          gpu_available()),"OpenCL GPU training requires GPU device and FP32 compute");
+    check(opt.stop_after<=opt.steps &&
+          (opt.stop_after==0 || !opt.checkpoint_path.empty() ||
+           !opt.resume_path.empty()),"invalid checkpoint stopping point");
+    check(opt.checkpoint_path.size()<=4096 && opt.resume_path.size()<=4096,
+          "checkpoint path too long");
     check(opt.optimizer==TrainingOptimizer::SGD ||
           opt.optimizer==TrainingOptimizer::AdamW,"invalid optimizer");
     check(std::isfinite(opt.gradient_clip_norm) && opt.gradient_clip_norm>0 &&
@@ -264,11 +398,22 @@ TransformerModel train_transformer(const std::string& corpus,
     for(Matrix* param:p)for(double& w:param->values)w=uniform(rng);
     AdamWOptimizer adamw(p);
     double sum_loss=0.0;
-    std::size_t logged=0;
+    std::size_t logged=0,start_step=0;
+    if(!opt.resume_path.empty()) {
+        auto saved=load_checkpoint(opt.resume_path,corpus,opt,m);
+        start_step=saved.updates;
+        logged=saved.logged;
+        sum_loss=saved.trailing_sum;
+        rng=saved.rng;
+        adamw.restore(saved.optimizer);
+    }
+    const auto save_path=opt.checkpoint_path.empty()?opt.resume_path:opt.checkpoint_path;
+    const auto ending=opt.stop_after?opt.stop_after:opt.steps;
+    check(start_step<=ending,"checkpoint is beyond requested stopping point");
     const bool old_sgd=(opt.optimizer==TrainingOptimizer::SGD &&
                         opt.batch_size==1 && !opt.cosine_decay &&
                         opt.warmup_steps==0 && opt.gradient_clip_norm==1.0);
-    for(std::size_t step=0;step<opt.steps;++step) {
+    for(std::size_t step=start_step;step<ending;++step) {
         std::vector<Matrix> accumulated;
         accumulated.reserve(p.size());
         for(const Matrix* param:p)
@@ -315,13 +460,19 @@ TransformerModel train_transformer(const std::string& corpus,
             for(std::size_t k=0;k<p.size();++k)
                 sgd_update(*p[k],*grads[k],rate,old_sgd?1.0:100.0);
         }
+        // Write restartable snapshots after committed optimizer updates.
+        if(!save_path.empty() &&
+           ((step+1)%25==0 || step+1==ending))
+            save_checkpoint(save_path,corpus,opt,m,adamw,rng,
+                            step+1,sum_loss,logged);
     }
     verify_model(m);
-    const double trailing=sum_loss/static_cast<double>(logged);
+    const double trailing=logged?sum_loss/static_cast<double>(logged):0.0;
     check(std::isfinite(trailing),"invalid trailing loss");
     TransformerTrainingReport result;
     result.train_loss=trailing;
-    result.optimizer_steps=opt.steps;
+    result.optimizer_steps=ending;
+    result.completed=ending==opt.steps;
     if(split<corpus.size()) {
         const auto validation=evaluate_transformer(
             m,corpus.substr(split),opt.backend);
