@@ -75,6 +75,10 @@ std::vector<RoutePermission> loadRoutePermissions() {
 RouteAuthorization authorizeRoute(const std::vector<RoutePermission>& rules,
                                    const std::string& method,const std::string& path,
                                    const std::string& authorization) {
+    // Framework JS/CSS contains no session data and cannot receive browser
+    // bearer headers via regular <script>/<link> requests, even under '/' ACL.
+    if((path=="/theme.css"||path=="/__nq/reactive.js") &&
+       (method=="GET"||method=="HEAD"))return {};
     std::size_t longest=0;bool protectedPath=false;
     for(const auto& rule:rules) {
         const bool matched=rule.path=="/"||path==rule.path||
@@ -84,10 +88,6 @@ RouteAuthorization authorizeRoute(const std::vector<RoutePermission>& rules,
         }
     }
     if(!protectedPath) {
-        // Framework CSS/JS contains no session or application data and must
-        // remain reachable by browsers that cannot add bearer headers to
-        // module/style asset requests.
-        if(path=="/theme.css"||path=="/__nq/reactive.js")return {};
         const char* deny=std::getenv("NOQERI_WEB_AUTHZ_DEFAULT_DENY");
         if(deny&&std::string(deny)=="1")return {false,{}};
         return {};
