@@ -378,7 +378,8 @@ AppRequest receiveAppRequest(int fd) {
         throw std::runtime_error("missing HTTP Host header");
     if(req.method=="POST"&&(!hasLength||
         (req.type!="application/x-www-form-urlencoded"&&
-         req.type!="application/x-www-form-urlencoded; charset=utf-8")))
+         req.type!="application/x-www-form-urlencoded; charset=utf-8"&&
+         req.type!="application/x-www-form-urlencoded;charset=utf-8")))
         throw std::runtime_error("unsupported POST encoding");
     if(req.method=="POST" && req.hasOrigin && req.origin.empty())
         throw std::runtime_error("empty Origin is not valid");
