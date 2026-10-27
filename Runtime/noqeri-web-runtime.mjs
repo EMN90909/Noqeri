@@ -376,7 +376,7 @@ export function createMotion(root,definitions=[],sequences=[]) {
     timelineNames.add(seq.name);
     for(const name of seq.steps){
       if(!specs.has(name)||specs.get(name).trigger!=='timeline'||
-         allocatedTimelineSteps.has(name)
+         allocatedTimelineSteps.has(name))
         throw Error('Noqeri timeline step must be unique and use trigger timeline: '+name);
       allocatedTimelineSteps.add(name);
     }
