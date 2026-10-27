@@ -54,3 +54,8 @@ An app can then write `import animation/gsap as animation` and `on.mount { anima
 The view parser rejects arbitrary globals, raw HTML insertion, unrecognized tags, event attributes, unsafe URL schemes, missing imports, symlinks, and unknown expressions. An imported JavaScript package runs with the privileges of that browser origin, so only use reviewed dependencies. There is no SSR/hydration, CSS DSL, incremental typed NIR, compiler diagnostics parity, accessible component suite, production router, or automatic server-side code generation yet. This is a working experimental web frontend and runtime, not a production-qualified language capability.
 
 The generated web output includes no React, Angular, or Vue dependency; `styles.css` is an optional conventional asset. `main.noqeri` remains the single source of behavior and markup.
+
+
+## Persisted UI state, forms and WebSocket subscriptions (experimental)
+
+Browser `persist` declarations store nonsecret primitive UI values in origin-local storage; `form.field` and `input.value` provide bounded event input and HTML-native `required`/length/range validation is available. `subscribe updates from "/ws/updates"` reconnects a same-origin WebSocket and exposes `updates.data`, `updates.connected`, and `updates.error`. An external WebSocket server is required: the native app preview does not handle WebSocket upgrades. See [cloud and realtime guide](WEB_CLOUD_REALTIME.md).

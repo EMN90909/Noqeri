@@ -92,6 +92,62 @@ route "/" { main { p { records } } }
         attempt.terminate()
         attempt.communicate(timeout=3)
 
+    # Render a real native cloud form without contacting the remote provider;
+    # HTML-required attributes are only client hints, while validate() is
+    # independently enforced on POST before the database write.
+    (site / "main.noqeri").write_text("""
+database { engine: "supabase" dsn_env: "NOQERI_CLOUD_TEST_URL"
+ key_env: "NOQERI_CLOUD_TEST_TOKEN" }
+route "/" {
+ main {
+  form on.submit {
+   validate(title, 2, 40)
+   db.execute("POST /items", title: form.title)
+  } {
+   input name: "title" type: "text" required: true minlength: 2 maxlength: 40 {}
+   button type: "submit" { "Save" }
+  }
+ }
+}
+""")
+    p = port()
+    proc = subprocess.Popen([binary, "serve-app", str(site), str(p),
+                             str(root / "state5.nqkv")], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        for _ in range(80):
+            if proc.poll() is not None:
+                raise AssertionError(proc.stderr.read().decode())
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", p, timeout=3)
+                conn.request("GET", "/")
+                reply = conn.getresponse()
+                html = reply.read().decode()
+                cookie = dict(reply.getheaders()).get("Set-Cookie", "").split(";")[0]
+                conn.close()
+                break
+            except OSError:
+                time.sleep(.05)
+        else:
+            raise AssertionError("cloud form route did not start")
+        assert reply.status == 200, html
+        assert 'required' in html and 'minlength="2"' in html, html
+        import re
+        import urllib.parse
+        action = re.search(r'name="_nq_action" value="([^"]+)"', html).group(1)
+        csrf = re.search(r'name="_nq_csrf" value="([^"]+)"', html).group(1)
+        body = urllib.parse.urlencode({"_nq_action":action,"_nq_csrf":csrf,"title":"x"})
+        conn = http.client.HTTPConnection("127.0.0.1", p, timeout=3)
+        conn.request("POST", "/", body, {"Cookie":cookie,
+                     "Content-Type":"application/x-www-form-urlencoded"})
+        res = conn.getresponse()
+        response = res.read().decode()
+        conn.close()
+        assert res.status == 422 and "validation" in response.lower(), (res.status,response)
+    finally:
+        proc.terminate()
+        proc.communicate(timeout=3)
+
     output = subprocess.check_output([binary, "drivers"], text=True)
     for name in ("neon", "supabase", "firebase"):
         assert name+": " in output, output
