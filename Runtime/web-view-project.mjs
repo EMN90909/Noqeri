@@ -84,6 +84,10 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
   return '<script type="importmap">'+JSON.stringify(adjusted).replace(/</g,'\\u003c')+'</script>';
  };
  const mapScript=importScript('./');
+ const batchSetting=process.env.NOQERI_WEB_BUILD_CONCURRENCY??'8';
+ if(!/^(?:[1-9]|1[0-6])$/.test(batchSetting))
+  throw Error('NOQERI_WEB_BUILD_CONCURRENCY must be an integer from 1 to 16');
+ const batchSize=Number(batchSetting);
  await mkdir(output,{recursive:true})
  async function emitAsset(file){
   const rel=relative(input,file),destination=join(output,rel)
@@ -115,8 +119,8 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
  }
  // Bounded parallel I/O avoids one read/write round trip per asset while
  // limiting open file descriptors on lightweight development machines.
- for(let offset=0;offset<all.length;offset+=8)
-  await Promise.all(all.slice(offset,offset+8).map(emitAsset));
+ for(let offset=0;offset<all.length;offset+=batchSize)
+  await Promise.all(all.slice(offset,offset+batchSize).map(emitAsset));
  await mkdir(join(output,'__noqeri'),{recursive:true})
  await copyFile(fileURLToPath(new URL('./noqeri-web-runtime.mjs',import.meta.url)),join(output,'__noqeri/runtime.mjs'));
  await writeFile(join(output,'__noqeri/theme.css'),compileTheme(mainAst.theme));
