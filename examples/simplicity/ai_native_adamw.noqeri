@@ -1,0 +1,43 @@
+// Offline, CPU-only native AdamW optimizer step; no model server or Python.
+// Build with scripts/native-build.mjs --ai-framework.
+import "../../Lib/ai/optimizer_native.noqeri"
+
+function check_step(): int {
+    let weights: [float; 2] = [1.0, 2.0]
+    let grads: [float; 2] = [1.0, -1.0]
+    let m: [float; 2] = [0.0, 0.0]
+    let v: [float; 2] = [0.0, 0.0]
+    let output: [float; 2] = [-99.0, -99.0]
+    let next_m: [float; 2] = [-99.0, -99.0]
+    let next_v: [float; 2] = [-99.0, -99.0]
+    let req: AiAdamWRequest
+    req.parameters = &weights[0]
+    req.gradients = &grads[0]
+    req.first_moment = &m[0]
+    req.second_moment = &v[0]
+    req.count = 2 as usize
+    req.step = 1 as u64
+    req.learning_rate = 0.1
+    req.beta1 = 0.9
+    req.beta2 = 0.999
+    req.epsilon = 0.00000001
+    req.weight_decay = 0.1
+    req.gradient_clip_norm = 100.0
+    req.output_parameters = &output[0]
+    req.output_first_moment = &next_m[0]
+    req.output_second_moment = &next_v[0]
+    req.output_capacity = 2 as usize
+    req.moment_capacity = 2 as usize
+    if ai_native_adamw(&req) != 0 as isize { return 1 }
+    if output[0] < 0.889 || output[0] > 0.891 { return 2 }
+    if output[1] < 2.079 || output[1] > 2.081 { return 3 }
+    if next_m[0] < 0.099 || next_m[0] > 0.101 { return 4 }
+    if next_v[0] < 0.0009 || next_v[0] > 0.0011 { return 5 }
+    // Error must preserve all outputs and all moment states.
+    req.output_capacity = 1 as usize
+    output[0] = -99.0
+    if ai_native_adamw(&req) != -3 as isize { return 6 }
+    if output[0] != -99.0 { return 7 }
+    return 0
+}
+print(check_step())
