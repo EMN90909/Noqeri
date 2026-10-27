@@ -55,6 +55,8 @@ std::string clientEvents(const Node& node,const Project& project,
             code+=target+"="+clientExpr(mutation.value,project,locals)+";";
         else throw std::runtime_error(
             "native client actions support set/add only; form, database and validation actions require serve-app");
+        if(project.persistentState.count(mutation.target))
+            code+="__nq_saveStored("+clientQuote(mutation.target)+","+target+");";
     }
     code+="__nq_schedule();}}";
     return code;
@@ -146,18 +148,20 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
     promoteStandaloneView(project);
     if(project.routes.empty())
         throw std::runtime_error("native client build requires a view or route");
-    if(project.hasLayout||project.databaseConfigured||!project.queries.empty()||
-       !project.persistentState.empty())
-        throw std::runtime_error("client build does not support layout, database or persisted state; use serve-app");
+    if(project.hasLayout||project.databaseConfigured||!project.queries.empty())
+        throw std::runtime_error("client build does not support layout or database; use serve-app");
     for(const auto& [path,_]:project.routes)
         if(!validRoute(path)||dynamicRoute(path))
             throw std::runtime_error("native client build requires literal safe routes");
 
     std::string js="// Native Noqeri browser build (C++ bootstrap, no Node.js)\n";
-    js+="import {element as __nq_h,createApp as __nq_createApp,createRouter as __nq_createRouter} from './__noqeri/runtime.mjs';\n";
+    js+="import {element as __nq_h,createApp as __nq_createApp,createRouter as __nq_createRouter,readStored as __nq_readStored,saveStored as __nq_saveStored} from './__noqeri/runtime.mjs';\n";
     js+="const __nq_state=Object.create(null);\n";
     for(const auto& [name,value]:project.globals)
-        js+="__nq_state["+clientQuote(name)+"]="+clientQuote(value)+";\n";
+        js+="__nq_state["+clientQuote(name)+"]=" +
+          (project.persistentState.count(name)?
+            "__nq_readStored("+clientQuote(name)+","+clientQuote(value)+")":
+            clientQuote(value))+";\n";
     js+="let __nq_schedule=()=>{}, __nq_router=null;\n";
     for(const auto& [name,component]:project.components) {
         js+="function __nq_component_"+name+"(__nq_args){";
