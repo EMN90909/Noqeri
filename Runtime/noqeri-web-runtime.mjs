@@ -12,7 +12,23 @@ export function safeMember(object,key) {
 }
 export function element(tag,attrs={},children=[],events={}) {
   if(!/^[a-z][a-z0-9]*$/.test(tag))throw Error('Unsafe Noqeri element tag');
-  return {__noqeri:1,tag,attrs,children,events};
+  if(!Array.isArray(children))throw TypeError('Noqeri element children must be an array');
+  // The HTML parser coalesces adjacent text nodes. Normalize the VNode tree
+  // identically for SSR, hydration and future updates, including text + state.
+  const normalized=[];
+  for(const child of children){
+    if(isNode(child)){
+      normalized.push(child);
+    } else if(Array.isArray(child)) {
+      throw TypeError('Noqeri nested child arrays are unsupported');
+    } else {
+      const text=child==null?'':String(child);
+      if(normalized.length && typeof normalized[normalized.length-1]==='string')
+        normalized[normalized.length-1]+=text;
+      else normalized.push(text);
+    }
+  }
+  return {__noqeri:1,tag,attrs,children:normalized,events};
 }
 const isNode=value=>Boolean(value&&typeof value==='object'&&value.__noqeri===1);
 // Trusted server-side serialization of a Noqeri VNode for static pre-rendering.
@@ -100,7 +116,7 @@ function patch(parent,oldVNode,newVNode,index,hydrating=false){
   let dom=parent.childNodes[index];
   // Adopt matching server-rendered nodes on the first pass instead of replacing them.
   const compatible=dom&&((now.text!==undefined&&dom.nodeType===3)||(now.tag&&dom.nodeType===1&&dom.tagName?.toLowerCase()===now.tag));
-  const same=old?((old.text!==undefined&&now.text!==undefined)||(old.tag&&old.tag===now.tag)):(hydrating&&compatible);
+  const same=Boolean(dom) && (old?((old.text!==undefined&&now.text!==undefined)||(old.tag&&old.tag===now.tag)):(hydrating&&compatible));
   if(!same){
     const made=now.text!==undefined?doc.createTextNode(now.text):doc.createElement(now.tag);
     if(dom)parent.replaceChild(made,dom);else parent.appendChild(made);
