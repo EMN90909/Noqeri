@@ -252,3 +252,25 @@ Atomic operands must be bool, integer, or pointer values no wider than 8 bytes i
 `record` uses declaration-order, naturally aligned field layout. `extern function` declares a symbol supplied by the embedding/linking environment. `export function` emits the declared name as an externally visible native symbol.
 
 These are general language facilities for applications, libraries, embedded software, runtimes, concurrency, FFI, kernels, and other performance-sensitive programs. They are not an operating-system-specific dialect.
+
+## Experimental browser-view motion grammar (separate frontend)
+
+The native C++ web build-client and experimental Node view compilers accept
+the same additive UI-only declarations:
+
+~~~ebnf
+motionDecl    := "motion" IDENT "{" motionField* "}"
+motionField   := IDENT ":" (INTEGER | "-" INTEGER | STRING | "true" | "false")
+                ("," | ";")?
+timelineDecl  := "timeline" IDENT "{" (IDENT ("," | ";")?)+ "}"
+~~~
+
+Motion fields are a closed, validated set; target is a simple .class or #id
+selector, while trigger is mount, scroll or timeline. Motion timelines list
+names of motion declarations with trigger timeline, in playback order.
+See [the browser motion contract](../Doc/WEB_MOTION.md) for exact keys,
+bounds, accessibility and runtime limits.
+
+These declarations are **not** part of the general-purpose Stage-2 language
+grammar. The browser target emits standards-compliant JavaScript animation
+modules, and server-side/static web builds reject effects they cannot run.
