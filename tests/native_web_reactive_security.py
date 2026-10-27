@@ -91,9 +91,15 @@ route "/" {
         assert 'data-nq-reactive="1"' in page
         assert '<script defer src="/__nq/reactive.js"></script>' in page
         assert 'script-src &#39;' not in page
+        assert "connect-src 'self'" in headers["Content-Security-Policy"]
+        assert "connect-src 'self'" in page
         code, headers, client = request(p, path="/__nq/reactive.js")
         assert code == 200 and "text/javascript" in headers["Content-Type"]
         assert "FormData(form)" in client and "noqeri:updated" in client
+        assert 'window.addEventListener("popstate"' in client
+        assert "reconcile(document.body, incoming.body)" in client
+        assert 'dataset.noqeriHydrated = "1"' in client
+        assert "Never repeat the POST automatically" in client
         assert 'required' in page and 'minlength="5"' in page
         csrf = re.search(r'name="_nq_csrf" value="([^"]+)"', page).group(1)
         action = re.search(r'name="_nq_action" value="([^"]+)"', page).group(1)
