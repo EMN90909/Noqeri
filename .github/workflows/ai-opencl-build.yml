@@ -38,5 +38,18 @@ jobs:
           cmake -S . -B build-opencl -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_AI_OPENCL=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
           grep -F -- '-DNQAI_HAVE_OPENCL=1' build-opencl/compile_commands.json
           cmake --build build-opencl --target noqeri-ai-resume-depth-test noqeri-ai-gpu-hardware-test --parallel 2
-      - name: Test CPU fallback refusal with OpenCL SDK compiled in (physical GPU test compiled, not executed)
-        run: ctest --test-dir build-opencl --output-on-failure -R '^noqeri-ai-resume-depth$'
+      - name: Check CPU-only framework tests with real OpenCL SDK
+        run: ctest --test-dir build-opencl --output-on-failure -R '^noqeri-ai-resume-depth
+
+      - name: Prove hardware-only test refuses a normal CPU hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ./build-opencl/noqeri-ai-gpu-hardware-test build-opencl/fake-gpu-pass.json > build-opencl/no-gpu.log 2>&1; then
+            cat build-opencl/no-gpu.log
+            echo 'ERROR: GPU hardware regression passed without a physical GPU'
+            exit 1
+          fi
+          cat build-opencl/no-gpu.log
+          grep -F 'no CL_DEVICE_TYPE_GPU present' build-opencl/no-gpu.log
+          test ! -e build-opencl/fake-gpu-pass.json
