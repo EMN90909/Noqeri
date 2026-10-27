@@ -272,3 +272,13 @@ export function library_entry(data: *u8, count: usize): isize {
 The lower-level NIR keeps important semantics explicit, including address-of, width-carrying memory access, volatile access, pointer offsets, stack allocation, slice construction/data/length, casts, dynamic bounds/non-null checks, atomics, intrinsics, inline assembly and try/throw flow. `repeat` does not require a dedicated runtime instruction; qualified implementations lower it to ordinary control flow.
 
 See `Doc/ABI.md`, `Doc/FFI.md`, `Doc/FREESTANDING.md` and `Doc/NATIVE_TARGETS.md` for systems/embedding details.
+
+
+## Experimental browser motion extension
+
+For generated browser views, Noqeri offers declarative motion blocks and
+timeline sequences. These are handled by the separate native web-view
+compiler and experimental Node browser-view compiler, not by the general
+Stage-2 type checker. See [WEB_MOTION.md](WEB_MOTION.md) for supported
+properties, easing presets, scroll reveals, reduced-motion behavior and
+C++ build-client commands. Browser output uses the Web Animations API.
