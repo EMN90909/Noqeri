@@ -21,6 +21,14 @@ std::size_t natural(const std::string& value,std::size_t max) {
     if(number==0||number>max)throw std::runtime_error("positive integer outside allowed budget");
     return static_cast<std::size_t>(number);
 }
+std::size_t nonnegative(const std::string& value,std::size_t max) {
+    if(value.empty()||value.size()>15)throw std::runtime_error("invalid nonnegative integer");
+    for(char ch:value)if(ch<'0'||ch>'9')
+        throw std::runtime_error("invalid integer option");
+    const auto number=std::stoull(value);
+    if(number>max)throw std::runtime_error("integer outside allowed budget");
+    return static_cast<std::size_t>(number);
+}
 double decimal(const std::string& value) {
     std::size_t end=0;
     const auto number=std::stod(value,&end);
@@ -76,9 +84,9 @@ int main(int argc,char** argv) {
                     if(flag=="--steps")options.steps=natural(value,10000);
                     else if(flag=="--context")options.context=natural(value,16);
                     else if(flag=="--hidden")options.hidden=natural(value,24);
-                    else if(flag=="--merges")options.merges=natural(value,32);
+                    else if(flag=="--merges")options.merges=nonnegative(value,32);
                     else if(flag=="--rate")options.learning_rate=decimal(value);
-                    else if(flag=="--seed")options.seed=static_cast<std::uint32_t>(natural(value,4294967295ULL));
+                    else if(flag=="--seed")options.seed=static_cast<std::uint32_t>(nonnegative(value,4294967295ULL));
                     else if(flag=="--backend")options.backend=backend_name(value);
                     else if(flag=="--optimizer") {
                         if(value=="sgd")options.optimizer=TrainingOptimizer::SGD;
@@ -93,7 +101,7 @@ int main(int argc,char** argv) {
                         else if(value=="constant")options.cosine_decay=false;
                         else throw std::runtime_error("schedule must be constant or cosine");
                     }
-                    else if(flag=="--warmup")options.warmup_steps=natural(value,9999);
+                    else if(flag=="--warmup")options.warmup_steps=nonnegative(value,9999);
                     else if(flag=="--min-rate")options.minimum_learning_rate=decimal(value);
                     else if(flag=="--validation")options.validation_fraction=decimal(value);
                     else throw std::runtime_error("unknown transformer train flag "+flag);
