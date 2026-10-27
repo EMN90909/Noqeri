@@ -2,9 +2,6 @@
 // Bounded HTTPS cloud Data API boundary. The source request is authored in
 // .noqeri; user fields are JSON values only, never URL or query fragments.
 #pragma once
-#ifdef NOQERI_WEB_CLOUD_CURL
-#include <curl/curl.h>
-#endif
 
 struct CloudPlan {std::string method,resource,body;};
 CloudPlan prepareCloudRequest(const std::string& engine,const std::string& source,
