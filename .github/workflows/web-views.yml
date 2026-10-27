@@ -17,6 +17,12 @@ jobs:
           node-version: '22'
       - name: Compile and test Noqeri view frontend, runtime and web project
         run: node --test tests/web-hydration.test.mjs tests/web-framework.test.mjs tests/web-views.test.mjs tests/web-project.test.mjs tests/web-compiler.test.mjs
+      - name: Measure Noqeri view build parallelism and gate p95 build latency
+        env:
+          NOQERI_BUILD_BENCH_SAMPLES: '4'
+          NOQERI_BUILD_BENCH_ASSETS: '160'
+          NOQERI_BUILD_BENCH_P95_MS: '3000'
+        run: node tests/web-build-performance.mjs
       - name: Build zero-HTML Noqeri web app
         run: |
           node Runtime/web-project.mjs examples/web_view /tmp/noqeri-web-view
