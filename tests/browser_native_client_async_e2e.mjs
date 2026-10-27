@@ -41,8 +41,10 @@ try {
   await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));
   const port=probe.address().port;
   await new Promise(resolve=>probe.close(resolve));
-  server=spawn('python3',['-m','http.server',String(port),'--bind','127.0.0.1','--directory',output],{
-    stdio:['ignore','ignore','pipe']
+  // The native loopback preview server must serve its own .mjs and JSON
+  // assets. Node.js/Python are never involved in building or hosting the app.
+  server=spawn(compiler,['serve',output,String(port)],{
+    stdio:['ignore','ignore','pipe'],env:{...process.env,PATH:'/intentionally-no-node'}
   });
   const origin='http://127.0.0.1:'+port;
   for(let tries=0;tries<60;tries++){
