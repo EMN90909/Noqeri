@@ -90,6 +90,25 @@ AdamWOptimizer::AdamWOptimizer(const std::vector<Matrix*>& parameters) {
     }
 }
 std::size_t AdamWOptimizer::steps() const noexcept {return steps_;}
+AdamWState AdamWOptimizer::state() const {
+    return AdamWState{first_,second_,steps_};
+}
+void AdamWOptimizer::restore(const AdamWState& state) {
+    demand(state.steps<=1000000 && state.first.size()==first_.size() &&
+           state.second.size()==second_.size(),"invalid checkpoint optimizer state");
+    for(std::size_t i=0;i<first_.size();++i) {
+        valid(state.first[i]);valid(state.second[i]);
+        demand(state.first[i].rows==first_[i].rows &&
+               state.first[i].cols==first_[i].cols &&
+               state.second[i].rows==second_[i].rows &&
+               state.second[i].cols==second_[i].cols,"checkpoint optimizer shapes differ");
+        for(double v:state.second[i].values)
+            demand(v>=0,"negative optimizer second moment");
+    }
+    auto first=state.first,second=state.second;
+    first_.swap(first);second_.swap(second);steps_=state.steps;
+}
+
 
 void AdamWOptimizer::step(const std::vector<Matrix*>& parameters,
                           const std::vector<const Matrix*>& gradients,
