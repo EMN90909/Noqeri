@@ -44,6 +44,8 @@ try{
  assert.equal((await page.goto(origin+'/',{waitUntil:'load'})).status(),200);
  await page.waitForFunction(()=>document.querySelector('.hero')?.getAnimations().length>0);
  await page.waitForFunction(()=>document.querySelector('.subtitle')?.getAnimations().length>0);
+ // The viewport reveal uses a real IntersectionObserver in Chromium.
+ await page.waitForFunction(()=>document.querySelector('.reveal')?.getAnimations().length>0);
  const timeline=await page.evaluate(()=>{
    const hero=document.querySelector('.hero').getAnimations()[0].effect.getTiming();
    const first=document.querySelectorAll('.subtitle')[0].getAnimations()[0].effect.getTiming();
