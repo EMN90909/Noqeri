@@ -120,6 +120,8 @@ the **same corpus, seed, optimizer, step target, model shape and
 training hyperparameters**. Changing those fields rejects the
 checkpoint. No Noqeri compiler or syntax changes are necessary.
 
+The [physical GPU qualification instructions](AI_GPU_HARDWARE_QUALIFICATION.md) describe the independent GPU-only regression, selected device provenance, how to register a dedicated runner, and how to interpret GitHub artifacts. Hardware has not been verified merely by successfully compiling the SDK.
+
 ## Accelerator support and evidence limits
 
 The optional `NOQERI_AI_OPENCL` CMake option locates an OpenCL SDK,
