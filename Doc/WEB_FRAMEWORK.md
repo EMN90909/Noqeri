@@ -6,7 +6,7 @@
 For JavaScript-free **server-driven** actions, forms, session state and persisted data, see [WEB_NATIVE_ACTIONS.md](WEB_NATIVE_ACTIONS.md). For strictly static output use [WEB_NATIVE.md](WEB_NATIVE.md).
 
 
-**Without Node.js or JavaScript:** use the separate native static renderer documented in [WEB_NATIVE.md](WEB_NATIVE.md). It builds and serves HTML/CSS without a JS engine. Reactive browser events are not supported in that mode.
+**Without Node.js:** use the native `noqeri web build` compiler for static HTML/CSS, or `noqeri web compile` / `noqeri web serve-app` for server-rendered forms and routes. The native action server can optionally enable browser-side hydration and client-side navigation with `NOQERI_WEB_REACTIVE=1`. None of those native build paths require Node/npm. The **separate** experimental `Runtime/web-project.mjs` client-view compiler still requires Node 22+ at build time; browsers execute its generated ES modules without Node.
 
 
 Noqeri now includes a **Noqeri-authored component library**, static-path client routing, and a design-token theme compiler. A web application can be authored entirely in `.noqeri`: no handwritten React, Vue, TypeScript, JavaScript, HTML, or CSS is required for these features.
@@ -57,6 +57,19 @@ Theme keys: `primary`, `accent`, `background`, `surface`, `text`, `muted`, `bord
 
 The generated runtime uses DOM text nodes, not `innerHTML`. Route input is constrained to relative-to-origin absolute paths, and unsafe CSS token values are rejected. Router event listeners are removed on disposal. Importing third-party JavaScript modules remains explicitly opt-in; the bundled UI framework itself has no npm dependencies.
 
-**This remains the experimental web-view compiler, not Stage-2 typed NIR code generation.** Route parameters, SSR/hydration, server rendering, dynamic forms, mature accessibility primitives, source maps, bundling, per-route data loaders and qualified browser E2E testing are still future work. Browsers necessarily consume HTML/CSS/JavaScript standards output; "Noqeri-only" means the application source and UI library, not replacing the browser engine.
+**This remains an experimental view compiler, not Stage-2 typed NIR code generation.** Generated routes with deterministic local state, no third-party JavaScript, no persistent state, and no asynchronous data can now be statically pre-rendered into their HTML entrypoints. The browser adapter then hydrates matching DOM elements and attaches events without replacing them. Pages using browser-only async resources, persistence, external JS or mount effects remain CSR-only. This is static pre-rendering, **not** dynamic per-request SSR or universal server-side data loading. Route parameters, production-qualified hydration, mature accessibility primitives, source maps, and fully native compilation of the client-view grammar remain outstanding. Browsers necessarily consume HTML/CSS/JavaScript standards output; "Noqeri-only" means the application source and UI library, not replacing the browser engine.
 
 The existing Noqeri native HTTP server library can provide backend endpoints, but the framework does **not** yet automatically compile an integrated server application from this view DSL.
+
+## Native progressive enhancement (Node-free)
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build --target noqeri noqeri-web
+./build/noqeri web build examples/native_web_static dist/site
+NOQERI_WEB_REACTIVE=1 ./build/noqeri web serve-app examples/native_web_actions 8080
+# Or compile a native executable (C++ bootstrap remains an implementation detail):
+./build/noqeri web compile examples/native_web_actions dist/noqeri-app
+```
+
+The server creates the initial HTML. The opt-in client script attaches browser events without replacing the initial page and fetches only same-origin HTML to update the document after actions/routes. This is **progressive server rendering plus client-side navigation**, not arbitrary browser-only Noqeri execution, WASM or React-style independent client rendering. Disable JavaScript to retain fully functional server POST fallback. The preview native HTTP listener remains local-only and should not be exposed directly to the internet.
