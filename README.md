@@ -58,11 +58,14 @@ noqeri ai lm train corpus.txt model.nqlm --steps 2000
 noqeri ai lm generate model.nqlm "Example" --tokens 32
 ```
 
-The experimental bounded CPU AI framework also supports batched **AdamW**
-training, global-norm gradient clipping, warmup/cosine scheduling, held-out
-perplexity evaluation, and differentiable GELU/ReLU/layer normalization
-operators. Native Noqeri can access explicitly linked optimizer and tensor
-FFI entrypoints; these are not portable VM intrinsics.
+The optional AI/ML framework now supports batched **AdamW**,
+global-norm clipping, warmup/cosine schedules, holdout perplexity,
+**restartable training checkpoints**, 1–4 causal-attention blocks, and
+FP16/FP32 compute (FP64 master weights). An explicitly selected OpenCL
+backend implements GPU-assisted FP32 matrix operations on physical GPU devices.
+The physical GPU verification workflow requires a separately provisioned GPU
+runner; CPU CI is not GPU execution evidence. Noqeri remains a
+**general-purpose programming language** with unchanged grammar.
 
 ```sh
 noqeri ai transformer train corpus.txt tuned.nqtf --optimizer adamw --batch 4 --steps 200 --rate 0.003 --validation 0.1
