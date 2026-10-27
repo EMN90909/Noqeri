@@ -2,7 +2,8 @@
 // the bounded view DSL as Stage-2 typed NIR or auto-install npm packages.
 import {lstat, mkdir, readFile, readdir, realpath, copyFile, writeFile} from 'node:fs/promises'
 import {resolve,relative,join,dirname,extname,sep} from 'node:path'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath,pathToFileURL} from 'node:url'
+import {renderToHtml} from './noqeri-web-runtime.mjs'
 import {compileView,isViewSource,parseView} from './web-view-compiler.mjs'
 import {compileWeb} from './web-compiler.mjs'
 import {compileTheme} from './noqeri-web-theme.mjs'
@@ -120,10 +121,25 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
   await writeFile(join(output,'noqeri/ui.mjs'),compileView(ui,{runtimeImport:'../__noqeri/runtime.mjs'}));
  }
  let routePages=0;
+ // Only prerender the restricted Noqeri view subset. External JS, async data,
+ // subscriptions, persistence and on.mount are browser-only: never execute
+ // third-party packages or browser-dependent behavior during a build.
+ const safePrerender=!htmlFiles.length &&
+   !mainAst.loads.length && !mainAst.subscriptions.length && !mainAst.mounts.length &&
+   !mainAst.states.some(s=>s.persistent) &&
+   [...viewAst.values()].every(ast=>ast.imports.every(i=>i.kind!=='js') &&
+      !ast.mounts.length && !ast.loads.length && !ast.subscriptions.length &&
+      !ast.states.some(s=>s.persistent));
+ let prerender=null;
+ if(safePrerender){
+   const entry=await import(pathToFileURL(join(output,'main.mjs')).href);
+   if(typeof entry.render!=='function')throw Error('Noqeri prerender entry has no render function');
+   prerender=route=>renderToHtml(entry.render(route));
+ }
  if(!htmlFiles.length){
-  const htmlFor=prefix=>{
+  const htmlFor=(prefix,route='/')=>{
    const css=all.includes(join(input,'styles.css'))?'<link rel="stylesheet" href="'+prefix+'styles.css">':'';
-   return '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Noqeri web</title><link rel="stylesheet" href="'+prefix+'__noqeri/theme.css">'+css+importScript(prefix)+'</head><body><main id="app"></main><script type="module" src="'+prefix+'main.mjs"></script></body></html>\n';
+   return '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Noqeri web</title><link rel="stylesheet" href="'+prefix+'__noqeri/theme.css">'+css+importScript(prefix)+'</head><body><main id="app">'+(prerender?prerender(route):'')+'</main><script type="module" src="'+prefix+'main.mjs"></script></body></html>\n';
   };
   await writeFile(join(output,'index.html'),htmlFor('./'));
   for(const route of mainAst.routes){
@@ -132,7 +148,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
    const location=join(output,...segments,'index.html');
    if(outputPaths.has(join(...segments,'index.html')))throw Error('route output collides with source asset: '+route.path);
    await mkdir(dirname(location),{recursive:true});
-   await writeFile(location,htmlFor('../'.repeat(segments.length)));
+   await writeFile(location,htmlFor('../'.repeat(segments.length),route.path));
    routePages++;
   }
  }
