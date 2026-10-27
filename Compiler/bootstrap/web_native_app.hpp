@@ -116,6 +116,10 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
         const bool form=n.tag=="form";
         if (form && nestedForm) throw std::runtime_error("nested forms are unsupported");
         if (!n.actionId.empty()) {
+            // These are browser-only events; never expose them as server POST
+            // actions or accidentally reuse client-event mutation semantics.
+            if(n.eventName!="click"&&n.eventName!="submit")
+                throw std::runtime_error("input/change events require build-client");
             std::size_t databaseCalls=0;
             for(const auto& mutation:n.mutations)if(mutation.op=="db")++databaseCalls;
             std::size_t mutatingCalls=0;
@@ -789,6 +793,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     if(!app.project.uiAlias.empty())
         Parser(uiOverride?*uiOverride:readText(uiSource(executable)),app.project,true).parse();
     promoteStandaloneView(app.project);
+    if(!app.project.clientLoads.empty())
+        throw std::runtime_error("browser load resources require build-client, not serve-app");
     if(app.project.routes.empty())throw std::runtime_error("serve-app requires a view or route");
     if(app.project.databaseConfigured)verifyDbConfig(app.project.database);
     if(!app.project.queries.empty()&&!app.project.databaseConfigured)
