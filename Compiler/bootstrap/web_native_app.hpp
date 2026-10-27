@@ -182,7 +182,10 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
         if (!n.actionId.empty() && inForm)
             throw std::runtime_error("native action cannot be nested inside another form");
         if (n.eventName=="click") {
-            result+="<form method=\"post\" action=\""+escaped(ctx.path)+"\">"+
+            result+="<form method=\"post\" action=\""+escaped(ctx.path)+"\""+
+                    (std::getenv("NOQERI_WEB_REACTIVE")&&
+                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
+                     " data-nq-reactive=\"1\"":"")+">"+
                     hiddenAction(n,ctx.csrf);
         }
         result+="<"+n.tag;
@@ -205,7 +208,10 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
             }else result+=" "+attr+"=\""+escaped(value)+"\"";
         }
         if(blankTarget&&!hasRel)result+=" rel=\"noopener noreferrer\"";
-        if(n.eventName=="submit") result+=" method=\"post\" action=\""+escaped(ctx.path)+"\"";
+        if(n.eventName=="submit") result+=" method=\"post\" action=\""+escaped(ctx.path)+"\""+
+            (std::getenv("NOQERI_WEB_REACTIVE")&&
+             std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
+             " data-nq-reactive=\"1\"":"");
         if(n.eventName=="click") result+=" type=\"submit\"";
         result+=">";
         if(n.eventName=="submit")result+=hiddenAction(n,ctx.csrf);
@@ -396,7 +402,10 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
-        "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\r\n";
+        "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:"+
+        std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
+                    std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
+                    "; script-src 'self'":"")+"; form-action 'self'; base-uri 'none'\r\n";
     if(status==401)header+="WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
     if(!cookie.empty()) {
         const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
@@ -528,9 +537,47 @@ bool nativeBasicAllowed(const std::string& auth,const std::string& expected) {
     if(auth.rfind("Basic ",0)!=0)return false;
     return constantTimeEquals(basicDecode(auth.substr(6)),expected);
 }
+// Opt-in progressive enhancement. No client-side framework or Node runtime;
+// server-side validation and CSRF always remain authoritative.
+std::string reactiveClientScript() {
+    return R"NQJS("use strict";
+document.addEventListener("submit", async (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.dataset.nqReactive !== "1") return;
+  if (!form.reportValidity()) return;
+  event.preventDefault();
+  if (form.dataset.nqBusy === "1") return;
+  form.dataset.nqBusy = "1";
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "follow",
+      headers: {"Accept": "text/html"},
+      body: new URLSearchParams(new FormData(form))
+    });
+    if (new URL(response.url).origin !== location.origin ||
+        ![200,422].includes(response.status) ||
+        !(response.headers.get("content-type")||"").includes("text/html"))
+      throw new Error("Noqeri reactive navigation rejected");
+    const next = new DOMParser().parseFromString(await response.text(), "text/html");
+    document.body.replaceChildren(...Array.from(next.body.childNodes)
+      .map((node) => document.importNode(node,true)));
+    history.replaceState(null, "", new URL(response.url).pathname);
+    document.dispatchEvent(new CustomEvent("noqeri:updated"));
+  } catch (_) {
+    location.reload(); // Non-JS fallback remains a normal server-rendered POST.
+  } finally {
+    delete form.dataset.nqBusy;
+  }
+});
+)NQJS";
+}
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
               const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
+    const bool reactive=std::getenv("NOQERI_WEB_REACTIVE")&&
+        std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1";
     const char* configuredUser=std::getenv("NOQERI_WEB_BASIC_USER");
     const char* configuredPassword=std::getenv("NOQERI_WEB_BASIC_PASSWORD");
     if(bool(configuredUser)!=bool(configuredPassword))
@@ -681,6 +728,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             const bool head=req.method=="HEAD";
             if(path=="/theme.css"&&req.method!="POST") {
                 appReply(client,200,app.styles,"","",head,"text/css; charset=utf-8");
+            } else if(reactive&&path=="/__nq/reactive.js"&&req.method!="POST") {
+                appReply(client,200,reactiveClientScript(),"","",head,"text/javascript; charset=utf-8");
             } else {
                 const auto page=matchAppRoute(app.project,path);
                 if(!page.nodes) {
@@ -838,7 +887,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         renderApp(rendered.layout,rendered,context,{},0,false,page.nodes):
                         renderApp(*page.nodes,rendered,context);
                     if(body.size()>1024*1024)throw std::runtime_error("generated HTML too large");
-                    appReply(client,200,htmlPage(body,"/theme.css"),newCookie,"",head);
+                    appReply(client,200,htmlPage(body,"/theme.css",reactive),newCookie,"",head);
                 }
             }
             }
