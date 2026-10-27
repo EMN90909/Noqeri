@@ -76,9 +76,9 @@ test('scroll starts only on intersection, then disconnects on dispose',()=>{
    const e=environment(),cards=e.add('.cards',2);
    const motion=createMotion(e.root,[{name:'cards',target:'.cards',trigger:'scroll',stagger:40}]);
    assert.equal(cards[0].animations.length,0);
-   observers[0].callback([{isIntersecting:true}]);
+   observers[0].callback([{isIntersecting:true,target:cards[0]}]);
    assert.equal(cards[0].animations[0].options.delay,0);
-   observers[1].callback([{isIntersecting:true}]);
+   observers[1].callback([{isIntersecting:true,target:cards[1]}]);
    assert.equal(cards[1].animations[0].options.delay,40);
    motion.dispose();
    assert.ok(observers.every(o=>o.disconnected));
