@@ -12,6 +12,9 @@ enum class Backend { Scalar, Tiled, Simd, Auto, OpenCL }; // OpenCL requires rea
 // FP16/FP32 compute uses float accumulation, FP64 uses double.
 enum class Precision { FP64, FP32, FP16 };
 bool gpu_available() noexcept;
+// Describes the selected CL_DEVICE_TYPE_GPU; throws if no GPU was found.
+// Hardware provenance, not a cryptographic device attestation.
+std::string gpu_device_description();
 Matrix gpu_gemm(const Matrix& a,const Matrix& b);
 bool simd_available() noexcept;
 Matrix gemm(const Matrix& a, const Matrix& b, Backend backend = Backend::Auto);
