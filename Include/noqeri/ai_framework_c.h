@@ -66,7 +66,8 @@ int64_t nq_ai_adamw_step(const nq_ai_adamw_request *request);
 // all input/output storage; no global handles or retained caller pointers.
 // Operations: 0 leaf; 1 add; 2 matmul; 3 transpose; 4 scale;
 // 5 tanh; 6 softmax (target=1 for causal); 7 cross-entropy;
-// 8 last row. Operands refer only to earlier step indices.
+// 8 last row; 9 ReLU; 10 GELU; 11 layer norm (scalar=epsilon).
+// Operands refer only to earlier step indices.
 typedef struct nq_ai_tape_step {
     uint32_t operation;
     size_t a, b;
