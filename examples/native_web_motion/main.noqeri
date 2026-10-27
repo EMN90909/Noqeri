@@ -1,0 +1,36 @@
+// Noqeri-native Motion: a short intro and scroll reveal. No GSAP or Node.
+motion hero {
+  target: ".hero"
+  trigger: "timeline"
+  fromOpacity: 0
+  toOpacity: 100
+  fromY: 35
+  duration: 280
+  ease: "smooth"
+}
+motion subtitle {
+  target: ".subtitle"
+  trigger: "timeline"
+  fromOpacity: 0
+  fromX: -24
+  duration: 200
+  stagger: 60
+  ease: "out"
+}
+motion reveal {
+  target: ".reveal"
+  trigger: "scroll"
+  fromOpacity: 0
+  fromScale: 94
+  duration: 320
+  ease: "back"
+}
+timeline introduction { hero subtitle }
+view {
+  main {
+    h1 class: "hero" { "Noqeri Motion" }
+    p class: "subtitle" { "Native timeline animations" }
+    p class: "subtitle" { "No GSAP dependency" }
+    section class: "reveal" { "Scroll entrance animation" }
+  }
+}
