@@ -17,7 +17,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libsqlite3-dev libpq-dev libmariadb-dev
       - name: Configure native C++ bootstrap
-        run: cmake -S . -B build-native-web -DBUILD_TESTING=ON
+        run: cmake -S . -B build-native-web -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build Noqeri native web and WebSocket frame validator
         run: cmake --build build-native-web --target noqeri noqeri-web noqeri-websocket-frame-test -j2
       - name: Native static web and RFC6455 frame regression tests
