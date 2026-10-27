@@ -51,7 +51,7 @@ jobs:
         run: |
           cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF
-          cmake --build build-release --target noqeri noqeri-nqri noqeri-web \
+          # All installed runtime targets must be built before cmake --install.\n          cmake --build build-release --target noqeri noqeri-nqri noqeri-web noqeri-ai \
             noqeri_graphics_fastpath noqeri-websocket-frame-test --parallel 2
       - name: Test compiler, VM and native WebSocket frames
         shell: bash
@@ -79,7 +79,7 @@ jobs:
           cmake --install build-release --prefix "$PWD/stage"
           test -s stage/bin/noqeri
           test -s stage/bin/noqeri-web
-          test -s stage/bin/noqeri-nqri
+          test -s stage/bin/noqeri-nqri\n          test -s stage/bin/noqeri-ai
           test -s stage/share/noqeri/licenses/Apache-2.0.txt
           test -s stage/share/noqeri/LICENSE
           test -s stage/share/noqeri/Compiler/bootstrap/web_native.cpp
@@ -98,7 +98,7 @@ jobs:
 
   publish:
     name: Publish exact v0.1.4 tag (clearly marked prerelease)
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # An existing immutable v0.1.4 tag cannot be republished by arbitrary\n    # main pushes. Publication is an explicit maintainer operation.\n    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: qualify
     runs-on: ubuntu-24.04
     permissions:
