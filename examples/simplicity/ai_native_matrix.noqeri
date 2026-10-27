@@ -1,0 +1,41 @@
+// Noqeri native AOT test for the expanded matrix C ABI.
+// Build using scripts/native-build.mjs --ai-framework.
+import "../../Lib/ai/matrix_native.noqeri"
+
+function exercise(): int {
+    let a: [float; 4] = [1.0, 2.0, 3.0, 4.0]
+    let b: [float; 4] = [5.0, 6.0, 7.0, 8.0]
+    let result: [float; 4] = [-99.0, -99.0, -99.0, -99.0]
+    let rows: usize = 77 as usize
+    let cols: usize = 88 as usize
+    let req: AiMatrixRequest
+    req.left = &a[0]
+    req.left_rows = 2 as usize
+    req.left_cols = 2 as usize
+    req.right = &b[0]
+    req.right_rows = 2 as usize
+    req.right_cols = 2 as usize
+    req.operation = 0 as u32
+    req.axis = 1 as usize
+    req.epsilon = 0.00001
+    req.output = &result[0]
+    req.output_capacity = 4 as usize
+    req.output_rows = &rows
+    req.output_cols = &cols
+    if ai_native_matrix(&req) != 0 as isize { return 1 }
+    if result[0] != 19.0 || result[1] != 22.0 ||
+       result[2] != 43.0 || result[3] != 50.0 { return 2 }
+    if rows != 2 as usize || cols != 2 as usize { return 3 }
+    req.operation = 2 as u32
+    if ai_native_matrix(&req) != 0 as isize { return 4 }
+    if result[0] < 0.268 || result[0] > 0.270 { return 5 }
+    req.output_capacity = 1 as usize
+    result[0] = -99.0
+    rows = 77 as usize
+    cols = 88 as usize
+    if ai_native_matrix(&req) != -3 as isize { return 6 }
+    if result[0] != -99.0 || rows != 77 as usize ||
+       cols != 88 as usize { return 7 }
+    return 0
+}
+print(exercise())
