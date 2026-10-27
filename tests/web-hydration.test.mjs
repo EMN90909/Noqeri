@@ -38,6 +38,35 @@ test('hydrates matching server nodes and attaches handlers without replacing DOM
   app.dispose();
   assert.equal(root.childNodes.length,0);
 });
+test('hydrates browser-coalesced adjacent text without undefined DOM access',async()=>{
+  const {doc,root}=fixture();
+  const wrapper=doc.createElement('div'),paragraph=doc.createElement('p');
+  paragraph.appendChild(doc.createTextNode('Clicks: 0'));
+  wrapper.appendChild(paragraph);root.appendChild(wrapper);
+  let count=0;
+  const app=createApp(root,()=>element('div',{},[
+    element('p',{},['Clicks: ',count])
+  ]),{hydrate:true});
+  assert.equal(root.childNodes[0],wrapper);
+  assert.equal(wrapper.childNodes[0],paragraph);
+  assert.equal(paragraph.childNodes.length,1);
+  count=1;app.schedule();await Promise.resolve();
+  assert.equal(paragraph.textContent,'Clicks: 1');
+  assert.equal(paragraph.childNodes.length,1);
+  app.dispose();
+});
+test('recovers safely when an external DOM mutation removed a child',async()=>{
+  const {root}=fixture();
+  let count=0;
+  const app=createApp(root,()=>element('div',{},[
+    element('p',{},['Counter ',count])
+  ]));
+  const wrapper=root.childNodes[0];
+  wrapper.replaceChildren();
+  count=5;app.schedule();await Promise.resolve();
+  assert.equal(wrapper.textContent,'Counter 5');
+  app.dispose();
+});
 test('hydration replaces mismatched tags safely',()=>{
   const {doc,root}=fixture(),wrong=doc.createElement('span');root.appendChild(wrong);
   const app=createApp(root,()=>element('div',{},['Safe']),{hydrate:true});
