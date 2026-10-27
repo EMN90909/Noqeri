@@ -7,6 +7,8 @@ on:
       - 'tests/browser_e2e.mjs'
       - 'tests/browser_reactive_e2e.mjs'
       - 'tests/browser_view_e2e.mjs'
+      - 'tests/browser_native_client_e2e.mjs'
+      - 'examples/native_web_client/**'
       - 'Runtime/web-view-compiler.mjs'
       - 'Runtime/web-view-project.mjs'
       - 'Runtime/noqeri-web-runtime.mjs'
@@ -19,6 +21,8 @@ on:
       - 'tests/browser_e2e.mjs'
       - 'tests/browser_reactive_e2e.mjs'
       - 'tests/browser_view_e2e.mjs'
+      - 'tests/browser_native_client_e2e.mjs'
+      - 'examples/native_web_client/**'
       - 'Runtime/web-view-compiler.mjs'
       - 'Runtime/web-view-project.mjs'
       - 'Runtime/noqeri-web-runtime.mjs'
@@ -50,3 +54,4 @@ jobs:
           node tests/browser_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
           node tests/browser_reactive_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
           node tests/browser_view_e2e.mjs ./examples/native_web
+          node tests/browser_native_client_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_client
