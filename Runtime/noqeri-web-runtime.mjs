@@ -95,7 +95,7 @@ export function inputEvent(event) {
 export function formFields(event) {
   const values=Object.create(null);
   const form=event?.target;
-  if(!form||typeof FormData==='undefined')return values;
+  if(!form||typeof form.tagName!=='string'||form.tagName.toLowerCase()!=='form'||typeof FormData==='undefined')return values;
   let count=0;
   for(const [name,value] of new FormData(form)){
     if(++count>32)throw Error('Noqeri form has too many fields');
