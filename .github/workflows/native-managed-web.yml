@@ -1,0 +1,63 @@
+name: Native managed database integration
+on:
+  workflow_dispatch:
+  push:
+    branches: [min]
+    paths:
+      - "Compiler/bootstrap/web_native.cpp"
+      - "Compiler/bootstrap/web_native_app.hpp"
+      - "Compiler/bootstrap/web_native_db.hpp"
+      - "Compiler/bootstrap/web_native_cloud.hpp"
+      - "Runtime/web-managed-databases.mjs"
+      - "tests/native_web_cloud*"
+      - "tests/web-managed-databases.test.mjs"
+      - ".github/workflows/native-managed-web.yml"
+  pull_request:
+    paths:
+      - "Compiler/bootstrap/web_native*"
+      - "Runtime/web-managed-databases.mjs"
+      - "tests/native_web_cloud*"
+      - ".github/workflows/native-managed-web.yml"
+permissions:
+  contents: read
+jobs:
+  native-cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native SDKs and TLS fixture requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libcurl4-openssl-dev libsqlite3-dev libpq-dev libmariadb-dev openssl
+      - name: Configure native compiler web host
+        run: cmake -S . -B build-native-managed -DBUILD_TESTING=OFF -DNOQERI_WEB_CLOUD_DRIVERS=ON
+      - name: Compile native web executable and cloud drivers
+        run: cmake --build build-native-managed --target noqeri-web -j2
+      - name: Check native driver discovery
+        run: |
+          ./build-native-managed/noqeri-web drivers | tee /tmp/noqeri-native-managed-drivers.txt
+          grep -q 'supabase: compiled' /tmp/noqeri-native-managed-drivers.txt
+          grep -q 'firebase: compiled' /tmp/noqeri-native-managed-drivers.txt
+          grep -q 'firestore: compiled' /tmp/noqeri-native-managed-drivers.txt
+      - name: Cloud parser and fail-closed regressions
+        run: python3 tests/native_web_cloud.py ./build-native-managed/noqeri-web
+      - name: Verified HTTPS integration against hermetic provider fixture
+        run: python3 tests/native_web_cloud_tls.py ./build-native-managed/noqeri-web
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Node managed cloud regression tests
+        run: node --test tests/web-managed-databases.test.mjs
+      - name: Read-only live provider qualification (manual, dedicated test projects only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          NOQERI_LIVE_REQUIRE_ALL: "1"
+          NOQERI_LIVE_SUPABASE_URL: ${{ secrets.NOQERI_LIVE_SUPABASE_URL }}
+          NOQERI_LIVE_SUPABASE_KEY: ${{ secrets.NOQERI_LIVE_SUPABASE_KEY }}
+          NOQERI_LIVE_SUPABASE_TABLE: ${{ secrets.NOQERI_LIVE_SUPABASE_TABLE }}
+          NOQERI_LIVE_FIRESTORE_URL: ${{ secrets.NOQERI_LIVE_FIRESTORE_URL }}
+          NOQERI_LIVE_FIRESTORE_TOKEN: ${{ secrets.NOQERI_LIVE_FIRESTORE_TOKEN }}
+          NOQERI_LIVE_FIRESTORE_COLLECTION: ${{ secrets.NOQERI_LIVE_FIRESTORE_COLLECTION }}
+          NOQERI_LIVE_NEON_DSN: ${{ secrets.NOQERI_LIVE_NEON_DSN }}
+        run: python3 tests/native_web_live_providers.py ./build-native-managed/noqeri-web

@@ -114,3 +114,7 @@ node --test tests/web-framework.test.mjs tests/web-views.test.mjs
 ```
 
 Tests use fake provider clients and mocked HTTP; live-provider qualification (Supabase RLS/Firebase Security Rules, Postgres TLS, session persistence across multiple processes and browser interoperability) remains future work.
+
+## Provider privilege requirements (October 2026)
+
+The Node Supabase adapter refuses `sb_secret_*` keys unless `allowPrivilegedKey:true` is explicitly supplied and refuses combining such keys with `accessToken`. A publishable key plus independently validated request JWT remains the intended RLS path. Both the Node and native adapters require host-side authentication, authorization and tenant isolation. Native `auth_env` is a single server identity shared by all requests, not per-visitor authentication. The native `firestore` preview is text-only; the Node adapter supports tagged JSON values. Firebase Realtime Database is independent of Cloud Firestore.

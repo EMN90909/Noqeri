@@ -51,9 +51,12 @@ async function tokenValue(source){
   if(typeof token!=='string'||!token||/[\r\n]/.test(token)||token.length>8192)fail('NQDB116','Invalid provider token');
   return token;
 }
-export function createSupabaseDatabase({url,apiKey,accessToken,fetchImpl,timeoutMs}={}){
+export function createSupabaseDatabase({url,apiKey,accessToken,allowPrivilegedKey=false,fetchImpl,timeoutMs}={}){
   const base=urlBase(url),request=requestClient({fetchImpl,timeoutMs});
   if(typeof apiKey!=='string'||!apiKey||/[\r\n]/.test(apiKey))fail('NQDB117','Supabase apiKey is required');
+  const privileged=apiKey.startsWith('sb_secret_');
+  if(privileged&&!allowPrivilegedKey)fail('NQDB132','Privileged Supabase keys need explicit allowPrivilegedKey=true and backend authorization');
+  if(privileged&&accessToken)fail('NQDB133','Do not combine a secret Supabase key with user JWTs; use a publishable key to enforce RLS');
   const source=accessToken?authToken(accessToken):null;
   const endpoint=(table,params)=>{const u=new URL(base+'/rest/v1/'+ident(table));for(const [k,v] of params)u.searchParams.append(k,String(v));return u.toString()};
   async function send(table,method,params=[],data){

@@ -70,8 +70,8 @@ std::string dbJsonQuote(const std::string& value) {
 void verifyDbConfig(const DbConfiguration& config) {
     if(config.engine!="noesql"&&config.engine!="sqlite"&&config.engine!="postgresql"&&
        config.engine!="duckdb"&&config.engine!="mysql"&&
-       config.engine!="neon"&&config.engine!="supabase"&&config.engine!="firebase")
-        throw std::runtime_error("unsupported database engine; choose noesql, sqlite, postgresql, duckdb, mysql, neon, supabase, firebase");
+       config.engine!="neon"&&config.engine!="supabase"&&config.engine!="firebase"&&config.engine!="firestore")
+        throw std::runtime_error("unsupported database engine; choose noesql, sqlite, postgresql, duckdb, mysql, neon, supabase, firebase, firestore");
     if(config.engine=="noesql"||config.engine=="sqlite"||config.engine=="duckdb") {
         if(config.path.empty()||config.path.size()>2048)
             throw std::runtime_error("database path is required");
@@ -81,12 +81,15 @@ void verifyDbConfig(const DbConfiguration& config) {
         if(config.dsnEnvironment.empty()||config.dsnEnvironment.size()>128||
            !validName(config.dsnEnvironment))
             throw std::runtime_error("database connection must name an environment variable");
-        if(config.engine=="supabase"||config.engine=="firebase") {
+        if(config.engine=="supabase"||config.engine=="firebase"||config.engine=="firestore") {
             if(config.keyEnvironment.empty()||config.keyEnvironment.size()>128||
                !validName(config.keyEnvironment))
                 throw std::runtime_error("cloud database requires key_env naming a server-only environment variable");
         }
     }
+    if(!config.authEnvironment.empty()&&(config.engine!="supabase"||
+       config.authEnvironment.size()>128||!validName(config.authEnvironment)))
+        throw std::runtime_error("auth_env is only available for Supabase and must name a server environment variable");
 }
 #if !defined(_WIN32)
 std::string runNoeSqlCommand(const DbConfiguration& db,const std::string& command,
@@ -503,7 +506,7 @@ std::string executeDatabase(const DbConfiguration& db,const std::string& source,
         throw std::runtime_error("NoeSQL CLI adapter requires POSIX host");
 #endif
     }
-    if(db.engine=="supabase"||db.engine=="firebase") {
+    if(db.engine=="supabase"||db.engine=="firebase"||db.engine=="firestore") {
 #ifdef NOQERI_WEB_CURL
         return executeCloud(db,source,params);
 #else

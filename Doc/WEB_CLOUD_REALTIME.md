@@ -13,17 +13,18 @@ The existing `noesql`, `sqlite`, `postgresql`, `duckdb` and `mysql` engines rema
 
 | Engine | Transport | Configuration | Scope |
 | --- | --- | --- | --- |
-| `supabase` | HTTPS/PostgREST via libcurl | `dsn_env` for Data API root, `key_env` for bearer/API key | JSON GET and bounded POST/PATCH/DELETE |
+| `supabase` | HTTPS/PostgREST via libcurl | `dsn_env` for Data API root, `key_env` for API key, optional `auth_env` fixed server JWT | JSON GET and bounded POST/PATCH/DELETE |
 | `firebase` | HTTPS Realtime Database REST via libcurl | `dsn_env` for RTDB URL, `key_env` for Google OAuth access token | JSON GET/POST/PUT/PATCH/DELETE, `.json` paths |
 | `neon` | PostgreSQL/libpq | `dsn_env` for connection string | PostgreSQL prepared queries, requires `sslmode=verify-full` |
+| `firestore` | HTTPS Cloud Firestore REST via libcurl | `dsn_env` for Firestore documents API base, `key_env` for Firebase ID token or Google OAuth access token | Collection/document GET and text-only POST/PATCH/DELETE |
 
-`NeoBase` (neobase.cloud) is an AI database copilot, not a database storage engine; use the actual PostgreSQL/MySQL/etc. driver when accessing a database managed via NeoBase. Other systems such as MongoDB and Firestore are **not supported** by these adapters.
+`NeoBase` (neobase.cloud) is an AI database copilot, not a database storage engine; use the actual PostgreSQL/MySQL/etc. driver when accessing a database managed via NeoBase. MongoDB remains unsupported as a direct native engine. Firestore has a **separate** native, text-only REST adapter; it is not an alias for Firebase Realtime Database.
 
 ### Supabase, native server
 
 ```sh
 export SUPABASE_REST_URL='https://YOUR_PROJECT.supabase.co/rest/v1'
-export SUPABASE_SERVER_TOKEN='YOUR_SERVER_TOKEN'
+export SUPABASE_PUBLISHABLE_KEY='sb_publishable_...'
 cmake -S . -B build -DNOQERI_WEB_CLOUD_DRIVERS=ON
 cmake --build build --target noqeri-web
 ./build/noqeri-web drivers
@@ -36,7 +37,7 @@ cmake --build build --target noqeri-web
 database {
   engine: "supabase"
   dsn_env: "SUPABASE_REST_URL"
-  key_env: "SUPABASE_SERVER_TOKEN"
+  key_env: "SUPABASE_PUBLISHABLE_KEY"
 }
 query tasks = "GET /tasks?select=id,title"
 route "/" {
@@ -54,7 +55,7 @@ route "/" {
 }
 ```
 
-REST source strings are trusted compile-time literals; form values are passed as named JSON **string** fields and are never interpolated into URLs. For GET, embed filters in the trusted path only. Avoid using a Supabase `service_role` key for public-facing sites: elevated keys can bypass Row Level Security. This preview has no per-user Supabase login/JWT propagation. Choose a least-privilege backend credential and enforce authorization yourself.
+REST source strings are trusted compile-time literals; form values are passed as named JSON **string** fields and are never interpolated into URLs. For GET, embed filters in the trusted path only. Avoid using a Supabase `service_role` key for public-facing sites: elevated keys can bypass Row Level Security. New publishable keys travel in the `apikey` header, **not** as a bearer token. Legacy JWT-format API keys still use the existing bearer compatibility behavior. Optional `auth_env` names a **fixed server-side JWT**, not a dynamically authenticated browser user. Every visitor would share that principal, so this setting must not be used as per-user login/RLS support. Real per-request identity binding and authorization still require a separate audited server capability. A `sb_secret_*` key requires `NOQERI_WEB_ALLOW_PRIVILEGED_KEY=1` and cannot be combined with `auth_env`. Use elevated credentials only for separately authorized backend-only tasks.
 
 ### Firebase Realtime Database, native server
 
@@ -65,6 +66,37 @@ export FIREBASE_OAUTH_TOKEN='SHORT_LIVED_GOOGLE_OAUTH_ACCESS_TOKEN'
 ```
 
 Use `engine: "firebase"`, `dsn_env: "FIREBASE_DATABASE_URL"`, `key_env: "FIREBASE_OAUTH_TOKEN"`, `query items = "GET /items.json"` and `db.execute("POST /items.json", title: form.title)`. Tokens must be obtained and refreshed externally; this connector does **not** implement Google OAuth, Firebase Authentication, Firestore query syntax, or an ID-token exchange.
+
+### Cloud Firestore, native preview
+
+The native `firestore` engine is separate from `firebase` (Realtime Database). Supply a fully qualified document API base and a short-lived **Firebase Auth ID token** (Firestore Security Rules) or an authorized Google OAuth token (IAM); refresh and enforce authorization in the host environment. A fixed environment token is **not** per-request user identity.
+
+```sh
+export FIRESTORE_DOCS_URL='https://firestore.googleapis.com/v1/projects/YOUR_PROJECT/databases/(default)/documents'
+export FIRESTORE_TOKEN='FIREBASE_ID_TOKEN_OR_GOOGLE_OAUTH_TOKEN'
+```
+
+```noqeri
+database {
+  engine: "firestore"
+  dsn_env: "FIRESTORE_DOCS_URL"
+  key_env: "FIRESTORE_TOKEN"
+}
+query notes = "GET /notes"
+route "/" {
+  main {
+    pre { notes }
+    form on.submit {
+      db.execute("POST /notes", title: form.title)
+    } {
+      input name: "title" type: "text" {}
+      button type: "submit" { "Create" }
+    }
+  }
+}
+```
+
+`GET /notes` lists documents; `GET /notes/id` reads one. `POST /notes` creates a document with an autogenerated ID. `PATCH /notes/id` and `DELETE /notes/id` operate conditionally on an existing document, preventing accidental upsert; updates use Firestore field masks. **All native write values are text**, wrapped as `stringValue`. Firestore response JSON is not yet decoded into typed Noqeri records. The Node-managed adapter supports richer typed documents but is a separate runtime. Arbitrary filters, batch writes, transactions, custom document IDs on creation, collection groups and paging are not implemented for the native adapter.
 
 ### Neon, native PostgreSQL
 
@@ -105,7 +137,14 @@ view {
 ```sh
 node --test tests/web-views.test.mjs tests/web-framework.test.mjs
 python3 tests/native_web_cloud.py ./build/noqeri-web
+python3 tests/native_web_cloud_tls.py ./build/noqeri-web
 ctest --test-dir build -R 'noqeri-native-web' --output-on-failure
 ```
 
-These tests validate frontend state and transport behavior under test doubles and native cloud fail-closed configuration. They are **not** live-provider CRUD, security policy, multiuser authorization, real WebSocket handshake, or production TLS/load certification.
+The HTTPS integration test executes real native libcurl requests against a local TLS server, validating certificates, bearer/API headers, tagged Firestore text payloads, and failure isolation. It does **not** establish live Supabase RLS, Firebase Security Rules, Neon connectivity, multiuser authorization, production TLS/load certification or Stage-2 compiler parity. A live integration qualification requires dedicated test projects and credentials, audited policy fixtures, secret rotation and traffic limits.
+
+## Running opt-in LIVE checks
+
+`tests/native_web_live_providers.py` runs read-only queries against **separately provisioned test resources** for Supabase, Cloud Firestore and Neon. It will clearly print `LIVE NOT RUN` for missing credentials; with `NOQERI_LIVE_REQUIRE_ALL=1` missing settings are failures. Use `workflow_dispatch` in `.github/workflows/native-managed-web.yml` and configure the seven `NOQERI_LIVE_*` GitHub Actions secrets for test projects. No real access tokens are checked into Noqeri, and ordinary push CI does **not** claim live provider connectivity.
+
+Native cloud `auth_env` is a fixed server principal, not a user login mechanism; requests under different visitors currently share that identity. A dynamic per-request authz gateway with token verification and RLS/Firestore-rule integration must precede a production deployment. Additional certification gates include Stage-2 typed-NIR lowering, transactions and safe retries, robust request routing, TLS proxy hardening, user-level revocation/MFA, multi-process session consistency, real provider negative authorization policies, fault-injection and load tests, independent security review, and release platform builds.

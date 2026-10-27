@@ -83,3 +83,17 @@ test('SQLite adapter performs actual bound CRUD against node:sqlite',async()=>{
     await db.close();
   }finally{client.close()}
 });
+
+test('Supabase publishable keys remain API keys; privileged keys require explicit opt-in',async()=>{
+  const calls=[];
+  const mock=async(url,options)=>{calls.push(options.headers);return response([{id:1}])};
+  const db=createSupabaseDatabase({url:'https://demo.supabase.co',apiKey:'sb_publishable_some-key',fetchImpl:mock});
+  await db.list('tasks');
+  assert.equal(calls[0].apikey,'sb_publishable_some-key');
+  assert.equal('Authorization' in calls[0],false);
+  assert.throws(()=>createSupabaseDatabase({url:'https://demo.supabase.co',apiKey:'sb_secret_private'}),/NQDB132/);
+  assert.throws(()=>createSupabaseDatabase({url:'https://demo.supabase.co',apiKey:'sb_secret_private',allowPrivilegedKey:true,accessToken:'user.jwt.token'}),/NQDB133/);
+  const elevated=createSupabaseDatabase({url:'https://demo.supabase.co',apiKey:'sb_secret_private',allowPrivilegedKey:true,fetchImpl:mock});
+  assert.equal((await elevated.get('tasks',1)).id,1);
+  assert.equal(calls[1].apikey,'sb_secret_private');
+});

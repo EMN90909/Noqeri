@@ -594,7 +594,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                statement.find_first_of("\r\n;{}")!=std::string::npos)
                 throw std::runtime_error("NoeSQL view query must be a single table get statement");
         }else if(app.project.database.engine=="supabase"||
-                 app.project.database.engine=="firebase") {
+                 app.project.database.engine=="firebase"||
+                 app.project.database.engine=="firestore") {
             if(statement.rfind("GET /",0)!=0||statement.size()>2048||
                statement.find_first_of("\r\n")!=std::string::npos)
                 throw std::runtime_error("cloud view queries must use a single GET /path statement");

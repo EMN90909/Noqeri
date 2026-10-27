@@ -95,3 +95,7 @@ The integration test uses a mock callback library to verify ABI calls, marshalin
 ## Cloud providers (experimental)
 
 Native `noqeri-web` also supports server-only Supabase REST, Firebase Realtime Database REST, and Neon/PostgreSQL with verified TLS. Use the HTTPS `dsn_env` and `key_env` configuration; credentials must remain in server environment variables. See [cloud databases and reactive browser capabilities](WEB_CLOUD_REALTIME.md) for exact syntax, authorization limitations, and verification.
+
+## Current native cloud extensions on `min`
+
+The `firestore` engine is now an explicit text-only Cloud Firestore REST preview, separate from `firebase` (Realtime Database). Native Supabase API keys support new publishable-key headers without misidentifying them as JWTs, with optional fixed server `auth_env` and elevated-key opt-in. These are implemented by the current C++ bootstrap, **not** Stage-2 typed NIR code generation. See [WEB_CLOUD_REALTIME.md](WEB_CLOUD_REALTIME.md) and the hermetic HTTPS tests. No live-provider or production security certification is claimed.
