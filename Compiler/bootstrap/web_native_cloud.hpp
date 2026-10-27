@@ -35,7 +35,7 @@ std::string cloudEnvironment(const std::string& name,const char* kind) {
     const auto* setting=std::getenv(name.c_str());
     if(!setting||!*setting)throw std::runtime_error(std::string("missing cloud ")+kind+" environment variable");
     const std::string value(setting);
-    if(value.size()>8192||value.find_first_of("\r\n\0",0)!=std::string::npos)
+    if(value.size()>8192||value.find_first_of("\r\n")!=std::string::npos||value.find('\0')!=std::string::npos)
         throw std::runtime_error("invalid cloud credential/configuration");
     return value;
 }
@@ -45,7 +45,7 @@ std::string executeCloud(const DbConfiguration& db,const std::string& source,
     std::string endpoint=cloudEnvironment(db.dsnEnvironment,"endpoint");
     const auto key=cloudEnvironment(db.keyEnvironment,"token");
     if(endpoint.rfind("https://",0)!=0||endpoint.size()>1024||
-       endpoint.find_first_of("?#@ \\ \t\r\n")!=std::string::npos||
+       endpoint.find_first_of("?#@ \t\r\n\\")!=std::string::npos||
        endpoint.find("//",8)!=std::string::npos)
         throw std::runtime_error("cloud endpoint must be a trusted HTTPS base URL");
     if(endpoint.back()=='/')endpoint.pop_back();
@@ -80,7 +80,6 @@ std::string executeCloud(const DbConfiguration& db,const std::string& source,
     if(statement.method!="GET"&&statement.method!="DELETE")
         addHeader("Content-Type: application/json");
     std::string response;
-    curl_easy_setopt(raw,CURLOPT_URL,(endpoint+statement.path).c_str());
     // Retain the URL buffer for the duration of the transfer.
     const std::string url=endpoint+statement.path;
     curl_easy_setopt(raw,CURLOPT_URL,url.c_str());
