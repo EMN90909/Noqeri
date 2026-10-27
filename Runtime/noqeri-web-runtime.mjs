@@ -15,6 +15,51 @@ export function element(tag,attrs={},children=[],events={}) {
   return {__noqeri:1,tag,attrs,children,events};
 }
 const isNode=value=>Boolean(value&&typeof value==='object'&&value.__noqeri===1);
+// Trusted server-side serialization of a Noqeri VNode for static pre-rendering.
+// This does not execute event callbacks, user HTML strings, or JavaScript.
+const SSR_TAGS = new Set('a abbr article aside b blockquote br button caption code dd details div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input label li main nav ol option p picture pre section select small span strong summary table tbody td textarea th thead time tr ul'.split(' '));
+const SSR_VOID = new Set(['br','hr','img','input']);
+const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({
+  '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+})[ch]);
+export function renderToHtml(vnode) {
+  let size = 0;
+  function emit(value) {
+    size += value.length;
+    if (size > 1024*1024) throw Error('Noqeri prerender exceeds 1 MiB');
+    return value;
+  }
+  function visit(value, depth = 0) {
+    if (depth > 64) throw Error('Noqeri prerender nesting limit exceeded');
+    if (Array.isArray(value)) return value.map(child => visit(child,depth+1)).join('');
+    const node = normalize(value);
+    if (node.text !== undefined) return emit(escapeHtml(node.text));
+    if (!SSR_TAGS.has(node.tag)) throw Error('Unsafe Noqeri prerender tag '+node.tag);
+    let attrs = '';
+    for (const [key,val] of Object.entries(node.attrs||{})) {
+      if (!safeKey(key) || !allowed(key)) throw Error('Unsafe Noqeri attribute '+key);
+      if (val == null || val === false) continue;
+      if (key === 'href' || key === 'src') {
+        const raw = String(val).trim();
+        if (!/^(?:https:\/\/|\/(?!\/)|\.\.?\/|#|mailto:|tel:)/i.test(raw))
+          throw Error('Unsafe Noqeri URL attribute');
+      }
+      if (['disabled','checked','required'].includes(key)) {
+        if (val) attrs += ' '+key;
+      } else attrs += ' '+key+'="'+escapeHtml(val)+'"';
+    }
+    if (node.attrs?.target === '_blank' && !node.attrs.rel)
+      attrs += ' rel="noopener noreferrer"';
+    if (SSR_VOID.has(node.tag)) {
+      if (node.children?.length) throw Error('Noqeri void tag cannot have children');
+      return emit('<'+node.tag+attrs+'>');
+    }
+    const children = (node.children||[]).map(child=>visit(child,depth+1)).join('');
+    return emit('<'+node.tag+attrs+'>'+children+'</'+node.tag+'>');
+  }
+  return visit(vnode);
+}
+
 const normalize=v=>isNode(v)?v:{__noqeri:1,text: v===null||v===undefined?'':String(v)};
 function attribute(node,name,value) {
   if(!safeKey(name)||!allowed(name))throw Error('Unsafe Noqeri attribute '+name);
