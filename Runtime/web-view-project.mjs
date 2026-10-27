@@ -66,6 +66,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
    }else{
     if(i.specifier==='noqeri/app'){
      usesNativeApp=true;
+     if(file!==main)throw Error('bundled noqeri/app must be imported by root main.noqeri');
      if(outputPaths.has('noqeri/app.mjs'))throw Error('reserved Noqeri app output path');
      continue;
     }

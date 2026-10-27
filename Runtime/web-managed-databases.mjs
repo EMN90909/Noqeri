@@ -162,9 +162,9 @@ export async function createSqlDatabase(options={}){
   async function query(sql,params=[]){
     if(closed)fail('NQDB130','Database is closed');
     if(dialect==='sqlite'){
-      const stmt=client.prepare(sql);
-      if(/^\s*(SELECT|INSERT|UPDATE|DELETE)/i.test(sql) && (/^\s*SELECT/i.test(sql)||/\bRETURNING\b/i.test(sql)))return {rows:stmt.all(...params)};
-      const result=stmt.run(...params);return {rows:[],affected:result.changes};
+      const stmt=client.prepare(sql),bind=params.map(v=>typeof v==='boolean'?Number(v):v);
+      if(/^\s*(SELECT|INSERT|UPDATE|DELETE)/i.test(sql) && (/^\s*SELECT/i.test(sql)||/\bRETURNING\b/i.test(sql)))return {rows:stmt.all(...bind)};
+      const result=stmt.run(...bind);return {rows:[],affected:result.changes};
     }
     return client.query(sql,params);
   }

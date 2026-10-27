@@ -65,3 +65,21 @@ test('Neon/PostgreSQL operations use bind parameters and quoted checked identifi
   await db.close();
   await assert.rejects(db.get('tasks',1),/NQDB130/);
 });
+
+test('SQLite adapter performs actual bound CRUD against node:sqlite',async()=>{
+  const {DatabaseSync}=await import('node:sqlite');
+  const client=new DatabaseSync(':memory:');
+  try{
+    client.exec('CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)');
+    const db=await createSqlDatabase({engine:'sqlite',client});
+    const first=await db.create('items',{id:1,name:'quoted \' value',done:false});
+    assert.equal(first.id,1);
+    assert.equal(first.done,0);
+    assert.equal((await db.get('items',1)).name,"quoted ' value");
+    assert.equal((await db.list('items'))[0].id,1);
+    assert.equal((await db.update('items',1,{done:true})).done,1);
+    assert.equal(await db.remove('items',1),true);
+    assert.equal(await db.remove('items',1),false);
+    await db.close();
+  }finally{client.close()}
+});

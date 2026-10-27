@@ -218,6 +218,7 @@ export function compileView(source,{runtimeImport='./__noqeri/runtime.mjs'}={}) 
       function base(n){return n.kind==='name'?n.name:n.kind==='member'||n.kind==='call'?base(n.kind==='call'?n.callee:n.object):null}
       const root=base(e);
       if(aliases.has(root))return jsExpr(e.object,local)+'['+JSON.stringify(e.name)+']';
+      if(root==='event'&&!local.has('event'))throw Error('Noqeri view: event is only available in on.click, on.input, on.change or on.submit actions');
       if(resource.has(root)||(root==='event'&&local.has('event')))return '__member('+jsExpr(e.object,local)+','+JSON.stringify(e.name)+')';
       throw Error('Noqeri view: property access requires imported library or loaded resource');
     }

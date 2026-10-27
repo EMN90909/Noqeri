@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {sessionManager,memorySessions,hashPassword,verifyPassword,passwordAuth,requireSameOrigin} from '../Runtime/noqeri-web-sessions.mjs'
+import {sessionManager,memorySessions,sqliteSessions,hashPassword,verifyPassword,passwordAuth,requireSameOrigin} from '../Runtime/noqeri-web-sessions.mjs'
 test('sessions use signed unpredictable cookies, expirations and CSRF',async()=>{
   const store=memorySessions(),manager=sessionManager({secret:'a'.repeat(64),store,secure:true,ttlSeconds:60});
   const login=await manager.issue({id:'u1',email:'a@example.com'},{now:1000});
@@ -42,4 +42,24 @@ test('passwords are salted, verified, and omitted from public session identities
   assert.equal(requireSameOrigin('https://example.test','https://example.test'),true);
   assert.throws(()=>requireSameOrigin('https://evil.test','https://example.test'),/cross-origin/);
   assert.throws(()=>sessionManager({secret:'too-short'}),/32 bytes/);
+});
+
+test('SQLite-backed sessions remain readable from a separate reopened store',async()=>{
+  const {mkdtemp,rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const dir=await mkdtemp(join(tmpdir(),'noqeri-sessions-'));
+  try{
+    const file=join(dir,'session.sqlite');
+    const firstStore=await sqliteSessions(file);
+    const first=sessionManager({secret:'s'.repeat(64),store:firstStore});
+    const issued=await first.issue({id:'durable'});
+    await firstStore.close();
+    const secondStore=await sqliteSessions(file);
+    const second=sessionManager({secret:'s'.repeat(64),store:secondStore});
+    assert.equal((await second.get(issued.cookie.split(';')[0])).user.id,'durable');
+    await second.destroy(issued.cookie.split(';')[0]);
+    assert.equal(await second.get(issued.cookie.split(';')[0]),null);
+    await secondStore.close();
+  }finally{await rm(dir,{recursive:true,force:true})}
 });

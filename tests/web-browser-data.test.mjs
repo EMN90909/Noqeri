@@ -60,8 +60,8 @@ test('Noqeri-only views support reactive input and form value event expressions'
   assert.match(result,/__eventInfo/);
   assert.match(result,/const event=__eventInfo/);
   assert.match(result,/__member\(event,"form"\)/);
-  assert.throws(()=>compileView('let name = event.value\nview { p { name } }'),/undeclared name event/);
-  assert.throws(()=>compileView('view { p { event.value } }'),/undeclared name event/);
+  assert.throws(()=>compileView('let name = event.value\nview { p { name } }'),/event is only available/);
+  assert.throws(()=>compileView('view { p { event.value } }'),/event is only available/);
   const e=eventInfo({type:'input',target:{value:'A',checked:false}});
   assert.equal(e.value,'A');assert.equal(e.checked,false);
 });
