@@ -81,4 +81,9 @@ with tempfile.TemporaryDirectory(prefix="noqeri-route-acl-") as td:
                              str(root/"other.nqkv")],capture_output=True,text=True,
                              env=missing,timeout=5)
     assert rejected.returncode!=0 and "missing route authorization token" in rejected.stderr,rejected.stderr
+    policy.write_text("POST / NOQERI_TEST_WRITE_KEY\n")
+    rejected=subprocess.run([str(binary),"serve-app",str(source),"18478",
+                             str(root/"other2.nqkv")],capture_output=True,text=True,
+                             env=env,timeout=5)
+    assert rejected.returncode!=0 and "POST permission requires GET or BOTH" in rejected.stderr,rejected.stderr
 print("PASS: route-scoped bearer RBAC, POST deny, missing key fail-closed and identity-bound CSRF sessions")
