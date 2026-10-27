@@ -1,0 +1,106 @@
+# Noqeri Web: release readiness and performance qualification
+
+This guide distinguishes working, tested capabilities from production certification.
+Passing CI is necessary, but does **not** certify the built-in preview HTTP
+server for public Internet exposure or make the browser DSL compiler self-hosted.
+
+## Choose the correct compiler and runtime
+
+| Mode | App source | Build host | Browser experience | Deployment status |
+| --- | --- | --- | --- | --- |
+| Native static | `.noqeri` routes and UI | C++17 compiler / `noqeri web build`, **no Node.js** | Pre-rendered HTML/CSS, no client JS | Static output can be hosted on standard static hosting |
+| Native full stack | `.noqeri` routes, forms and actions | C++17 compiler / `noqeri web compile`, **no Node.js** | Native SSR, accessible HTML POST fallback; optional `NOQERI_WEB_REACTIVE=1` for hydrated actions and SPA-style same-origin navigation | **Preview only** without independently qualified authentication, reverse-proxy, TLS and operations |
+| Experimental browser views | `.noqeri` view DSL | `Runtime/web-project.mjs`, **Node.js 22+ build-time dependency** | Browser ES modules, CSR and safe static route pre-render/hydration | Experimental, not yet the typed Stage-2 native frontend |
+
+**Never claim that the third row builds without Node.js.** Noqeri-authored
+source and no handwritten JavaScript do not mean the build tool is self-hosted.
+Node.js is not required by the native static or native full-stack paths, nor by
+browsers consuming their output.
+
+## Performance and security gates
+
+GitHub Actions now checks all of the following:
+
+- Native Release-mode build, native compiler/tests, route rendering, session
+  isolation, CSRF rotation/replay protection, malformed HTTP, optional Basic /
+  bearer authentication, database adapters and proxy origin boundaries.
+- Native HTTP loopback performance in **both** JavaScript-disabled and hydrated
+  server rendering: 120 measured sequential GETs + 120 GETs at 8-client
+  concurrency, reusing a session and making fresh HTTP/1.1 connections.
+- Default **p95 GET under 250 ms**, 8-client **p95 under 500 ms**, and
+  **8-client throughput over 60 requests/s** on the shared runner. These are
+  intentionally conservative CI regression gates, **not** advertised product
+  throughput or cloud hosting SLOs.
+- Chromium browser E2E for no-JavaScript fallback, SSR hydration, native form
+  POSTs, client-side routing and browser history, HTML escaping, and no
+  duplicated document navigation. Client navigation p95 must be **under 800
+  ms**, measured across 32 real local same-origin requests and reconciliations.
+- Experimental browser-view build benchmark of 160 assets and 4 runs per mode
+  comparing serial (`NOQERI_WEB_BUILD_CONCURRENCY=1`) and bounded batched
+  (`=8`) builds. The p95 budget for each is **under 3,000 ms**.
+  Relative speedup is reported, **not asserted**: parallel I/O is not always
+  faster on constrained disks.
+
+**Measurements must come from completed jobs**, not merely queued workflows.
+Check the Native web, Noqeri reactive web views and Browser E2E jobs under
+[GitHub Actions](https://github.com/EMN90909/Noqeri/actions) for the exact
+commit being released. A new commit makes previous jobs' results historical.
+
+## Build and verify
+
+```sh
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build-release --target noqeri noqeri-web --parallel 2
+ctest --test-dir build-release -R '^noqeri-native-web$' --output-on-failure
+
+# Fully Node-free static output:
+./build-release/noqeri web build examples/native_web_static dist/site
+
+# Server-side Noqeri actions with optional browser progressive enhancement:
+NOQERI_WEB_REACTIVE=1 ./build-release/noqeri web serve-app examples/native_web_actions 8080
+
+# Node-free HTTP microbenchmark on loopback only:
+python3 tests/native_web_performance.py ./build-release/noqeri-web examples/native_web_actions
+
+# Separate, experimental Node-hosted view compiler qualification:
+node --test tests/web-hydration.test.mjs tests/web-views.test.mjs
+node tests/web-build-performance.mjs
+```
+
+Tighten budgets and test more demanding workloads on intended deployment
+hardware. The internal native preview server binds to `127.0.0.1`; no
+public-facing/TLS deployment is qualified by these tests.
+
+## Required before promoting native actions or browser views to GA
+
+1. Replace or wrap the preview HTTP implementation with a production-qualified
+   HTTP/1.1/HTTP/2 ingress, configured reverse proxy/TLS termination, client
+   authentication and per-route authorization. Validate header forwarding,
+   connection limits and HTTP request smuggling on the actual proxy stack.
+2. Add browser E2E coverage on Firefox and Safari/WebKit, including mobile,
+   keyboard navigation, accessibility and controls with focus/selection/IME.
+3. Implement application-level rate limiting, auditable request tracing,
+   structured error telemetry, load/shedding and uptime/rollback procedures.
+4. Test p50/p95/p99 response and interactive latency under the intended real
+   workload, including network RTT, CSS/JS cold-cache and slow devices.
+5. Validate durable multi-instance sessions and data consistency before using
+   the single-process in-memory sessions and `.nqkv` store beyond local demos.
+6. For Node-free **browser-view DSL** builds specifically, port the view parser,
+   typed checking, package resolution and safe JavaScript/WASM code emission
+   into the native or self-hosted Noqeri compiler. Verify byte-for-byte or
+   semantics-equivalent output against the existing tests before removing
+   the Node.js experimental tool. This milestone remains **open**.
+
+## Browser safety model
+
+Native HTML responses and private state are `Cache-Control: no-store`. The
+native theme CSS and framework JS have `private, max-age=300,
+must-revalidate`, which permits safe browser-local reuse without shared proxy
+caching. Response headers include CSP with `frame-ancestors 'none'`, same-origin
+resource policy and `X-Frame-Options: DENY`. The reactive script only connects
+to same-origin HTML routes; all form mutations remain server-side with
+route-scoped action IDs and rotating CSRF tokens.
+
+Links: [Native actions](WEB_NATIVE_ACTIONS.md),
+[Web framework](WEB_FRAMEWORK.md),
+[Qualification matrix](WEB_FRAMEWORK_QUALIFICATION.md).
