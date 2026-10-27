@@ -423,11 +423,14 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
         status==422?"Unprocessable Content":status==503?"Service Unavailable":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
-        "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
+        "\r\nCache-Control: "+(mime.rfind("text/css",0)==0 || mime.rfind("text/javascript",0)==0 ?
+             "private, max-age=300, must-revalidate" : "no-store")+
+        "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
+        "X-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\n"
         "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:"+
         std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
-                    "; script-src 'self'; connect-src 'self'":"")+"; form-action 'self'; base-uri 'none'\r\n";
+                    "; script-src 'self'; connect-src 'self'":"")+"; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n";
     if(status==401)header+=std::getenv("NOQERI_WEB_BEARER_TOKEN")?
         "WWW-Authenticate: Bearer realm=\"Noqeri native preview\"\r\n":
         "WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
