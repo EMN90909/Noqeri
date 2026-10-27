@@ -351,8 +351,8 @@ int main(int argc, char** argv) {
     // output. Never use a shell to build or invoke the executable.
     if (cmd == "web" && argc >= 3) {
         const std::string operation=argv[2];
-        if(operation=="compile"||operation=="build"||operation=="serve"||
-           operation=="serve-app"||operation=="drivers") {
+        if(operation=="compile"||operation=="build"||operation=="build-client"||
+           operation=="serve"||operation=="serve-app"||operation=="drivers") {
 #if !defined(_WIN32)
             const char* configured=std::getenv("NOQERI_WEB_BIN");
             std::filesystem::path sibling=std::filesystem::absolute(argv[0]).parent_path()/"noqeri-web";
