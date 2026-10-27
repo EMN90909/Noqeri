@@ -37,12 +37,24 @@ target_compile_features(noqeri_owned_collections PUBLIC cxx_std_17)
 add_library(noqeri_ai STATIC Runtime/native/ai_runtime.cpp Runtime/native/lm_runtime.cpp
  Runtime/native/ai_framework_tensor.cpp Runtime/native/ai_framework_transformer.cpp
  Runtime/native/ai_optimizer.cpp
+ Runtime/native/ai_gpu_opencl.cpp
  Runtime/native/ai_framework_c.cpp Runtime/native/ai_adamw_c.cpp Runtime/native/matrix.cpp
   Runtime/native/matrix_advanced.cpp Runtime/native/ai_matrix_c.cpp)
 target_include_directories(noqeri_ai PUBLIC
  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(noqeri_ai PUBLIC cxx_std_17)
+# Optional accelerator for the AI *library*, not Noqeri's general-purpose
+# compiler. GPU selection fails closed when no physical GPU is present.
+option(NOQERI_AI_OPENCL "Enable OpenCL GPU-backed framework GEMM" ON)
+if(NOQERI_AI_OPENCL)
+ find_package(OpenCL QUIET)
+ if(OpenCL_FOUND)
+  target_link_libraries(noqeri_ai PRIVATE OpenCL::OpenCL)
+  target_compile_definitions(noqeri_ai PRIVATE NQAI_HAVE_OPENCL=1)
+ endif()
+endif()
+
 if(BUILD_TESTING)
  add_executable(noqeri-matrix-test tests/cpp/matrix_test.cpp)
   add_executable(noqeri-matrix-advanced-test tests/cpp/matrix_advanced_test.cpp)
