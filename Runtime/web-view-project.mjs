@@ -25,6 +25,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
   }
  }
  await walk(input)
+ all.sort(); // Deterministic output order across filesystems.
  const entries=new Map(),viewAst=new Map(),modules=new Set();
  for(const file of all.filter(x=>x.endsWith('.noqeri'))){
   const code=await readFile(file,'utf8');entries.set(file,code)
@@ -84,7 +85,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
  };
  const mapScript=importScript('./');
  await mkdir(output,{recursive:true})
- for(const file of all){
+ async function emitAsset(file){
   const rel=relative(input,file),destination=join(output,rel)
   await mkdir(dirname(destination),{recursive:true})
   if(file.endsWith('.noqeri')){
@@ -112,6 +113,10 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
    await writeFile(destination,html)
   } else await copyFile(file,destination)
  }
+ // Bounded parallel I/O avoids one read/write round trip per asset while
+ // limiting open file descriptors on lightweight development machines.
+ for(let offset=0;offset<all.length;offset+=8)
+  await Promise.all(all.slice(offset,offset+8).map(emitAsset));
  await mkdir(join(output,'__noqeri'),{recursive:true})
  await copyFile(fileURLToPath(new URL('./noqeri-web-runtime.mjs',import.meta.url)),join(output,'__noqeri/runtime.mjs'));
  await writeFile(join(output,'__noqeri/theme.css'),compileTheme(mainAst.theme));
