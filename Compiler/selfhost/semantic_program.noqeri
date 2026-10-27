@@ -292,6 +292,73 @@ function nqSemanticInferPrivateParameters(source: []u8, nodes: []NqAstNode, node
 }
 
 
+// Collect evidence from later statements, including if/while/repeat bodies.
+// A locally shadowing name hides the outer binding only inside its own block.
+// Unannotated fixed arrays stay fixed unless an append is actually observed.
+function nqSemanticAppendEvidenceInStatement(source: []u8, nodes: []NqAstNode, index: isize, symbol: u64, outElement: *int): bool {
+    if index < 0 as isize { return false }
+    let stmt: *NqAstNode = &nodes[index as usize]
+    if stmt.tag == nqAstExpressionStatement() && stmt.left >= 0 as isize {
+        let call: *NqAstNode = &nodes[stmt.left as usize]
+        if call.tag == nqAstCall() && call.left >= 0 as isize {
+            let callee: *NqAstNode = &nodes[call.left as usize]
+            if callee.tag == nqAstMember() && callee.left >= 0 as isize && callee.right >= 0 as isize {
+                let receiver: *NqAstNode = &nodes[callee.left as usize]
+                let method: *NqAstNode = &nodes[callee.right as usize]
+                if receiver.tag == nqAstName() &&
+                   nqTypeNameSymbol(source,receiver.start,receiver.end) == symbol &&
+                   nqSemanticNameEqual(source,method,slice([97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8])) {
+                    if call.extra == 1 as isize && call.right >= 0 as isize &&
+                       outElement != null && outElement[0] == nqAstTypeUnknown() {
+                        let item: *NqAstNode = &nodes[call.right as usize]
+                        if item.tag == nqAstInteger() { outElement[0] = nqAstTypeInt() }
+                        if item.tag == nqAstFloat() { outElement[0] = nqAstTypeFloat() }
+                        if item.tag == nqAstBool() { outElement[0] = nqAstTypeBool() }
+                    }
+                    return true
+                }
+            }
+        }
+    }
+    if stmt.tag == nqAstBlock() {
+        return nqSemanticAppendEvidenceInChain(source,nodes,stmt.left,symbol,outElement)
+    }
+    if stmt.tag == nqAstIf() {
+        let yes: bool = nqSemanticAppendEvidenceInStatement(source,nodes,stmt.right,symbol,outElement)
+        let no: bool = false
+        if stmt.extra >= 0 as isize {
+            no = nqSemanticAppendEvidenceInStatement(source,nodes,stmt.extra,symbol,outElement)
+        }
+        return yes || no
+    }
+    if stmt.tag == nqAstWhile() || stmt.tag == nqAstRepeat() {
+        return nqSemanticAppendEvidenceInStatement(source,nodes,stmt.right,symbol,outElement)
+    }
+    if stmt.tag == nqAstFor() && stmt.left >= 0 as isize && stmt.extra >= 0 as isize {
+        // The for-in iteration binding shadows an outer list of the same name.
+        let iterator: *NqAstNode = &nodes[stmt.left as usize]
+        if nqTypeNameSymbol(source,iterator.start,iterator.end) == symbol { return false }
+        return nqSemanticAppendEvidenceInStatement(source,nodes,stmt.extra,symbol,outElement)
+    }
+    return false
+}
+
+function nqSemanticAppendEvidenceInChain(source: []u8, nodes: []NqAstNode, first: isize, symbol: u64, outElement: *int): bool {
+    let cursor: isize = first
+    let found: bool = false
+    while cursor >= 0 as isize {
+        let stmt: *NqAstNode = &nodes[cursor as usize]
+        if stmt.tag == nqAstBinding() && stmt.left >= 0 as isize &&
+           nqTypeNameSymbol(source,nodes[stmt.left as usize].start,nodes[stmt.left as usize].end) == symbol {
+            // This lexical scope now refers to its shadowing declaration.
+            return found
+        }
+        if nqSemanticAppendEvidenceInStatement(source,nodes,cursor,symbol,outElement) { found = true }
+        cursor = stmt.next
+    }
+    return found
+}
+
 function nqSemanticMarkGrowableListBindings(source: []u8, nodes: []NqAstNode, first: isize): void {
     let binding: isize = first
     while binding >= 0 as isize {
@@ -299,34 +366,19 @@ function nqSemanticMarkGrowableListBindings(source: []u8, nodes: []NqAstNode, fi
         if node.tag == nqAstBinding() && node.extra < 0 as isize &&
            (node.flags / nqAstFlagConst()) % 2 as u32 == 0 as u32 &&
            node.right >= 0 as isize && nodes[node.right as usize].tag == nqAstArray() {
-            let entry: isize = node.next
-            while entry >= 0 as isize {
-                let stmt: *NqAstNode = &nodes[entry as usize]
-                if stmt.tag == nqAstExpressionStatement() && stmt.left >= 0 as isize {
-                    let call: *NqAstNode = &nodes[stmt.left as usize]
-                    if call.tag == nqAstCall() && call.left >= 0 as isize {
-                        let callee: *NqAstNode = &nodes[call.left as usize]
-                        if callee.tag == nqAstMember() && callee.left >= 0 as isize && callee.right >= 0 as isize {
-                            let receiver: *NqAstNode = &nodes[callee.left as usize]
-                            let method: *NqAstNode = &nodes[callee.right as usize]
-                            if receiver.tag == nqAstName() &&
-                               nqTypeNameSymbol(source,receiver.start,receiver.end) ==
-                               nqTypeNameSymbol(source,nodes[node.left as usize].start,nodes[node.left as usize].end) &&
-                               nqSemanticNameEqual(source,method,slice([97 as u8,112 as u8,112 as u8,101 as u8,110 as u8,100 as u8])) {
-                                if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 == 0 as u32 {
-                                    node.flags = node.flags + nqAstFlagGrowableIntList()
-                                }
-                            }
-                        }
-                    }
+            let symbol: u64 = nqTypeNameSymbol(source,nodes[node.left as usize].start,nodes[node.left as usize].end)
+            let inferred: int = nqAstTypeUnknown()
+            if nqSemanticAppendEvidenceInChain(source,nodes,node.next,symbol,&inferred) {
+                if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 == 0 as u32 {
+                    node.flags = node.flags + nqAstFlagGrowableIntList()
                 }
-                entry = stmt.next
+                if nodes[node.right as usize].extra == 0 as isize {
+                    node.elementTypeCode = inferred
+                }
             }
         }
         binding = node.next
     }
-    // An explicit exit prevents a compiler-lowered trailing loop jump from
-    // being mistaken for the function's terminating instruction.
     return
 }
 
@@ -646,6 +698,7 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
         if initStatus < 0 as isize { return initStatus }
         let value: *NqAstNode = &nodes[node.right as usize]
         if (node.flags / nqAstFlagGrowableIntList()) % 2 as u32 != 0 as u32 {
+            let contextualElement: int = node.elementTypeCode
             if value.typeCode != nqAstTypeArray() ||
                (value.elementTypeCode != nqAstTypeInt() &&
                 value.elementTypeCode != nqAstTypeFloat() &&
@@ -654,7 +707,12 @@ function nqSemanticStatement(source: []u8, nodes: []NqAstNode, nodeIndex: isize,
                node.extra >= 0 as isize { return nqSemanticFail(context,node,nqSemanticTypeMismatch()) }
             node.typeCode = nqAstTypeOwnedIntList()
             node.elementTypeCode = value.elementTypeCode
-            if value.arrayLength == 0 as usize { node.elementTypeCode = nqAstTypeInt() }
+            if value.arrayLength == 0 as usize {
+                node.elementTypeCode = nqAstTypeInt()
+                if contextualElement == nqAstTypeFloat() || contextualElement == nqAstTypeBool() {
+                    node.elementTypeCode = contextualElement
+                }
+            }
             let item: isize = value.right
             while item >= 0 as isize {
                 if nodes[item as usize].typeCode != node.elementTypeCode {

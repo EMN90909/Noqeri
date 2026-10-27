@@ -1,0 +1,11 @@
+// The first literal append determines the empty list's scalar type.
+// An incompatible later append must fail in both source checkers.
+function invalid(): int {
+    let readings = []
+    if true {
+        readings.append(1.5)
+    }
+    readings.append(true)
+    return 0
+}
+print(invalid())

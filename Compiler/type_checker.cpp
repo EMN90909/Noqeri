@@ -78,35 +78,86 @@ static std::optional<Type> privateLiteralParameterType(const ExprPtr& expression
 }
 
 
-// Contextual promotion preserves the meaning of existing fixed array code:
-// only a local unannotated integer array used with an .append method in its
-// same statement block becomes a growable owned List<int>.
-void markGrowableIntLists(const std::vector<StmtPtr>& statements) {
-    std::unordered_set<std::string> appendNames;
-    for(const auto& stmt:statements) {
-        const auto expression=std::dynamic_pointer_cast<ExprStmt>(stmt);
-        if(!expression)continue;
-        const auto call=std::dynamic_pointer_cast<CallExpr>(expression->expr);
-        if(!call)continue;
-        const auto member=std::dynamic_pointer_cast<MemberExpr>(call->callee);
-        if(!member||member->member!="append")continue;
-        const auto name=std::dynamic_pointer_cast<NameExpr>(member->object);
-        if(name)appendNames.insert(name->name);
+// Inspect later statements in lexical order. An append in a nested if/loop
+// is sufficient evidence, but an append to a shadowing local is not.
+// Keeping the fixed-array default avoids silently changing existing APIs.
+struct GrowableAppendEvidence {
+    bool found=false;
+    std::optional<Type> literalElement;
+};
+
+void collectGrowableAppendEvidence(const std::vector<StmtPtr>& statements,
+                                   std::size_t first,
+                                   const std::string& name,
+                                   GrowableAppendEvidence& evidence) {
+    for(std::size_t i=first;i<statements.size();++i) {
+        const StmtPtr& stmt=statements[i];
+        // A declaration in this lexical block hides the outer binding from
+        // that point onward. A nested declaration only shadows its own block.
+        if(auto binding=std::dynamic_pointer_cast<LetStmt>(stmt);
+           binding && binding->name==name)break;
+
+        if(auto expression=std::dynamic_pointer_cast<ExprStmt>(stmt)) {
+            const auto call=std::dynamic_pointer_cast<CallExpr>(expression->expr);
+            const auto member=call?std::dynamic_pointer_cast<MemberExpr>(call->callee):nullptr;
+            const auto receiver=member?std::dynamic_pointer_cast<NameExpr>(member->object):nullptr;
+            if(receiver && receiver->name==name && member->member=="append") {
+                evidence.found=true;
+                if(call->args.size()==1 && !evidence.literalElement) {
+                    const auto candidate=privateLiteralParameterType(call->args.front());
+                    if(candidate && (candidate->kind==TypeKind::Int ||
+                                     candidate->kind==TypeKind::Float ||
+                                     candidate->kind==TypeKind::Bool))
+                        evidence.literalElement=*candidate;
+                }
+            }
+        }
+
+        auto visitNested=[&](const StmtPtr& nested) {
+            if(!nested)return;
+            if(auto block=std::dynamic_pointer_cast<BlockStmt>(nested))
+                collectGrowableAppendEvidence(block->statements,0,name,evidence);
+            else
+                collectGrowableAppendEvidence(std::vector<StmtPtr>{nested},0,name,evidence);
+        };
+        if(auto block=std::dynamic_pointer_cast<BlockStmt>(stmt))
+            collectGrowableAppendEvidence(block->statements,0,name,evidence);
+        else if(auto condition=std::dynamic_pointer_cast<IfStmt>(stmt)) {
+            visitNested(condition->thenBranch);
+            visitNested(condition->elseBranch);
+        }else if(auto loop=std::dynamic_pointer_cast<WhileStmt>(stmt))
+            visitNested(loop->body);
+        // Function declarations are not closures over local list handles.
     }
-    for(const auto& stmt:statements){
+}
+
+void markGrowableIntLists(const std::vector<StmtPtr>& statements) {
+    for(std::size_t i=0;i<statements.size();++i) {
+        const StmtPtr& stmt=statements[i];
         if(auto binding=std::dynamic_pointer_cast<LetStmt>(stmt)) {
             if(!binding->annotation && !binding->isConst &&
-               std::dynamic_pointer_cast<ArrayExpr>(binding->initializer) &&
-               appendNames.count(binding->name))binding->inferredGrowableIntList=true;
-        }else if(auto block=std::dynamic_pointer_cast<BlockStmt>(stmt)){
+               std::dynamic_pointer_cast<ArrayExpr>(binding->initializer)) {
+                GrowableAppendEvidence evidence;
+                collectGrowableAppendEvidence(statements,i+1,binding->name,evidence);
+                if(evidence.found) {
+                    binding->inferredGrowableIntList=true;
+                    if(evidence.literalElement)
+                        binding->inferredGrowableElementType=*evidence.literalElement;
+                }
+            }
+        }
+        if(auto block=std::dynamic_pointer_cast<BlockStmt>(stmt))
             markGrowableIntLists(block->statements);
-        }else if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
+        else if(auto fn=std::dynamic_pointer_cast<FunctionStmt>(stmt)) {
             if(fn->body)markGrowableIntLists(fn->body->statements);
-        }else if(auto loop=std::dynamic_pointer_cast<WhileStmt>(stmt)){
-            if(auto block=std::dynamic_pointer_cast<BlockStmt>(loop->body))markGrowableIntLists(block->statements);
-        }else if(auto condition=std::dynamic_pointer_cast<IfStmt>(stmt)){
-            if(auto yes=std::dynamic_pointer_cast<BlockStmt>(condition->thenBranch))markGrowableIntLists(yes->statements);
-            if(auto no=std::dynamic_pointer_cast<BlockStmt>(condition->elseBranch))markGrowableIntLists(no->statements);
+        }else if(auto loop=std::dynamic_pointer_cast<WhileStmt>(stmt)) {
+            if(auto block=std::dynamic_pointer_cast<BlockStmt>(loop->body))
+                markGrowableIntLists(block->statements);
+        }else if(auto condition=std::dynamic_pointer_cast<IfStmt>(stmt)) {
+            if(auto yes=std::dynamic_pointer_cast<BlockStmt>(condition->thenBranch))
+                markGrowableIntLists(yes->statements);
+            if(auto no=std::dynamic_pointer_cast<BlockStmt>(condition->elseBranch))
+                markGrowableIntLists(no->statements);
         }
     }
 }
@@ -319,11 +370,12 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
         if(s->inferredGrowableIntList){
             if(auto literal=std::dynamic_pointer_cast<ArrayExpr>(s->initializer);
                literal && literal->elements.empty()){
-                // The same-scope append provides the required element context.
-                // This subset is intentionally List<int>, never an implicit
-                // untyped/dynamic collection.
+                // Infer empty-list scalar type from a later literal append
+                // (including a nested lexical block); otherwise retain int.
                 Type list=simple(TypeKind::List);
-                list.element=std::make_shared<Type>(simple(TypeKind::Int));
+                Type element=s->inferredGrowableElementType.kind==TypeKind::Unknown?
+                    simple(TypeKind::Int):s->inferredGrowableElementType;
+                list.element=std::make_shared<Type>(element);
                 define(s->name,list,false,s->span);
                 return;
             }
