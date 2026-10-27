@@ -14,6 +14,9 @@
 #include <limits>
 #include <memory>
 #include <cstring>
+#ifdef NOQERI_WEB_CLOUD_CURL
+#include <curl/curl.h>
+#endif
 #include <type_traits>
 #include <cctype>
 #include <cstdlib>
