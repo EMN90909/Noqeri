@@ -19,11 +19,11 @@ def port():
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
-def request(port, method="GET", path="/", data=None, cookie=None, token=None):
+def request(port, method="GET", path="/", data=None, cookie=None, token=None, content_type="application/x-www-form-urlencoded"):
     c = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
     headers = {}
     if data is not None:
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Content-Type"] = content_type
     if cookie:
         headers["Cookie"] = cookie
     if token:
@@ -103,15 +103,15 @@ route "/" {
         assert 'required' in page and 'minlength="5"' in page
         csrf = re.search(r'name="_nq_csrf" value="([^"]+)"', page).group(1)
         action = re.search(r'name="_nq_action" value="([^"]+)"', page).group(1)
-        def submit(email, age):
+        def submit(email, age, content_type="application/x-www-form-urlencoded"):
             return request(p, "POST", data=urlencode({
                 "_nq_action": action,"_nq_csrf": csrf,"email": email,"age": age
-            }), cookie=sid)
+            }), cookie=sid, content_type=content_type)
         assert submit("bademail", "28")[0] == 422
         assert submit("ada@example.com", "17")[0] == 422
         assert submit("ada@example.com", "1O")[0] == 422
         assert "0" in request(p, cookie=sid)[2] and not state.exists()
-        assert submit("ada@example.com", "28")[0] == 303
+        assert submit("ada@example.com", "28", "application/x-www-form-urlencoded;charset=UTF-8")[0] == 303
         assert "ada@example.com" in request(p, cookie=sid)[2]
         assert state.is_file()
         assert stat.S_IMODE(state.stat().st_mode) == 0o600
