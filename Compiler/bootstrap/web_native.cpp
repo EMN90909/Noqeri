@@ -738,7 +738,7 @@ void respond(int fd,int status,const std::string& mime,const std::string& data,b
     const std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
-        "Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'\r\n\r\n";
+        "Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n\r\n";
     sendAll(fd,header);
     if (!head) sendAll(fd,data);
 }
@@ -793,8 +793,11 @@ void serve(const fs::path& input,int port) {
                 *relativeFile.begin()!=".." && !relativeFile.is_absolute();
             if (inside && fs::is_regular_file(canonicalFile,ec) &&
                 fs::file_size(canonicalFile,ec)<=1024*1024 &&
-                (canonicalFile.extension()==".html"||canonicalFile.extension()==".css")) {
-                const std::string mime=filename.extension()==".css"?"text/css; charset=utf-8":"text/html; charset=utf-8";
+                (canonicalFile.extension()==".html"||canonicalFile.extension()==".css"||
+                 canonicalFile.extension()==".mjs"||canonicalFile.extension()==".js")) {
+                const auto extension=canonicalFile.extension();
+                const std::string mime=extension==".css"?"text/css; charset=utf-8":
+                    (extension==".mjs"||extension==".js")?"text/javascript; charset=utf-8":"text/html; charset=utf-8";
                 respond(client,200,mime,readText(canonicalFile),head);
             } else {
                 const auto fallback=root/"404.html";
