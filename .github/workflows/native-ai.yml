@@ -2,10 +2,10 @@ name: Noqeri lightweight AI and bounded autonomous agents
 on:
   push:
     branches: [main]
-    paths: ['Lib/ai/**','Lib/std/numeric.noqeri','examples/ai/**','Runtime/native/ai_runtime.cpp','Runtime/native/lm_runtime.cpp','Runtime/native/ai_framework_tensor.cpp','Runtime/native/ai_framework_transformer.cpp','Include/noqeri/ai.hpp','Include/noqeri/lm.hpp','Include/noqeri/ai_framework.hpp','Tools/ai/**','tests/native_ai.py','tests/cpp/ai_runtime_test.cpp','tests/cpp/lm_runtime_test.cpp','tests/cpp/ai_framework_test.cpp','Compiler/bootstrap/cli_host.cpp','.github/workflows/native-ai.yml','CMakeLists.txt']
+    paths: ['Lib/ai/**','Lib/std/numeric.noqeri','examples/ai/**','Runtime/native/ai_runtime.cpp','Runtime/native/lm_runtime.cpp','Runtime/native/ai_framework_tensor.cpp','Runtime/native/ai_optimizer.cpp','Runtime/native/ai_framework_transformer.cpp','Include/noqeri/ai.hpp','Include/noqeri/lm.hpp','Include/noqeri/ai_framework.hpp','Tools/ai/**','tests/native_ai.py','tests/cpp/ai_runtime_test.cpp','tests/cpp/lm_runtime_test.cpp','tests/cpp/ai_framework_test.cpp','tests/cpp/ai_optimizer_test.cpp','tests/native_transformer_training.py','Compiler/bootstrap/cli_host.cpp','.github/workflows/native-ai.yml','CMakeLists.txt']
   pull_request:
     branches: [main]
-    paths: ['Lib/ai/**','Lib/std/numeric.noqeri','examples/ai/**','Runtime/native/ai_runtime.cpp','Runtime/native/lm_runtime.cpp','Runtime/native/ai_framework_tensor.cpp','Runtime/native/ai_framework_transformer.cpp','Include/noqeri/ai.hpp','Include/noqeri/lm.hpp','Include/noqeri/ai_framework.hpp','Tools/ai/**','tests/native_ai.py','tests/cpp/ai_runtime_test.cpp','tests/cpp/lm_runtime_test.cpp','tests/cpp/ai_framework_test.cpp','Compiler/bootstrap/cli_host.cpp','.github/workflows/native-ai.yml','CMakeLists.txt']
+    paths: ['Lib/ai/**','Lib/std/numeric.noqeri','examples/ai/**','Runtime/native/ai_runtime.cpp','Runtime/native/lm_runtime.cpp','Runtime/native/ai_framework_tensor.cpp','Runtime/native/ai_optimizer.cpp','Runtime/native/ai_framework_transformer.cpp','Include/noqeri/ai.hpp','Include/noqeri/lm.hpp','Include/noqeri/ai_framework.hpp','Tools/ai/**','tests/native_ai.py','tests/cpp/ai_runtime_test.cpp','tests/cpp/lm_runtime_test.cpp','tests/cpp/ai_framework_test.cpp','tests/cpp/ai_optimizer_test.cpp','tests/native_transformer_training.py','Compiler/bootstrap/cli_host.cpp','.github/workflows/native-ai.yml','CMakeLists.txt']
 permissions:
   contents: read
 jobs:
@@ -18,9 +18,28 @@ jobs:
       - name: Configure lightweight C++17 toolchain
         run: cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
       - name: Build language compiler and native AI runtime
-        run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test noqeri-ai-framework-test --parallel 2
+        run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test noqeri-ai-framework-test noqeri-ai-optimizer-test --parallel 2
       - name: Run native training, model integrity and agent budget tests
-        run: ctest --test-dir build-ai -R '^noqeri-(ai|lm)-runtime$|^noqeri-ai-framework$' --output-on-failure
+        run: ctest --test-dir build-ai -R '^noqeri-(ai|lm)-runtime$|^noqeri-ai-framework$|^noqeri-ai-optimizer --output-on-failure
+      - name: Compile typed Noqeri AI modules and run agent integration
+        run: python3 tests/native_ai.py ./build-ai/noqeri ./build-ai/noqeri-ai examples/ai/online_learning.noqeri
+      - name: Train, evaluate, and replay seeded AdamW model through CLI
+        run: python3 tests/native_transformer_training.py ./build-ai/noqeri-ai
+      - name: Verify installed CLI, public header, model library and .noqeri AI modules
+        shell: bash
+        run: |
+          cmake --install build-ai --prefix "$PWD/ai-stage"
+          test -s ai-stage/bin/noqeri-ai
+          test -s ai-stage/lib/libnoqeri_ai.a
+          test -s ai-stage/include/noqeri/ai.hpp
+          test -s ai-stage/include/noqeri/lm.hpp
+          test -s ai-stage/include/noqeri/ai_framework.hpp
+          test -s ai-stage/share/noqeri/Lib/ai/framework.noqeri
+          test -s ai-stage/share/noqeri/Lib/std/numeric.noqeri
+          test -s ai-stage/share/noqeri/Lib/ai/learn.noqeri
+          test -s ai-stage/share/noqeri/Lib/ai/agent.noqeri
+          ai-stage/bin/noqeri ai --version | grep -F '0.1.4-patch'
+ --output-on-failure
       - name: Compile typed Noqeri AI modules and run agent integration
         run: python3 tests/native_ai.py ./build-ai/noqeri ./build-ai/noqeri-ai examples/ai/online_learning.noqeri
       - name: Verify installed CLI, public header, model library and .noqeri AI modules
