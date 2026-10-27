@@ -8,6 +8,14 @@ function verify(): int {
         i = i + 1
     }
     if owned_generic_list_size(&list) != 2048 as isize { return 3 }
+    let changed: Outcome<bool>
+    let length: Outcome<isize>
+    owned_generic_list_append_result(&list,2048,&changed)
+    if !outcome_is_ok(&changed) { return 29 }
+    owned_generic_list_size_result(&list,&length)
+    if outcome_value_or(&length,-1 as isize) != 2049 as isize { return 30 }
+    owned_generic_list_remove_result(&list,2048 as isize,&changed)
+    if !outcome_is_ok(&changed) { return 31 }
     let item: Outcome<int>
     owned_generic_list_get(&list,2047 as isize,-1,&item)
     if !outcome_is_ok(&item) || outcome_value_or(&item,-1) != 2047 { return 4 }
@@ -18,6 +26,8 @@ function verify(): int {
     if outcome_value_or(&item,-1) != 1 { return 7 }
     if owned_generic_list_close(&list) < 0 as isize { return 8 }
     if owned_generic_list_append(&list,1) >= 0 as isize { return 9 }
+    owned_generic_list_append_result(&list,1,&changed)
+    if !outcome_is_error(&changed) || outcome_error_code(&changed) != -1 as isize { return 32 }
     let small: OwnedList<u8>
     if owned_generic_list_open(0 as u8,&small) <= 0 as isize { return 10 }
     if owned_generic_list_append(&small,255 as u8) < 0 as isize { return 11 }
@@ -36,6 +46,10 @@ function verify(): int {
     if !outcome_is_error(&value) || outcome_error_code(&value) != -4 as isize { return 17 }
     if owned_generic_map_put(&map,3 as u8,88) < 0 as isize { return 18 }
     if owned_generic_map_size(&map) != 1 as isize { return 19 }
+    owned_generic_map_put_result(&map,3 as u8,99,&changed)
+    if !outcome_is_ok(&changed) { return 33 }
+    owned_generic_map_size_result(&map,&length)
+    if outcome_value_or(&length,-1 as isize) != 1 as isize { return 34 }
     if owned_generic_map_remove(&map,3 as u8) < 0 as isize { return 20 }
     if owned_generic_map_close(&map) < 0 as isize { return 21 }
 
@@ -44,6 +58,10 @@ function verify(): int {
     if owned_generic_set_add(&set,42 as i64) < 0 as isize { return 23 }
     if owned_generic_set_add(&set,42 as i64) < 0 as isize { return 24 }
     if owned_generic_set_size(&set) != 1 as isize { return 25 }
+    owned_generic_set_add_result(&set,42 as i64,&changed)
+    if !outcome_is_ok(&changed) { return 35 }
+    owned_generic_set_size_result(&set,&length)
+    if outcome_value_or(&length,-1 as isize) != 1 as isize { return 36 }
     let present: Outcome<bool>
     owned_generic_set_has(&set,42 as i64,&present)
     if !outcome_is_ok(&present) || !outcome_value_or(&present,false) { return 26 }
