@@ -48,6 +48,35 @@ private:
 void sgd_update(Matrix& parameter, const Matrix& gradient,
                 double learning_rate, double gradient_clip = 1.0);
 
+// The bounded AdamW optimizer uses decoupled weight decay and bias-corrected
+// first/second moments. Each step is atomic across all parameter groups.
+struct AdamWOptions {
+    double learning_rate = 0.001;
+    double beta1 = 0.9;
+    double beta2 = 0.999;
+    double epsilon = 1e-8;
+    double weight_decay = 0.01;
+};
+class AdamWOptimizer {
+public:
+    explicit AdamWOptimizer(const std::vector<Matrix*>& parameters);
+    void step(const std::vector<Matrix*>& parameters,
+              const std::vector<const Matrix*>& gradients,
+              const AdamWOptions& options = {});
+    std::size_t steps() const noexcept;
+private:
+    std::vector<Matrix> first_, second_;
+    std::size_t steps_ = 0;
+};
+// Global L2 norm treats all parameter gradients as a single flat vector.
+// Clipping validates and stages all tensors before committing any mutations.
+double global_gradient_norm(const std::vector<const Matrix*>& gradients);
+double clip_grad_norm(std::vector<Matrix*>& gradients,double max_norm);
+// Warmup followed by an inclusive cosine decay to min_rate.
+double cosine_learning_rate(std::size_t step,std::size_t total_steps,
+                            double peak,double min_rate=0,
+                            std::size_t warmup=0);
+
 struct SubwordTokenizer {
     // 0 is LF; 1..95 are ASCII 32..126; merges extend the vocabulary.
     std::vector<std::pair<std::size_t,std::size_t>> merges;
