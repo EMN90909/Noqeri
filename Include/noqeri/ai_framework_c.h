@@ -42,6 +42,26 @@ typedef struct nq_ai_sgd_request {
 } nq_ai_sgd_request;
 int64_t nq_ai_sgd(const nq_ai_sgd_request *request);
 
+// Stateless AdamW update for caller-managed optimizer state in Noqeri AOT.
+// Step is 1-based (first update = 1) with f64 bias-corrected moments.
+// Input buffers may alias their corresponding output buffers, but the three
+// output regions must be non-overlapping and sized for at least count doubles.
+// All outputs remain unchanged on nonzero status.
+typedef struct nq_ai_adamw_request {
+    const double *parameters;
+    const double *gradients;
+    const double *first_moment;
+    const double *second_moment;
+    size_t count;
+    uint64_t step;
+    double learning_rate, beta1, beta2, epsilon, weight_decay, gradient_clip_norm;
+    double *output_parameters, *output_first_moment, *output_second_moment;
+    size_t output_capacity, moment_capacity;
+} nq_ai_adamw_request;
+// -1 missing pointer, -2 invalid shape/count/step, -3 insufficient output
+// capacity, -4 invalid optimizer hyperparameter, -5 invalid numeric input.
+int64_t nq_ai_adamw_step(const nq_ai_adamw_request *request);
+
 // Self-contained differentiable graph. Every request owns its graph and
 // all input/output storage; no global handles or retained caller pointers.
 // Operations: 0 leaf; 1 add; 2 matmul; 3 transpose; 4 scale;
