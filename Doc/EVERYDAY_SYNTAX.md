@@ -174,11 +174,13 @@ for number in numbers {
 ```
 
 No preallocated buffers, imports, or explicit native linker flags are needed
-on the qualified Linux x86-64 AOT path. A mutable, unannotated local literal
-is promoted to `List<int>` only after a direct same-scope `.append()`.
-Fixed arrays with explicit annotations retain fixed-length semantics.
-Lists cannot currently be copied, returned by value, indexed for assignment,
-or borrowed by address. The compiler closes them on ordinary lexical exits
+on the qualified Linux x86-64 AOT path. A mutable, unannotated local
+literal can become a growable scalar list (`int`, `float`, `bool`) when it
+has a later direct `.append()` in the same or a nested lexical block. Empty
+literals infer scalar element types from literal append evidence, defaulting
+to `int` otherwise. Explicit fixed arrays retain fixed-length semantics.
+Lists cannot currently be copied, returned by value, or borrowed by address;
+bounds-checked indexed assignments are supported in the scalar subset. The compiler closes them on ordinary lexical exits
 and tested integer-status early propagation; it is **not** a fully general
 owned/generic collection with guaranteed cleanup on every exceptional exit.
 [Stage-0/Stage-2/NQRI/native differential gate](https://github.com/EMN90909/Noqeri/actions/runs/40413683668).
