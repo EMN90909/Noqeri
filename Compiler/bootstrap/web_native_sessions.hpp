@@ -7,6 +7,15 @@ struct NativeSqliteSessions {
     sqlite3* handle=nullptr;
     explicit NativeSqliteSessions(const fs::path& file) {
         fs::create_directories(file.parent_path());
+        // Prevent symlink redirection and reject world/group-readable session
+        // databases: cookie IDs and rotating CSRF tokens are credentials.
+        const int fd=::open(file.c_str(),O_RDWR|O_CREAT|O_NOFOLLOW,0600);
+        if(fd<0)throw std::runtime_error("cannot securely open SQLite sessions");
+        struct stat info{};
+        const bool safe=::fstat(fd,&info)==0 && S_ISREG(info.st_mode) &&
+                        (info.st_mode&0077)==0;
+        ::close(fd);
+        if(!safe)throw std::runtime_error("SQLite session file requires private 0600 permissions");
         if(sqlite3_open_v2(file.string().c_str(),&handle,
            SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_FULLMUTEX,nullptr)!=SQLITE_OK)
             throw std::runtime_error("cannot open SQLite session storage");
@@ -106,6 +115,16 @@ struct NativeSqliteSessions {
             value.seen=std::chrono::steady_clock::now();
         }catch(...){cleanup();throw;}
         cleanup();return true;
+    }
+    void prune(std::chrono::seconds ttl) {
+        sqlite3_stmt* stmt=nullptr;
+        if(sqlite3_prepare_v2(handle,
+            "DELETE FROM nq_web_sessions WHERE updated_at < ?1",-1,&stmt,nullptr)!=SQLITE_OK)
+            throw std::runtime_error("cannot prepare SQLite session expiry");
+        sqlite3_bind_int64(stmt,1,epoch()-ttl.count());
+        const auto status=sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if(status!=SQLITE_DONE)throw std::runtime_error("cannot prune expired sessions");
     }
     void save(const std::string& sid,const AppSession& session) {
         sqlite3_stmt* stmt=nullptr;
