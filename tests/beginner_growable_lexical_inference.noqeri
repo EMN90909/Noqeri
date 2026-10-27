@@ -29,9 +29,17 @@ function verify(): int {
     if numbers.length() != 2 as usize { return 6 }
     if numbers[0] != 7 || numbers[1] != 7 { return 7 }
 
+    // An ordinary for-in body is another nested lexical append site.
+    let iterated = []
+    for value in [1, 2] {
+        iterated.append(value)
+    }
+    if iterated.length() != 2 as usize { return 8 }
+    if iterated[0] != 1 || iterated[1] != 2 { return 9 }
+
     let original = [3, 4]
-    if original[0] != 3 { return 8 }
-    if len(slice(original)) != 2 as usize { return 9 }
+    if original[0] != 3 { return 10 }
+    if len(slice(original)) != 2 as usize { return 11 }
     return 0
 }
 print(verify())
