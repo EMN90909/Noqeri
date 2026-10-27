@@ -108,7 +108,7 @@ Then declare `database { engine: "neon" dsn_env: "NEON_DATABASE_URL" }`, and use
 
 ### Security boundaries
 
-The native cloud adapter fails closed if libcurl is absent, requires HTTPS with verified certificates, never follows redirects, limits requests to 10 seconds and responses to 64 KiB, and does not print credentials on request errors. Keep URLs and tokens in **server environment variables**; do not place them in Noqeri source files, browser views, or `web.importmap.json`.
+The native cloud adapter fails closed if libcurl is absent, requires HTTPS with verified certificates, never follows redirects, limits requests to 10 seconds and responses to 64 KiB, and does not print credentials on request errors. Optional `NOQERI_WEB_CLOUD_CA_BUNDLE=/absolute/path/to/trusted-ca.pem` configures an explicit trust anchor for private provider deployments and test fixtures; TLS certificate and host verification remain enabled. Never use an untrusted CA bundle. Keep URLs and tokens in **server environment variables**; do not place them in Noqeri source files, browser views, or `web.importmap.json`.
 
 The native server binds to `127.0.0.1`. For externally reachable deployments, use an HTTPS reverse proxy; set `NOQERI_WEB_PUBLIC_ORIGIN`, `NOQERI_WEB_SECURE_COOKIE=1`, `NOQERI_WEB_REQUIRE_ORIGIN=1` and optionally `NOQERI_WEB_BASIC_USER` and `NOQERI_WEB_BASIC_PASSWORD`. Sessions remain RAM-only with bounded expiry, while declared `persist` fields in native applications use the separate NQKV store. These features do **not** constitute complete account registration, password hashing, OAuth, RBAC or production authentication.
 

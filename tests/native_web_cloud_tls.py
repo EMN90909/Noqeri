@@ -123,7 +123,7 @@ with TemporaryDirectory() as tmp:
     thread = Thread(target=provider.serve_forever, daemon=True)
     thread.start()
     base = "https://127.0.0.1:" + str(provider.server_port)
-    env = dict(os.environ, CURL_CA_BUNDLE=str(cert), NO_PROXY="localhost,127.0.0.1",
+    env = dict(os.environ, NOQERI_WEB_CLOUD_CA_BUNDLE=str(cert), NO_PROXY="localhost,127.0.0.1",
                HTTPS_PROXY="", HTTP_PROXY="", ALL_PROXY="",
                NQ_TEST_KEY="sb_publishable_test-key", NQ_TEST_USER="test-user-token")
     folder = root / "site"
@@ -185,7 +185,7 @@ with TemporaryDirectory() as tmp:
             stop(proc)
 
         # Trust verification is mandatory; removing the test CA must fail closed.
-        env.pop("CURL_CA_BUNDLE")
+        env.pop("NOQERI_WEB_CLOUD_CA_BUNDLE")
         Provider.requests.clear()
         proc, port, first = start_app(folder, root / "state5.nqkv", env)
         try:
