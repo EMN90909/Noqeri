@@ -280,7 +280,7 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
         const std::set<std::string> numbers={
             "fromOpacity","toOpacity","fromX","toX","fromY","toY",
             "fromScale","toScale","fromRotation","toRotation",
-            "duration","delay","stagger","repeat"
+            "duration","delay","offset","stagger","repeat"
         };
         for(const auto& [name,fields]:project.clientMotions){
             if(!firstMotion)js+=",";

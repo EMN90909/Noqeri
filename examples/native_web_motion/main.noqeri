@@ -15,6 +15,7 @@ motion subtitle {
   fromX: -24
   duration: 200
   stagger: 60
+  offset: -100
   ease: "out"
 }
 motion reveal {

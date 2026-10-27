@@ -326,7 +326,7 @@ export function createMotion(root,definitions=[],sequences=[]) {
      !Array.isArray(sequences)||sequences.length>32)
     throw Error('Noqeri motion declaration limit exceeded');
   const specs=new Map(),timelineNames=new Set(),running=new Map(),watched=new Map();
-  const observers=new Set();
+  const observers=new Set(),scrollWatches=new Map();
   let mutationObserver=null,disposed=false,scheduled=false;
   const reduced=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
   for(const item of definitions){
@@ -336,7 +336,7 @@ export function createMotion(root,definitions=[],sequences=[]) {
     const raw=item;
     const valid=['name','target','trigger','ease','fromOpacity','toOpacity',
       'fromX','toX','fromY','toY','fromScale','toScale','fromRotation','toRotation',
-      'duration','delay','stagger','repeat','yoyo','once'];
+      'duration','delay','offset','stagger','repeat','yoyo','once'];
     if(Object.keys(raw).some(k=>!valid.includes(k)))
       throw Error('Noqeri motion unsupported property');
     if(typeof raw.target!=='string'||!/^([.#])[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(raw.target))
@@ -355,15 +355,18 @@ export function createMotion(root,definitions=[],sequences=[]) {
       toRotation:motionNumber(raw.toRotation??0,-1080,1080,'toRotation'),
       duration:motionNumber(raw.duration??500,0,30000,'duration'),
       delay:motionNumber(raw.delay??0,0,30000,'delay'),
+      offset:motionNumber(raw.offset??0,-30000,30000,'offset'),
       stagger:motionNumber(raw.stagger??0,0,10000,'stagger'),
       repeat:motionNumber(raw.repeat??0,0,10,'repeat'),
       yoyo:raw.yoyo??false,once:raw.once??true
     };
     if(!['mount','scroll','timeline'].includes(spec.trigger)||!Object.hasOwn(MOTION_EASE,spec.ease)||
-       typeof spec.yoyo!=='boolean'||typeof spec.once!=='boolean')
+       typeof spec.yoyo!=='boolean'||typeof spec.once!=='boolean'||
+       (spec.offset!==0&&spec.trigger!=='timeline'))
       throw Error('Noqeri motion invalid trigger/easing/flag');
     specs.set(spec.name,spec);watched.set(spec.name,new WeakSet());
   }
+  const allocatedTimelineSteps=new Set();
   for(const seq of sequences){
     if(!seq||typeof seq.name!=='string'||!Array.isArray(seq.steps)||
        !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(seq.name)||
@@ -372,10 +375,15 @@ export function createMotion(root,definitions=[],sequences=[]) {
       throw Error('Noqeri motion invalid timeline');
     timelineNames.add(seq.name);
     for(const name of seq.steps){
-      if(!specs.has(name)||specs.get(name).trigger!=='timeline')
-        throw Error('Noqeri timeline step must use trigger timeline: '+name);
+      if(!specs.has(name)||specs.get(name).trigger!=='timeline'||
+         allocatedTimelineSteps.has(name))
+        throw Error('Noqeri timeline step must be unique and use trigger timeline: '+name);
+      allocatedTimelineSteps.add(name);
     }
   }
+  for(const spec of specs.values())
+    if(spec.trigger==='timeline'&&!allocatedTimelineSteps.has(spec.name))
+      throw Error('Noqeri motion timeline step is unassigned: '+spec.name);
   const keys=s=>({
     opacity:s.fromOpacity/100,
     transform:'translate('+s.fromX+'px,'+s.fromY+'px) rotate('+s.fromRotation+'deg) scale('+(s.fromScale/100)+')'
@@ -405,16 +413,23 @@ export function createMotion(root,definitions=[],sequences=[]) {
       spec.stagger*Math.max(0,matches.length-1);
   };
   const sequence=(seq)=>{
-    let offset=0;
-    for(const name of seq.steps)offset+=run(specs.get(name),offset);
+    // Negative step offsets allow overlaps, while the timeline end never rewinds.
+    let cursor=0;
+    for(const name of seq.steps){
+      const spec=specs.get(name),start=Math.max(0,cursor+spec.offset);
+      cursor=Math.max(cursor,start+run(spec,start));
+    }
   };
   const scroll=(spec)=>{
-    const marked=watched.get(spec.name);
-    for(const element of elements(spec)){
-      if(marked.has(element))continue;
-      // If IntersectionObserver is unavailable, play immediately.
-      if(typeof IntersectionObserver!=='function'){run(spec);break;}
-      marked.add(element);
+    let registrations=scrollWatches.get(spec.name);
+    if(!registrations){registrations=new Map();scrollWatches.set(spec.name,registrations);}
+    const marked=watched.get(spec.name),nodes=elements(spec);
+    for(const element of nodes){
+      if(marked.has(element)||registrations.has(element))continue;
+      if(typeof IntersectionObserver!=='function'){
+        animate(spec,element,spec.delay+nodes.indexOf(element)*spec.stagger);
+        continue;
+      }
       let entered=false,active=null;
       const observer=new IntersectionObserver(entries=>{
         for(const entry of entries){
@@ -422,25 +437,31 @@ export function createMotion(root,definitions=[],sequences=[]) {
           if(entry.isIntersecting){
             if(entered)continue;
             entered=true;
-            marked.delete(element);
             const index=elements(spec).indexOf(element);
             active=animate(spec,element,spec.delay+Math.max(0,index)*spec.stagger);
-            if(spec.once){observer.disconnect();observers.delete(observer);}
-          }else if(!spec.once && entered){
-            // A repeatable scroll reveal restarts on re-entry, but retains
-            // the observer marker to prevent duplicate observer creation.
+            if(spec.once){observer.disconnect();observers.delete(observer);registrations.delete(element);}
+          }else if(!spec.once&&entered){
             entered=false;
-            active?.cancel();
-            running.get(spec.name)?.delete(active);
+            active?.cancel();running.get(spec.name)?.delete(active);
             active=null;
+            marked.delete(element); // permit re-entry, not a new observer
           }
         }
       },{threshold:0.12});
+      registrations.set(element,{observer,get active(){return active}});
       observers.add(observer);observer.observe(element);
     }
   };
   const refresh=()=>{
     if(disposed)return;
+    if(typeof root.contains==='function')
+      for(const [name,registrations] of scrollWatches)
+        for(const [node,record] of registrations)
+          if(!root.contains(node)){
+            record.observer.disconnect();observers.delete(record.observer);
+            record.active?.cancel();running.get(name)?.delete(record.active);
+            watched.get(name).delete(node);registrations.delete(node);
+          }
     for(const spec of specs.values()){
       if(spec.trigger==='mount')run(spec);
       if(spec.trigger==='scroll')scroll(spec);
@@ -482,12 +503,19 @@ export function createMotion(root,definitions=[],sequences=[]) {
         for(const animation of running.get(key)??[])animation.reverse();
       return true;
     },
+    restart(name){
+      if(disposed||(!specs.has(name)&&!timelineNames.has(name)))return false;
+      const seq=sequences.find(x=>x.name===name);
+      for(const key of (seq?.steps??[name]))
+        for(const animation of running.get(key)??[]){animation.currentTime=0;animation.play();}
+      return true;
+    },
     dispose(){
       if(disposed)return;
       disposed=true;
       mutationObserver?.disconnect();
       for(const observer of observers)observer.disconnect();
-      observers.clear();
+      observers.clear();scrollWatches.clear();
       for(const animations of running.values())
         for(const animation of animations)animation.cancel();
       running.clear();

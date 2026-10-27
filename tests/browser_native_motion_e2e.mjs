@@ -53,8 +53,8 @@ try{
    return {hero:hero.delay,copy:first.delay,stagger:second.delay};
  });
  assert.equal(timeline.hero,0);
- assert.equal(timeline.copy,280);
- assert.equal(timeline.stagger,340);
+ assert.equal(timeline.copy,180);
+ assert.equal(timeline.stagger,240);
  assert.deepEqual(errors,[]);
  await page.close();
 

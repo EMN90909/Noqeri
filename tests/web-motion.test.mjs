@@ -57,6 +57,8 @@ test('timeline offsets, staggering, playback controls, idempotence and cleanup',
  assert.equal(motion.pause('intro'),true);
  assert.deepEqual(copy[0].animations[0].events,['pause']);
  assert.equal(motion.reverse('intro'),true);
+ assert.equal(motion.restart('intro'),true);
+ assert.equal(copy[0].animations[0].currentTime,0);
  assert.equal(motion.play('missing'),false);
  motion.refresh();
  assert.equal(hero[0].animations.length,1,'refresh should not replay attached nodes');
@@ -64,6 +66,35 @@ test('timeline offsets, staggering, playback controls, idempotence and cleanup',
  assert.equal(copy[0].animations[0].events.at(-1),'cancel');
 });
 
+test('timeline overlap and scroll replay maintain ordering and observer identity',()=>{
+ const e=environment(),hero=e.add('.hero',2),copy=e.add('.copy');
+ const sequence=createMotion(e.root,[
+   {name:'hero',target:'.hero',trigger:'timeline',duration:200,stagger:50},
+   {name:'copy',target:'.copy',trigger:'timeline',duration:100,offset:-100}
+ ],[{name:'intro',steps:['hero','copy']}]);
+ assert.equal(hero[1].animations[0].options.delay,50);
+ assert.equal(copy[0].animations[0].options.delay,150);
+ sequence.dispose();
+ const previous=globalThis.IntersectionObserver,observers=[];
+ globalThis.IntersectionObserver=class{
+   constructor(callback){this.callback=callback;observers.push(this)}
+   observe(element){this.element=element}
+   disconnect(){this.disconnected=true}
+ };
+ try{
+   const elements=e.add('.repeat');
+   const scroll=createMotion(e.root,[{name:'reveal',target:'.repeat',trigger:'scroll',once:false}]);
+   scroll.refresh();scroll.refresh();
+   assert.equal(observers.length,1);
+   const entry={target:elements[0]};
+   observers[0].callback([{...entry,isIntersecting:true}]);
+   observers[0].callback([{...entry,isIntersecting:false}]);
+   observers[0].callback([{...entry,isIntersecting:true}]);
+   assert.equal(elements[0].animations.length,2);
+   scroll.dispose();
+   assert.equal(observers[0].disconnected,true);
+ }finally{globalThis.IntersectionObserver=previous}
+});
 test('scroll starts only on intersection, then disconnects on dispose',()=>{
  const old=globalThis.IntersectionObserver,observers=[];
  globalThis.IntersectionObserver=class{
@@ -101,6 +132,8 @@ test('respects reduced motion and rejects unsafe declarations',()=>{
  for(const invalid of [
    'motion m { target: "body" }\nview { p { "x" } }',
    'motion m { target: ".x" duration: 30001 }\nview { p { "x" } }',
+   'motion m { target: ".x" offset: -50 }\nview { p { "x" } }',
+   'motion m { target: ".x" trigger: "timeline" offset: -30001 }\ntimeline t { m }\nview { p { "x" } }',
    'motion m { target: ".x" trigger: "timeline" }\nview { p { "x" } }',
    'motion m { target: ".x" }\ntimeline a { m }\nview { p { "x" } }'
  ])assert.throws(()=>compileView(invalid),/Noqeri view:/);
