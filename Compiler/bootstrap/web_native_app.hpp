@@ -426,7 +426,7 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
         "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:"+
         std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
-                    "; script-src 'self'":"")+"; form-action 'self'; base-uri 'none'\r\n";
+                    "; script-src 'self'; connect-src 'self'":"")+"; form-action 'self'; base-uri 'none'\r\n";
     if(status==401)header+=std::getenv("NOQERI_WEB_BEARER_TOKEN")?
         "WWW-Authenticate: Bearer realm=\"Noqeri native preview\"\r\n":
         "WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
@@ -564,36 +564,135 @@ bool nativeBasicAllowed(const std::string& auth,const std::string& expected) {
 // server-side validation and CSRF always remain authoritative.
 std::string reactiveClientScript() {
     return R"NQJS("use strict";
-document.addEventListener("submit", async (event) => {
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement) || form.dataset.nqReactive !== "1") return;
-  if (!form.reportValidity()) return;
-  event.preventDefault();
-  if (form.dataset.nqBusy === "1") return;
-  form.dataset.nqBusy = "1";
-  try {
-    const response = await fetch(form.action, {
-      method: "POST",
-      credentials: "same-origin",
-      redirect: "follow",
-      headers: {"Accept": "text/html"},
-      body: new URLSearchParams(new FormData(form))
-    });
-    if (new URL(response.url).origin !== location.origin ||
-        ![200,422].includes(response.status) ||
-        !(response.headers.get("content-type")||"").includes("text/html"))
-      throw new Error("Noqeri reactive navigation rejected");
-    const next = new DOMParser().parseFromString(await response.text(), "text/html");
-    document.body.replaceChildren(...Array.from(next.body.childNodes)
-      .map((node) => document.importNode(node,true)));
-    history.replaceState(null, "", new URL(response.url).pathname);
-    document.dispatchEvent(new CustomEvent("noqeri:updated"));
-  } catch (_) {
-    location.reload(); // Non-JS fallback remains a normal server-rendered POST.
-  } finally {
-    delete form.dataset.nqBusy;
+// Native Noqeri SSR hydration: event delegation preserves existing server DOM.
+// Navigation only fetches same-origin server HTML; actions remain CSRF checked.
+(() => {
+  const MAX_HTML = 1024 * 1024;
+  let sequence = 0;
+  let activeGet = null;
+  const sameOrigin = (value) => {
+    try {
+      const url = new URL(value, location.href);
+      return url.origin === location.origin && /^https?:$/.test(url.protocol)
+        && !url.pathname.startsWith("/__nq/");
+    } catch { return false; }
+  };
+  function syncAttributes(node, incoming) {
+    for (const attribute of Array.from(node.attributes))
+      if (!incoming.hasAttribute(attribute.name)) node.removeAttribute(attribute.name);
+    for (const attribute of Array.from(incoming.attributes))
+      if (node.getAttribute(attribute.name) !== attribute.value)
+        node.setAttribute(attribute.name, attribute.value);
   }
-});
+  function reconcile(parent, incoming, depth = 0) {
+    if (depth > 64) throw Error("Noqeri DOM depth limit exceeded");
+    let oldNode = parent.firstChild;
+    for (const next of Array.from(incoming.childNodes)) {
+      if (!oldNode) {
+        parent.appendChild(document.importNode(next, true));
+        continue;
+      }
+      const following = oldNode.nextSibling;
+      const compatible = oldNode.nodeType === next.nodeType
+        && (oldNode.nodeType !== 1 || oldNode.localName === next.localName)
+        && (oldNode.nodeType !== 1 || !oldNode.id || oldNode.id === next.id);
+      if (!compatible) {
+        parent.replaceChild(document.importNode(next, true), oldNode);
+      } else if (oldNode.nodeType === 3 || oldNode.nodeType === 8) {
+        if (oldNode.nodeValue !== next.nodeValue) oldNode.nodeValue = next.nodeValue;
+      } else if (oldNode.nodeType === 1) {
+        syncAttributes(oldNode, next);
+        reconcile(oldNode, next, depth + 1);
+      }
+      oldNode = following;
+    }
+    while (oldNode) {
+      const following = oldNode.nextSibling;
+      parent.removeChild(oldNode);
+      oldNode = following;
+    }
+  }
+  async function show(response, mode, requestedUrl, ticket) {
+    if (!response.ok || !sameOrigin(response.url)
+      || !(response.headers.get("content-type") || "").toLowerCase().includes("text/html"))
+      throw Error("Noqeri navigation rejected");
+    const html = await response.text();
+    if (html.length > MAX_HTML) throw Error("Noqeri HTML response too large");
+    const incoming = new DOMParser().parseFromString(html, "text/html");
+    if (!incoming.body || !incoming.querySelector('link[href="/theme.css"]'))
+      throw Error("Not a native Noqeri document");
+    if (ticket !== sequence) return;
+    reconcile(document.body, incoming.body);
+    if (incoming.title) document.title = incoming.title;
+    const address = new URL(response.url);
+    if (mode === "push" && address.pathname + address.search !== location.pathname + location.search)
+      history.pushState(null, "", address.pathname + address.search);
+    if (mode === "replace")
+      history.replaceState(null, "", address.pathname + address.search);
+    if (mode !== "replace" && mode !== "initial") window.scrollTo(0, 0);
+    document.dispatchEvent(new CustomEvent("noqeri:updated"));
+  }
+  async function navigate(url, mode) {
+    if (!sameOrigin(url)) return false;
+    const ticket = ++sequence;
+    activeGet?.abort();
+    const controller = new AbortController();
+    activeGet = controller;
+    try {
+      const response = await fetch(url, {
+        method: "GET", credentials: "same-origin", redirect: "follow",
+        headers: {Accept: "text/html"}, signal: controller.signal
+      });
+      await show(response, mode, url, ticket);
+    } catch (error) {
+      if (error.name !== "AbortError" && ticket === sequence) location.assign(url);
+    } finally {
+      if (activeGet === controller) activeGet = null;
+    }
+    return true;
+  }
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey
+      || event.altKey || event.shiftKey) return;
+    const link = event.target?.closest?.("a[href]");
+    if (!link || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+    const href = link.getAttribute("href");
+    if (!href || href.startsWith("#") || !sameOrigin(href)) return;
+    const url = new URL(href, location.href);
+    if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
+    event.preventDefault();
+    void navigate(url.href, "push");
+  });
+  document.addEventListener("submit", async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || form.dataset.nqReactive !== "1"
+      || form.method.toLowerCase() !== "post" || !sameOrigin(form.action)) return;
+    if (!form.reportValidity()) return;
+    event.preventDefault();
+    if (form.dataset.nqBusy === "1") return;
+    form.dataset.nqBusy = "1";
+    const ticket = ++sequence;
+    activeGet?.abort();
+    try {
+      const data = new FormData(form);
+      if (Array.from(data.values()).some(value => typeof value !== "string"))
+        throw Error("File uploads are unsupported");
+      const response = await fetch(form.action, {
+        method: "POST", credentials: "same-origin", redirect: "follow",
+        headers: {Accept: "text/html"},
+        body: new URLSearchParams(data)
+      });
+      await show(response, "replace", form.action, ticket);
+    } catch (_) {
+      // Never repeat the POST automatically: the server may already have committed it.
+      if (ticket === sequence) location.assign(form.action);
+    } finally {
+      delete form.dataset.nqBusy;
+    }
+  });
+  window.addEventListener("popstate", () => { void navigate(location.href, "pop"); });
+  document.documentElement.dataset.noqeriHydrated = "1";
+})();
 )NQJS";
 }
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
