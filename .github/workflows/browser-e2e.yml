@@ -6,6 +6,10 @@ on:
       - 'Compiler/bootstrap/web_native*'
       - 'tests/browser_e2e.mjs'
       - 'tests/browser_reactive_e2e.mjs'
+      - 'tests/browser_view_e2e.mjs'
+      - 'Runtime/web-view-compiler.mjs'
+      - 'Runtime/web-view-project.mjs'
+      - 'Runtime/noqeri-web-runtime.mjs'
       - 'examples/native_web_actions/**'
       - '.github/workflows/browser-e2e.yml'
   push:
@@ -14,6 +18,10 @@ on:
       - 'Compiler/bootstrap/web_native*'
       - 'tests/browser_e2e.mjs'
       - 'tests/browser_reactive_e2e.mjs'
+      - 'tests/browser_view_e2e.mjs'
+      - 'Runtime/web-view-compiler.mjs'
+      - 'Runtime/web-view-project.mjs'
+      - 'Runtime/noqeri-web-runtime.mjs'
       - 'examples/native_web_actions/**'
       - '.github/workflows/browser-e2e.yml'
 permissions:
@@ -41,3 +49,4 @@ jobs:
         run: |
           node tests/browser_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
           node tests/browser_reactive_e2e.mjs ./build-browser/noqeri-web ./examples/native_web_actions
+          node tests/browser_view_e2e.mjs ./examples/native_web
