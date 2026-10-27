@@ -16,6 +16,13 @@ remain backward compatible.
 | Numerical backends | Scalar reference, cache-tiled CPU, x86 SSE2 vectorized inner loop, Auto selection | SIMD compile-time availability; no CUDA, ROCm, Metal, Vulkan or verified performance speedup. |
 | Agents | Existing capability-bounded, default-deny classifier agent with explicit callback permissions | No unsandboxed LLM tool execution, untrusted shell or network. |
 
+## Expanded matrix numerical layer
+
+The additional bounded matrix operations and native-AOT C ABI are documented
+in [AI_MATRIX_ADVANCED.md](AI_MATRIX_ADVANCED.md). The layer includes stable
+probability reductions, GELU, layer normalization, matrix solving and
+Cholesky decomposition. Existing transformer-training limits are unchanged.
+
 ## Framework CLI
 
 ```sh
