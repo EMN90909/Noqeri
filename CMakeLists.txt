@@ -37,7 +37,7 @@ target_compile_features(noqeri_owned_collections PUBLIC cxx_std_17)
 add_library(noqeri_ai STATIC Runtime/native/ai_runtime.cpp Runtime/native/lm_runtime.cpp
  Runtime/native/ai_framework_tensor.cpp Runtime/native/ai_framework_transformer.cpp
  Runtime/native/ai_optimizer.cpp
- Runtime/native/ai_framework_c.cpp Runtime/native/matrix.cpp
+ Runtime/native/ai_framework_c.cpp Runtime/native/ai_adamw_c.cpp Runtime/native/matrix.cpp
   Runtime/native/matrix_advanced.cpp Runtime/native/ai_matrix_c.cpp)
 target_include_directories(noqeri_ai PUBLIC
  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
@@ -215,6 +215,11 @@ if(BUILD_TESTING)
  target_compile_features(noqeri-ai-framework-test PRIVATE cxx_std_17)
  noqeri_apply_warnings(noqeri-ai-framework-test)
  add_test(NAME noqeri-ai-framework COMMAND noqeri-ai-framework-test ${CMAKE_BINARY_DIR}/ai-framework-test-data)
+ add_executable(noqeri-adamw-c-test tests/cpp/ai_adamw_c_test.cpp)
+ target_link_libraries(noqeri-adamw-c-test PRIVATE noqeri_ai)
+ target_compile_features(noqeri-adamw-c-test PRIVATE cxx_std_17)
+ noqeri_apply_warnings(noqeri-adamw-c-test)
+ add_test(NAME noqeri-adamw-c COMMAND noqeri-adamw-c-test)
  add_executable(noqeri-ai-framework-c-test tests/cpp/ai_framework_c_test.cpp)
  target_link_libraries(noqeri-ai-framework-c-test PRIVATE noqeri_ai)
  target_compile_features(noqeri-ai-framework-c-test PRIVATE cxx_std_17)
