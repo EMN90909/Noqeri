@@ -12,8 +12,15 @@ struct RouteAuthorization {
 };
 
 std::vector<RoutePermission> loadRoutePermissions() {
+    const char* deny=std::getenv("NOQERI_WEB_AUTHZ_DEFAULT_DENY");
+    if(deny&&std::string(deny)!="0"&&std::string(deny)!="1")
+        throw std::runtime_error("NOQERI_WEB_AUTHZ_DEFAULT_DENY must be 0 or 1");
     const char* configured=std::getenv("NOQERI_WEB_AUTHZ_FILE");
-    if(!configured||!*configured)return {};
+    if(!configured||!*configured) {
+        if(deny&&std::string(deny)=="1")
+            throw std::runtime_error("default-deny route authorization requires a policy file");
+        return {};
+    }
     std::error_code ec;
     const fs::path source=configured;
     if(!fs::is_regular_file(source,ec)||fs::file_size(source,ec)>8192)
@@ -76,7 +83,15 @@ RouteAuthorization authorizeRoute(const std::vector<RoutePermission>& rules,
             longest=rule.path.size();protectedPath=true;
         }
     }
-    if(!protectedPath)return {};
+    if(!protectedPath) {
+        // Framework CSS/JS contains no session or application data and must
+        // remain reachable by browsers that cannot add bearer headers to
+        // module/style asset requests.
+        if(path=="/theme.css"||path=="/__nq/reactive.js")return {};
+        const char* deny=std::getenv("NOQERI_WEB_AUTHZ_DEFAULT_DENY");
+        if(deny&&std::string(deny)=="1")return {false,{}};
+        return {};
+    }
     RouteAuthorization result;result.allowed=false;
     const std::string supplied=authorization.rfind("Bearer ",0)==0?
         authorization.substr(7):std::string{};
