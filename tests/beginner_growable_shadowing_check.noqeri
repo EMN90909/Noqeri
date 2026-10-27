@@ -1,0 +1,14 @@
+// Typecheck-only: the nested 'outer' must not turn the containing scope's
+// fixed array into a growable list. Runtime lexical shadowing is separately
+// tracked and must not be asserted by this semantic regression.
+function verifyShadow(): int {
+    let outer = [10, 20]
+    if true {
+        let outer = [99]
+        outer.append(100)
+        if outer.length() != 2 as usize { return 1 }
+    }
+    let view = slice(outer)
+    if len(view) != 2 as usize { return 2 }
+    return 0
+}
