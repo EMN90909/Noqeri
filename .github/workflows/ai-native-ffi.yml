@@ -25,6 +25,8 @@ on:
       - 'Lib/ai/optimizer_native.noqeri'
       - 'tests/cpp/ai_adamw_c_test.cpp'
       - 'examples/simplicity/ai_native_adamw.noqeri'
+      - 'tests/cpp/ai_autodiff_deep_test.cpp'
+      - 'examples/simplicity/ai_native_deep_tape.noqeri'
       - 'Lib/ai/matrix_native.noqeri'
       - 'tests/cpp/matrix_advanced_test.cpp'
       - 'tests/cpp/matrix_test.cpp'
@@ -49,6 +51,8 @@ on:
       - 'Lib/ai/optimizer_native.noqeri'
       - 'tests/cpp/ai_adamw_c_test.cpp'
       - 'examples/simplicity/ai_native_adamw.noqeri'
+      - 'tests/cpp/ai_autodiff_deep_test.cpp'
+      - 'examples/simplicity/ai_native_deep_tape.noqeri'
       - 'Lib/ai/matrix_native.noqeri'
       - 'tests/cpp/matrix_advanced_test.cpp'
       - 'tests/cpp/matrix_test.cpp'
@@ -107,6 +111,70 @@ jobs:
           node scripts/native-build.mjs examples/simplicity/ai_native_model_session.noqeri build-ai-ffi/ai-model-session --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
           result=$(./build-ai-ffi/ai-model-session)
           echo "Noqeri reusable model: $result"
+          test "$result" = "0"
+      - name: Run GELU/LayerNorm gradient and C ABI parity regression
+        run: |
+          cmake --build build-ai-ffi --target noqeri-ai-autodiff-deep-test --parallel 2
+          ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-ai-autodiff-deep
+        run: |
+          cmake --build build-ai-ffi --target noqeri-adamw-c-test --parallel 2
+          ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-adamw-c
+        run: |
+          cmake --build build-ai-ffi --target noqeri-matrix-test noqeri-matrix-advanced-test --parallel 2
+          ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-matrix(-advanced)?$'
+      - name: Typecheck and execute Noqeri native matrix FFI
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_matrix.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_matrix.noqeri build-ai-ffi/ai-native-matrix --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-matrix)
+          echo "Noqeri native matrix check: $result"
+          test "$result" = "0"
+      - name: Build and run Noqeri AOT app calling native C++ tensor SDK
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs examples/simplicity/ai_native_gemm.noqeri build-ai-ffi/ai-native-program --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-program)
+          echo "Noqeri native AI GEMM check: $result"
+          test "$result" = "0"
+          node -e "const x=require('./build-ai-ffi/ai-native-program.native.json');if(x.execution_model!=='native-aot'||!x.ai_framework_linked||!x.ai_framework_library_sha256)process.exit(1)"
+
+      - name: Typecheck and run Noqeri AdamW native AOT program
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_adamw.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_adamw.noqeri build-ai-ffi/ai-native-adamw --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-adamw)
+          echo "Noqeri AdamW: $result"
+          test "$result" = "0"
+      - name: Run expanded matrix C++/C ABI regressions
+        run: |
+          cmake --build build-ai-ffi --target noqeri-matrix-test noqeri-matrix-advanced-test --parallel 2
+          ctest --test-dir build-ai-ffi --output-on-failure -R '^noqeri-matrix(-advanced)?$'
+      - name: Typecheck and execute Noqeri native matrix FFI
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_matrix.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_matrix.noqeri build-ai-ffi/ai-native-matrix --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-matrix)
+          echo "Noqeri native matrix check: $result"
+          test "$result" = "0"
+      - name: Build and run Noqeri AOT app calling native C++ tensor SDK
+        run: |
+          set -euo pipefail
+          node scripts/native-build.mjs examples/simplicity/ai_native_gemm.noqeri build-ai-ffi/ai-native-program --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-program)
+          echo "Noqeri native AI GEMM check: $result"
+          test "$result" = "0"
+          node -e "const x=require('./build-ai-ffi/ai-native-program.native.json');if(x.execution_model!=='native-aot'||!x.ai_framework_linked||!x.ai_framework_library_sha256)process.exit(1)"
+
+      - name: Typecheck and run Noqeri native deep neural graph
+        run: |
+          set -euo pipefail
+          ./build-ai-ffi/noqeri check examples/simplicity/ai_native_deep_tape.noqeri --unsafe
+          node scripts/native-build.mjs examples/simplicity/ai_native_deep_tape.noqeri build-ai-ffi/ai-native-deep-tape --compiler=build-ai-ffi/noqeri --ai-framework --ai-lib=build-ai-ffi/libnoqeri_ai.a
+          result=$(./build-ai-ffi/ai-native-deep-tape)
+          echo "Noqeri differentiable neural layers: $result"
           test "$result" = "0"
       - name: Run stateful AdamW C ABI regression
         run: |
