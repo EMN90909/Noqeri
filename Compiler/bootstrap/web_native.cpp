@@ -91,6 +91,8 @@ struct Project {
     DbConfiguration database;
     bool databaseConfigured=false;
     std::map<std::string,std::string> queries;
+    // Browser-only resources; native static/SSR paths fail closed.
+    std::map<std::string,std::string> clientLoads;
     std::map<std::string,Component> components;
     std::map<std::string,std::vector<Node>> routes;
     std::vector<Node> fallback;
@@ -218,8 +220,15 @@ class Parser {
         Expr result;
         do {
             if (peek().quoted) result.atoms.push_back({tokens.at(pos++).value,false});
-            else if (validName(peek().value) && peek().value!="true" && peek().value!="false")
-                result.atoms.push_back({tokens.at(pos++).value,true});
+            else if (validName(peek().value) && peek().value!="true" && peek().value!="false") {
+                std::string name=identifier();
+                std::size_t members=0;
+                while(take(".")) {
+                    if(++members>3)fail("Noqeri client member path exceeds 3 levels");
+                    name+="."+identifier();
+                }
+                result.atoms.push_back({std::move(name),true});
+            }
             else if (peek().value=="true"||peek().value=="false" ||
                 (!peek().value.empty() && std::isdigit(static_cast<unsigned char>(peek().value[0]))))
                 result.atoms.push_back({tokens.at(pos++).value,false});
@@ -326,10 +335,14 @@ class Parser {
                     while (peek().value!="{") {
                         if (take("on")) {
                             expect("."); n.eventName=identifier();
-                            if (!n.actionId.empty() || (n.eventName!="click" && n.eventName!="submit") ||
+                            if (!n.actionId.empty() ||
+                                (n.eventName!="click" && n.eventName!="submit" &&
+                                 n.eventName!="input" && n.eventName!="change") ||
                                 (n.eventName=="click"&&n.tag!="button") ||
-                                (n.eventName=="submit"&&n.tag!="form"))
-                                fail("native event must be button on.click or form on.submit");
+                                (n.eventName=="submit"&&n.tag!="form") ||
+                                ((n.eventName=="input"||n.eventName=="change") &&
+                                 n.tag!="input"&&n.tag!="textarea"&&n.tag!="select"))
+                                fail("native event requires matching button, form, or input control");
                             n.actionId=std::to_string(++p.nextActionId);
                             n.mutations=mutations();
                             continue;
@@ -393,12 +406,26 @@ public:
                 if (!p.uiAlias.empty()) fail("duplicate noqeri/ui import");
                 p.uiAlias=identifier();
             } else if (take("component")) component();
+            else if (!library && take("load")) {
+                const auto name=identifier();
+                expect("from");
+                const auto url=literalString();
+                if(url.size()>256||url.size()<2||url.front()!='/'||url[1]=='/'||
+                   url.find("//")!=std::string::npos||url.find("..")!=std::string::npos||
+                   url.rfind("/__nq/",0)==0||
+                   !std::all_of(url.begin(),url.end(),[](unsigned char ch) {
+                       return std::isalnum(ch)!=0||ch=='/'||ch=='_'||ch=='-'||ch=='.';
+                   }))fail("load requires a bounded same-origin absolute URL path");
+                if(p.globals.count(name)||p.queries.count(name)||
+                   !p.clientLoads.emplace(name,url).second)
+                    fail("duplicate load name or name conflicts with state");
+            }
             else if (!library && (take("let")||take("const")||take("persist"))) {
                 const auto declaration=tokens.at(pos-1).value;
                 const auto name=identifier(); expect("=");
                 const auto value=expression();
-                if (!p.globals.emplace(name,evaluate(value,{},p.globals)).second)
-                    fail("duplicate global name");
+                if(p.clientLoads.count(name)||!p.globals.emplace(name,evaluate(value,{},p.globals)).second)
+                    fail("duplicate global/load name");
                 if (declaration=="let") p.mutableState.insert(name);
                 if (declaration=="persist") p.persistentState.insert(name);
             } else if (!library && take("database")) {
@@ -420,7 +447,7 @@ public:
             } else if (!library && take("query")) {
                 const auto name=identifier();expect("=");
                 const auto sql=literalString();
-                if(!p.queries.emplace(name,sql).second || p.globals.count(name))fail("duplicate query/global name");
+                if(!p.queries.emplace(name,sql).second || p.globals.count(name)||p.clientLoads.count(name))fail("duplicate query/global/load name");
             } else if (!library && take("theme")) {
                 expect("{");
                 while (!take("}")) {
@@ -690,6 +717,8 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     Project project;
     Parser(readText(root/"main.noqeri"),project).parse();
     promoteStandaloneView(project);
+    if(!project.clientLoads.empty())
+        throw std::runtime_error("browser load resources require build-client, not static build");
     if (project.routes.empty()) throw std::runtime_error("native web app requires at least one view or route");
     if(project.databaseConfigured||!project.queries.empty())
         throw std::runtime_error("database queries require serve-app, not static build");
