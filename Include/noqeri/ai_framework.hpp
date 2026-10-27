@@ -23,6 +23,9 @@ public:
     std::size_t transpose(std::size_t a);
     std::size_t scale(std::size_t a, double factor);
     std::size_t tanh(std::size_t a);
+    std::size_t relu(std::size_t a);
+    std::size_t gelu(std::size_t a);
+    std::size_t layer_norm(std::size_t a,double epsilon = 1e-5);
     std::size_t softmax(std::size_t a, bool causal = false);
     std::size_t gather_rows(std::size_t embedding, const std::vector<std::size_t>& indices);
     std::size_t last_row(std::size_t a);
@@ -32,7 +35,7 @@ public:
     void backward(std::size_t loss);
     std::size_t size() const noexcept;
 private:
-    enum class Op { Leaf, Add, Matmul, Transpose, Scale, Tanh, Softmax, Gather, LastRow, CrossEntropy };
+    enum class Op { Leaf, Add, Matmul, Transpose, Scale, Tanh, Softmax, Gather, LastRow, CrossEntropy, Relu, Gelu, LayerNorm };
     struct Node {
         Matrix value, grad;
         Op op = Op::Leaf;
