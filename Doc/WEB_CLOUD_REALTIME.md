@@ -109,3 +109,22 @@ ctest --test-dir build -R 'noqeri-native-web' --output-on-failure
 ```
 
 These tests validate frontend state and transport behavior under test doubles and native cloud fail-closed configuration. They are **not** live-provider CRUD, security policy, multiuser authorization, real WebSocket handshake, or production TLS/load certification.
+
+
+## Native server form and session hardening
+
+The native web server now accepts three independent, authoritative server-action validation helpers:
+- validate(field, minimum_bytes, maximum_bytes)
+- validateEmail(field): conservative ASCII email shape validation, not deliverability or full RFC mailbox validation
+- validateNumber(field, minimum, maximum): unsigned decimal integer with inclusive bounds from 0 to 1,000,000
+
+Native forms also allow required, minlength, maxlength, min, max and autocomplete HTML attributes. Browser field attributes improve UX, but the server checks the declared validators **before** any state or database mutation. Validation failures return HTTP 422 and do not rotate CSRF tokens or commit changes.
+
+For progressive native form updates, set NOQERI_WEB_REACTIVE=1. This explicitly enables a tiny same-origin Fetch script at /__nq/reactive.js, which intercepts only framework-owned form POSTs and replaces the page body with newly rendered HTML after the server's 303 redirect (or shows the server's 422 error page). Responses get a restrictive script-src self CSP. The default remains no client JavaScript. This mode does not implement a client signals compiler, optimistic mutations or a native WebSocket broadcaster; browser view subscriptions above still require a separate WebSocket server.
+
+Optional private-service authentication: NOQERI_WEB_BEARER_TOKEN must be a high-entropy 32..512-byte token and is mutually exclusive with the Basic-auth configuration. Its Authorization header is checked in constant time. It is a single process-wide service gate, **not** individual user login, RBAC, Supabase Auth or Firebase Auth. Keep the token server side. Existing CSRF rotation, same-origin checks, session idle expiry, and HttpOnly/SameSite cookie behavior remain in place.
+
+The native .nqkv persistence path now uses exclusive mode-0600 temporary-file creation, an fsync of file contents, atomic rename, and parent-directory fsync on POSIX. This improves ordinary local crash durability and secrecy; it is **not** a replicated multi-host session database or a transactional store coupled to cloud database writes.
+
+To verify without any third-party cloud credentials:
+    python3 tests/native_web_reactive_security.py ./build/noqeri-web
