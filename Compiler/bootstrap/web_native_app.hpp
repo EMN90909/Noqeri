@@ -722,6 +722,7 @@ std::string reactiveClientScript() {
 })();
 )NQJS";
 }
+#include "web_native_sessions.hpp"
 void serveApp(const fs::path& input,int port,const fs::path& stateFile,const char* executable,
               const std::string* sourceOverride=nullptr,const std::string* uiOverride=nullptr) {
     if(port<1024||port>65535)throw std::runtime_error("port must be 1024..65535");
@@ -845,6 +846,18 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         validateActions(nodes,app.project,found);
     }
     loadPersisted(app);
+#if defined(NOQERI_WEB_SQLITE)
+    std::unique_ptr<NativeSqliteSessions> sqliteSessions;
+    if(const char* path=std::getenv("NOQERI_WEB_SESSION_SQLITE")) {
+        if(!*path)throw std::runtime_error("SQLite session path may not be empty");
+        if(!app.project.persistentState.empty())
+            throw std::runtime_error("shared SQLite sessions cannot be mixed with process-local persist state");
+        sqliteSessions=std::make_unique<NativeSqliteSessions>(fs::absolute(path));
+    }
+#else
+    if(std::getenv("NOQERI_WEB_SESSION_SQLITE"))
+        throw std::runtime_error("SQLite session backend requires NOQERI_WEB_SQLITE build option");
+#endif
     const int server=::socket(AF_INET,SOCK_STREAM,0);
     if(server<0)throw std::runtime_error("cannot create native app socket");
     int reuse=1;::setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
@@ -908,7 +921,18 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     appReply(client,404,content,"","",head);
                 } else if(req.method=="POST") {
                     std::lock_guard<std::mutex> locked(stateGuard);
-                    auto session=app.sessions.find(getSid(req.cookie));
+                    const auto sid=getSid(req.cookie);
+#if defined(NOQERI_WEB_SQLITE)
+                    std::unique_ptr<NativeSqliteSessions::Lease> sessionLease;
+                    if(sqliteSessions) {
+                        sessionLease=std::make_unique<NativeSqliteSessions::Lease>(*sqliteSessions);
+                        AppSession loaded;
+                        if(sqliteSessions->load(sid,loaded,sessionTtl))
+                            app.sessions[sid]=std::move(loaded);
+                        else app.sessions.erase(sid);
+                    }
+#endif
+                    auto session=app.sessions.find(sid);
                     if(session==app.sessions.end() ||
                        session->second.principal!=authorization.principal ||
                        std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
@@ -1015,6 +1039,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                                 session->second.values[name]=updated.at(name);
                             session->second.csrf=randomToken(); // invalidate replayed form posts
                             session->second.seen=std::chrono::steady_clock::now();
+#if defined(NOQERI_WEB_SQLITE)
+                            if(sqliteSessions) {
+                                sqliteSessions->save(sid,session->second);
+                                sessionLease->commit();
+                            }
+#endif
                             appReply(client,303,"","",path);
                             }
                         }
@@ -1025,6 +1055,16 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                     {
                     std::lock_guard<std::mutex> locked(stateGuard);
                     auto sid=getSid(req.cookie);
+#if defined(NOQERI_WEB_SQLITE)
+                    std::unique_ptr<NativeSqliteSessions::Lease> sessionLease;
+                    if(sqliteSessions) {
+                        sessionLease=std::make_unique<NativeSqliteSessions::Lease>(*sqliteSessions);
+                        AppSession loaded;
+                        if(sqliteSessions->load(sid,loaded,sessionTtl))
+                            app.sessions[sid]=std::move(loaded);
+                        else app.sessions.erase(sid);
+                    }
+#endif
                     auto session=app.sessions.find(sid);
                     if(session!=app.sessions.end() &&
                        std::chrono::steady_clock::now()-session->second.seen>sessionTtl) {
@@ -1047,6 +1087,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         newCookie=sid;
                     }
                     session->second.seen=std::chrono::steady_clock::now();
+#if defined(NOQERI_WEB_SQLITE)
+                    if(sqliteSessions) {
+                        sqliteSessions->save(sid,session->second);
+                        sessionLease->commit();
+                    }
+#endif
                     rendered=app.project;
                     rendered.globals=currentValues(app,session->second);
                     for(const auto& [name,value]:page.params)rendered.globals[name]=value;
