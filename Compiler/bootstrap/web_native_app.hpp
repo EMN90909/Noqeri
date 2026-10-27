@@ -794,7 +794,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         Parser(uiOverride?*uiOverride:readText(uiSource(executable)),app.project,true).parse();
     promoteStandaloneView(app.project);
     if(!app.project.clientLoads.empty()||!app.project.clientSubscriptions.empty()||
-       app.project.hasClientMount)
+       app.project.hasClientMount||!app.project.clientMotions.empty()||
+       !app.project.clientTimelines.empty())
         throw std::runtime_error("browser load/subscribe/mount requires build-client, not serve-app");
     if(app.project.routes.empty())throw std::runtime_error("serve-app requires a view or route");
     if(app.project.databaseConfigured)verifyDbConfig(app.project.database);
