@@ -123,6 +123,27 @@ principal is bound to its cookie-backed CSRF session: a cookie cannot be reused
 by a second principal. The policy refuses invalid formats, missing secrets,
 short secrets and combinations with the global Basic/Bearer gates.
 
+### Strict default-deny authorization
+
+The route policy normally leaves paths not listed in the policy public for
+backward compatibility. On a restricted deployment, turn on explicit
+**default deny** to prevent accidental exposure of new routes:
+
+```sh
+export NOQERI_WEB_AUTHZ_FILE=/etc/noqeri/route-access.txt
+export NOQERI_WEB_AUTHZ_DEFAULT_DENY=1
+```
+
+With this setting, an uncovered application path returns 403 even when a
+request supplies a valid credential for a different path. A missing policy
+file or values other than `0`/`1` are startup errors. Only the
+read-only framework assets `/theme.css` and `/__nq/reactive.js` remain
+accessible without a bearer header because ordinary browsers cannot attach
+one to stylesheet or script requests. They contain no user state.
+Every private page and API route still needs a matching explicit grant.
+This is not a replacement for per-account, per-object authorization or a
+full identity provider.
+
 This is deliberately **API-style** access control: ordinary browser navigation
 does not attach a bearer header. For actual user-facing websites, deploy a
 tested identity provider and user/tenant-scoped authorization enforcement,
