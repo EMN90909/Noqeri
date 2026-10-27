@@ -97,13 +97,15 @@ void validateActions(const std::vector<Node>& nodes,const Project& p,
             std::size_t databaseCalls=0;
             for(const auto& mutation:n.mutations)if(mutation.op=="db")++databaseCalls;
             std::size_t mutatingCalls=0;
-            for(const auto& mutation:n.mutations)if(mutation.op!="validate")++mutatingCalls;
+            for(const auto& mutation:n.mutations)if(mutation.op!="validate"&&mutation.op!="validate_email"&&
+               mutation.op!="validate_number")++mutatingCalls;
             if(databaseCalls>0&&mutatingCalls!=1)
                 throw std::runtime_error("database actions require one independently committed statement");
             if (!actions.emplace(n.actionId,&n).second)
                 throw std::runtime_error("duplicate native action ID");
             for(const auto& mutation:n.mutations) {
-                if(mutation.op=="validate") {
+                if(mutation.op=="validate"||mutation.op=="validate_email"||
+                   mutation.op=="validate_number") {
                     if(n.eventName!="submit")throw std::runtime_error("field validation requires on.submit");
                     continue;
                 }
@@ -198,7 +200,7 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
             if(attr=="rel")hasRel=true;
             if(attr=="name"&&value.rfind("_nq_",0)==0)
                 throw std::runtime_error("reserved native form field");
-            if(attr=="disabled"||attr=="checked") {
+            if(attr=="disabled"||attr=="checked"||attr=="required") {
                 if(value!="false"&&value!="0"&&!value.empty())result+=" "+attr;
             }else result+=" "+attr+"=\""+escaped(value)+"\"";
         }
@@ -711,9 +713,34 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         else {
                             std::string validationError;
                             for(const auto& mutation:specified->second->mutations) {
-                                if(mutation.op!="validate")continue;
+                                if(mutation.op!="validate"&&mutation.op!="validate_email"&&
+                                   mutation.op!="validate_number")continue;
                                 const auto supplied=fields.find(mutation.field);
                                 const auto length=supplied==fields.end()?0:supplied->second.size();
+                                if(mutation.op=="validate_email") {
+                                    const auto value=supplied==fields.end()?std::string{}:supplied->second;
+                                    const auto at=value.find('@'), dot=value.rfind('.');
+                                    const bool ascii=std::all_of(value.begin(),value.end(),[](unsigned char ch){
+                                        return ch>32 && ch<127 && ch!='<' && ch!='>' && ch!='"' && ch!='\\';
+                                    });
+                                    if(value.size()>254||at==std::string::npos||at==0||
+                                       dot==std::string::npos||dot<=at+1||dot+1>=value.size()||
+                                       value.find('@',at+1)!=std::string::npos||!ascii) {
+                                        validationError="Invalid email address for "+mutation.field;
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                if(mutation.op=="validate_number") {
+                                    std::int64_t number=0;
+                                    if(supplied==fields.end()||!parseDecimal(supplied->second,number)||
+                                       number<static_cast<std::int64_t>(mutation.minLength)||
+                                       number>static_cast<std::int64_t>(mutation.maxLength)) {
+                                        validationError="Invalid number for "+mutation.field;
+                                        break;
+                                    }
+                                    continue;
+                                }
                                 if(length<mutation.minLength||length>mutation.maxLength) {
                                     validationError="Invalid length for "+mutation.field+
                                         " (expected "+std::to_string(mutation.minLength)+
@@ -737,7 +764,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             }
                             if(hasDb&&hasPersist)throw std::runtime_error("cannot atomically mix DB writes and .nqkv persist");
                             for(const auto& mutation:specified->second->mutations) {
-                                if(mutation.op=="validate")continue;
+                                if(mutation.op=="validate"||mutation.op=="validate_email"||
+                                   mutation.op=="validate_number")continue;
                                 if(mutation.op=="db") {
                                     std::vector<DbParameter> params;
                                     for(const auto& param:mutation.dbParams) {
