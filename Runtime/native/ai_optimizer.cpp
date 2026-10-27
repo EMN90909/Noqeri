@@ -34,15 +34,19 @@ void options_valid(const AdamWOptions& o) {
 
 double global_gradient_norm(const std::vector<const Matrix*>& gradients) {
     demand(!gradients.empty() && gradients.size()<=128,"invalid gradient collection");
-    long double total=0;
+    // Elements are already bounded by 1e8 and the entire collection by
+    // 128 * 1,048,576, so a long-double sum of squares cannot overflow.
+    // Avoid the much more expensive per-element hypot for dense training.
+    long double squared=0;
     for(const Matrix* gradient : gradients) {
         demand(gradient!=nullptr,"null gradient pointer");
         valid(*gradient);
         for(double v:gradient->values)
-            total=std::hypot(total,static_cast<long double>(v));
+            squared+=static_cast<long double>(v)*v;
     }
-    demand(std::isfinite(total),"nonfinite gradient norm");
-    return static_cast<double>(total);
+    const double norm=std::sqrt(squared);
+    demand(std::isfinite(norm),"nonfinite gradient norm");
+    return norm;
 }
 
 double clip_grad_norm(std::vector<Matrix*>& gradients,double max_norm) {
@@ -51,7 +55,12 @@ double clip_grad_norm(std::vector<Matrix*>& gradients,double max_norm) {
     demand(!gradients.empty() && gradients.size()<=128,"invalid gradient collection");
     std::vector<const Matrix*> input;
     input.reserve(gradients.size());
-    for(Matrix* g:gradients)input.push_back(g);
+    for(std::size_t i=0;i<gradients.size();++i) {
+        demand(gradients[i]!=nullptr,"null gradient pointer");
+        for(std::size_t j=0;j<i;++j)
+            demand(gradients[i]!=gradients[j],"aliased gradient destinations");
+        input.push_back(gradients[i]);
+    }
     const double norm=global_gradient_norm(input);
     if(norm<=max_norm)return norm;
     const double multiplier=max_norm/norm;
@@ -70,8 +79,11 @@ double clip_grad_norm(std::vector<Matrix*>& gradients,double max_norm) {
 
 AdamWOptimizer::AdamWOptimizer(const std::vector<Matrix*>& parameters) {
     demand(!parameters.empty() && parameters.size()<=128,"invalid parameter collection");
-    for(const Matrix* param:parameters) {
+    for(std::size_t i=0;i<parameters.size();++i) {
+        const Matrix* param=parameters[i];
         demand(param!=nullptr,"null parameter");
+        for(std::size_t j=0;j<i;++j)
+            demand(param!=parameters[j],"duplicate parameter pointer");
         valid(*param);
         first_.emplace_back(param->rows,param->cols);
         second_.emplace_back(param->rows,param->cols);
@@ -86,8 +98,13 @@ void AdamWOptimizer::step(const std::vector<Matrix*>& parameters,
     demand(parameters.size()==first_.size() && gradients.size()==first_.size(),
            "optimizer state shape mismatch");
     demand(steps_<1000000,"optimizer step budget exhausted");
-    const double correction1=1.0-std::pow(options.beta1,static_cast<double>(steps_+1));
-    const double correction2=1.0-std::pow(options.beta2,static_cast<double>(steps_+1));
+    // expm1(log(beta) * t) avoids cancellation for beta close to one.
+    const auto correction=[](double beta,std::size_t t) {
+        return beta==0 ? 1.0 :
+            -std::expm1(static_cast<double>(t)*std::log(beta));
+    };
+    const double correction1=correction(options.beta1,steps_+1);
+    const double correction2=correction(options.beta2,steps_+1);
     demand(correction1>0 && correction2>0,"invalid bias correction");
 
     // Stage parameters AND optimizer moments. Failure must not advance
@@ -98,6 +115,8 @@ void AdamWOptimizer::step(const std::vector<Matrix*>& parameters,
     next_second.reserve(parameters.size());
     for(std::size_t k=0;k<parameters.size();++k) {
         demand(parameters[k] && gradients[k],"null optimizer input");
+        for(std::size_t j=0;j<k;++j)
+            demand(parameters[k]!=parameters[j],"duplicate parameter pointer");
         const Matrix& w=*parameters[k];
         const Matrix& g=*gradients[k];
         valid(w);valid(g);
