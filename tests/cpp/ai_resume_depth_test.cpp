@@ -84,6 +84,7 @@ int main(int argc,char** argv) {
 
     // Legacy one-block .nqtf format still writes and reads NQTF1.
     auto legacy=options;legacy.layers=1;legacy.steps=2;
+    legacy.warmup_steps=0;legacy.cosine_decay=false;
     legacy.validation_fraction=0;legacy.precision=Precision::FP64;
     const auto legacy_model=train_transformer(corpus,legacy);
     const auto legacy_path=dir/"legacy.nqtf";
