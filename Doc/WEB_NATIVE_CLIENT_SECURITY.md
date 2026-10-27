@@ -56,7 +56,7 @@ variable names, not the tokens**:
 # METHOD ROUTE_PREFIX SECRET_ENV
 GET /members NOQERI_MEMBER_VIEWER_TOKEN
 BOTH /members NOQERI_MEMBER_EDITOR_TOKEN
-POST /admin NOQERI_ADMIN_WRITE_TOKEN
+BOTH /admin NOQERI_ADMIN_WRITE_TOKEN
 ```
 
 ```sh
@@ -67,6 +67,8 @@ export NOQERI_ADMIN_WRITE_TOKEN='<different random secret at least 32 characters
 ./build/noqeri-web serve-app examples/native_web_fullstack 8080
 ```
 
+A `POST` grant requires a matching `GET` or `BOTH` grant for the same
+principal and path, because native actions first acquire a CSRF token via GET.
 The most specific path prefix wins. Routes not covered by any policy are
 **public**, so enumerate every private prefix. Under a protected prefix,
 unauthenticated requests and ungranted HTTP methods are denied. Each accepted
