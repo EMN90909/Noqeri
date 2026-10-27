@@ -768,7 +768,10 @@ void respond(int fd,int status,const std::string& mime,const std::string& data,b
     const std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
-        "Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n\r\n";
+        "X-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\n"
+        "Cache-Control: no-store\r\n"
+        "Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; "
+        "connect-src 'self'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n\r\n";
     sendAll(fd,header);
     if (!head) sendAll(fd,data);
 }
@@ -821,14 +824,23 @@ void serve(const fs::path& input,int port) {
             const auto relativeFile=canonicalFile.lexically_relative(root);
             const bool inside=!ec && !relativeFile.empty() &&
                 *relativeFile.begin()!=".." && !relativeFile.is_absolute();
+            static const std::map<std::string,std::string> previewTypes={
+                {".html","text/html; charset=utf-8"},
+                {".css","text/css; charset=utf-8"},
+                {".mjs","text/javascript; charset=utf-8"},
+                {".js","text/javascript; charset=utf-8"},
+                {".json","application/json; charset=utf-8"},
+                {".svg","image/svg+xml"},
+                {".png","image/png"},
+                {".webp","image/webp"},
+                {".ico","image/x-icon"},
+                {".woff2","font/woff2"}
+            };
+            const auto accepted=previewTypes.find(canonicalFile.extension().string());
             if (inside && fs::is_regular_file(canonicalFile,ec) &&
                 fs::file_size(canonicalFile,ec)<=1024*1024 &&
-                (canonicalFile.extension()==".html"||canonicalFile.extension()==".css"||
-                 canonicalFile.extension()==".mjs"||canonicalFile.extension()==".js")) {
-                const auto extension=canonicalFile.extension();
-                const std::string mime=extension==".css"?"text/css; charset=utf-8":
-                    (extension==".mjs"||extension==".js")?"text/javascript; charset=utf-8":"text/html; charset=utf-8";
-                respond(client,200,mime,readText(canonicalFile),head);
+                accepted!=previewTypes.end()) {
+                respond(client,200,accepted->second,readText(canonicalFile),head);
             } else {
                 const auto fallback=root/"404.html";
                 const auto data=fs::is_regular_file(fallback,ec)?readText(fallback):std::string("Not Found");
