@@ -198,7 +198,7 @@ std::string renderApp(const std::vector<Node>& nodes,const Project& p,
             if(attr=="rel")hasRel=true;
             if(attr=="name"&&value.rfind("_nq_",0)==0)
                 throw std::runtime_error("reserved native form field");
-            if(attr=="disabled"||attr=="checked") {
+            if(attr=="disabled"||attr=="checked"||attr=="required") {
                 if(value!="false"&&value!="0"&&!value.empty())result+=" "+attr;
             }else result+=" "+attr+"=\""+escaped(value)+"\"";
         }
