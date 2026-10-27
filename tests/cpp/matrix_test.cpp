@@ -42,6 +42,8 @@ int main() {
     assert(throws([&]{m::reshape(a,4,2);}));
     assert(throws([&]{m::slice(a,0,3,0,2);}));
     assert(throws([&]{m::conv2d_valid(a,k,0);}));
+    // Guard potentially enormous convolution workloads before iterating.
+    assert(throws([&]{m::conv2d_valid(Matrix(1000,1000),Matrix(30,30));}));
     assert(throws([&]{m::sum(a,2);}));
     assert(throws([&]{m::add(a,Matrix(4,3));}));
     assert(throws([&]{m::scale(a,std::numeric_limits<double>::infinity());}));
