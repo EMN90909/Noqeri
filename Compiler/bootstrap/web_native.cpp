@@ -722,6 +722,7 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     std::cout << "noqeri-web: rendered "<<project.routes.size()
               <<" static routes (no Node.js, JavaScript, or runtime dependencies) into "<<dest<<"\n";
 }
+#include "web_native_client.hpp"
 #if !defined(_WIN32)
 void sendAll(int fd,const std::string& data) {
     std::size_t offset=0;
@@ -874,6 +875,9 @@ int main(int argc,char** argv) {
             throw std::runtime_error("native app server requires POSIX sockets");
 #endif
         }
+        if (argc>=2 && std::string(argv[1])=="build-client" && argc==4) {
+            buildClient(argv[2],argv[3],argv[0]); return 0;
+        }
         if (argc>=2 && std::string(argv[1])=="build" && argc==4) {
             build(argv[2],argv[3],argv[0]); return 0;
         }
@@ -892,6 +896,7 @@ int main(int argc,char** argv) {
 #endif
         }
         std::cerr<<"Usage: noqeri-web build <project-dir> <output-dir>\n"
+                 <<"       noqeri-web build-client <project-dir> <output-dir>  (native browser ESM, no Node)\n"
                  <<"       noqeri-web serve <output-dir> [port]  (localhost-only, POSIX)\n"
                  <<"       noqeri-web serve-app <source-dir> [port] [state-file]  (server actions, POSIX)\n"
                  <<"       noqeri-web drivers      show available external DB provider status\n"
