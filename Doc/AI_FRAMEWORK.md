@@ -10,7 +10,7 @@ remain backward compatible.
 | Component | Implemented | Boundary |
 | --- | --- | --- |
 | Portable Noqeri source | `Lib/ai/framework.noqeri`: scalar affine gradients, bounded SGD, pair frequencies, attention dot product, agent budget guards | Portable helpers are directly importable; an additional explicit native AOT module exposes bounded GEMM, softmax, SGD, Tape graph execution, ASCII BPE and transient transformer training/generation. |
-| Reverse-mode autodiff | `noqeri/ai_framework.hpp`, `Tape`: tensor add, matmul, transpose, scale, tanh, softmax, causal softmax, gather, last-row, cross-entropy, backward | Small dense 2D CPU graph, up to 128 operations; The C++17 SDK provides the complete graph; a bounded subset of Tape operations is exposed through an explicitly linked Noqeri C ABI. |
+| Reverse-mode autodiff | `noqeri/ai_framework.hpp`, `Tape`: tensor add, matmul, transpose, scale, tanh, ReLU, GELU, layer normalization, softmax, causal softmax, gather, last-row, cross-entropy, backward | Small dense 2D CPU graph, up to 128 operations; The C++17 SDK provides the complete graph; a bounded subset of Tape operations is exposed through an explicitly linked Noqeri C ABI. |
 | Transformer training | Learn embeddings, Q/K/V projections, causal attention, attention output, residual, tanh feed-forward, second residual, output logits. Seeded SGD with gradients from Tape. | Single head and layer, bounded CPU model; not a production GPT architecture. |
 | Subword tokenizer | Deterministic byte-pair merges and round-trip encode/decode; saves vocabulary together with model | Printable ASCII + LF only, up to 32 learned merges; not Unicode/BPE/WordPiece production coverage. |
 | Numerical backends | Scalar reference, cache-tiled CPU, x86 SSE2 vectorized inner loop, Auto selection | SIMD compile-time availability; no CUDA, ROCm, Metal, Vulkan or verified performance speedup. |
@@ -142,7 +142,7 @@ source-only; complete reusable models and full Tape APIs remain SDK features.
   CI targets should be claimed as verified.
 
 The framework is **experimental**. It does not implement full transformer
-pretraining, tokenizer Unicode support, multi-head attention, layer norm,
+pretraining, tokenizer Unicode support, multi-head attention, transformer-integrated layer norm,
 AdamW, mixed precision, quantization, distributed training, accelerator
 kernels, or complete Noqeri compiler-level bindings. It is a real but bounded
 foundation for building those features without changing Noqeri's general-
@@ -204,6 +204,25 @@ is 1,048,576 f64 entries. See
 This binding is a **Linux x86-64 Noqeri native AOT preview**, not a
 generic Stage-2 VM operator or an online model service. Its ABI tests
 are in `tests/cpp/ai_adamw_c_test.cpp` and the native-AOT CI workflow.
+
+## Differentiable neural building blocks
+
+The `Tape` reverse-mode engine now exposes `relu`, approximate `gelu`
+and `layer_norm` alongside the existing tensor operations. GELU uses the
+tanh approximation, and layer normalization applies independently to each
+row with a positive epsilon. Both support analytic backward gradients;
+the tests compare GELU/LayerNorm derivatives against central finite
+differences. Zero-input ReLU uses the derivative convention `0`.
+
+Native AOT Noqeri graphs can use opcodes **9=ReLU, 10=GELU,
+11=LayerNorm**, where `AiTapeStep.scalar` supplies the epsilon for
+LayerNorm. See `examples/simplicity/ai_native_deep_tape.noqeri` and
+`tests/cpp/ai_autodiff_deep_test.cpp`.
+
+These operators enable custom experiments, but the serialized `.nqtf`
+single-head model still uses its original fixed forward architecture.
+Adding the new operators does not silently alter model compatibility or
+retrofit the training CLI with arbitrary depth.
 
 ## Native BPE and bounded single-call transformer training
 
