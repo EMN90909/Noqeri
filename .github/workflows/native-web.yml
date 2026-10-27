@@ -55,6 +55,27 @@ jobs:
         run: python3 tests/native_web_session_expiry.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Qualify native reactive forms, Bearer gate and private state files
         run: python3 tests/native_web_reactive_security.py ./build-native-web/noqeri-web
+      - name: Benchmark Node-free native page render and 8-client concurrency
+        env:
+          NOQERI_PERF_OUTPUT: build-native-web/performance.json
+          NOQERI_PERF_SAMPLES: '120'
+          NOQERI_PERF_MAX_P95_MS: '250'
+          NOQERI_PERF_MAX_CONCURRENT_P95_MS: '500'
+          NOQERI_PERF_MIN_RPS: '60'
+        run: |
+          python3 tests/native_web_performance.py ./build-native-web/noqeri-web examples/native_web_actions
+          python3 - <<'PY'
+          import json, os
+          with open('build-native-web/performance.json') as f:
+              report=json.load(f)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Noqeri native HTTP performance (loopback CI)\n\n')
+              f.write('| Mode | GET p50 | GET p95 | 8-client p95 | 8-client req/s |\n')
+              f.write('| --- | ---: | ---: | ---: | ---: |\n')
+              for item in report['results']:
+                  f.write(f"| {item['mode']} | {item['p50_ms']} ms | {item['p95_ms']} ms | {item['concurrent_8_p95_ms']} ms | {item['concurrent_8_rps']} |\n")
+              f.write('\nMetrics are not production Internet/TLS measurements.\n')
+          PY
       - name: Qualify HTTPS reverse-proxy Host and Origin boundary
         run: python3 tests/native_web_proxy_origin.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Test native web database adapters without changing NoeSQL
