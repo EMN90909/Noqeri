@@ -65,6 +65,7 @@ or #id selector within the rendered Noqeri application root.
 | fromRotation, toRotation | -1080 to 1080, integer degrees | 0 |
 | duration | 0–30000, integer milliseconds | 500 |
 | delay | 0–30000, integer milliseconds | 0 |
+| offset | -30000 to 30000 ms, timeline steps only | 0 |
 | stagger | 0–10000, integer milliseconds | 0 |
 | ease | linear, in, out, inOut, back, smooth | smooth |
 | repeat | 0–10 | 0 |
@@ -72,12 +73,16 @@ or #id selector within the rendered Noqeri application root.
 | once | true, false | true |
 
 Timelines sequence named steps from left to right. Every referenced motion
-must set trigger to "timeline" and may belong to only one timeline. Animations
+must set trigger to "timeline" and may belong to only one timeline.
+Use `offset: -120` to overlap the preceding timeline step by 120 ms;
+positive offsets add a gap. Offsets are relative to the current end of the
+sequence, not GSAP-style labels or absolute time positions. Animations
 can run in parallel by omitting timelines and using trigger "mount". Scroll
 motions start upon entering the viewport; they do not alter page scroll.
 
 Browser host integrations can access app.motion.play(name),
-app.motion.pause(name), app.motion.reverse(name), app.motion.refresh(),
+app.motion.pause(name), app.motion.reverse(name), app.motion.restart(name),
+app.motion.refresh(),
 and app.motion.dispose(). These controls are not yet exposed as arbitrary
 Noqeri language function calls.
 
@@ -92,10 +97,11 @@ Noqeri language function calls.
 - Respects prefers-reduced-motion: reduce by keeping unanimated content
   readable. Animation lifecycle is cancelled on app disposal.
 - Scroll reveals use IntersectionObserver; new matching nodes are discovered
-  after SPA DOM changes using MutationObserver.
+  after SPA DOM changes using MutationObserver. Repeatable scroll reveals
+  reuse the same observer and release detached DOM targets on refresh.
 - Native server-rendered serve-app and JS-free static build reject motion
   declarations explicitly. Use build-client for motion-enabled websites.
-- Timelines do not yet implement labels, overlap offsets, scrub, pinning,
+- Timelines do not yet implement labels, absolute offsets, scrub, pinning,
   SVG morphing, motion paths, FLIP layout, arbitrary object tweening,
   spring solvers or GSAP ScrollTrigger feature parity.
 - This does not imply Stage-2 native frontend parity or a production-certified

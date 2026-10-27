@@ -27,6 +27,7 @@ with tempfile.TemporaryDirectory(prefix="noqeri-motion-") as temp:
     assert "__nq_createMotion(root" in js
     assert '"fromOpacity":0' in js
     assert '"trigger":"timeline"' in js
+    assert '"offset":-100' in js
     assert 'steps:["hero","subtitle"]' in js
     assert "Noqeri Motion" in (dest/"index.html").read_text()
     assert "export function createMotion(" in (dest/"__noqeri/runtime.mjs").read_text()
@@ -36,6 +37,8 @@ with tempfile.TemporaryDirectory(prefix="noqeri-motion-") as temp:
     invalid=[
         ('motion bad { target: "body" }\nview { p { "x" } }',"target"),
         ('motion bad { target: ".ok" duration: 30001 }\nview { p { "x" } }',"range"),
+        ('motion bad { target: ".ok" offset: -50 }\nview { p { "x" } }',"offset"),
+        ('motion bad { target: ".ok" trigger: "timeline" offset: -30001 }\ntimeline intro { bad }\nview { p { "x" } }',"range"),
         ('motion bad { target: ".ok" ease: "eval" }\nview { p { "x" } }',"easing"),
         ('motion bad { target: ".ok" opacity: 0 }\nview { p { "x" } }',"unsupported"),
         ('motion bad { target: ".a" target: ".b" }\nview { p { "x" } }',"duplicate"),

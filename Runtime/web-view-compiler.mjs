@@ -171,7 +171,7 @@ export function parseView(source) {
       const name=ident();need('{');
       const fields=Object.create(null);
       const numberBounds={
-        duration:[0,30000],delay:[0,30000],stagger:[0,10000],repeat:[0,10],
+        duration:[0,30000],delay:[0,30000],offset:[-30000,30000],stagger:[0,10000],repeat:[0,10],
         fromOpacity:[0,100],toOpacity:[0,100],fromX:[-2000,2000],toX:[-2000,2000],
         fromY:[-2000,2000],toY:[-2000,2000],fromScale:[1,400],toScale:[1,400],
         fromRotation:[-1080,1080],toRotation:[-1080,1080]
@@ -202,6 +202,8 @@ export function parseView(source) {
       }
       need('}');
       if(!Object.hasOwn(fields,'target'))fail('motion needs target');
+      if(fields.offset!==undefined&&fields.offset!==0&&fields.trigger!=='timeline')
+        fail('motion offset requires trigger timeline');
       if(motions.some(m=>m.name===name)||timelines.some(t=>t.name===name))
         fail('duplicate motion name '+name);
       motions.push({name,...fields});

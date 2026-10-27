@@ -380,7 +380,7 @@ class Parser {
         expect("{");
         std::map<std::string,std::string> fields;
         const std::map<std::string,std::pair<int,int>> numeric={
-            {"duration",{0,30000}},{"delay",{0,30000}},{"stagger",{0,10000}},
+            {"duration",{0,30000}},{"delay",{0,30000}},{"offset",{-30000,30000}},{"stagger",{0,10000}},
             {"repeat",{0,10}},{"fromOpacity",{0,100}},{"toOpacity",{0,100}},
             {"fromX",{-2000,2000}},{"toX",{-2000,2000}},
             {"fromY",{-2000,2000}},{"toY",{-2000,2000}},
@@ -427,6 +427,8 @@ class Parser {
         if(easing!="linear"&&easing!="in"&&easing!="out"&&
            easing!="inOut"&&easing!="back"&&easing!="smooth")
             fail("motion easing is not supported");
+        if(fields.count("offset")&&fields.at("offset")!="0"&&trigger!="timeline")
+            fail("motion offset requires trigger timeline");
         p.clientMotions.emplace(name,std::move(fields));
     }
     void timeline(){
