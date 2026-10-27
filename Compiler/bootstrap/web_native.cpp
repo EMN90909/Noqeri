@@ -93,6 +93,10 @@ struct Project {
     std::map<std::string,std::string> queries;
     // Browser-only resources; native static/SSR paths fail closed.
     std::map<std::string,std::string> clientLoads;
+    // Same-origin realtime resources are client-only; never used by SSR.
+    std::map<std::string,std::string> clientSubscriptions;
+    std::vector<Mutation> clientMount;
+    bool hasClientMount=false;
     std::map<std::string,Component> components;
     std::map<std::string,std::vector<Node>> routes;
     std::vector<Node> fallback;
@@ -416,15 +420,35 @@ public:
                    !std::all_of(url.begin(),url.end(),[](unsigned char ch) {
                        return std::isalnum(ch)!=0||ch=='/'||ch=='_'||ch=='-'||ch=='.';
                    }))fail("load requires a bounded same-origin absolute URL path");
-                if(p.globals.count(name)||p.queries.count(name)||
+                if(p.globals.count(name)||p.queries.count(name)||p.clientSubscriptions.count(name)||
                    !p.clientLoads.emplace(name,url).second)
                     fail("duplicate load name or name conflicts with state");
+            }
+            else if (!library && take("subscribe")) {
+                const auto name=identifier();
+                expect("from");
+                const auto path=literalString();
+                if(path.size()<2||path.size()>256||path.front()!='/'||path[1]=='/'||
+                   path.find("//")!=std::string::npos||
+                   !std::all_of(path.begin()+1,path.end(),[](unsigned char ch) {
+                       return std::isalnum(ch)!=0||ch=='/'||ch=='_'||ch=='-';
+                   }))fail("subscribe requires a bounded same-origin WebSocket path");
+                if(p.globals.count(name)||p.queries.count(name)||p.clientLoads.count(name)||
+                   !p.clientSubscriptions.emplace(name,path).second)
+                    fail("duplicate subscribe name or name conflicts with state");
+            }
+            else if (!library && take("on")) {
+                expect(".");expect("mount");
+                if(p.hasClientMount)fail("duplicate on.mount declaration");
+                p.hasClientMount=true;
+                p.clientMount=mutations();
             }
             else if (!library && (take("let")||take("const")||take("persist"))) {
                 const auto declaration=tokens.at(pos-1).value;
                 const auto name=identifier(); expect("=");
                 const auto value=expression();
-                if(p.clientLoads.count(name)||!p.globals.emplace(name,evaluate(value,{},p.globals)).second)
+                if(p.clientLoads.count(name)||p.clientSubscriptions.count(name)||
+                   !p.globals.emplace(name,evaluate(value,{},p.globals)).second)
                     fail("duplicate global/load name");
                 if (declaration=="let") p.mutableState.insert(name);
                 if (declaration=="persist") p.persistentState.insert(name);
@@ -447,7 +471,7 @@ public:
             } else if (!library && take("query")) {
                 const auto name=identifier();expect("=");
                 const auto sql=literalString();
-                if(!p.queries.emplace(name,sql).second || p.globals.count(name)||p.clientLoads.count(name))fail("duplicate query/global/load name");
+                if(!p.queries.emplace(name,sql).second || p.globals.count(name)||p.clientLoads.count(name)||p.clientSubscriptions.count(name))fail("duplicate query/global/load/subscribe name");
             } else if (!library && take("theme")) {
                 expect("{");
                 while (!take("}")) {
@@ -717,8 +741,8 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     Project project;
     Parser(readText(root/"main.noqeri"),project).parse();
     promoteStandaloneView(project);
-    if(!project.clientLoads.empty())
-        throw std::runtime_error("browser load resources require build-client, not static build");
+    if(!project.clientLoads.empty()||!project.clientSubscriptions.empty()||project.hasClientMount)
+        throw std::runtime_error("browser load/subscribe/mount requires build-client, not static build");
     if (project.routes.empty()) throw std::runtime_error("native web app requires at least one view or route");
     if(project.databaseConfigured||!project.queries.empty())
         throw std::runtime_error("database queries require serve-app, not static build");

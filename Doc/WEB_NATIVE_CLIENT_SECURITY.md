@@ -47,12 +47,21 @@ Current accepted Noqeri subset:
   the HTML uses a client mount point and a `noscript` message instead.
   Host the JSON endpoint on the same origin; generated builds do not create
   or fetch server APIs.
+- Browser-only `subscribe updates from "/ws/updates"` with a fixed same-origin
+  WebSocket path, reconnecting JSON messages, bounded frames, and automatic
+  cleanup on app disposal. A separate WebSocket server must implement the
+  endpoint; native `serve-app` has no WebSocket upgrade handling.
+- `on.mount { state = "ready" }` for the same bounded, mutable-state
+  assignments allowed by native DOM events. Effects run once when the browser
+  mounts the view, not on the server; arbitrary function or JS calls remain
+  unsupported. Pages with subscriptions use client rendering rather than
+  incorrectly prerendering missing realtime values.
 - The runtime's existing bounded HTML/URL/attribute validation. Unsupported
   actions fail the build rather than silently becoming client-side powers.
 
 **Not yet supported by native browser codegen:** arbitrary functions and
-expression operators, WebSocket `subscribe`, JS imports, third-party packages,
-`on.mount`, advanced schema/form validation, and typed Stage-2 compiler/NIR
+expression operators, JS imports, third-party packages, general-purpose
+`on.mount` effects, advanced schema/form validation, and typed Stage-2 compiler/NIR
 parity. Native async JSON loads and primitive input/form events are supported,
 but do **not** yet cover all forms of the experimental browser-view grammar. These features remain with the separate
 experimental Node-hosted view compiler. Unlike `serve-app`, `build-client`

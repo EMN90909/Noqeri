@@ -20,10 +20,13 @@ try {
   await writeFile(join(source,'main.noqeri'),[
     'let username = "Guest"',
     'load greeting from "/api/greeting.json"',
+    'subscribe updates from "/ws/updates"',
+    'on.mount { username = "Mounted" }',
     'view { main {',
     ' h1 { "Node-free browser data" }',
     ' p { "Greeting: " + greeting.data.message }',
     ' p { "Name: " + username }',
+    ' p { "Realtime: " + updates.data.message }',
     ' input type: "text" on.input { username = form.value } {}',
     ' form on.submit { username = form.username } {',
     '  input name: "username" type: "text" {}',
@@ -54,11 +57,16 @@ try {
   }
   browser=await chromium.launch({headless:true});
   const page=await browser.newPage();
+  await page.routeWebSocket(origin.replace('http://','ws://')+'/ws/updates',ws=>{
+    ws.send(JSON.stringify({message:'WebSocket delivered'}));
+  });
   const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   const response=await page.goto(origin+'/',{waitUntil:'load'});
   assert.equal(response.status(),200);
   await page.getByText('Greeting: Hello from JSON').waitFor({timeout:10000});
+  await page.getByText('Name: Mounted').waitFor();
+  await page.getByText('Realtime: WebSocket delivered').waitFor({timeout:10000});
   await page.evaluate(()=>{window.__nq_pageRoot=document.querySelector('#app > div')});
   const inputs=page.locator('input[type="text"]');
   assert.equal(await inputs.count(),2);
@@ -70,7 +78,7 @@ try {
   await page.getByText('Name: Bob').waitFor();
   assert.equal(await page.evaluate(()=>document.querySelector('#app > div')===window.__nq_pageRoot),true);
   assert.deepEqual(errors,[]);
-  console.log('PASS: native Node-free client compiler, same-origin async JSON, reactive input and form submit in Chromium');
+  console.log('PASS: native Node-free client compiler, async JSON, WebSocket, mount actions, reactive input and form submit in Chromium');
 } finally {
   await browser?.close();
   server?.kill('SIGTERM');
