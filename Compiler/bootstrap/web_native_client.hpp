@@ -73,6 +73,9 @@ std::string clientEvents(const Node& node,const Project& project,
     std::string code="{"+node.eventName+":(__nq_event)=>{";
     if(submit)code+="const __nq_fields=__nq_formFields(__nq_event);";
     for(const auto& mutation:node.mutations) {
+        if(mutation.op=="validate"||mutation.op=="validate_email"||
+           mutation.op=="validate_number"||mutation.op=="db")
+            throw std::runtime_error("client validation/database actions require serve-app");
         if(!project.mutableState.count(mutation.target) &&
            !project.persistentState.count(mutation.target))
             throw std::runtime_error("client action must assign a mutable or persisted state: "+mutation.target);
