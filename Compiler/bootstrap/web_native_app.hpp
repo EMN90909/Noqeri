@@ -406,7 +406,9 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
         std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
                     "; script-src 'self'":"")+"; form-action 'self'; base-uri 'none'\r\n";
-    if(status==401)header+="WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
+    if(status==401)header+=std::getenv("NOQERI_WEB_BEARER_TOKEN")?
+        "WWW-Authenticate: Bearer realm=\"Noqeri native preview\"\r\n":
+        "WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
     if(!cookie.empty()) {
         const char* secure=std::getenv("NOQERI_WEB_SECURE_COOKIE");
         header+="Set-Cookie: _nq_sid="+cookie+"; Path=/; HttpOnly; SameSite=Strict";
@@ -586,6 +588,13 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         throw std::runtime_error("Basic credentials may not be empty");
     const std::string basicExpected=configuredUser?
         std::string(configuredUser)+":"+configuredPassword:"";
+    const char* configuredBearer=std::getenv("NOQERI_WEB_BEARER_TOKEN");
+    const std::string bearerExpected=configuredBearer?configuredBearer:"";
+    if(configuredBearer&&(bearerExpected.size()<32||bearerExpected.size()>512||
+       bearerExpected.find_first_of("\r\n")!=std::string::npos))
+        throw std::runtime_error("Bearer token must be 32..512 bytes without newlines");
+    if(!basicExpected.empty()&&!bearerExpected.empty())
+        throw std::runtime_error("configure either Basic or Bearer authentication, not both");
     // TLS terminates at a separately configured loopback reverse proxy. Never
     // trust X-Forwarded-* from arbitrary callers as an origin authority.
     std::string publicOrigin;
@@ -714,7 +723,10 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             const AppRequest req=receiveAppRequest(client);
             // Authenticate and validate the origin before acquiring the state lock.
             // GET rendering and independent database reads can now run concurrently.
-            if(!nativeBasicAllowed(req.authorization,basicExpected)) {
+            if(!bearerExpected.empty() ?
+               !(req.authorization.rfind("Bearer ",0)==0&&
+                 constantTimeEquals(req.authorization.substr(7),bearerExpected)) :
+               !nativeBasicAllowed(req.authorization,basicExpected)) {
                 appReply(client,401,"Authentication required");
             } else {
             const auto allowedHostA="127.0.0.1:"+std::to_string(port);
