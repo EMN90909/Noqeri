@@ -33,18 +33,65 @@ Current accepted Noqeri subset:
   element declarations using Noqeri syntax.
 - Client-side `button on.click`, reactive DOM reconciliation, browser history,
   prerendered first paint and no-JS reading of the initial static HTML.
+- Native compilation of `input on.input` / `on.change` using
+  `state = form.value` or `state = form.checked`, and of
+  `form on.submit` with bounded, named `form.field` assignments.
+  The browser runtime keeps form submission in-page; server-side DB and
+  privileged actions still require `serve-app`.
+- Bounded same-origin `load resource from "/api/data.json"` data loading,
+  including safe own-property access (`resource.loading`, `resource.data`,
+  `resource.error`, and nested data properties). The C++ compiler generates
+  browser fetch requests with abort/disposal handling supplied by the runtime;
+  Node.js is not used during compilation.
+  **Async-only views cannot be statically pre-rendered with unknown data**:
+  the HTML uses a client mount point and a `noscript` message instead.
+  Host the JSON endpoint on the same origin; generated builds do not create
+  or fetch server APIs.
 - The runtime's existing bounded HTML/URL/attribute validation. Unsupported
   actions fail the build rather than silently becoming client-side powers.
 
 **Not yet supported by native browser codegen:** arbitrary functions and
-expression operators, `load` with async data, WebSocket `subscribe`, JS
-imports, third-party packages, `on.mount`, general input/form events, and
-typed Stage-2 compiler/NIR parity. These features remain with the separate
+expression operators, WebSocket `subscribe`, JS imports, third-party packages,
+`on.mount`, advanced schema/form validation, and typed Stage-2 compiler/NIR
+parity. Native async JSON loads and primitive input/form events are supported,
+but do **not** yet cover all forms of the experimental browser-view grammar. These features remain with the separate
 experimental Node-hosted view compiler. Unlike `serve-app`, `build-client`
 does not execute server database actions or privileged form handlers.
 
 Browser-persisted values are only for nonsecret preferences. Never store auth
 credentials or private records in `persist`.
+
+## Async native browser-view example
+
+```noqeri
+let username = "Guest"
+load greeting from "/api/greeting.json"
+
+view {
+  main {
+    h1 { "Greetings" }
+    p { "Message: " + greeting.data.message }
+    p { "Name: " + username }
+    input on.input { username = form.value } {}
+    form on.submit { username = form.username } {
+      input type: "text" name: "username" {}
+      button type: "submit" { "Save" }
+    }
+  }
+}
+```
+
+Build with `noqeri web build-client <source> <dist>`, no Node.js required.
+A same-origin JSON endpoint must actually exist at `/api/greeting.json`.
+Fetches have a timeout and bounded response size. The compiler rejects
+protocol-relative/external URLs, traversal syntax, member access to special
+JavaScript prototype properties and unsupported client action kinds. Browser
+event state is a local UI convenience only. Never treat it as trusted server
+identity or write authorization.
+
+Run `python3 tests/native_web_client_async.py ./build/noqeri-web` to
+qualify no-Node compilation and rejection cases. CI also runs a real Chromium
+test for fetching JSON, typed inputs, and in-page form submissions.
 
 ## Protected routes (API clients)
 
