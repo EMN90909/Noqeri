@@ -78,6 +78,8 @@ jobs:
           PY
       - name: Qualify HTTPS reverse-proxy Host and Origin boundary
         run: python3 tests/native_web_proxy_origin.py ./build-native-web/noqeri-web examples/native_web_actions
+      - name: Test native route authorization, principal-scoped sessions and method deny
+        run: python3 tests/native_web_route_authz.py ./build-native-web/noqeri-web examples/native_web_actions
       - name: Test native web database adapters without changing NoeSQL
         run: python3 tests/native_web_database.py ./build-native-web/noqeri-web
       - name: Verify Supabase Firebase and Neon provider safety boundaries
