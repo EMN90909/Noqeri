@@ -17,6 +17,35 @@ source and no handwritten JavaScript do not mean the build tool is self-hosted.
 Node.js is not required by the native static or native full-stack paths, nor by
 browsers consuming their output.
 
+### Standalone Noqeri view, now supported by the native compiler
+
+A Noqeri program containing **only** a `view { ... }` declaration no longer
+needs to wrap its page in `route "/" { ... }` to enter native static or
+server-rendered mode. For example:
+
+```noqeri
+let clicks = 0
+view {
+  main {
+    h1 { "Hello from Noqeri" }
+    p { "Clicks: " + clicks }
+    button on.click { clicks = clicks + 1 } { "Increment" }
+  }
+}
+```
+
+`noqeri web serve-app <project>` executes this as a native SSR page and
+optionally enhances it in the browser with `NOQERI_WEB_REACTIVE=1` (hydrated
+server actions and same-origin client navigation). The native static builder
+also accepts **view-only pages without events**; it deliberately rejects
+interactive mutations rather than silently emitting dead buttons.
+
+This shares user-facing Noqeri syntax and builds with **no Node.js**, but its
+reactivity executes **server-side**. The separate experimental `.mjs`
+compiler supports client-side reactive updates and imports/loads that the
+native compiler does not. This overlap is **not** a claim that the browser DSL
+has been fully ported or that the compiler is written in Noqeri itself.
+
 ## Performance and security gates
 
 GitHub Actions now checks all of the following:
@@ -24,6 +53,14 @@ GitHub Actions now checks all of the following:
 - Native Release-mode build, native compiler/tests, route rendering, session
   isolation, CSRF rotation/replay protection, malformed HTTP, optional Basic /
   bearer authentication, database adapters and proxy origin boundaries.
+- Real Chromium tests for hydrated browser view text reconciliation (including
+  adjacent text nodes coalesced by the HTML parser), DOM preservation and
+  client-side routing. Native view-only builds and actions are tested while
+  Node.js is removed from PATH.
+- Strict CRLF-only HTTP header framing, at most 64 headers, bounded request
+  sizes and a four-second absolute request deadline across headers and body.
+  Targeted tests cover malformed line endings, TE/CL conflicts and slowly
+  trickled requests.
 - Native HTTP loopback performance in **both** JavaScript-disabled and hydrated
   server rendering: 120 measured sequential GETs + 120 GETs at 8-client
   concurrency, reusing a session and making fresh HTTP/1.1 connections.
@@ -70,6 +107,26 @@ node tests/web-build-performance.mjs
 Tighten budgets and test more demanding workloads on intended deployment
 hardware. The internal native preview server binds to `127.0.0.1`; no
 public-facing/TLS deployment is qualified by these tests.
+
+### Reference HTTPS reverse proxy
+
+A sample [Nginx HTTPS configuration](../Deploy/nginx/noqeri-native-https.conf.example)
+documents request and connection limits, buffering, restricted POST bodies,
+TLS termination and HSTS. Update the hostname, certificates and per-site
+traffic limits; test with `nginx -t` and independent penetration/load checks.
+Do not bind the native process to a public network interface.
+
+For a proxied app, configure `NOQERI_WEB_PUBLIC_ORIGIN=https://example.com`
+so Host/Origin validation uses the public HTTPS URL and the server issues
+`Secure` session cookies. Set `NOQERI_WEB_REQUIRE_ORIGIN=1` for clients
+that can provide mandatory browser Origin on POST. Put user authentication and
+fine-grained authorization in front of or inside each app; a valid Noqeri CSRF
+token is not equivalent to an authenticated account.
+
+**Even with the sample proxy, native actions remain preview-stage** until
+application authorization, rate limiting by authenticated identity,
+multi-instance sessions, complete proxy interoperability and production
+operations are qualified.
 
 ## Required before promoting native actions or browser views to GA
 
