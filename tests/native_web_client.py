@@ -28,16 +28,16 @@ with tempfile.TemporaryDirectory(prefix="noqeri-native-csr-") as tmp:
     assert "Number(__nq_state" in script
     assert "export function mount(root)" in script
     assert "export function createApp" in runtime
-    # A server-only effect must not silently compile into a dead or unsafe
-    # browser action; fail before generating any output files.
+    # Browser local-state form submissions are now supported, but privileged
+    # server-side validators are still rejected by the native CSR compiler.
     bad=directory/"bad";bad.mkdir()
     (bad/"main.noqeri").write_text(
         'let title = "Hello"\n'
-        'view { form on.submit { title = form.displayName } '
+        'view { form on.submit { validateEmail(displayName) } '
         '{ input name: "displayName" {} button type: "submit" { "Save" } } }\n')
     rejected=subprocess.run([str(web),"build-client",str(bad),str(directory/"bad-dist")],
                             env=env,text=True,capture_output=True,timeout=30)
-    assert rejected.returncode!=0 and "button on.click only" in rejected.stderr,rejected.stderr
+    assert rejected.returncode!=0 and "validation/database actions require serve-app" in rejected.stderr,rejected.stderr
     assert not (directory/"bad-dist"/"index.html").exists()
     # Deployment path should not be writable inside the source tree.
     rejected=subprocess.run([str(web),"build-client",str(source),str(source/"dist")],
