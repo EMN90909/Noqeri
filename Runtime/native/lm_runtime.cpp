@@ -90,11 +90,15 @@ Matrix::Matrix(std::size_t r, std::size_t c, double fill) : rows(r), cols(c) {
     values.assign(r*c, fill);
 }
 double& Matrix::at(std::size_t r, std::size_t c) {
-    check(r < rows && c < cols && values.size() == rows*cols, "matrix index out of bounds");
+    check(rows > 0 && cols > 0 && rows <= 2048 && cols <= 2048 &&
+          rows <= max_elements / cols && values.size() == rows*cols &&
+          r < rows && c < cols, "matrix index out of bounds");
     return values[r*cols+c];
 }
 double Matrix::at(std::size_t r, std::size_t c) const {
-    check(r < rows && c < cols && values.size() == rows*cols, "matrix index out of bounds");
+    check(rows > 0 && cols > 0 && rows <= 2048 && cols <= 2048 &&
+          rows <= max_elements / cols && values.size() == rows*cols &&
+          r < rows && c < cols, "matrix index out of bounds");
     return values[r*cols+c];
 }
 Matrix matmul(const Matrix& a, const Matrix& b) {
