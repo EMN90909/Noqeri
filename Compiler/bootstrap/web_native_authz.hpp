@@ -51,6 +51,17 @@ std::vector<RoutePermission> loadRoutePermissions() {
         entries.push_back(std::move(rule));
     }
     if(entries.empty())throw std::runtime_error("authorization policy is empty");
+    for(const auto& rule:entries)if(rule.method=="POST") {
+        const bool hasGet=std::any_of(entries.begin(),entries.end(),
+            [&](const RoutePermission& candidate){
+                return candidate.path==rule.path &&
+                       candidate.principal==rule.principal &&
+                       (candidate.method=="GET"||candidate.method=="BOTH");
+            });
+        if(!hasGet)
+            throw std::runtime_error(
+                "native CSRF-backed POST permission requires GET or BOTH grant for same principal and route");
+    }
     return entries;
 }
 
