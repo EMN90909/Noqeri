@@ -64,6 +64,11 @@ void verify_model(const TransformerModel& m) {
     shape(m.embedding,v,d);
     shape(m.wq,d,d);shape(m.wk,d,d);shape(m.wv,d,d);shape(m.wo,d,d);
     shape(m.w1,d,d);shape(m.w2,d,d);shape(m.output,d,v);
+    check(m.extra_layers.size()<=3,"model exceeds four transformer layers");
+    for(const auto& layer:m.extra_layers) {
+        shape(layer.wq,d,d);shape(layer.wk,d,d);shape(layer.wv,d,d);
+        shape(layer.wo,d,d);shape(layer.w1,d,d);shape(layer.w2,d,d);
+    }
 }
 std::vector<std::size_t> preceding(const std::vector<std::size_t>& ids,
                                    std::size_t end,std::size_t context) {
@@ -76,29 +81,38 @@ std::vector<std::size_t> preceding(const std::vector<std::size_t>& ids,
 }
 struct Graph {
     Tape tape;
-    std::size_t embeds=0,wq=0,wk=0,wv=0,wo=0,w1=0,w2=0,out=0,logits=0;
+    std::vector<std::size_t> handles;
+    std::size_t logits=0;
 };
 Graph forward(const TransformerModel& m,const std::vector<std::size_t>& ids,
-              Backend backend) {
+              Backend backend,Precision precision=Precision::FP64) {
     Graph g;
     g.tape.set_backend(backend);
-    g.embeds=g.tape.leaf(m.embedding);
-    g.wq=g.tape.leaf(m.wq);g.wk=g.tape.leaf(m.wk);
-    g.wv=g.tape.leaf(m.wv);g.wo=g.tape.leaf(m.wo);
-    g.w1=g.tape.leaf(m.w1);g.w2=g.tape.leaf(m.w2);
-    g.out=g.tape.leaf(m.output);
-    const auto input=g.tape.gather_rows(g.embeds,ids);
-    const auto q=g.tape.matmul(input,g.wq);
-    const auto k=g.tape.matmul(input,g.wk);
-    const auto v=g.tape.matmul(input,g.wv);
-    const auto score=g.tape.matmul(q,g.tape.transpose(k));
-    const auto scaled=g.tape.scale(score,1.0/std::sqrt(double(m.hidden)));
-    const auto attention=g.tape.softmax(scaled,true);
-    const auto attended=g.tape.matmul(attention,v);
-    const auto residual=g.tape.add(input,g.tape.matmul(attended,g.wo));
-    const auto ff=g.tape.tanh(g.tape.matmul(residual,g.w1));
-    const auto enriched=g.tape.add(residual,g.tape.matmul(ff,g.w2));
-    g.logits=g.tape.matmul(g.tape.last_row(enriched),g.out);
+    g.tape.set_precision(precision);
+    const auto embedding=g.tape.leaf(m.embedding);
+    g.handles.push_back(embedding);
+    std::size_t input=g.tape.gather_rows(embedding,ids);
+    const auto block=[&](const Matrix& wq,const Matrix& wk,const Matrix& wv,
+                         const Matrix& wo,const Matrix& w1,const Matrix& w2) {
+        const auto qh=g.tape.leaf(wq),kh=g.tape.leaf(wk),vh=g.tape.leaf(wv);
+        const auto oh=g.tape.leaf(wo),h1=g.tape.leaf(w1),h2=g.tape.leaf(w2);
+        for(auto handle:{qh,kh,vh,oh,h1,h2})g.handles.push_back(handle);
+        const auto q=g.tape.matmul(input,qh),k=g.tape.matmul(input,kh);
+        const auto v=g.tape.matmul(input,vh);
+        const auto score=g.tape.matmul(q,g.tape.transpose(k));
+        const auto scaled=g.tape.scale(score,1.0/std::sqrt(double(m.hidden)));
+        const auto attention=g.tape.softmax(scaled,true);
+        const auto attended=g.tape.matmul(attention,v);
+        const auto residual=g.tape.add(input,g.tape.matmul(attended,oh));
+        const auto ff=g.tape.tanh(g.tape.matmul(residual,h1));
+        input=g.tape.add(residual,g.tape.matmul(ff,h2));
+    };
+    block(m.wq,m.wk,m.wv,m.wo,m.w1,m.w2);
+    for(const auto& layer:m.extra_layers)
+        block(layer.wq,layer.wk,layer.wv,layer.wo,layer.w1,layer.w2);
+    const auto output=g.tape.leaf(m.output);
+    g.handles.push_back(output);
+    g.logits=g.tape.matmul(g.tape.last_row(input),output);
     return g;
 }
 void write_matrix(std::ostream& out,const Matrix& m) {
@@ -115,7 +129,12 @@ Matrix read_matrix(std::istream& in,std::size_t rows,std::size_t cols) {
     return m;
 }
 std::vector<Matrix*> parameters(TransformerModel& m) {
-    return {&m.embedding,&m.wq,&m.wk,&m.wv,&m.wo,&m.w1,&m.w2,&m.output};
+    std::vector<Matrix*> p{&m.embedding,&m.wq,&m.wk,&m.wv,&m.wo,&m.w1,&m.w2};
+    for(auto& layer:m.extra_layers)
+        for(Matrix* x:{&layer.wq,&layer.wk,&layer.wv,&layer.wo,&layer.w1,&layer.w2})
+            p.push_back(x);
+    p.push_back(&m.output);
+    return p;
 }
 } // namespace
 
@@ -198,6 +217,7 @@ TransformerModel train_transformer(const std::string& corpus,
     check(opt.context>=1 && opt.context<=16 && opt.hidden>=2 && opt.hidden<=24 &&
           opt.steps>=1 && opt.steps<=10000 && opt.merges<=32 &&
           opt.batch_size>=1 && opt.batch_size<=16 &&
+          opt.layers>=1 && opt.layers<=4 &&
           opt.steps<=160000/opt.batch_size,
           "transformer training budget exceeded");
     check(std::isfinite(opt.learning_rate) && opt.learning_rate>=0.000001 &&
@@ -234,6 +254,10 @@ TransformerModel train_transformer(const std::string& corpus,
     m.embedding=Matrix(v,d);m.wq=Matrix(d,d);m.wk=Matrix(d,d);
     m.wv=Matrix(d,d);m.wo=Matrix(d,d);
     m.w1=Matrix(d,d);m.w2=Matrix(d,d);m.output=Matrix(d,v);
+    m.extra_layers.resize(opt.layers-1);
+    for(auto& layer:m.extra_layers)
+        for(Matrix* x:{&layer.wq,&layer.wk,&layer.wv,&layer.wo,&layer.w1,&layer.w2})
+            *x=Matrix(d,d);
     std::mt19937 rng(opt.seed);
     std::uniform_real_distribution<double> uniform(-0.08,0.08);
     auto p=parameters(m);
@@ -252,13 +276,12 @@ TransformerModel train_transformer(const std::string& corpus,
         for(std::size_t sample=0;sample<opt.batch_size;++sample) {
             // Target is never part of the source context.
             const auto position=1+std::size_t(rng())%(ids.size()-1);
-            auto graph=forward(m,preceding(ids,position,opt.context),opt.backend);
+            auto graph=forward(m,preceding(ids,position,opt.context),opt.backend,opt.precision);
             const auto loss=graph.tape.cross_entropy(graph.logits,ids[position]);
             const double value=graph.tape.value(loss).at(0,0);
             check(std::isfinite(value) && value>=0,"nonfinite training loss");
             graph.tape.backward(loss);
-            const std::size_t handles[]={graph.embeds,graph.wq,graph.wk,graph.wv,
-                                         graph.wo,graph.w1,graph.w2,graph.out};
+            const auto& handles=graph.handles;
             for(std::size_t k=0;k<p.size();++k) {
                 const auto& grad=graph.tape.grad(handles[k]).values;
                 for(std::size_t j=0;j<grad.size();++j) {
@@ -354,13 +377,20 @@ void save_transformer(const TransformerModel& m,const std::string& filename) {
     {
         std::ofstream out(pending,std::ios::binary|std::ios::trunc);
         check(bool(out),"cannot open transformer model for writing");
-        out<<std::setprecision(17)<<"NQTF1 "<<m.context<<" "<<m.hidden
-           <<" "<<m.tokenizer.merges.size()<<"\n";
+        out<<std::setprecision(17)<<(m.extra_layers.empty()?"NQTF1 ":"NQTF2 ")
+           <<m.context<<" "<<m.hidden<<" "<<m.tokenizer.merges.size();
+        if(!m.extra_layers.empty())out<<" "<<m.extra_layers.size()+1;
+        out<<"\n";
         for(const auto& [a,b]:m.tokenizer.merges)out<<a<<" "<<b<<"\n";
         write_matrix(out,m.embedding);
         write_matrix(out,m.wq);write_matrix(out,m.wk);
         write_matrix(out,m.wv);write_matrix(out,m.wo);
         write_matrix(out,m.w1);write_matrix(out,m.w2);
+        for(const auto& layer:m.extra_layers) {
+            write_matrix(out,layer.wq);write_matrix(out,layer.wk);
+            write_matrix(out,layer.wv);write_matrix(out,layer.wo);
+            write_matrix(out,layer.w1);write_matrix(out,layer.w2);
+        }
         write_matrix(out,m.output);
         out.flush();check(bool(out),"failed to write transformer model");
     }
@@ -377,8 +407,12 @@ TransformerModel load_transformer(const std::string& path) {
     std::string magic;
     TransformerModel m;std::size_t merges=0;
     in>>magic>>m.context>>m.hidden>>merges;
-    check(bool(in) && magic=="NQTF1" && m.context>=1 && m.context<=16 &&
+    check(bool(in) && (magic=="NQTF1" || magic=="NQTF2") &&
+          m.context>=1 && m.context<=16 &&
           m.hidden>=2 && m.hidden<=24 && merges<=32,"invalid transformer header");
+    std::size_t layer_count=1;
+    if(magic=="NQTF2")in>>layer_count;
+    check(bool(in) && layer_count>=1 && layer_count<=4,"invalid layer count");
     for(std::size_t i=0;i<merges;++i) {
         std::size_t a=0,b=0;in>>a>>b;
         check(bool(in) && a<base_vocab+i && b<base_vocab+i,"invalid tokenizer table");
@@ -389,6 +423,12 @@ TransformerModel load_transformer(const std::string& path) {
     m.wq=read_matrix(in,d,d);m.wk=read_matrix(in,d,d);
     m.wv=read_matrix(in,d,d);m.wo=read_matrix(in,d,d);
     m.w1=read_matrix(in,d,d);m.w2=read_matrix(in,d,d);
+    m.extra_layers.resize(layer_count-1);
+    for(auto& layer:m.extra_layers) {
+        layer.wq=read_matrix(in,d,d);layer.wk=read_matrix(in,d,d);
+        layer.wv=read_matrix(in,d,d);layer.wo=read_matrix(in,d,d);
+        layer.w1=read_matrix(in,d,d);layer.w2=read_matrix(in,d,d);
+    }
     m.output=read_matrix(in,d,v);
     std::string extra;
     check(!(in>>extra),"trailing model payload");
