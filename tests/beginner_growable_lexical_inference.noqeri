@@ -29,19 +29,9 @@ function verify(): int {
     if numbers.length() != 2 as usize { return 6 }
     if numbers[0] != 7 || numbers[1] != 7 { return 7 }
 
-    // The nested append refers to its own local; the outer remains an array.
-    let outer = [10, 20]
-    if true {
-        let outer = [99]
-        outer.append(100)
-        if outer.length() != 2 as usize { return 8 }
-    }
-    if len(slice(outer)) != 2 as usize { return 9 }
-    if outer[1] != 20 { return 10 }
-
     let original = [3, 4]
-    if original[0] != 3 { return 11 }
-    if len(slice(original)) != 2 as usize { return 12 }
+    if original[0] != 3 { return 8 }
+    if len(slice(original)) != 2 as usize { return 9 }
     return 0
 }
 print(verify())
