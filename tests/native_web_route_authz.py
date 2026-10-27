@@ -86,4 +86,44 @@ with tempfile.TemporaryDirectory(prefix="noqeri-route-acl-") as td:
                              str(root/"other2.nqkv")],capture_output=True,text=True,
                              env=env,timeout=5)
     assert rejected.returncode!=0 and "POST permission requires GET or BOTH" in rejected.stderr,rejected.stderr
-print("PASS: route-scoped bearer RBAC, POST deny, missing key fail-closed and identity-bound CSRF sessions")
+
+    # Opt-in default deny closes accidental unauthenticated routes outside
+    # explicitly granted policy prefixes while leaving only framework assets
+    # readable by a standard browser lacking an Authorization header.
+    policy.write_text("GET /about NOQERI_TEST_VIEW_KEY\n")
+    strict=dict(env,NOQERI_WEB_AUTHZ_DEFAULT_DENY="1",NOQERI_WEB_REACTIVE="1")
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1",0));port=sock.getsockname()[1]
+    server=subprocess.Popen([str(binary),"serve-app",str(source),str(port),
+        str(root/"strict.nqkv")],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,env=strict)
+    try:
+        for _ in range(80):
+            if server.poll() is not None:raise AssertionError(server.stderr.read().decode())
+            try:
+                if req("GET","/theme.css")[0]==200:break
+            except OSError:time.sleep(.06)
+        else:raise AssertionError("strict ACL server startup failed")
+        assert req("GET","/")[0]==403
+        assert req("GET","/",token=viewer)[0]==403
+        assert req("GET","/about")[0]==403
+        assert req("GET","/about",token=viewer)[0]==200
+        assert req("GET","/theme.css")[0]==200
+        assert req("GET","/__nq/reactive.js")[0]==200
+        assert req("POST","/theme.css",token=viewer,data="x=1")[0]==403
+    finally:
+        server.terminate()
+        try:server.communicate(timeout=4)
+        except subprocess.TimeoutExpired:server.kill();server.communicate()
+
+    malformed=dict(env,NOQERI_WEB_AUTHZ_DEFAULT_DENY="true")
+    rejected=subprocess.run([str(binary),"serve-app",str(source),"18478",
+                             str(root/"invalid-deny.nqkv")],capture_output=True,text=True,
+                             env=malformed,timeout=5)
+    assert rejected.returncode!=0 and "must be 0 or 1" in rejected.stderr,rejected.stderr
+    missingPolicy=dict(env,NOQERI_WEB_AUTHZ_DEFAULT_DENY="1")
+    missingPolicy.pop("NOQERI_WEB_AUTHZ_FILE",None)
+    rejected=subprocess.run([str(binary),"serve-app",str(source),"18478",
+                             str(root/"no-policy.nqkv")],capture_output=True,text=True,
+                             env=missingPolicy,timeout=5)
+    assert rejected.returncode!=0 and "requires a policy file" in rejected.stderr,rejected.stderr
+print("PASS: bearer route grants, strict default-deny, framework assets and principal-bound sessions")
