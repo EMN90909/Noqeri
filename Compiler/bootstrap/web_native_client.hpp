@@ -208,9 +208,26 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
     for(const auto& [path,_]:project.routes)
         if(!validRoute(path)||dynamicRoute(path))
             throw std::runtime_error("native client build requires literal safe routes");
+    std::set<std::string> usedTimelineSteps;
+    for(const auto& [name,steps]:project.clientTimelines)
+        for(const auto& step:steps) {
+            const auto it=project.clientMotions.find(step);
+            if(it==project.clientMotions.end())
+                throw std::runtime_error("unknown Noqeri motion timeline step: "+step);
+            const auto trigger=it->second.count("trigger")?it->second.at("trigger"):"mount";
+            if(trigger!="timeline")
+                throw std::runtime_error("timeline step must use trigger timeline: "+step);
+            if(!usedTimelineSteps.insert(step).second)
+                throw std::runtime_error("motion step cannot belong to multiple timelines: "+step);
+        }
+    for(const auto& [name,fields]:project.clientMotions)
+        if(fields.count("trigger")&&fields.at("trigger")=="timeline"&&!usedTimelineSteps.count(name))
+            throw std::runtime_error("timeline-triggered motion has no timeline: "+name);
 
     std::string js="// Native Noqeri browser build (C++ bootstrap, no Node.js)\n";
     js+="import {element as __nq_h,createApp as __nq_createApp,createRouter as __nq_createRouter,readStored as __nq_readStored,saveStored as __nq_saveStored,safeMember as __nq_member,inputEvent as __nq_inputEvent,formFields as __nq_formFields} from './__noqeri/runtime.mjs';\n";
+    if(!project.clientMotions.empty())
+        js+="import {createMotion as __nq_createMotion} from './__noqeri/runtime.mjs';\n";
     js+="const __nq_state=Object.create(null);\n";
     for(const auto& [name,value]:project.globals)
         js+="__nq_state["+clientQuote(name)+"]=" +
@@ -257,7 +274,44 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
         // state assignments only, no arbitrary imported effects or JS calls.
         js+="{const __nq_event=null;"+
             clientMutationBody(project.clientMount,project,{},false,false)+"}";
-    js+="const dispose=app.dispose.bind(app);app.dispose=()=>{__nq_router.dispose();__nq_router=null;__nq_schedule=()=>{};dispose();};return app;}\n";
+    if(!project.clientMotions.empty()){
+        js+="const __nq_motion=__nq_createMotion(root,[";
+        bool firstMotion=true;
+        const std::set<std::string> numbers={
+            "fromOpacity","toOpacity","fromX","toX","fromY","toY",
+            "fromScale","toScale","fromRotation","toRotation",
+            "duration","delay","stagger","repeat"
+        };
+        for(const auto& [name,fields]:project.clientMotions){
+            if(!firstMotion)js+=",";
+            firstMotion=false;
+            js+="{name:"+clientQuote(name);
+            for(const auto& [key,value]:fields){
+                js+=","+clientQuote(key)+":";
+                if(numbers.count(key)||key=="once"||key=="yoyo")js+=value;
+                else js+=clientQuote(value);
+            }
+            js+="}";
+        }
+        js+="],[";
+        bool firstTimeline=true;
+        for(const auto& [name,steps]:project.clientTimelines){
+            if(!firstTimeline)js+=",";
+            firstTimeline=false;
+            js+="{name:"+clientQuote(name)+",steps:[";
+            for(std::size_t i=0;i<steps.size();++i){
+                if(i)js+=",";
+                js+=clientQuote(steps[i]);
+            }
+            js+="]}";
+        }
+        js+="]);";
+    }
+    js+="const dispose=app.dispose.bind(app);app.dispose=()=>{";
+    if(!project.clientMotions.empty())js+="__nq_motion.dispose();";
+    js+="__nq_router.dispose();__nq_router=null;__nq_schedule=()=>{};dispose();};";
+    if(!project.clientMotions.empty())js+="app.motion=__nq_motion;";
+    js+="return app;}\n";
     js+="if(typeof document!=='undefined'){const root=document.getElementById('app');if(root)mount(root);}\n";
 
     Project htmlProject=project;
