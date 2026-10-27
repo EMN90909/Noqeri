@@ -1,0 +1,10 @@
+// Session-only native example: suitable for optional SQLite multi-process sessions.
+let count = 0
+
+route "/" {
+    main class: "nq-page" {
+        h1 { "Native shared session example" }
+        p { "Clicks: " + count }
+        button on.click { count = count + 1 } { "Increment" }
+    }
+}
