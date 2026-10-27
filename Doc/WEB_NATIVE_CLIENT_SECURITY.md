@@ -124,5 +124,25 @@ rate limits, identity/tenant isolation, slow clients, and p95/p99 latency under
 realistic production traffic. Add structured security events, error budgets,
 session-store monitoring, rollback and restore drills.
 
+### Production ingress smoke test
+
+Run the read-only HTTPS security and latency test against the **actual**
+staging/production URL with a publicly trusted certificate:
+
+```sh
+python3 tests/native_web_deployment_smoke.py https://example.com \
+  --protected /members --samples 64 --workers 8 --max-p95-ms 1500
+```
+
+The script verifies TLS certificate trust, HSTS, frame protections, nosniff,
+anonymous access denial for the selected protected path, absence of HTTP
+downgrades, and real end-to-end concurrent p50/p95 latency. For private CA
+staging, use `--ca-file staging-ca.pem` instead of disabling verification.
+The test does not submit mutations or manufacture accounts.
+
+The HTTPS smoke test **cannot run automatically against a real deployment**
+until a deployment URL, cert trust and test authorization boundary are
+configured. A passing localhost benchmark is not a substitute.
+
 See [web production readiness](WEB_PRODUCTION_READINESS.md) for the release
 matrix and existing benchmarks.
