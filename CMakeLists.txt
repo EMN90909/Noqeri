@@ -440,6 +440,7 @@ install(TARGETS noqeri noqeri-nqri noqeri-web noqeri_abi RUNTIME DESTINATION ${C
 # Header installed through existing public include/noqeri rule.
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")
+install(FILES Runtime/noqeri-web-runtime.mjs DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/runtime)
 install(DIRECTORY Modules/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Modules FILES_MATCHING PATTERN "*.noqeri")
 install(DIRECTORY Objects/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Objects FILES_MATCHING PATTERN "*.noqeri")
 install(DIRECTORY Database/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Database FILES_MATCHING PATTERN "*.noqeri")
