@@ -12,7 +12,7 @@ These APIs are not necessarily wired into every compiler/backend. Presence of an
 ## This change
 1. Add a dependency-free C++17 DNS resolver at `Include/noqeri/network_dns.hpp` and `Runtime/native/network_dns.cpp`, based on the host OS's `getaddrinfo`; returns IPv4 and IPv6 string addresses with errors.
 2. Add standalone deterministic DNS smoke tests using loopback literals (no internet access required).
-3. Declare Noqeri `std.dns`, `std.wifi`, and `std.bluetooth` **experimental API contracts**. These bindings are **not yet linked** to Noqeri native executables. Wi-Fi and Bluetooth scanning and connection are **not yet implemented**.
+3. Retain the existing Noqeri `std.dns` experimental API contract and add `std.wifi` and `std.bluetooth` experimental API contracts. These bindings are **not yet linked** to Noqeri native executables. Wi-Fi and Bluetooth scanning and connection are **not yet implemented**.
 
 ## Standalone DNS verification
 
@@ -28,7 +28,7 @@ network_dns_native_test.exe
 ```
 
 ## Follow-up integration work (required before claiming native feature support)
-- Bind `dnsResolveFirst` to the C++ resolver through the existing compiler/runtime external-call ABI, including ownership/lifetime of returned Noqeri strings.
+- Bind the existing `dnsResolveFirst(host, family)` external declaration to the C++ resolver through the existing compiler/runtime external-call ABI, including ownership/lifetime of returned Noqeri strings.
 - Add first-class `Result` errors, async DNS cancellation/timeouts, and resolver tests for dual-stack hosts.
 - Implement Wi-Fi on Linux (NetworkManager or wpa_supplicant), Windows (WLAN API), macOS (CoreWLAN where permitted), and Android (WifiManager with permissions). iOS and sandboxed platforms restrict scans and connection management.
 - Implement Bluetooth Low Energy using BlueZ, Windows Bluetooth APIs, CoreBluetooth, and Android BluetoothLe APIs; ask permissions and never silently scan/connect.
