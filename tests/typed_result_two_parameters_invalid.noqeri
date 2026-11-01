@@ -1,0 +1,7 @@
+import "../Lib/std/result.noqeri"
+
+// A mismatch in E must never be erased or silently propagated.
+function invalid(source: *TypedResult<int, u32>): *TypedResult<int, i32> {
+    let number: int = source?
+    return null
+}

@@ -87,3 +87,48 @@ export function result_attempt_allowed(attempt: usize, max_attempts: usize): boo
  // Native status >= 0 is success; boolean and HTTP status APIs are distinct.
  export function status_ok(status: isize): bool { return status >= 0 as isize }
  export function status_error(status: isize): bool { return status < 0 as isize }
+
+
+// Two-parameter typed error carrier. Success and error fields are initialized
+// on both paths, keeping field access safe without a tagged union.
+// Postfix ? on *TypedResult<T,E> returns the SAME borrowed pointer when
+// !ok, retaining E exactly rather than erasing it to an integer status.
+record TypedResult<T, E> {
+    value: T
+    error: E
+    ok: bool
+}
+
+export function typed_result_init_ok<T, E>(out: *TypedResult<T, E>, value: T, empty_error: E): void { unsafe {
+    out.value = value
+    out.error = empty_error
+    out.ok = true
+}}
+
+export function typed_result_init_error<T, E>(out: *TypedResult<T, E>, fallback: T, error: E): void { unsafe {
+    out.value = fallback
+    out.error = error
+    out.ok = false
+}}
+
+export function typed_result_is_ok<T, E>(result: *TypedResult<T, E>): bool { unsafe { return result.ok } }
+export function typed_result_is_error<T, E>(result: *TypedResult<T, E>): bool { unsafe { return !result.ok } }
+export function typed_result_value_or<T: Copy, E>(result: *TypedResult<T, E>, fallback: T): T { unsafe {
+    if result.ok { return result.value }
+    return fallback
+}}
+export function typed_result_error_or<T, E: Copy>(result: *TypedResult<T, E>, fallback: E): E { unsafe {
+    if !result.ok { return result.error }
+    return fallback
+}}
+
+// Explicit cross-value-type propagation; E stays identical on both sides.
+export function typed_result_propagate_error<T, U, E: Copy>(
+    source: *TypedResult<T, E>, destination: *TypedResult<U, E>,
+    fallback: U): bool { unsafe {
+    if source.ok { return false }
+    destination.value = fallback
+    destination.error = source.error
+    destination.ok = false
+    return true
+}}

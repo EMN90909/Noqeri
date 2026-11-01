@@ -6,6 +6,8 @@ on:
       - 'Compiler/**'
       - 'tests/native_float_casts.noqeri'
       - 'tests/native_float_cast_invalid_*.noqeri'
+      - 'tests/typed_result_two_parameters*.noqeri'
+      - 'Lib/std/result.noqeri'
       - '.github/workflows/native-typed-arithmetic.yml'
   pull_request:
     paths:
@@ -17,6 +19,8 @@ on:
       - 'tests/native_narrow_arithmetic.noqeri'
       - 'tests/native_float_casts.noqeri'
       - 'tests/native_float_cast_invalid_*.noqeri'
+      - 'tests/typed_result_two_parameters*.noqeri'
+      - 'Lib/std/result.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
       - 'tests/native_division_traps.py'
       - 'tests/native_bounds_*.noqeri'
@@ -120,6 +124,20 @@ jobs:
               exit 1
             fi
           done
+      - name: Qualify two-parameter typed Result propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            result="$(./build-typed/noqeri run tests/typed_result_two_parameters.noqeri "-$level")"
+            test "$result" = "0"
+            node scripts/native-build.mjs tests/typed_result_two_parameters.noqeri "build-typed/typed-result-$level" --compiler=build-typed/noqeri "--opt=-$level"
+            test "$("build-typed/typed-result-$level")" = "$result"
+          done
+          if ./build-typed/noqeri check tests/typed_result_two_parameters_invalid.noqeri; then
+            echo 'mismatched typed Result error parameter was accepted' >&2
+            exit 1
+          fi
       - name: Verify scalar diamond Phi lowering in native AOT
         shell: bash
         run: |

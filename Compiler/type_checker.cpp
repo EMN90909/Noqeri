@@ -508,10 +508,11 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
                 t.pointee->kind==TypeKind::Record;
             const bool isResult=recordPointer&&(
                 t.pointee->recordName.rfind("Result__nqg__",0)==0||
-                t.pointee->recordName.rfind("Outcome__nqg__",0)==0);
+                t.pointee->recordName.rfind("Outcome__nqg__",0)==0||
+                t.pointee->recordName.rfind("TypedResult__nqg__",0)==0);
             if(!isResult||!sameReturn){
                 diagnostics_.error("NQR-T3067",e->span,
-                    "typed '?' requires a pointer to Result<T> or Outcome<T> and a matching function return type",
+                    "typed '?' requires *Result<T>, *Outcome<T>, or *TypedResult<T,E> with an exactly matching function return type",
                     "write function process(input: *Result<int>): *Result<int> { let value = input?; return input }");
                 return simple(TypeKind::Unknown);
             }

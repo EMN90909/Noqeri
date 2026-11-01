@@ -1,0 +1,35 @@
+import "../Lib/std/result.noqeri"
+
+// The borrowed typed result preserves both generic parameters across ?.
+function checked(source: *TypedResult<int, u32>): *TypedResult<int, u32> {
+    let value: int = source?
+    if value != 42 { return source }
+    return source
+}
+function nested(source: *TypedResult<int, u32>): *TypedResult<int, u32> {
+    let value: int = checked(source)?
+    if value != 42 { return source }
+    return source
+}
+function test(): int {
+    let source: TypedResult<int, u32>
+    typed_result_init_ok(&source, 42, 0 as u32)
+    let successful: *TypedResult<int, u32> = nested(&source)
+    if !typed_result_is_ok(successful) { return 1 }
+    if typed_result_value_or(successful, -1) != 42 { return 2 }
+
+    typed_result_init_error(&source, -1, 47 as u32)
+    let failed: *TypedResult<int, u32> = nested(&source)
+    if !typed_result_is_error(failed) { return 3 }
+    if typed_result_error_or(failed, 0 as u32) != 47 as u32 { return 4 }
+
+    let other: TypedResult<bool, u32>
+    typed_result_init_ok(&other, true, 0 as u32)
+    if !typed_result_propagate_error(&source, &other, false) { return 5 }
+    if !typed_result_is_error(&other) { return 6 }
+    if typed_result_error_or(&other, 0 as u32) != 47 as u32 { return 7 }
+    typed_result_init_ok(&source, 42, 0 as u32)
+    if typed_result_propagate_error(&source, &other, false) { return 8 }
+    return 0
+}
+print(test())
