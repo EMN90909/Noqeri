@@ -1,0 +1,4 @@
+// Text concatenation is valid Noqeri, but not portable scalar NIR.
+let first = "Noqeri"
+let second = "language"
+print(first + second)
