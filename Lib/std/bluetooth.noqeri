@@ -5,6 +5,7 @@ module noqeri.std.bluetooth
 
 extern function bluetoothAvailable(): bool
 extern function bluetoothScan(timeoutMillis: i64): isize
+extern function bluetoothScanResults(): string
 extern function bluetoothConnect(deviceId: string, timeoutMillis: i64): isize
 extern function bluetoothDisconnect(connection: usize): isize
 
@@ -18,3 +19,6 @@ export function bluetooth_connect(deviceId: string, timeoutMillis: i64): isize {
     return bluetoothConnect(deviceId, timeoutMillis)
 }
 export function bluetooth_disconnect(connection: usize): isize { return bluetoothDisconnect(connection) }
+
+// Results use BlueZ's line-based "Device <id> <name>" representation on Linux.
+export function bluetooth_scan_results(): string { return bluetoothScanResults() }
