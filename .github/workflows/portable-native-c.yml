@@ -94,7 +94,7 @@ jobs:
           foreach ($level in @("O0","O3")) {
             & $compiler emit-c tests/portable_native_scalar.noqeri "build-portable/smoke-$level.c" "-$level"
             if ($LASTEXITCODE -ne 0) { throw "emit-c failed" }
-            $source = (Resolve-Path "build-portable/smoke-$level.c").Path
+            $source = (Resolve-Path "build-portable/smoke-$level.c").Path.Replace('\', '/')
             cmake -S tests/portable-c11-consumer -B "build-portable/consumer-$level" "-DNOQERI_GENERATED_SOURCE=$source"
             if ($LASTEXITCODE -ne 0) { throw "C11 consumer configuration failed" }
             cmake --build "build-portable/consumer-$level" --config Release
