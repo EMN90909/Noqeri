@@ -88,8 +88,13 @@ bool wait_ready(Socket s, bool writing, int timeout_ms) {
     FD_ZERO(&set); FD_SET(s, &set);
     timeval t{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
     // On Windows nfds is ignored, on Unix it is one more than the fd.
-    int ret = writing ? select(static_cast<int>(s) + 1, nullptr, &set, nullptr, &t)
-                      : select(static_cast<int>(s) + 1, &set, nullptr, nullptr, &t);
+#ifdef _WIN32
+    const int nfds = 0;
+#else
+    const int nfds = s + 1;
+#endif
+    int ret = writing ? select(nfds, nullptr, &set, nullptr, &t)
+                      : select(nfds, &set, nullptr, nullptr, &t);
     return ret > 0;
 }
 std::int64_t track(Socket s) {
@@ -201,11 +206,23 @@ int tcp_send(std::int64_t handle, const std::string& bytes, int timeout_ms) {
     auto e = lookup(handle);
     if (!e) return -1;
     std::lock_guard<std::mutex> guard(e->lock);
+    // Avoid terminating a Unix host process when writing to a closed peer.
+#if defined(SO_NOSIGPIPE)
+    int no_sigpipe = 1;
+    setsockopt(e->fd, SOL_SOCKET, SO_NOSIGPIPE,
+               reinterpret_cast<const char*>(&no_sigpipe), sizeof(no_sigpipe));
+#endif
     std::size_t sent = 0;
     while (sent < bytes.size()) {
         if (!wait_ready(e->fd, true, timeout_ms)) return -1;
         const std::size_t part = std::min<std::size_t>(bytes.size() - sent, 65536);
-        int n = send(e->fd, bytes.data() + sent, static_cast<int>(part), 0);
+        int n = send(e->fd, bytes.data() + sent, static_cast<int>(part),
+#ifdef MSG_NOSIGNAL
+                     MSG_NOSIGNAL
+#else
+                     0
+#endif
+        );
         if (n <= 0) return -1;
         sent += static_cast<std::size_t>(n);
     }
@@ -302,8 +319,13 @@ std::int64_t http_request(const std::string& method, const std::string& url,
     if (!curl) return -1;
     HttpResponse response;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+#if LIBCURL_VERSION_NUM >= 0x075500
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L); // no unreviewed redirects
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout_ms));
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout_ms));
