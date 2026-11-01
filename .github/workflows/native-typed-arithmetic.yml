@@ -7,6 +7,8 @@ on:
       - 'tests/native_float_casts.noqeri'
       - 'tests/native_float_print.noqeri'
       - 'tests/anonymous_record_*.noqeri'
+      - 'tests/interpolated_string_*.noqeri'
+      - 'Runtime/native/aot_runner.cpp'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
@@ -22,6 +24,8 @@ on:
       - 'tests/native_float_casts.noqeri'
       - 'tests/native_float_print.noqeri'
       - 'tests/anonymous_record_*.noqeri'
+      - 'tests/interpolated_string_*.noqeri'
+      - 'Runtime/native/aot_runner.cpp'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
@@ -141,6 +145,22 @@ jobs:
           for input in tests/anonymous_record_invalid_*.noqeri; do
             if ./build-typed/noqeri check "$input" >/dev/null 2>&1; then
               echo "invalid anonymous record compiled successfully: $input" >&2
+              exit 1
+            fi
+          done
+      - name: Qualify opt-in typed interpolated strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            reference="$(./build-typed/noqeri run tests/interpolated_string_smoke.noqeri "-$level")"
+            test "$reference" = "$(printf '%s\n' 'Hello Noqeri: 42, true, -2.500000!' '{literal braces}' 'u64=18446744073709551615' 'raw {name}')"
+            node scripts/native-build.mjs tests/interpolated_string_smoke.noqeri "build-typed/interpolation-$level" --compiler=build-typed/noqeri "--opt=-$level"
+            test "$("build-typed/interpolation-$level")" = "$reference"
+          done
+          for source in tests/interpolated_string_invalid_*.noqeri; do
+            if ./build-typed/noqeri check "$source" >/dev/null 2>&1; then
+              echo "invalid interpolation accepted: $source" >&2
               exit 1
             fi
           done

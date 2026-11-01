@@ -66,6 +66,7 @@ private:
         }
         if(auto array=std::dynamic_pointer_cast<ArrayExpr>(e)){for(const auto&item:array->elements)expression(item);return;}
         if(auto record=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){for(const auto&field:record->fields)expression(field.initializer);return;}
+        if(auto interpolation=std::dynamic_pointer_cast<InterpolatedStringExpr>(e)){for(const auto&part:interpolation->parts)expression(part);return;}
     }
 
     void statement(const StmtPtr&s){

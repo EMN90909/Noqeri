@@ -133,6 +133,7 @@ private:
         if(auto binary=std::dynamic_pointer_cast<BinaryExpr>(expr)){expression(binary->left);expression(binary->right);return;}
         if(auto array=std::dynamic_pointer_cast<ArrayExpr>(expr)){for(const auto&item:array->elements)expression(item);return;}
         if(auto record=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){for(const auto&field:record->fields)expression(field.initializer);return;}
+        if(auto interpolation=std::dynamic_pointer_cast<InterpolatedStringExpr>(expr)){for(const auto&part:interpolation->parts)expression(part);return;}
     }
     void assignBorrow(const std::string&name,const ExprPtr&value){dangling_.erase(name);auto borrowed=borrowOf(value);if(borrowed)borrowed_[name]=*borrowed;else borrowed_.erase(name);}
     void assignAggregate(const std::shared_ptr<MemberExpr>&target,const ExprPtr&value){auto base=std::dynamic_pointer_cast<NameExpr>(target->object);if(!base)return;const auto key=base->name+"."+target->member;danglingFields_.erase(key);auto borrowed=borrowOf(value);if(borrowed)aggregateBorrows_[key]=*borrowed;else aggregateBorrows_.erase(key);}

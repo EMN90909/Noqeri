@@ -1,5 +1,6 @@
 #include "noe.hpp"
 #include <algorithm>
+#include <cctype>
 #include <stdexcept>
 
 namespace noe {
@@ -446,6 +447,69 @@ ExprPtr Parser::primary(){
     if(match({TokenKind::True,TokenKind::False})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=previous().kind==TokenKind::True;return x;}
     if(match({TokenKind::Null})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=std::monostate{};return x;}
     if(match({TokenKind::String})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=decodeStringLiteral(previous().lexeme);return x;}
+    if(match({TokenKind::InterpolatedString})){
+        const Token token=previous();
+        const std::string contents=decodeStringLiteral(token.lexeme.substr(1));
+        auto result=std::make_shared<InterpolatedStringExpr>();
+        result->span=token.span;
+        std::string text;
+        std::size_t substitutions=0;
+        auto appendLiteral=[&](){
+            if(text.empty())return;
+            auto literal=std::make_shared<LiteralExpr>();
+            literal->span=token.span;literal->value=text;
+            result->parts.push_back(literal);text.clear();
+        };
+        for(std::size_t i=0;i<contents.size();){
+            const char c=contents[i];
+            if(c=='{'&&i+1<contents.size()&&contents[i+1]=='{'){
+                text.push_back('{');i+=2;continue;
+            }
+            if(c=='}'&&i+1<contents.size()&&contents[i+1]=='}'){
+                text.push_back('}');i+=2;continue;
+            }
+            if(c=='}'){
+                diagnostics_.error("NQR-P2094",token.span,
+                    "unmatched closing '}' in interpolated string",
+                    "double literal braces as {{ and }}");
+                throw ParseError("interpolation");
+            }
+            if(c!='{'){text.push_back(c);++i;continue;}
+            const auto begin=i+1;
+            std::size_t end=begin;
+            while(end<contents.size()&&
+                  (std::isalnum(static_cast<unsigned char>(contents[end]))||
+                   contents[end]=='_'))++end;
+            if(end==begin||end>=contents.size()||contents[end]!='}'||
+               !(std::isalpha(static_cast<unsigned char>(contents[begin]))||
+                 contents[begin]=='_')){
+                diagnostics_.error("NQR-P2095",token.span,
+                    "interpolation requires a named scalar placeholder",
+                    "use f\"Hello {name}\"; expressions and member paths are not supported yet");
+                throw ParseError("interpolation");
+            }
+            if(++substitutions>64){
+                diagnostics_.error("NQR-P2096",token.span,
+                    "interpolated string exceeds 64 placeholders");
+                throw ParseError("interpolation");
+            }
+            appendLiteral();
+            auto name=std::make_shared<NameExpr>();
+            name->span=token.span;name->name=contents.substr(begin,end-begin);
+            result->parts.push_back(name);
+            i=end+1;
+        }
+        appendLiteral();
+        if(result->parts.empty()){
+            auto literal=std::make_shared<LiteralExpr>();
+            literal->span=token.span;literal->value=std::string{};
+            return literal;
+        }
+        if(result->parts.size()==1&&
+           std::dynamic_pointer_cast<LiteralExpr>(result->parts.front()))
+            return result->parts.front();
+        return result;
+    }
     if(isNameKind(peek().kind)){const Token name=advance();auto x=std::make_shared<NameExpr>();x->span=name.span;x->name=name.lexeme;return x;}
     if(match({TokenKind::LBrace})){
         const auto start=previous();

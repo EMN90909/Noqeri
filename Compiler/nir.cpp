@@ -153,6 +153,33 @@ Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
     NirInstruction z;z.op=NirOp::Const;z.dest=fn.nextReg++;z.literal=std::int64_t(0);emit(fn,z);return*z.dest;
 }
 Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
+    if(auto e=std::dynamic_pointer_cast<InterpolatedStringExpr>(expr)){
+        Reg accumulated=0;
+        bool first=true;
+        for(std::size_t index=0;index<e->parts.size();++index){
+            Reg part=lowerExpr(fn,e->parts[index]);
+            const auto kind=index<e->partTypes.size()?
+                e->partTypes[index].kind:TypeKind::Unknown;
+            if(kind!=TypeKind::String){
+                NirInstruction format;format.op=NirOp::Call;
+                format.dest=fn.nextReg++;format.args={part};
+                if(kind==TypeKind::Float)format.text="nq_internal_interp_float";
+                else if(kind==TypeKind::Bool)format.text="nq_internal_interp_bool";
+                else if(kind==TypeKind::U8||kind==TypeKind::U16||
+                        kind==TypeKind::U32||kind==TypeKind::U64||
+                        kind==TypeKind::Usize)
+                    format.text="nq_internal_interp_u64";
+                else format.text="nq_internal_interp_i64";
+                emit(fn,format);part=*format.dest;
+            }
+            if(first){accumulated=part;first=false;continue;}
+            NirInstruction join;join.op=NirOp::Call;
+            join.dest=fn.nextReg++;
+            join.text="nq_internal_interp_join";join.args={accumulated,part};
+            emit(fn,join);accumulated=*join.dest;
+        }
+        return accumulated;
+    }
     if(auto e=std::dynamic_pointer_cast<LiteralExpr>(expr)){NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;i.literal=e->value;emit(fn,i);return*i.dest;}
     if(auto e=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){
         NirInstruction alloc;alloc.op=NirOp::StackAlloc;

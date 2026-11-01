@@ -266,6 +266,8 @@ bool TypeChecker::check(const Program&program){
             for(const auto& element:array->elements)gatherExpr(element);
         } else if(auto record=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){
             for(const auto& field:record->fields)gatherExpr(field.initializer);
+        } else if(auto interpolation=std::dynamic_pointer_cast<InterpolatedStringExpr>(expr)){
+            for(const auto& part:interpolation->parts)gatherExpr(part);
         }
     };
     gatherStmt=[&](const StmtPtr& stmt){
@@ -488,6 +490,25 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
 }
 
 Type TypeChecker::checkExpr(const ExprPtr&expr){
+    if(auto e=std::dynamic_pointer_cast<InterpolatedStringExpr>(expr)){
+        e->partTypes.clear();
+        for(const auto&part:e->parts){
+            const Type value=checkExpr(part);
+            if(!(value.isInteger()||value.kind==TypeKind::Float||
+                 value.kind==TypeKind::Bool||value.kind==TypeKind::String))
+                diagnostics_.error("NQR-T3094",part->span,
+                    "interpolation supports only int, float, bool or string values",
+                    "convert composite or pointer values explicitly before interpolation");
+            if(auto literal=std::dynamic_pointer_cast<LiteralExpr>(part)){
+                if(auto text=std::get_if<std::string>(&literal->value);
+                   text&&text->find('\0')!=std::string::npos)
+                    diagnostics_.error("NQR-T3095",literal->span,
+                        "interpolated strings cannot contain embedded NULs");
+            }
+            e->partTypes.push_back(value);
+        }
+        return simple(TypeKind::String);
+    }
     if(auto e=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){
         RecordType layout;
         std::size_t offset=0,alignment=1;

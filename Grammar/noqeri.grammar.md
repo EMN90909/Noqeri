@@ -284,3 +284,13 @@ anonymousRecordLiteral := "{" IDENT ":" expression ("," IDENT ":" expression)* "
 
 Only inferred scalar local fields are currently lowered; no cross-stage or
 portable machine-code support is claimed.
+
+
+## Experimental Stage-0-only interpolated literals
+
+```text
+interpolatedString := 'f"' (text | "{{" | "}}" | "{" IDENT "}")* '"'
+```
+
+Interpolation is opt-in and permits scalar named substitutions only. Embedded
+NUL and unmatched braces are rejected. Cross-stage parity remains unfinished.

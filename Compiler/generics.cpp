@@ -113,6 +113,11 @@ ExprPtr cloneExpr(const ExprPtr& e){
         for(auto&field:n->fields)field.initializer=cloneExpr(field.initializer);
         return n;
     }
+    if(auto x=std::dynamic_pointer_cast<InterpolatedStringExpr>(e)){
+        auto n=std::make_shared<InterpolatedStringExpr>(*x);
+        n->parts.clear();for(const auto&part:x->parts)n->parts.push_back(cloneExpr(part));
+        return n;
+    }
     return{};
 }
 
@@ -188,6 +193,10 @@ private:
         if(auto x=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){
             for(const auto&field:x->fields)infer(field.initializer,env);
             return"unknown";
+        }
+        if(auto x=std::dynamic_pointer_cast<InterpolatedStringExpr>(e)){
+            for(const auto&part:x->parts)infer(part,env);
+            return"string";
         }
         if(auto x=std::dynamic_pointer_cast<IndexExpr>(e))return elementType(infer(x->object,env));
         if(auto x=std::dynamic_pointer_cast<MemberExpr>(e))return memberType(infer(x->object,env),x->member);

@@ -1,0 +1,12 @@
+function example(): void {
+    let name = "Noqeri"
+    let count: int = 42
+    let enabled: bool = true
+    let value: float = -2.5
+    print(f"Hello {name}: {count}, {enabled}, {value}!")
+    print(f"{{literal braces}}")
+    let big: u64 = 18446744073709551615 as u64
+    print(f"u64={big}")
+    print("raw {name}")
+}
+example()

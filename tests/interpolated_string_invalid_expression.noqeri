@@ -1,0 +1,2 @@
+let count: int = 4
+print(f"{count + 1}")

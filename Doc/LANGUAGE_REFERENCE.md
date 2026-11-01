@@ -335,3 +335,23 @@ structural cross-assignability. Field order is preserved. Duplicate fields,
 empty records, nested aggregate fields, and returning the temporary record by
 value are rejected. This feature remains Stage-0-only until Stage-2/NQRI
 parity and cross-platform ABI tests pass.
+
+
+## Experimental typed interpolation (Stage-0 candidate)
+
+Only explicitly prefixed strings are interpolated; ordinary strings remain
+literal, including JSON, CSS and any text containing `{braces}`.
+
+```noqeri
+let name = "Noqeri"
+let count: int = 3
+print(f"Hello {name}, items: {count}")
+print(f"{{literal braces}}")
+```
+
+Placeholders are **simple names** with string, float, bool or integer types.
+Literal braces are doubled. Expressions, member paths, pointers, and implicit
+composite formatting are rejected. The hosted implementation retains native
+formatted strings until process exit, limiting individual results to 1 MiB
+and total retained results to 16 MiB. Stage-2 and freestanding support remain
+unfinished.

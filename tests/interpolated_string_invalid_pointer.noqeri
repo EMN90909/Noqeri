@@ -1,0 +1,3 @@
+let value: int = 42
+let ptr: *int = &value
+print(f"value {ptr}")

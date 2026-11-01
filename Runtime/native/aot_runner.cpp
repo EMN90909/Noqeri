@@ -4,11 +4,49 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <string>
 
 #if !defined(__linux__) || !(defined(__x86_64__) || defined(_M_X64))
 #error "The qualified Noqeri AOT runner currently supports Linux x86-64 only."
 #endif
 
+// Hosted string owners survive until process exit. std::deque preserves
+// addresses even for small-string-optimized entries. Enforce caps.
+namespace {
+thread_local std::deque<std::string> interpolated;
+thread_local std::size_t interpolationBytes=0;
+const char* saveInterpolation(std::string value){
+    if(value.size()>1048576||interpolated.size()>=65536||
+       interpolationBytes>16777216-value.size())std::abort();
+    interpolationBytes+=value.size();
+    interpolated.push_back(std::move(value));
+    return interpolated.back().c_str();
+}
+}
+extern "C" const char* nq_internal_interp_join(const char* left,const char* right){
+    if(!left||!right)std::abort();
+    const std::string a(left),b(right);
+    if(a.size()>1048576||b.size()>1048576-a.size())std::abort();
+    return saveInterpolation(a+b);
+}
+extern "C" const char* nq_internal_interp_i64(std::int64_t value){
+    return saveInterpolation(std::to_string(value));
+}
+extern "C" const char* nq_internal_interp_u64(std::uint64_t value){
+    return saveInterpolation(std::to_string(value));
+}
+extern "C" const char* nq_internal_interp_bool(std::int64_t value){
+    return saveInterpolation(value?"true":"false");
+}
+// NIR passes scalar f64 payload bits through the GPR call ABI on x86-64.
+extern "C" const char* nq_internal_interp_float(std::uint64_t rawBits){
+    double value=0.0;
+    std::memcpy(&value,&rawBits,sizeof(value));
+    return saveInterpolation(std::to_string(value));
+}
 extern "C" int noqeri_entry(const noqeri_abi* abi);
 extern "C" int noqeri_entry_abi_probe(const noqeri_abi* abi);
 

@@ -291,7 +291,32 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                                          kind,i.type.kind);
                 break;
             }
-            case NirOp::Call:{std::vector<NirValue>a;for(auto r:i.args)a.push_back(get(r));auto user=std::find_if(p.functions.begin(),p.functions.end(),[&](const auto&x){return x.name==i.text&&!x.isExtern;});if(user!=p.functions.end()){regs[*i.dest]=runFunction(p,*user,a);break;}if(i.text=="nq_list_new"){
+            case NirOp::Call:{std::vector<NirValue>a;for(auto r:i.args)a.push_back(get(r));auto user=std::find_if(p.functions.begin(),p.functions.end(),[&](const auto&x){return x.name==i.text&&!x.isExtern;});if(user!=p.functions.end()){regs[*i.dest]=runFunction(p,*user,a);break;}
+                if(i.text.rfind("nq_internal_interp_",0)==0){
+                    if(i.text=="nq_internal_interp_join"){
+                        if(a.size()!=2||!std::holds_alternative<std::string>(a[0])||
+                           !std::holds_alternative<std::string>(a[1]))
+                            throw std::runtime_error("invalid interpolation join");
+                        const auto&left=std::get<std::string>(a[0]);
+                        const auto&right=std::get<std::string>(a[1]);
+                        if(left.size()>1048576||right.size()>1048576-left.size())
+                            throw std::runtime_error("interpolated output exceeds 1 MiB");
+                        regs[*i.dest]=left+right;
+                    }else{
+                        if(a.size()!=1)throw std::runtime_error("invalid interpolation operand");
+                        if(i.text=="nq_internal_interp_float")
+                            regs[*i.dest]=std::to_string(asDouble(a[0]));
+                        else if(i.text=="nq_internal_interp_bool")
+                            regs[*i.dest]=truthyValue(a[0])?std::string("true"):std::string("false");
+                        else if(i.text=="nq_internal_interp_u64")
+                            regs[*i.dest]=std::to_string(static_cast<std::uint64_t>(asInt(a[0])));
+                        else if(i.text=="nq_internal_interp_i64")
+                            regs[*i.dest]=std::to_string(asInt(a[0]));
+                        else throw std::runtime_error("unknown interpolation operation");
+                    }
+                    break;
+                }
+                if(i.text=="nq_list_new"){
                     if(nextGrowingIntList==std::numeric_limits<std::int64_t>::max())
                         throw std::runtime_error("growable list ID space exhausted");
                     const auto id=nextGrowingIntList++;
