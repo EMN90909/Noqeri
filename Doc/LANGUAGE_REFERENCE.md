@@ -316,3 +316,22 @@ out-of-range values, trap. The current float output uses six fractional digits
 in parity with the reference interpreter, not arbitrary user-controlled
 format strings. [Native qualification](https://github.com/EMN90909/Noqeri/actions/runs/41280755031).
 Other native architectures and freestanding float printing remain unqualified.
+
+
+## Experimental anonymous local records (Stage-0 candidate)
+
+A local record can infer scalar field types and field offsets without a named
+declaration:
+
+```noqeri
+let item = { id: 42, active: true, score: 1.5 }
+print(item.id)
+print(item.active)
+```
+
+Fields are evaluated once from left to right and stored with natural alignment.
+An inferred record has an identity unique to its source literal rather than
+structural cross-assignability. Field order is preserved. Duplicate fields,
+empty records, nested aggregate fields, and returning the temporary record by
+value are rejected. This feature remains Stage-0-only until Stage-2/NQRI
+parity and cross-platform ABI tests pass.

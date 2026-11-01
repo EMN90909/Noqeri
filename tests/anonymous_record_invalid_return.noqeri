@@ -1,0 +1,4 @@
+function invalid(): int {
+    let item = { id: 1 }
+    return item
+}

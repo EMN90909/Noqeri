@@ -1,0 +1,12 @@
+// Inferred, local record layout including bool (1 byte), scalar and float.
+function sample(): void {
+    let item = { id: 42, active: true, score: 1.5 }
+    print(item.id)
+    print(item.active)
+    let x = { first: 2, second: 3 }
+    print(x.second)
+    let y = { small: true, count: 12, value: 7 }
+    print(y.count)
+    print(y.value)
+}
+sample()

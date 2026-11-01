@@ -40,6 +40,10 @@ struct CastExpr final : Expr { ExprPtr value; std::string typeName; };
 struct IndexExpr final : Expr { ExprPtr object,index; std::size_t elementSize=1; bool volatileAccess=false; bool baseIsSlice=false; bool hasFixedBound=false; std::size_t fixedBound=0; bool growableListRead=false; Type elementType{}; };
 struct MemberExpr final : Expr { ExprPtr object; std::string member; std::size_t offset=0; std::size_t fieldSize=0; bool volatileAccess=false; bool baseIsPointer=false; Type fieldType{}; };
 struct ArrayExpr final : Expr { std::vector<ExprPtr> elements; std::size_t elementSize=0; };
+// Inferred, stack-backed structural record. Field offsets are computed by
+// type checking before NIR lowering; values are evaluated in source order.
+struct AnonymousField { std::string name; ExprPtr initializer; Span span; Type type{}; std::size_t offset=0,size=0; };
+struct AnonymousRecordExpr final : Expr { std::vector<AnonymousField> fields; std::string typeName; std::size_t size=0,alignment=1; };
 
 struct Stmt { virtual ~Stmt()=default; Span span; };
 using StmtPtr = std::shared_ptr<Stmt>;

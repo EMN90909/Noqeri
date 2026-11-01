@@ -149,11 +149,27 @@ Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
         }
         NirInstruction i;i.op=NirOp::PtrOffset;i.dest=fn.nextReg++;i.args={base,idx};i.width=x->elementSize;emit(fn,i);return*i.dest;
     }
-    if(auto m=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg base=m->baseIsPointer?lowerExpr(fn,m->object):lowerAddress(fn,m->object);if(m->baseIsPointer){NirInstruction check;check.op=NirOp::CheckNonNull;check.args={base};emit(fn,check);}NirInstruction i;i.op=NirOp::PtrOffset;i.dest=fn.nextReg++;i.args={base};i.target=m->offset;i.width=1;emit(fn,i);return*i.dest;}
+    if(auto m=std::dynamic_pointer_cast<MemberExpr>(expr)){Reg base=(m->baseIsPointer||std::dynamic_pointer_cast<AnonymousRecordExpr>(m->object))?lowerExpr(fn,m->object):lowerAddress(fn,m->object);if(m->baseIsPointer){NirInstruction check;check.op=NirOp::CheckNonNull;check.args={base};emit(fn,check);}NirInstruction i;i.op=NirOp::PtrOffset;i.dest=fn.nextReg++;i.args={base};i.target=m->offset;i.width=1;emit(fn,i);return*i.dest;}
     NirInstruction z;z.op=NirOp::Const;z.dest=fn.nextReg++;z.literal=std::int64_t(0);emit(fn,z);return*z.dest;
 }
 Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<LiteralExpr>(expr)){NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;i.literal=e->value;emit(fn,i);return*i.dest;}
+    if(auto e=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){
+        NirInstruction alloc;alloc.op=NirOp::StackAlloc;
+        alloc.dest=fn.nextReg++;alloc.width=std::max<std::size_t>(1,e->size);
+        emit(fn,alloc);
+        const Reg base=*alloc.dest;
+        for(const auto& field:e->fields){
+            const Reg value=lowerExpr(fn,field.initializer);
+            NirInstruction address;address.op=NirOp::PtrOffset;
+            address.dest=fn.nextReg++;address.args={base};
+            address.target=field.offset;address.width=1;emit(fn,address);
+            NirInstruction store;store.op=NirOp::StoreMemory;
+            store.args={*address.dest,value};store.width=field.size;
+            emit(fn,store);
+        }
+        return base;
+    }
     if(auto e=std::dynamic_pointer_cast<ArrayExpr>(expr)){
         NirInstruction alloc;alloc.op=NirOp::StackAlloc;alloc.dest=fn.nextReg++;alloc.width=std::max<std::size_t>(1,e->elementSize*e->elements.size());emit(fn,alloc);Reg base=*alloc.dest;
         for(std::size_t index=0;index<e->elements.size();++index){Reg value=lowerExpr(fn,e->elements[index]);NirInstruction address;address.op=NirOp::PtrOffset;address.dest=fn.nextReg++;address.args={base};address.target=index*e->elementSize;address.width=1;emit(fn,address);NirInstruction store;store.op=NirOp::StoreMemory;store.args={*address.dest,value};store.width=e->elementSize;emit(fn,store);}return base;

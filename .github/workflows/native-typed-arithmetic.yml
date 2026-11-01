@@ -6,6 +6,7 @@ on:
       - 'Compiler/**'
       - 'tests/native_float_casts.noqeri'
       - 'tests/native_float_print.noqeri'
+      - 'tests/anonymous_record_*.noqeri'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
@@ -20,6 +21,7 @@ on:
       - 'tests/native_narrow_arithmetic.noqeri'
       - 'tests/native_float_casts.noqeri'
       - 'tests/native_float_print.noqeri'
+      - 'tests/anonymous_record_*.noqeri'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
@@ -123,6 +125,22 @@ jobs:
             node scripts/native-build.mjs "$source" "build-typed/$(basename "$source" .noqeri)" --compiler=build-typed/noqeri --opt=-O0
             if (ulimit -c 0; "build-typed/$(basename "$source" .noqeri)" >/dev/null 2>&1); then
               echo "native failed to trap invalid cast: $source" >&2
+              exit 1
+            fi
+          done
+      - name: Qualify inferred anonymous local records
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            ref="$(./build-typed/noqeri run tests/anonymous_record_smoke.noqeri "-$level")"
+            test "$ref" = "$(printf '%s\n' 42 true 3 12 7)"
+            node scripts/native-build.mjs tests/anonymous_record_smoke.noqeri "build-typed/anon-record-$level" --compiler=build-typed/noqeri "--opt=-$level"
+            test "$("build-typed/anon-record-$level")" = "$ref"
+          done
+          for input in tests/anonymous_record_invalid_*.noqeri; do
+            if ./build-typed/noqeri check "$input" >/dev/null 2>&1; then
+              echo "invalid anonymous record compiled successfully: $input" >&2
               exit 1
             fi
           done

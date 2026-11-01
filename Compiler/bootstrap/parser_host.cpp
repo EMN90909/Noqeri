@@ -447,6 +447,31 @@ ExprPtr Parser::primary(){
     if(match({TokenKind::Null})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=std::monostate{};return x;}
     if(match({TokenKind::String})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=decodeStringLiteral(previous().lexeme);return x;}
     if(isNameKind(peek().kind)){const Token name=advance();auto x=std::make_shared<NameExpr>();x->span=name.span;x->name=name.lexeme;return x;}
+    if(match({TokenKind::LBrace})){
+        const auto start=previous();
+        auto record=std::make_shared<AnonymousRecordExpr>();
+        record->span=start.span;
+        if(check(TokenKind::RBrace)){
+            diagnostics_.error("NQR-P2090",peek().span,
+                "cannot infer field types from an empty anonymous record",
+                "write { field: value } with at least one typed field");
+            throw ParseError("parse");
+        }
+        do {
+            const auto field=consumeName("expected named field in anonymous record");
+            consume(TokenKind::Colon,"expected ':' after anonymous record field");
+            AnonymousField entry;entry.name=field.lexeme;entry.span=field.span;
+            entry.initializer=expression();
+            record->fields.push_back(std::move(entry));
+            if(record->fields.size()>64){
+                diagnostics_.error("NQR-P2091",field.span,
+                    "anonymous record exceeds the 64-field limit");
+                throw ParseError("parse");
+            }
+        } while(match({TokenKind::Comma}) && !check(TokenKind::RBrace));
+        consume(TokenKind::RBrace,"expected '}' after anonymous record fields");
+        return record;
+    }
     if(match({TokenKind::LBracket})){
         auto a=std::make_shared<ArrayExpr>();a->span=previous().span;
         if(!check(TokenKind::RBracket))do{a->elements.push_back(expression());}while(match({TokenKind::Comma}));

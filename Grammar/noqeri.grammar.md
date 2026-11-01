@@ -274,3 +274,13 @@ bounds, accessibility and runtime limits.
 These declarations are **not** part of the general-purpose Stage-2 language
 grammar. The browser target emits standards-compliant JavaScript animation
 modules, and server-side/static web builds reject effects they cannot run.
+
+
+## Experimental Stage-0-only anonymous records
+
+```text
+anonymousRecordLiteral := "{" IDENT ":" expression ("," IDENT ":" expression)* ","? "}"
+```
+
+Only inferred scalar local fields are currently lowered; no cross-stage or
+portable machine-code support is claimed.

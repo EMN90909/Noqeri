@@ -264,6 +264,8 @@ bool TypeChecker::check(const Program&program){
             gatherExpr(member->object);
         } else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(expr)){
             for(const auto& element:array->elements)gatherExpr(element);
+        } else if(auto record=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){
+            for(const auto& field:record->fields)gatherExpr(field.initializer);
         }
     };
     gatherStmt=[&](const StmtPtr& stmt){
@@ -431,6 +433,10 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
         if(v.kind==TypeKind::List)
             diagnostics_.error("NQR-T3076",s->span,"owned growable lists cannot escape their defining scope",
                 "return a copied fixed array or implement an explicit owned move");
+        if(v.kind==TypeKind::Record&&v.recordName.rfind("__nq_anonymous_",0)==0)
+            diagnostics_.error("NQR-T3093",s->span,
+                "anonymous records cannot escape their stack storage by value",
+                "return a declared record through a supported ownership/ABI path");
         if(!canAssignValue(currentReturn_,v,s->value))diagnostics_.error("NOE-T3005",s->span,"return type mismatch: expected "+currentReturn_.name()+", found "+v.name());return;}
     if(auto s=std::dynamic_pointer_cast<ThrowStmt>(stmt)){Type code=checkExpr(s->value);if(!insideFunction_)diagnostics_.error("NOE-T3031",s->span,"throw is only valid inside a function");if(!code.isInteger()&&code.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3032",s->span,"throw requires an integer error code");if(!currentReturn_.isInteger()&&currentReturn_.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3033",s->span,"throw requires an integer-returning function","use an integer status return such as isize when using lightweight try/throw");return;}
     if(auto s=std::dynamic_pointer_cast<FunctionStmt>(stmt)){
@@ -482,6 +488,54 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
 }
 
 Type TypeChecker::checkExpr(const ExprPtr&expr){
+    if(auto e=std::dynamic_pointer_cast<AnonymousRecordExpr>(expr)){
+        RecordType layout;
+        std::size_t offset=0,alignment=1;
+        std::unordered_set<std::string> seen;
+        for(auto& field:e->fields){
+            const bool unique=seen.insert(field.name).second;
+            if(!unique)
+                diagnostics_.error("NQR-T3090",field.span,
+                    "duplicate anonymous record field '"+field.name+"'");
+            const Type value=checkExpr(field.initializer);
+            field.type=value;
+            // Structural record copying, owning handles and composite
+            // records require dedicated move/clone/drop lowering. Reject
+            // them until those semantics can be proved across runtimes.
+            if(!(value.isInteger()||value.kind==TypeKind::Float||
+                 value.kind==TypeKind::Bool||value.kind==TypeKind::String||
+                 value.kind==TypeKind::Pointer)){
+                diagnostics_.error("NQR-T3091",field.span,
+                    "anonymous record field '"+field.name+"' requires a scalar value",
+                    "use int, float, bool, string or a typed pointer; nested records and arrays are not supported");
+                continue;
+            }
+            const std::size_t bytes=value.size(),align=value.alignment();
+            if(bytes==0||align==0||offset>4096||bytes>4096-offset){
+                diagnostics_.error("NQR-T3092",field.span,
+                    "anonymous record layout exceeds safe storage limits");
+                continue;
+            }
+            offset=(offset+align-1)/align*align;
+            field.offset=offset;field.size=bytes;
+            RecordField out;out.name=field.name;out.typeName=value.name();
+            out.span=field.span;out.offset=offset;out.size=bytes;
+            layout.fields.push_back(std::move(out));
+            offset+=bytes;alignment=std::max(alignment,align);
+        }
+        if(layout.fields.size()!=e->fields.size() || layout.fields.empty())
+            return simple(TypeKind::Unknown);
+        layout.alignment=alignment;
+        layout.size=(offset+alignment-1)/alignment*alignment;
+        e->size=layout.size;e->alignment=layout.alignment;
+        e->typeName="__nq_anonymous_"+std::to_string(e->span.source)+
+            "_"+std::to_string(e->span.start);
+        records_[e->typeName]=std::move(layout);
+        Type result;result.kind=TypeKind::Record;
+        result.recordName=e->typeName;result.recordSize=e->size;
+        result.recordAlignment=e->alignment;
+        return result;
+    }
     if(auto e=std::dynamic_pointer_cast<LiteralExpr>(expr)){if(std::holds_alternative<std::monostate>(e->value))return simple(TypeKind::Null);if(std::holds_alternative<std::int64_t>(e->value))return simple(TypeKind::Int);if(std::holds_alternative<double>(e->value))return simple(TypeKind::Float);if(std::holds_alternative<bool>(e->value))return simple(TypeKind::Bool);return simple(TypeKind::String);}
     if(auto e=std::dynamic_pointer_cast<ArrayExpr>(expr)){
         if(e->elements.empty()){diagnostics_.error("NOE-T3034",e->span,"cannot infer the element type of an empty array literal","add a typed non-empty initializer");return simple(TypeKind::Unknown);}

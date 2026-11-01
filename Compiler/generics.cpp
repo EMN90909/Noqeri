@@ -108,6 +108,11 @@ ExprPtr cloneExpr(const ExprPtr& e){
     if(auto x=std::dynamic_pointer_cast<IndexExpr>(e)){auto n=std::make_shared<IndexExpr>(*x);n->object=cloneExpr(x->object);n->index=cloneExpr(x->index);return n;}
     if(auto x=std::dynamic_pointer_cast<MemberExpr>(e)){auto n=std::make_shared<MemberExpr>(*x);n->object=cloneExpr(x->object);return n;}
     if(auto x=std::dynamic_pointer_cast<ArrayExpr>(e)){auto n=std::make_shared<ArrayExpr>(*x);n->elements.clear();for(const auto&a:x->elements)n->elements.push_back(cloneExpr(a));return n;}
+    if(auto x=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){
+        auto n=std::make_shared<AnonymousRecordExpr>(*x);
+        for(auto&field:n->fields)field.initializer=cloneExpr(field.initializer);
+        return n;
+    }
     return{};
 }
 
@@ -180,6 +185,10 @@ private:
         if(auto x=std::dynamic_pointer_cast<UnaryExpr>(e)){auto t=infer(x->operand,env);if(x->op==TokenKind::Bang)return"bool";if(x->op==TokenKind::Ampersand)return"*"+t;if(x->op==TokenKind::Star)return elementType(t);return t;}
         if(auto x=std::dynamic_pointer_cast<BinaryExpr>(e)){auto l=infer(x->left,env);infer(x->right,env);switch(x->op){case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return"bool";default:return l;}}
         if(auto x=std::dynamic_pointer_cast<ArrayExpr>(e)){auto t=x->elements.empty()?"unknown":infer(x->elements.front(),env);return"["+t+";"+std::to_string(x->elements.size())+"]";}
+        if(auto x=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){
+            for(const auto&field:x->fields)infer(field.initializer,env);
+            return"unknown";
+        }
         if(auto x=std::dynamic_pointer_cast<IndexExpr>(e))return elementType(infer(x->object,env));
         if(auto x=std::dynamic_pointer_cast<MemberExpr>(e))return memberType(infer(x->object,env),x->member);
         if(auto x=std::dynamic_pointer_cast<CallExpr>(e))return processCall(x,env);
