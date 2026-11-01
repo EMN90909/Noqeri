@@ -1,0 +1,45 @@
+name: Portable scalar C11 native x86 32-bit qualification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/portable_c_backend.cpp'
+      - 'tests/portable_native_scalar.noqeri'
+      - '.github/workflows/portable-native-x86-32.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-i386:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install genuine 32-bit C toolchain and execution libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-multilib libc6-dev-i386 file
+      - name: Build host Noqeri compiler
+        shell: bash
+        run: |
+          cmake -S . -B build-32 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-32 --target noqeri --parallel 2
+      - name: Produce and execute 32-bit x86 machine code from typed Noqeri IR
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            ./build-32/noqeri emit-c tests/portable_native_scalar.noqeri "build-32/program-$level.c" "-$level"
+            gcc -m32 -std=c11 -O2 -Wno-unused-function "build-32/program-$level.c" -lm -o "build-32/program-$level"
+            file "build-32/program-$level" | grep -F 'ELF 32-bit'
+            expected="$(./build-32/noqeri run tests/portable_native_scalar.noqeri "-$level")"
+            actual="$("build-32/program-$level")"
+            test "$actual" = "$expected" || {
+              printf '32-bit expected: %s\nactual: %s\n' "$expected" "$actual"
+              exit 1
+            }
+          done
