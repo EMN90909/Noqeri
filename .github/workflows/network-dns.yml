@@ -1,0 +1,31 @@
+name: Native DNS networking smoke tests
+on:
+  push:
+    paths:
+      - 'Runtime/native/network_dns.cpp'
+      - 'Include/noqeri/network_dns.hpp'
+      - 'tests/network_dns_native_test.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/network-dns.yml'
+  pull_request:
+    paths:
+      - 'Runtime/native/network_dns.cpp'
+      - 'Include/noqeri/network_dns.hpp'
+      - 'tests/network_dns_native_test.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/network-dns.yml'
+jobs:
+  dns:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTING=ON
+      - name: Compile native DNS test
+        run: cmake --build build --target noqeri-network-dns-test --config Debug
+      - name: Test native DNS
+        run: ctest --test-dir build -C Debug -R '^noqeri-network-dns$' --output-on-failure
