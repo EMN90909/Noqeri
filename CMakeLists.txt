@@ -52,6 +52,9 @@ if(BUILD_TESTING)
  add_executable(noqeri-network-loopback-test tests/network_loopback_test.cpp)
  target_link_libraries(noqeri-network-loopback-test PRIVATE noqeri_network_dns)
  add_test(NAME noqeri-network-loopback COMMAND noqeri-network-loopback-test)
+ add_executable(noqeri-network-wireless-test tests/network_wireless_test.cpp)
+ target_link_libraries(noqeri-network-wireless-test PRIVATE noqeri_network_dns)
+ add_test(NAME noqeri-network-wireless COMMAND noqeri-network-wireless-test)
 endif()
 
 # Hosted, heap-backed int list/map/set ABI for ordinary Noqeri native AOT.
