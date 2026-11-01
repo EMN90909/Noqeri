@@ -15,6 +15,13 @@ class TargetRegistry { public: static TargetInfo resolve(const std::string& trip
 struct ProcessResult { int exitCode=-1; bool launched=false; };
 class ProcessRunner { public: ProcessResult run(const std::filesystem::path& executable,const std::vector<std::string>& args,Diagnostics& diagnostics) const; };
 class NativeBackend { public: bool emitAssembly(const NirProgram& program,const std::filesystem::path& output,Diagnostics& diagnostics) const; };
+// Checked C11 AOT bridge; host C compiler emits platform-native machine code
+// for a deliberately restricted, typed scalar NIR subset.
+class PortableCBackend {
+public:
+    bool emitSource(const NirProgram& program,const std::filesystem::path& output,
+                    Diagnostics& diagnostics) const;
+};
 class AssemblerDriver { public: bool assemble(const std::filesystem::path& assembly,const std::filesystem::path& output,const TargetTriple& target,Diagnostics& diagnostics) const; };
 class LinkerDriver { public: bool link(const std::filesystem::path& assembly,const std::filesystem::path& output,Diagnostics& diagnostics) const; bool linkObjects(const std::vector<std::filesystem::path>& objects,const std::filesystem::path& output,const TargetTriple& target,Diagnostics& diagnostics) const; };
 

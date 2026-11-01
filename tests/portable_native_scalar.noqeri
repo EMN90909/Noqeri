@@ -1,0 +1,25 @@
+// Portable C11 AOT scalar function, branch, loop, cast, float, string.
+function sumFrom(start: int): int {
+    let total: int = 0
+    let i: int = 0
+    while i < 4 {
+        total = total + start + i
+        i = i + 1
+    }
+    if total >= 15 { return total }
+    return -1
+}
+function divisible(n: int): bool { return n % 2 == 0 }
+print(sumFrom(3))
+print(divisible(10))
+let x: float = -2.5
+let y: float = 1.25
+print(x + y)
+let whole: int = 12
+print(whole as float)
+let fractional: float = 12.875
+print(fractional as int)
+let big: u64 = 9223372036854775807 as u64
+big = big + 1 as u64
+print(big)
+print("Noqeri portable")

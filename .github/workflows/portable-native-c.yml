@@ -1,0 +1,56 @@
+name: Portable native scalar C11 AOT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/portable_c_backend.cpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'Include/noqeri/targets.hpp'
+      - 'CMakeLists.txt'
+      - 'tests/portable_native_*.noqeri'
+      - '.github/workflows/portable-native-c.yml'
+  pull_request:
+    paths:
+      - 'Compiler/portable_c_backend.cpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'Include/noqeri/targets.hpp'
+      - 'CMakeLists.txt'
+      - 'tests/portable_native_*.noqeri'
+      - '.github/workflows/portable-native-c.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-c11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build checked Noqeri compiler
+        run: |
+          cmake -S . -B build-portable -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_WARNINGS_AS_ERRORS=ON
+          cmake --build build-portable --target noqeri --parallel 2
+      - name: Compare scalar native and reference execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            ./build-portable/noqeri emit-c tests/portable_native_scalar.noqeri "build-portable/smoke-$level.c" "-$level"
+            cc -std=c11 -O2 -Werror -Wno-unused-function "build-portable/smoke-$level.c" -lm -o "build-portable/smoke-$level"
+            expected="$(./build-portable/noqeri run tests/portable_native_scalar.noqeri "-$level")"
+            actual="$("build-portable/smoke-$level")"
+            test "$actual" = "$expected" || {
+              printf 'reference: %s\nnative: %s\n' "$expected" "$actual"
+              exit 1
+            }
+          done
+      - name: Reject unsupported aggregate NIR without generating artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ./build-portable/noqeri emit-c tests/portable_native_unsupported.noqeri build-portable/rejected.c; then
+            echo "unsupported aggregate was incorrectly emitted"; exit 1
+          fi
+          test ! -e build-portable/rejected.c

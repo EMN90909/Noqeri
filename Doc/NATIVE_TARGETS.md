@@ -45,3 +45,28 @@ fixtures and `tests/native_float_print.noqeri` passed native and reference
 execution at -O0 and -O3 in [GitHub CI](https://github.com/EMN90909/Noqeri/actions/runs/41280755031).
 This does **not** make native code generation portable across architectures.
 All other native-target restrictions remain in effect.
+
+## Portable native C11 AOT bridge (experimental; 2026-11-01)
+
+`noqeri emit-c source.noqeri build/source.c -O0` lowers validated scalar
+NIR to C11 source. A C11 toolchain then produces **native machine code**,
+without a Noqeri NQRI virtual machine. For example:
+
+```sh
+noqeri emit-c tests/portable_native_scalar.noqeri build/demo.c -O0
+cc -std=c11 -O2 build/demo.c -lm -o build/demo
+./build/demo
+```
+
+This backend currently handles scalar functions, integer/f64 arithmetic
+and casts, boolean expressions, branches, loops and scalar printing.
+Arrays, pointers, slices, aggregates, host effects, native intrinsics,
+closures, inline assembly and atomics are rejected with a diagnostic
+rather than silently interpreted. It does not replace the direct x86-64
+assembler backend.
+
+The emitted C11 is portable **source**; a host C compiler and linker must
+produce the actual native machine code. It is not a standalone
+ELF/PE/Mach-O encoder, cross-architecture codegen, native selfhosting,
+or proof of every host's ABI. Cross-platform tests are required before
+describing any platform as qualified.

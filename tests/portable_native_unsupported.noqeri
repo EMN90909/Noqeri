@@ -1,0 +1,3 @@
+// Rejected by emit-c: aggregate storage requires backend-specific lowering.
+let values: [int; 3] = [1, 2, 3]
+print(values[1])

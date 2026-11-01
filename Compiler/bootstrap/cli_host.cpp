@@ -29,6 +29,7 @@ void usage() {
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
+              << "  emit-c [file] [out.c] [-O...]     emit checked portable C11 for native compilation\n"
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
               << "  web [file] [module.mjs]            emit checked browser ES module\n"
@@ -658,6 +659,24 @@ int main(int argc, char** argv) {
             Diagnostics d;
             if (!WebBackend{}.emitModule(compilation.ast, output, d)) { d.print(path.string()); return 1; }
             std::cout << "emitted Noqeri browser ES module: " << output << "\n";
+            return 0;
+        }
+        if (cmd == "emit-c") {
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ?
+                std::filesystem::path(argv[3]) :
+                std::filesystem::path("build") / (selected->projectName + ".c");
+            if (output.extension().empty()) output += ".c";
+            if (output.extension() != ".c") {
+                std::cerr << "NQR-C8200: emit-c output must use the .c extension\n";
+                return 1;
+            }
+            Diagnostics d;
+            if (!PortableCBackend{}.emitSource(compilation.nir,output,d)) {
+                d.print(path.string());return 1;
+            }
+            std::cout << "emitted portable C11 from typed Noqeri NIR: " << output
+                      << "\nexecution=native-via-C11-toolchain"
+                      << "\ncoverage=scalar-functions-arithmetic-branches-casts-print\n";
             return 0;
         }
         if (cmd == "build") {
