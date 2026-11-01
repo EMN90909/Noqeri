@@ -59,3 +59,25 @@ export function http_status(response: i64): int { return netHttpStatus(response)
 export function http_body(response: i64): string { return netHttpBody(response) }
 export function http_header(response: i64, name: string): string { return netHttpHeader(response, name) }
 export function http_close(response: i64): int { return netHttpClose(response) }
+
+extern function netWifiAvailable(): bool
+extern function netWifiSsid(): string
+extern function netWifiScan(): string
+extern function netWifiConnectSaved(ssid: string): int
+extern function netWifiDisconnect(): int
+extern function netBluetoothAvailable(): bool
+extern function netBluetoothScan(timeoutMillis: int): string
+extern function netBluetoothConnect(deviceId: string, timeoutMillis: int): i64
+extern function netBluetoothDisconnect(connection: i64): int
+
+export function wifi_available(): bool { return netWifiAvailable() }
+export function wifi_ssid(): string { return netWifiSsid() }
+export function wifi_scan(): string { return netWifiScan() }
+export function wifi_connect_saved(ssid: string): int { return netWifiConnectSaved(ssid) }
+export function wifi_disconnect(): int { return netWifiDisconnect() }
+export function bluetooth_available(): bool { return netBluetoothAvailable() }
+export function bluetooth_scan(timeoutMillis: int): string { return netBluetoothScan(timeoutMillis) }
+export function bluetooth_connect(deviceId: string, timeoutMillis: int): i64 {
+    return netBluetoothConnect(deviceId, timeoutMillis)
+}
+export function bluetooth_disconnect(connection: i64): int { return netBluetoothDisconnect(connection) }
