@@ -5,6 +5,7 @@ on:
     paths:
       - 'Compiler/**'
       - 'tests/native_float_casts.noqeri'
+      - 'tests/native_float_print.noqeri'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
@@ -18,6 +19,7 @@ on:
       - 'tests/native_unsigned_arithmetic.noqeri'
       - 'tests/native_narrow_arithmetic.noqeri'
       - 'tests/native_float_casts.noqeri'
+      - 'tests/native_float_print.noqeri'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
@@ -123,6 +125,20 @@ jobs:
               echo "native failed to trap invalid cast: $source" >&2
               exit 1
             fi
+          done
+      - name: Qualify native f64 printing against the reference interpreter
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            reference="$(./build-typed/noqeri run tests/native_float_print.noqeri "-$level")"
+            node scripts/native-build.mjs tests/native_float_print.noqeri "build-typed/float-print-$level" --compiler=build-typed/noqeri "--opt=-$level" --keep-asm
+            actual="$("build-typed/float-print-$level")"
+            test "$actual" = "$reference" || {
+              printf 'Float print parity failed at %s\nExpected:\n%s\nActual:\n%s\n' "$level" "$reference" "$actual"
+              exit 1
+            }
+            grep -Fq 'call noqeri_rt_print_float' "build-typed/float-print-$level.s"
           done
       - name: Qualify two-parameter typed Result propagation
         shell: bash

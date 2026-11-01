@@ -1,0 +1,12 @@
+// Native f64 text formatting must agree with the reference interpreter.
+function sample(): void {
+    let values: [float; 5] = [1.5, -2.25, 0.0, 100000000.125, 0.000001]
+    print(values[0])
+    print(values[1])
+    print(values[2])
+    print(values[3])
+    print(values[4])
+    let negative: float = -0.0
+    print(negative)
+}
+sample()

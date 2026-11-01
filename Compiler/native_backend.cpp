@@ -194,6 +194,35 @@ noqeri_rt_print_int:
     call noqeri_rt_write
     leave
     ret
+// Hosted x86-64 native float output. The ABI still controls writes;
+// libc formats the IEEE-754 double with the same six fractional digits as
+// the Stage-0 interpreter's std::to_string(double).
+noqeri_rt_print_float:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 544
+    mov rax, rdi
+    lea rdi, [rbp-528]
+    mov esi, 512
+    lea rdx, [rip + .L_noqeri_float_format]
+    movq xmm0, rax
+    mov al, 1
+    call snprintf@PLT
+    test eax, eax
+    js .L_noqeri_float_print_error
+    cmp eax, 512
+    jge .L_noqeri_float_print_error
+    mov QWORD PTR [rbp-536], rax
+    lea rdi, [rbp-528]
+    mov rsi, QWORD PTR [rbp-536]
+    call noqeri_rt_write
+    lea rdi, [rip + .L_noqeri_newline]
+    mov esi, 1
+    call noqeri_rt_write
+    leave
+    ret
+.L_noqeri_float_print_error:
+    ud2
 noqeri_rt_clock_millis:
     mov r11, QWORD PTR [rip + noqeri_abi_current]
     test r11, r11
@@ -779,7 +808,7 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
            i.text=="/"||i.text=="%")
             normalizeIntegerResult(out,i.type.kind);
         store(*i.dest,"rax");break;}
-        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float){diagnostics.error("NQR-N5001",{},"float printing is not implemented yet");return false;}else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
+        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float)out<<"    call noqeri_rt_print_float\n";else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
@@ -802,7 +831,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     std::unordered_map<std::string,ValueKind>returns;for(int pass=0;pass<3;++pass)for(const auto&f:p.functions)if(!f.isExtern)returns[f.name]=inferReturn(f,returns);
     out<<".intel_syntax noprefix\n.text\n";emitRuntime(out);if(!emitFunction(out,p,p.entry,returns,strings,diagnostics))return false;for(const auto&f:p.functions)if(!emitFunction(out,p,f,returns,strings,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
-    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
+    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
     // ELF x86-64 native objects must not request an executable stack.
     out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
