@@ -13,6 +13,7 @@ on:
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
+      - 'Lib/std/iterator.noqeri'
       - '.github/workflows/native-typed-arithmetic.yml'
   pull_request:
     paths:
@@ -31,6 +32,7 @@ on:
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
+      - 'Lib/std/iterator.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
       - 'tests/native_division_traps.py'
       - 'tests/native_bounds_*.noqeri'
