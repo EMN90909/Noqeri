@@ -87,7 +87,7 @@ jobs:
       ORIGINAL_SHA: 50606b6c491dfde2c8a9f4db624a82f8839621b3
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: v014-llm-*
           merge-multiple: true
