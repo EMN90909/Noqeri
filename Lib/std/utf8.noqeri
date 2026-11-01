@@ -12,6 +12,7 @@ export function nqUtf8SequenceLength(first: u8): usize {
 }
 
 export function nqUtf8DecodeAt(value: []u8, index: usize, out: *u32): isize {
+    unsafe {
     if index >= len(value) || out == null { return -1 as isize }
     let first: u8 = value[index]
     let length: usize = nqUtf8SequenceLength(first)
@@ -40,6 +41,8 @@ export function nqUtf8DecodeAt(value: []u8, index: usize, out: *u32): isize {
     if scalar < 65536 as u32 || !nqUtf8ScalarValid(scalar) { return -1 as isize }
     out[0 as usize] = scalar
     return 4 as isize
+
+    }
 }
 
 export function nqUtf8Valid(value: []u8): bool {
