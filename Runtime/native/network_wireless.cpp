@@ -4,6 +4,9 @@
 // explicit unsupported errors when an adapter is not available. Passwords
 // are deliberately NOT passed via argv or shell strings.
 #include "noqeri/network_wireless.hpp"
+#ifdef __APPLE__
+#include "noqeri/network_wireless_macos.hpp"
+#endif
 #include <atomic>
 #include <chrono>
 #include <map>
@@ -169,6 +172,8 @@ bool wifi_available() {
 #elif defined(_WIN32)
     WlanSession session;
     return session.open();
+#elif defined(__APPLE__)
+    return mac_wifi_available();
 #else
     return false; // adapter not linked on this OS
 #endif
@@ -190,6 +195,8 @@ WirelessResult wifi_connected_ssid() {
     WlanSession session;
     if (!session.open()) return {-3, {}};
     return {0, windows_connected_ssid(session)};
+#elif defined(__APPLE__)
+    return mac_wifi_connected_ssid();
 #else
     return {-3, {}};
 #endif
@@ -217,6 +224,8 @@ WirelessResult wifi_scan() {
     }
     WlanFreeMemory(list);
     return {0, names};
+#elif defined(__APPLE__)
+    return mac_wifi_scan();
 #else
     return {-3, {}};
 #endif
@@ -241,6 +250,8 @@ int wifi_connect_saved(const std::string& ssid) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     return -1;
+#elif defined(__APPLE__)
+    return mac_wifi_connect_saved(ssid);
 #else
     (void)ssid; return -3;
 #endif
@@ -254,6 +265,8 @@ int wifi_disconnect() {
     WlanSession session;
     if (!session.open()) return -3;
     return WlanDisconnect(session.handle, &session.guid, nullptr) == ERROR_SUCCESS ? 0 : -1;
+#elif defined(__APPLE__)
+    return mac_wifi_disconnect();
 #else
     return -3;
 #endif
