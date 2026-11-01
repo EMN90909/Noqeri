@@ -1,5 +1,7 @@
 #include "noe.hpp"
 #include "abi.h"
+#include "noqeri/network_transport.hpp"
+#include "noqeri/network_dns.hpp"
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
@@ -38,6 +40,149 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
     if(name=="platform"){if(!args.empty()){error="platform expects no arguments";return std::nullopt;}if(!abi->platform_name){error="Noqeri ABI has no platform_name callback";return std::nullopt;}auto s=abi->platform_name(abi->context);return NirValue(s.data?std::string(s.data,s.size):std::string{});}
     if(name=="textLength"){if(args.size()!=1||!std::holds_alternative<std::string>(args[0])){error="textLength expects one string argument";return std::nullopt;}return NirValue(static_cast<std::int64_t>(std::get<std::string>(args[0]).size()));}
     for(size_t i=0;i<abi->service_count;++i){const auto& service=abi->services[i];if(service.name&&service.invoke&&name==service.name){std::vector<noqeri_abi_value> converted;converted.reserve(args.size());for(const auto& value:args)converted.push_back(toAbi(value));noqeri_abi_value result{};noqeri_abi_error abiError{};int32_t status=service.invoke(service.context?service.context:abi->context,converted.data(),converted.size(),&result,&abiError);if(status!=0){error=abiError.message?abiError.message:"Noqeri ABI service failed";return std::nullopt;}return fromAbi(result);}}
+    // Built-in networking is available to the desktop interpreter only.
+    // Custom embedding hosts may supply their own service implementations and
+    // are never implicitly granted network access through this fallback.
+    if (abi != &desktopAbi) return std::nullopt;
+    static thread_local int network_last_error = 0;
+    auto net_str = [&](std::size_t n) -> const std::string* {
+        return n < args.size() ? std::get_if<std::string>(&args[n]) : nullptr;
+    };
+    auto net_int = [&](std::size_t n, std::int64_t& out) -> bool {
+        if (n >= args.size()) return false;
+        if (auto v = std::get_if<std::int64_t>(&args[n])) { out = *v; return true; }
+        return false;
+    };
+    auto bad = [&]() -> std::optional<NirValue> {
+        error = "network function received invalid argument types or count";
+        network_last_error = -2;
+        return std::nullopt;
+    };
+    if (name == "netLastError") {
+        if (!args.empty()) return bad();
+        return NirValue(static_cast<std::int64_t>(network_last_error));
+    }
+    if (name == "dnsResolveFirst" || name == "netDnsResolve") {
+        std::int64_t family = 0;
+        auto host = net_str(0);
+        if (args.size()!=2 || !host || !net_int(1, family) ||
+            (family!=0 && family!=4 && family!=6)) return bad();
+        auto result = noqeri::network::resolve_host(*host, family==4);
+        if (!result.ok()) { network_last_error = -1; return NirValue(std::string{}); }
+        for (const auto& address : result.addresses)
+            if (family != 6 || address.find(':') != std::string::npos) {
+                network_last_error = 0;
+                return NirValue(address);
+            }
+        network_last_error = -1;
+        return NirValue(std::string{});
+    }
+    if (name == "netHttpAvailable") {
+        if (!args.empty()) return bad();
+        return NirValue(noqeri::network::http_available());
+    }
+    if (name == "netTcpConnect" || name == "tcpConnect") {
+        std::int64_t port=0, timeout=0;
+        auto host=net_str(0);
+        if (args.size()!=3 || !host || !net_int(1,port) || !net_int(2,timeout)) return bad();
+        auto id=noqeri::network::tcp_connect(*host,static_cast<int>(port),static_cast<int>(timeout));
+        network_last_error = id < 0 ? static_cast<int>(id) : 0;
+        return NirValue(id);
+    }
+    if (name == "netTcpListen" || name == "tcpListen") {
+        std::int64_t port=0,backlog=0;
+        auto host=net_str(0);
+        if (args.size()!=3 || !host || !net_int(1,port) || !net_int(2,backlog)) return bad();
+        auto id=noqeri::network::tcp_listen(*host,static_cast<int>(port),static_cast<int>(backlog));
+        network_last_error = id < 0 ? static_cast<int>(id) : 0;
+        return NirValue(id);
+    }
+    if (name == "netTcpAccept" || name == "tcpAccept") {
+        std::int64_t id=0,timeout=30000;
+        if ((args.size()!=2 && !(name=="tcpAccept"&&args.size()==1)) ||
+            !net_int(0,id) || (args.size()==2 && !net_int(1,timeout))) return bad();
+        auto new_id=noqeri::network::tcp_accept(id,static_cast<int>(timeout));
+        network_last_error = new_id < 0 ? static_cast<int>(new_id) : 0;
+        return NirValue(new_id);
+    }
+    if (name == "netTcpSend") {
+        std::int64_t id=0,timeout=0; auto bytes=net_str(1);
+        if (args.size()!=3 || !net_int(0,id) || !bytes || !net_int(2,timeout)) return bad();
+        auto n=noqeri::network::tcp_send(id,*bytes,static_cast<int>(timeout));
+        network_last_error = n < 0 ? n : 0;
+        return NirValue(static_cast<std::int64_t>(n));
+    }
+    if (name == "netTcpRead" || name == "netUdpRead") {
+        std::int64_t id=0,max_bytes=0,timeout=0;
+        if (args.size()!=3 || !net_int(0,id) || !net_int(1,max_bytes) || !net_int(2,timeout)) return bad();
+        auto result = name=="netTcpRead" ?
+            noqeri::network::tcp_receive(id,static_cast<int>(max_bytes),static_cast<int>(timeout)) :
+            noqeri::network::udp_receive(id,static_cast<int>(max_bytes),static_cast<int>(timeout));
+        network_last_error=result.error;
+        return NirValue(result.value);
+    }
+    if (name == "netUdpBind" || name == "udpBind") {
+        std::int64_t port=0; auto host=net_str(0);
+        if (args.size()!=2 || !host || !net_int(1,port)) return bad();
+        auto id=noqeri::network::udp_bind(*host,static_cast<int>(port));
+        network_last_error = id < 0 ? static_cast<int>(id) : 0;
+        return NirValue(id);
+    }
+    if (name == "netUdpSend") {
+        std::int64_t id=0,port=0,timeout=0;
+        auto host=net_str(1); auto bytes=net_str(3);
+        if (args.size()!=5 || !net_int(0,id) || !host || !net_int(2,port) ||
+            !bytes || !net_int(4,timeout)) return bad();
+        auto n=noqeri::network::udp_send_to(id,*host,static_cast<int>(port),*bytes,static_cast<int>(timeout));
+        network_last_error = n < 0 ? n : 0;
+        return NirValue(static_cast<std::int64_t>(n));
+    }
+    if (name == "netSocketLocalPort" || name == "netSocketClose" ||
+        name == "tcpClose" || name == "udpClose") {
+        std::int64_t id=0;
+        if (args.size()!=1 || !net_int(0,id)) return bad();
+        auto n=name=="netSocketLocalPort" ? noqeri::network::socket_local_port(id) :
+                    noqeri::network::socket_close(id);
+        network_last_error = n < 0 ? n : 0;
+        if (name == "tcpClose" || name == "udpClose") return NirValue(std::monostate{});
+        return NirValue(static_cast<std::int64_t>(n));
+    }
+    if (name == "netHttpRequest" || name == "httpClientRequest") {
+        auto method=net_str(0); auto url=net_str(1); auto body=net_str(2);
+        std::int64_t timeout=30000;
+        if ((args.size()!=4 && !(name=="httpClientRequest"&&args.size()==3)) ||
+            !method || !url || !body || (args.size()==4 && !net_int(3,timeout))) return bad();
+        auto id=noqeri::network::http_request(*method,*url,*body,static_cast<int>(timeout));
+        network_last_error = id < 0 ? static_cast<int>(id) : 0;
+        return NirValue(id);
+    }
+    if (name == "netHttpStatus" || name == "httpClientStatus" ||
+        name == "netHttpBody" || name == "httpClientBody" ||
+        name == "netHttpClose" || name == "httpClientClose") {
+        std::int64_t id=0;
+        if (args.size()!=1 || !net_int(0,id)) return bad();
+        if (name=="netHttpBody"||name=="httpClientBody") {
+            auto r=noqeri::network::http_body(id);
+            network_last_error=r.error;
+            return NirValue(r.value);
+        }
+        if (name=="netHttpClose"||name=="httpClientClose") {
+            int rc=noqeri::network::http_close(id);
+            network_last_error=rc;
+            return name=="httpClientClose" ? NirValue(std::monostate{}) :
+                   NirValue(static_cast<std::int64_t>(rc));
+        }
+        int status=noqeri::network::http_status(id);
+        network_last_error=status < 0 ? status : 0;
+        return NirValue(static_cast<std::int64_t>(status));
+    }
+    if (name == "netHttpHeader" || name == "httpClientHeader") {
+        std::int64_t id=0;auto header=net_str(1);
+        if (args.size()!=2 || !net_int(0,id) || !header) return bad();
+        auto r=noqeri::network::http_header(id,*header);
+        network_last_error=r.error;
+        return NirValue(r.value);
+    }
     return std::nullopt;
 }
 const noqeri_abi* defaultHostApi(){return defaultNoqeriAbi();}
