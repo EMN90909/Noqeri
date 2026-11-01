@@ -11,6 +11,7 @@ on:
       - 'tests/network_dns_native_test.cpp'
       - 'tests/network_loopback_test.cpp'
       - 'tests/network_abi_test.cpp'
+      - 'tests/network_wireless_test.cpp'
       - 'CMakeLists.txt'
       - '.github/workflows/network-dns.yml'
   pull_request:
@@ -32,6 +33,6 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DBUILD_TESTING=ON
       - name: Compile native DNS test
-        run: cmake --build build --target noqeri-network-dns-test noqeri-network-loopback-test noqeri-network-abi-test --config Debug
+        run: cmake --build build --target noqeri-network-dns-test noqeri-network-loopback-test noqeri-network-wireless-test noqeri-network-abi-test --config Debug
       - name: Test native DNS
         run: ctest --test-dir build -C Debug -R '^noqeri-network-' --output-on-failure
