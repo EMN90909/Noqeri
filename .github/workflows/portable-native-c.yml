@@ -79,7 +79,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2022]
+        os: [ubuntu-24.04-arm, macos-15, macos-15-intel, windows-2022, windows-11-arm]
     steps:
       - uses: actions/checkout@v4
       - name: Compile Noqeri host frontend
@@ -87,8 +87,8 @@ jobs:
         run: |
           cmake -S . -B build-portable -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build build-portable --target noqeri --config Release --parallel 2
-      - name: Compile and run generated C11 on macOS
-        if: runner.os == 'macOS'
+      - name: Compile and run generated C11 on Unix ARM64 or x64
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
