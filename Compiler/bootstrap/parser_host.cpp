@@ -1,6 +1,7 @@
 #include "noe.hpp"
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <stdexcept>
 
 namespace noe {
@@ -442,6 +443,42 @@ ExprPtr Parser::call(){
     return e;
 }
 ExprPtr Parser::primary(){
+    if(match({TokenKind::Pipe})){
+        const Token open=previous();
+        const Token name=consumeName("expected lambda parameter after '|'");
+        consume(TokenKind::Pipe,"expected closing '|' after lambda parameter");
+        auto lambda=std::make_shared<LambdaExpr>();
+        lambda->span=open.span;
+        lambda->parameter="__nq_lambda_"+std::to_string(open.span.source)+
+            "_"+std::to_string(open.span.start)+"_"+name.lexeme;
+        lambda->body=expression();
+        // Rewrite only references to this lambda's argument; unresolved
+        // surrounding names remain lexical captures in the caller scope.
+        std::function<void(const ExprPtr&)> rename;
+        rename=[&](const ExprPtr&e){
+            if(!e)return;
+            if(auto n=std::dynamic_pointer_cast<NameExpr>(e)){
+                if(n->name==name.lexeme)n->name=lambda->parameter;
+            }else if(auto unary=std::dynamic_pointer_cast<UnaryExpr>(e))rename(unary->operand);
+            else if(auto binary=std::dynamic_pointer_cast<BinaryExpr>(e)){
+                rename(binary->left);rename(binary->right);
+            }else if(auto call=std::dynamic_pointer_cast<CallExpr>(e)){
+                rename(call->callee);for(const auto&arg:call->args)rename(arg);
+            }else if(auto cast=std::dynamic_pointer_cast<CastExpr>(e))rename(cast->value);
+            else if(auto index=std::dynamic_pointer_cast<IndexExpr>(e)){
+                rename(index->object);rename(index->index);
+            }else if(auto member=std::dynamic_pointer_cast<MemberExpr>(e))rename(member->object);
+            else if(auto record=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){
+                for(const auto&f:record->fields)rename(f.initializer);
+            }else if(auto interpolation=std::dynamic_pointer_cast<InterpolatedStringExpr>(e)){
+                for(const auto&part:interpolation->parts)rename(part);
+            }else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(e)){
+                for(const auto&item:array->elements)rename(item);
+            }
+        };
+        rename(lambda->body);
+        return lambda;
+    }
     if(match({TokenKind::Integer})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=static_cast<std::int64_t>(std::stoull(previous().lexeme,nullptr,0));return x;}
     if(match({TokenKind::Float})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=std::stod(previous().lexeme);return x;}
     if(match({TokenKind::True,TokenKind::False})){auto x=std::make_shared<LiteralExpr>();x->span=previous().span;x->value=previous().kind==TokenKind::True;return x;}

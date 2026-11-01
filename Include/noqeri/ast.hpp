@@ -21,7 +21,7 @@ enum class TokenKind {
     Plus, Minus, Star, Slash, Percent, Ampersand,
     Bang, BangEqual, Equal, EqualEqual,
     Less, LessEqual, Greater, GreaterEqual,
-    AndAnd, OrOr, Question, QuestionQuestion
+    AndAnd, OrOr, Pipe, Question, QuestionQuestion
 };
 
 struct Token { TokenKind kind=TokenKind::Eof; std::string lexeme; Span span; };
@@ -38,7 +38,7 @@ struct BinaryExpr final : Expr { ExprPtr left; TokenKind op; ExprPtr right; };
 // An explicit, borrowed contiguous cursor contract. The frontend validates
 // the four fields before setting enabled; NIR never guesses record offsets.
 struct CursorLayout { bool enabled=false; std::size_t data=0,length=0,front=0,back=0; };
-struct CallExpr final : Expr { CursorLayout cursor; ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; bool builtinSliceSource=false; std::string builtinText; bool growableListMethod=false; Type builtinResultType{}; };
+struct CallExpr final : Expr { bool inlineLambdaCollection=false; Type mapInputType{},mapOutputType{}; CursorLayout cursor; ExprPtr callee; std::vector<ExprPtr> args; std::size_t builtinWidth=8; std::size_t builtinCount=0; bool builtinCountKnown=false; bool builtinSliceSource=false; std::string builtinText; bool growableListMethod=false; Type builtinResultType{}; };
 struct CastExpr final : Expr { ExprPtr value; std::string typeName; };
 struct IndexExpr final : Expr { CursorLayout cursor; ExprPtr object,index; std::size_t elementSize=1; bool volatileAccess=false; bool baseIsSlice=false; bool hasFixedBound=false; std::size_t fixedBound=0; bool growableListRead=false; Type elementType{}; };
 struct MemberExpr final : Expr { ExprPtr object; std::string member; std::size_t offset=0; std::size_t fieldSize=0; bool volatileAccess=false; bool baseIsPointer=false; Type fieldType{}; };
@@ -46,6 +46,13 @@ struct ArrayExpr final : Expr { std::vector<ExprPtr> elements; std::size_t eleme
 struct InterpolatedStringExpr final : Expr {
     std::vector<ExprPtr> parts;
     std::vector<Type> partTypes;
+};
+// Non-escaping expression lambdas. A full closure value/function-pointer
+// ABI is intentionally outside this bounded collection lowering.
+struct LambdaExpr final : Expr {
+    std::string parameter;
+    ExprPtr body;
+    Type inputType{},outputType{};
 };
 // Inferred, stack-backed structural record. Field offsets are computed by
 // type checking before NIR lowering; values are evaluated in source order.

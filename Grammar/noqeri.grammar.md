@@ -302,3 +302,14 @@ NUL and unmatched braces are rejected. Cross-stage parity remains unfinished.
 record with fields `data: *T`, `length: usize`, `front: usize`, and
 `back: usize`, where `T` is a supported scalar. The frontend lowers
 to bounded contiguous memory operations and does not consume the cursor.
+
+
+## Experimental Stage-0 inline expression lambdas
+
+```text
+lambdaExpr := "|" IDENT "|" expression
+inlineMap  := "map_into" "(" sliceExpr "," sliceExpr "," lambdaExpr ")"
+inlineFilter := "filter_into" "(" sliceExpr "," sliceExpr "," lambdaExpr ")"
+```
+
+Lambda values cannot escape these two synchronous collection operations.

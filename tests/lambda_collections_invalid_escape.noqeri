@@ -1,0 +1,1 @@
+let callback = |x| x + 1

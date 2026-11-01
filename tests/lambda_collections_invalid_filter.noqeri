@@ -1,0 +1,3 @@
+let input: [int; 2] = [1, 2]
+let output: [int; 2]
+filter_into(slice(input), slice(output), |x| x + 1)

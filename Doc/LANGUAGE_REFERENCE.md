@@ -395,3 +395,28 @@ This is a contiguous, borrowed iterator protocol, **not** support for
 arbitrary state machines, generator closures, UTF-8 codepoint iteration by
 `for-in`, or universal `next()` dispatch. The Stage-2 compiler and all
 native targets still need independent qualification.
+
+
+## Experimental captured expression lambdas (Stage-0 candidate)
+
+Lambda syntax is `|name| expression`, currently accepted only in the
+`map_into` and `filter_into` collection operations, for typed slices with
+scalar numeric or boolean elements. The input and output buffers belong to
+the caller, and the returned `usize` is the number of elements written.
+
+```noqeri
+let values: [int; 4] = [1, 2, 3, 4]
+let mapped: [int; 4]
+let filtered: [int; 4]
+let bias = 3
+let threshold = 7
+let count = map_into(slice(values), slice(mapped), |x| x * x + bias)
+let accepted = filter_into(slice(mapped), slice(filtered), |x| x > threshold)
+```
+
+The callback captures `bias` or `threshold` by their local name when
+executed within the same function. These callbacks cannot escape, be stored,
+passed independently, or use arbitrary callable-object dispatch. Both
+operations evaluate each source element once, check each write against the
+output capacity, and fail when a bounded destination is too small.
+Compilation through the Stage-2 selfhosted pipeline is not yet supported.

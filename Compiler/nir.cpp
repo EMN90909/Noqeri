@@ -327,6 +327,101 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
         Reg l=lowerExpr(fn,e->left),r=lowerExpr(fn,e->right);NirInstruction i;i.op=NirOp::Binary;i.dest=fn.nextReg++;i.text=opText(e->op);i.args={l,r};emit(fn,i);return*i.dest;
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
+        if(e->inlineLambdaCollection){
+            auto lambda=std::dynamic_pointer_cast<LambdaExpr>(e->args[2]);
+            const bool filter=e->builtinText=="filter_into";
+            const Reg source=lowerExpr(fn,e->args[0]);
+            const Reg target=lowerExpr(fn,e->args[1]);
+            auto instruction=[&](NirOp opcode,const std::vector<Reg>&inputs,
+                                 Type type=Type{})->Reg{
+                NirInstruction i;i.op=opcode;i.dest=fn.nextReg++;
+                i.args=inputs;i.type=type;emit(fn,i);return *i.dest;
+            };
+            auto scalar=[&](std::int64_t value)->Reg{
+                NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;
+                i.literal=value;emit(fn,i);return *i.dest;
+            };
+            Type usizeType;usizeType.kind=TypeKind::Usize;
+            // Slice descriptors are compiler-checked pointer/length pairs.
+            for(Reg descriptor:{source,target}){
+                NirInstruction valid;valid.op=NirOp::CheckNonNull;
+                valid.args={descriptor};emit(fn,valid);
+            }
+            const Reg sourceLength=instruction(NirOp::SliceLen,{source},usizeType);
+            const Reg targetLength=instruction(NirOp::SliceLen,{target},usizeType);
+            const Reg sourceData=instruction(NirOp::SliceData,{source});
+            const Reg targetData=instruction(NirOp::SliceData,{target});
+            const std::string suffix=std::to_string(e->span.source)+"_"+
+                std::to_string(e->span.start)+"_"+std::to_string(fn.nextReg);
+            const std::string indexName="$nq_map_index_"+suffix;
+            const std::string writtenName="$nq_map_written_"+suffix;
+            const Reg zero=scalar(0),one=scalar(1);
+            auto storeLocal=[&](const std::string&name,Reg value){
+                NirInstruction i;i.op=NirOp::Store;i.text=name;i.args={value};
+                emit(fn,i);
+            };
+            auto loadLocal=[&](const std::string&name)->Reg{
+                NirInstruction i;i.op=NirOp::Load;i.dest=fn.nextReg++;
+                i.text=name;emit(fn,i);return *i.dest;
+            };
+            storeLocal(indexName,zero);
+            storeLocal(writtenName,zero);
+            const std::size_t header=fn.code.size();
+            const Reg index=loadLocal(indexName);
+            NirInstruction compare;compare.op=NirOp::Binary;
+            compare.dest=fn.nextReg++;compare.text="<";
+            compare.args={index,sourceLength};compare.type.kind=TypeKind::Bool;
+            emit(fn,compare);
+            NirInstruction leave;leave.op=NirOp::JumpIfFalse;
+            leave.args={*compare.dest};const auto leaveAt=fn.code.size();
+            emit(fn,leave);
+            auto checkBounds=[&](Reg position,Reg length){
+                NirInstruction i;i.op=NirOp::CheckBounds;
+                i.args={position,length};emit(fn,i);
+            };
+            auto checkNonNull=[&](Reg pointer){
+                NirInstruction i;i.op=NirOp::CheckNonNull;
+                i.args={pointer};emit(fn,i);
+            };
+            checkBounds(index,sourceLength);
+            checkNonNull(sourceData);
+            NirInstruction inputPtr;inputPtr.op=NirOp::PtrOffset;
+            inputPtr.dest=fn.nextReg++;inputPtr.args={sourceData,index};
+            inputPtr.width=e->mapInputType.size();emit(fn,inputPtr);
+            NirInstruction input;input.op=NirOp::LoadMemory;
+            input.dest=fn.nextReg++;input.args={*inputPtr.dest};
+            input.width=e->mapInputType.size();input.type=e->mapInputType;
+            emit(fn,input);
+            storeLocal(lambda->parameter,*input.dest);
+            const Reg mapped=lowerExpr(fn,lambda->body);
+            const Reg destination=filter?loadLocal(writtenName):index;
+            std::size_t skipAt=0;
+            if(filter){
+                NirInstruction skip;skip.op=NirOp::JumpIfFalse;
+                skip.args={mapped};skipAt=fn.code.size();emit(fn,skip);
+            }
+            checkBounds(destination,targetLength);
+            checkNonNull(targetData);
+            NirInstruction outputPtr;outputPtr.op=NirOp::PtrOffset;
+            outputPtr.dest=fn.nextReg++;outputPtr.args={targetData,destination};
+            outputPtr.width=e->mapOutputType.size();emit(fn,outputPtr);
+            NirInstruction output;output.op=NirOp::StoreMemory;
+            output.args={*outputPtr.dest,filter?*input.dest:mapped};
+            output.width=e->mapOutputType.size();emit(fn,output);
+            if(filter){
+                const Reg next=instruction(NirOp::Binary,{destination,one},usizeType);
+                fn.code.back().text="+";
+                storeLocal(writtenName,next);
+                fn.code[skipAt].target=fn.code.size();
+            }
+            const Reg nextIndex=instruction(NirOp::Binary,{index,one},usizeType);
+            fn.code.back().text="+";
+            storeLocal(indexName,nextIndex);
+            NirInstruction loop;loop.op=NirOp::Jump;loop.target=header;
+            emit(fn,loop);
+            fn.code[leaveAt].target=fn.code.size();
+            return filter?loadLocal(writtenName):sourceLength;
+        }
         if(e->growableListMethod){
             auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee);
             Reg list=lowerExpr(fn,member?member->object:e->args.front());

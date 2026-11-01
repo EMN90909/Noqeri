@@ -9,6 +9,7 @@ on:
       - 'tests/anonymous_record_*.noqeri'
       - 'tests/interpolated_string_*.noqeri'
       - 'tests/iterator_cursor_*.noqeri'
+      - 'tests/lambda_collections_*.noqeri'
       - 'Runtime/native/aot_runner.cpp'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
@@ -29,6 +30,7 @@ on:
       - 'tests/anonymous_record_*.noqeri'
       - 'tests/interpolated_string_*.noqeri'
       - 'tests/iterator_cursor_*.noqeri'
+      - 'tests/lambda_collections_*.noqeri'
       - 'Runtime/native/aot_runner.cpp'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
@@ -151,6 +153,22 @@ jobs:
           for input in tests/anonymous_record_invalid_*.noqeri; do
             if ./build-typed/noqeri check "$input" >/dev/null 2>&1; then
               echo "invalid anonymous record compiled successfully: $input" >&2
+              exit 1
+            fi
+          done
+      - name: Qualify capturing expression lambdas map_into and filter_into
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            reference="$(./build-typed/noqeri run tests/lambda_collections_smoke.noqeri "-$level")"
+            test "$reference" = "$(printf '%s\n' 4 4 19 2 12 19 3)"
+            node scripts/native-build.mjs tests/lambda_collections_smoke.noqeri "build-typed/lambda-collections-$level" --compiler=build-typed/noqeri "--opt=-$level"
+            test "$("build-typed/lambda-collections-$level")" = "$reference"
+          done
+          for input in tests/lambda_collections_invalid_*.noqeri; do
+            if ./build-typed/noqeri check "$input" >/dev/null 2>&1; then
+              echo "invalid lambda was accepted: $input" >&2
               exit 1
             fi
           done

@@ -296,6 +296,8 @@ bool TypeChecker::check(const Program&program){
             for(const auto& field:record->fields)gatherExpr(field.initializer);
         } else if(auto interpolation=std::dynamic_pointer_cast<InterpolatedStringExpr>(expr)){
             for(const auto& part:interpolation->parts)gatherExpr(part);
+        } else if(auto lambda=std::dynamic_pointer_cast<LambdaExpr>(expr)){
+            gatherExpr(lambda->body);
         }
     };
     gatherStmt=[&](const StmtPtr& stmt){
@@ -518,6 +520,12 @@ void TypeChecker::checkStmt(const StmtPtr&stmt){
 }
 
 Type TypeChecker::checkExpr(const ExprPtr&expr){
+    if(auto e=std::dynamic_pointer_cast<LambdaExpr>(expr)){
+        diagnostics_.error("NQR-T3096",e->span,
+            "a lambda must be used as map_into/filter_into's callback",
+            "first-class escaping closures and indirect calls are not implemented");
+        return simple(TypeKind::Unknown);
+    }
     if(auto e=std::dynamic_pointer_cast<InterpolatedStringExpr>(expr)){
         e->partTypes.clear();
         for(const auto&part:e->parts){
@@ -735,6 +743,46 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             }
         }
         std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
+        if(name=="map_into"||name=="filter_into"){
+            const auto lambda=e->args.size()==3?
+                std::dynamic_pointer_cast<LambdaExpr>(e->args[2]):nullptr;
+            if(!lambda){
+                diagnostics_.error("NQR-T3097",e->span,
+                    name+" expects input/output slices and one |item| expression lambda");
+                return simple(TypeKind::Unknown);
+            }
+            const Type source=checkExpr(e->args[0]);
+            const Type target=checkExpr(e->args[1]);
+            if(source.kind!=TypeKind::Slice||target.kind!=TypeKind::Slice||
+               !source.element||!target.element){
+                diagnostics_.error("NQR-T3098",e->span,
+                    name+" requires two typed slices, not owned or raw pointer inputs");
+                return simple(TypeKind::Unknown);
+            }
+            const Type input=*source.element,output=*target.element;
+            const auto supported=[](const Type&t){
+                return (t.isNumeric()||t.kind==TypeKind::Bool)&&
+                    t.size()>0&&t.size()<=8;
+            };
+            if(!supported(input)||!supported(output))
+                diagnostics_.error("NQR-T3098",e->span,
+                    "inline map/filter currently supports numeric or bool scalar slices");
+            pushScope();
+            define(lambda->parameter,input,false,lambda->span);
+            const Type result=checkExpr(lambda->body);
+            popScope();
+            lambda->inputType=input;lambda->outputType=result;
+            if(name=="map_into"&&result!=output)
+                diagnostics_.error("NQR-T3099",lambda->span,
+                    "map_into lambda returns "+result.name()+", destination expects "+output.name(),
+                    "use an explicit 'as' cast or a matching output slice");
+            if(name=="filter_into"&&(result.kind!=TypeKind::Bool||input!=output))
+                diagnostics_.error("NQR-T3100",lambda->span,
+                    "filter_into needs a bool lambda and matching input/output element types");
+            e->inlineLambdaCollection=true;e->builtinText=name;
+            e->mapInputType=input;e->mapOutputType=output;
+            return simple(TypeKind::Usize);
+        }
         if(name=="host"||name=="abi"){if(e->args.empty()){diagnostics_.error("NOE-T3015",e->span,name+" requires a service name");return simple(TypeKind::Unknown);}Type service=checkExpr(e->args[0]);if(service.kind!=TypeKind::String&&service.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3016",e->args[0]->span,"service name must be a string");for(std::size_t i=1;i<e->args.size();++i)checkExpr(e->args[i]);return simple(TypeKind::Unknown);}
         if(name=="sizeOf"||name=="alignOf"){
             if(e->args.size()!=1){

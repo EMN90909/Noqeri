@@ -1,0 +1,20 @@
+function test(): void {
+    let values: [int; 4] = [1, 2, 3, 4]
+    let mapped: [int; 4]
+    let filtered: [int; 4]
+    let bias: int = 3
+    let count: usize = map_into(slice(values), slice(mapped), |x| x * x + bias)
+    print(count)
+    print(mapped[0])
+    print(mapped[3])
+    let threshold: int = 7
+    let accepted: usize = filter_into(slice(mapped), slice(filtered), |x| x > threshold)
+    print(accepted)
+    print(filtered[0])
+    print(filtered[1])
+    let fValues: [float; 3] = [1.0, 2.0, 3.0]
+    let fOutput: [float; 3]
+    let fBias: float = 0.5
+    print(map_into(slice(fValues), slice(fOutput), |x| x + fBias))
+}
+test()

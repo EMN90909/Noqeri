@@ -1,0 +1,3 @@
+let input: [int; 2] = [1, 2]
+let output: [float; 2]
+map_into(slice(input), slice(output), |x| x + 1)

@@ -118,6 +118,10 @@ ExprPtr cloneExpr(const ExprPtr& e){
         n->parts.clear();for(const auto&part:x->parts)n->parts.push_back(cloneExpr(part));
         return n;
     }
+    if(auto x=std::dynamic_pointer_cast<LambdaExpr>(e)){
+        auto n=std::make_shared<LambdaExpr>(*x);n->body=cloneExpr(x->body);
+        return n;
+    }
     return{};
 }
 
@@ -198,6 +202,10 @@ private:
             for(const auto&part:x->parts)infer(part,env);
             return"string";
         }
+        if(auto x=std::dynamic_pointer_cast<LambdaExpr>(e)){
+            // The consuming collection supplies the lambda parameter type.
+            return"unknown";
+        }
         if(auto x=std::dynamic_pointer_cast<IndexExpr>(e))return elementType(infer(x->object,env));
         if(auto x=std::dynamic_pointer_cast<MemberExpr>(e))return memberType(infer(x->object,env),x->member);
         if(auto x=std::dynamic_pointer_cast<CallExpr>(e))return processCall(x,env);
@@ -219,7 +227,7 @@ private:
     std::string processCall(const std::shared_ptr<CallExpr>&call,Env&env){
         auto name=calleeName(call->callee);std::vector<std::string>args;for(auto&a:call->args)args.push_back(infer(a,env));auto fit=functions_.find(name);
         if(fit==functions_.end()){
-            if(name=="len")return"usize";
+            if(name=="len"||name=="map_into"||name=="filter_into")return"usize";
             // Builtin slice(...) has a concrete element type even though
             // it is not a declared user function. Propagate that type to
             // generic calls such as iterator_from_slice<T>(..., slice(xs)).
