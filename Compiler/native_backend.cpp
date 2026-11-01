@@ -1,6 +1,7 @@
 #include "noe.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
@@ -72,7 +73,9 @@ FunctionLayout layoutFor(const NirFunction&fn,const std::unordered_map<std::stri
         else if(i.op==NirOp::LoadMemory&&i.dest)
             l.regKinds[*i.dest]=i.type.kind==TypeKind::Float?ValueKind::Float:
                 i.type.kind==TypeKind::Bool?ValueKind::Bool:ValueKind::Int;
-        else if((i.op==NirOp::AddressOf||i.op==NirOp::PtrOffset||i.op==NirOp::Cast||i.op==NirOp::StackAlloc||i.op==NirOp::MakeSlice||i.op==NirOp::SliceData||i.op==NirOp::SliceLen||i.op==NirOp::AtomicLoad||i.op==NirOp::AtomicExchange||i.op==NirOp::AtomicCompareExchange||i.op==NirOp::Try||i.op==NirOp::Intrinsic)&&i.dest)l.regKinds[*i.dest]=ValueKind::Int;
+        else if(i.op==NirOp::Cast&&i.dest)
+            l.regKinds[*i.dest]=i.type.kind==TypeKind::Float?ValueKind::Float:ValueKind::Int;
+        else if((i.op==NirOp::AddressOf||i.op==NirOp::PtrOffset||i.op==NirOp::StackAlloc||i.op==NirOp::MakeSlice||i.op==NirOp::SliceData||i.op==NirOp::SliceLen||i.op==NirOp::AtomicLoad||i.op==NirOp::AtomicExchange||i.op==NirOp::AtomicCompareExchange||i.op==NirOp::Try||i.op==NirOp::Intrinsic)&&i.dest)l.regKinds[*i.dest]=ValueKind::Int;
         else if(i.op==NirOp::InlineAsm&&i.dest)l.regKinds[*i.dest]=ValueKind::Null;
         else if(i.op==NirOp::Binary&&i.dest&&i.args.size()==2){if(isComparison(i.text))l.regKinds[*i.dest]=ValueKind::Bool;else{auto a=rk(i.args[0]),b=rk(i.args[1]);if(a==ValueKind::String||b==ValueKind::String)l.regKinds[*i.dest]=ValueKind::String;else if(a==ValueKind::Float||b==ValueKind::Float)l.regKinds[*i.dest]=ValueKind::Float;else l.regKinds[*i.dest]=ValueKind::Int;}}
         else if(i.op==NirOp::Call&&i.dest){if((i.text=="nq_list_at"||i.text=="nq_list_pop"||i.text=="nq_list_set")&&i.type.kind==TypeKind::Float)l.regKinds[*i.dest]=ValueKind::Float;else if(i.text=="print")l.regKinds[*i.dest]=ValueKind::Null;else if(i.text=="clockMillis"||i.text=="textLength")l.regKinds[*i.dest]=ValueKind::Int;else if(i.text=="platform")l.regKinds[*i.dest]=ValueKind::String;else{auto it=returns.find(i.text);l.regKinds[*i.dest]=it==returns.end()?ValueKind::Unknown:it->second;}}
@@ -601,7 +604,78 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::InlineAsm:if(!safeInlineAsm(i.text)){diagnostics.error("NQR-N5021",{},"inline asm must be one instruction and may not contain labels or assembler directives");return false;}out<<"    "<<i.text<<"\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}break;
         case NirOp::Try:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");auto ok=localLabel(fn,pc,"try_ok");out<<"    test rax, rax\n    jns "<<ok<<"\n";restoreSaved();out<<"    leave\n    ret\n"<<ok<<":\n";store(*i.dest,"rax");}break;
         case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n";restoreSaved();out<<"    leave\n    ret\n";}break;
-        case NirOp::Cast:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");emitCast(out,i.text);store(*i.dest,"rax");}break;
+        case NirOp::Cast:if(i.dest&&!i.args.empty()){
+            load(i.args[0],"rax");
+            const auto sourceKind=i.args[0]<fn.registerTypes.size()
+                ?fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
+            const auto targetKind=i.type.kind;
+            Type sourceType;sourceType.kind=sourceKind;
+            Type targetType;targetType.kind=targetKind;
+            if(targetKind==TypeKind::Float&&sourceType.isInteger()){
+                // NIR registers hold integer values or IEEE-754 binary64 bits.
+                // CVTSI2SD is signed; large unsigned u64 values need the
+                // round-to-nearest (n >> 1 | n & 1) then double algorithm.
+                if(isUnsigned(sourceKind)&&sourceType.size()==8){
+                    out<<"    mov r10, rax\n    shr r10, 1\n    and eax, 1\n"
+                       <<"    or r10, rax\n    cvtsi2sd xmm0, r10\n    addsd xmm0, xmm0\n";
+                }else{
+                    if(isUnsigned(sourceKind)&&sourceType.size()==4)
+                        out<<"    mov eax, eax\n";
+                    out<<"    cvtsi2sd xmm0, rax\n";
+                }
+                out<<"    movq rax, xmm0\n";
+            }else if(sourceKind==TypeKind::Float&&targetType.isInteger()){
+                // Float-to-integer casts truncate toward zero. Never allow
+                // CVTTSD2SI's indefinite overflow/NaN sentinel to silently
+                // become a valid integer value.
+                const auto width=static_cast<unsigned>(targetType.size()*8);
+                const bool unsignedTarget=isUnsigned(targetKind);
+                const double lower=unsignedTarget?-1.0:
+                    width==64?-std::ldexp(1.0,63):
+                        -std::ldexp(1.0,static_cast<int>(width)-1)-1.0;
+                const double upper=std::ldexp(1.0,
+                    static_cast<int>(unsignedTarget?width:width-1));
+                auto floatingBits=[](double value){
+                    std::uint64_t bits=0;
+                    std::memcpy(&bits,&value,sizeof(bits));
+                    return bits;
+                };
+                const auto failed=localLabel(fn,pc,"cast_invalid");
+                const auto completed=localLabel(fn,pc,"cast_complete");
+                out<<"    movq xmm0, rax\n"
+                   <<"    mov r10, 0x"<<std::hex<<floatingBits(lower)<<std::dec<<"\n"
+                   <<"    movq xmm1, r10\n"
+                   <<"    ucomisd xmm0, xmm1\n"
+                   <<"    jp "<<failed<<"\n"
+                   <<(width==64&&!unsignedTarget?"    jb ":"    jbe ")<<failed<<"\n"
+                   <<"    mov r10, 0x"<<std::hex<<floatingBits(upper)<<std::dec<<"\n"
+                   <<"    movq xmm1, r10\n"
+                   <<"    ucomisd xmm0, xmm1\n"
+                   <<"    jp "<<failed<<"\n    jae "<<failed<<"\n";
+                if(unsignedTarget&&width==64){
+                    const auto small=localLabel(fn,pc,"cast_u64_small");
+                    const auto converted=localLabel(fn,pc,"cast_u64_converted");
+                    out<<"    mov r10, 0x43e0000000000000\n"
+                       <<"    movq xmm1, r10\n    ucomisd xmm0, xmm1\n"
+                       <<"    jb "<<small<<"\n"
+                       <<"    subsd xmm0, xmm1\n    cvttsd2si rax, xmm0\n"
+                       <<"    mov r10, 0x8000000000000000\n"
+                       <<"    or rax, r10\n    jmp "<<converted<<"\n"
+                       <<small<<":\n    cvttsd2si rax, xmm0\n"
+                       <<converted<<":\n";
+                }else out<<"    cvttsd2si rax, xmm0\n";
+                emitCast(out,i.text);
+                out<<"    jmp "<<completed<<"\n"
+                   <<failed<<":\n    ud2\n"
+                   <<completed<<":\n";
+            }else if(targetKind==TypeKind::Float&&sourceKind==TypeKind::Float){
+                // Bit-preserving float identity cast.
+            }else if(sourceKind==TypeKind::Float){
+                diagnostics.error("NQR-N5030",{},"unsupported native float cast target '"+i.text+"'");
+                return false;
+            }else emitCast(out,i.text);
+            store(*i.dest,"rax");
+        }break;
         case NirOp::Unary:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.text=="-"){if(i.type.kind==TypeKind::Float){
             out<<"    mov r10, 0x8000000000000000\n    xor rax, r10\n";
         }else{out<<"    neg rax\n";normalizeIntegerResult(out,i.type.kind);}}else if(i.text=="!")out<<"    test rax, rax\n    sete al\n    movzx rax, al\n";store(*i.dest,"rax");}break;

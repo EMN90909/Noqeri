@@ -1,0 +1,4 @@
+// NaN is not representable as an integer.
+let values: [float; 2] = [0.0, 0.0]
+let nanValue: float = values[0] / values[1]
+print(nanValue as int)

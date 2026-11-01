@@ -1,5 +1,12 @@
 name: Native typed arithmetic and bounds qualification
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/**'
+      - 'tests/native_float_casts.noqeri'
+      - 'tests/native_float_cast_invalid_*.noqeri'
+      - '.github/workflows/native-typed-arithmetic.yml'
   pull_request:
     paths:
       - 'Compiler/**'
@@ -8,6 +15,8 @@ on:
       - 'tests/cpp/phi_edge_host.c'
       - 'tests/native_unsigned_arithmetic.noqeri'
       - 'tests/native_narrow_arithmetic.noqeri'
+      - 'tests/native_float_casts.noqeri'
+      - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
       - 'tests/native_division_traps.py'
       - 'tests/native_bounds_*.noqeri'
@@ -87,6 +96,30 @@ jobs:
           cc -c build-typed/simd-emit.s -o build-typed/simd-emit.o
           cc -std=c11 tests/cpp/native_simd_host.c build-typed/simd-emit.o -o build-typed/simd-emit-exec
           build-typed/simd-emit-exec
+      - name: Compare native floating-point casts and reference interpreter
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            reference="$(./build-typed/noqeri run tests/native_float_casts.noqeri "-$level")"
+            test "$reference" = "0"
+            node scripts/native-build.mjs tests/native_float_casts.noqeri "build-typed/float-casts-$level" --compiler=build-typed/noqeri "--opt=-$level" --keep-asm
+            actual="$("build-typed/float-casts-$level")"
+            test "$actual" = "$reference"
+            grep -Fq 'cvtsi2sd xmm0' "build-typed/float-casts-$level.s"
+            grep -Fq 'cvttsd2si rax' "build-typed/float-casts-$level.s"
+          done
+          for source in tests/native_float_cast_invalid_*.noqeri; do
+            if ./build-typed/noqeri run "$source" >/dev/null 2>&1; then
+              echo "reference failed to reject invalid cast: $source" >&2
+              exit 1
+            fi
+            node scripts/native-build.mjs "$source" "build-typed/$(basename "$source" .noqeri)" --compiler=build-typed/noqeri --opt=-O0
+            if (ulimit -c 0; "build-typed/$(basename "$source" .noqeri)" >/dev/null 2>&1); then
+              echo "native failed to trap invalid cast: $source" >&2
+              exit 1
+            fi
+          done
       - name: Verify scalar diamond Phi lowering in native AOT
         shell: bash
         run: |

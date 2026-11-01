@@ -24,3 +24,18 @@ Target selection is data-driven rather than selected from the build host. This m
 ## Verification gate
 
 The current format modules define policy and constants; they are not yet proof of complete binary emitters. Stable native support requires fixtures that parse emitted objects with independent platform tools and execute/link them on each target architecture. The project can gather that evidence on local or self-managed runners without GitHub Actions.
+
+## Floating-point native casting candidate (2026-11-01)
+
+The Stage-0 Linux x86-64 emitter now distinguishes numeric conversion from
+bit reinterpretation in explicit `as` casts. It emits SSE2 signed integer/
+binary64 conversion and bounded truncating binary64/integer conversion.
+Unsigned 64-bit values are handled without treating their high bit as a sign
+bit. Non-finite values and float-to-integer values outside the target range
+trap instead of returning x86's indefinite-conversion sentinel.
+
+This does **not** make native code generation portable across architectures.
+The differential test `tests/native_float_casts.noqeri` and invalid-conversion
+fixtures must pass native and reference execution at -O0 and -O3 before the
+new casts are described as qualified. All other native-target restrictions
+remain in effect.

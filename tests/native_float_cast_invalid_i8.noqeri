@@ -1,0 +1,3 @@
+// Out of range: the signed i8 destination cannot represent 128.
+let values: [float; 1] = [128.0]
+print(values[0] as i8)

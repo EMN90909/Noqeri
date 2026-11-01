@@ -1,0 +1,29 @@
+// Runtime conversion of signed/unsigned scalars and IEEE-754 binary64.
+// Do not replace these with compile-time integer or float constants.
+function test(): int {
+    let signedValues: [int; 2] = [-7, 45]
+    let negative: int = signedValues[0]
+    let positive: int = signedValues[1]
+    if (negative as float) != -7.0 { return 1 }
+    if (positive as float) != 45.0 { return 2 }
+    let unsignedValue: u64 = 9223372036854775807 as u64
+    unsignedValue = unsignedValue + 1 as u64
+    if (unsignedValue as float) != 9223372036854775808.0 { return 3 }
+    let unsignedMax: u64 = unsignedValue + 9223372036854775807 as u64
+    if (unsignedMax as float) != 18446744073709551616.0 { return 4 }
+
+    let decimalValues: [float; 5] = [12.875, -2.75, 255.99, -128.75, 4294967295.0]
+    let decimal: float = decimalValues[0]
+    let fractionalNegative: float = decimalValues[1]
+    let byteValue: float = decimalValues[2]
+    let negativeByte: float = decimalValues[3]
+    let wideValue: float = decimalValues[4]
+    if (decimal as int) != 12 { return 5 }
+    if (fractionalNegative as int) != -2 { return 6 }
+    if (byteValue as u8) != 255 as u8 { return 7 }
+    if (negativeByte as i8) != -128 as i8 { return 8 }
+    if (wideValue as u32) != 4294967295 as u32 { return 9 }
+    if ((9223372036854775808.0 as u64) != unsignedValue) { return 10 }
+    return 0
+}
+print(test())

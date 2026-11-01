@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -245,7 +246,43 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
             case NirOp::InlineAsm:if(i.dest)regs[*i.dest]=std::monostate{};break;
             case NirOp::Try:{auto value=asInt(get(i.args[0]));if(value<0)return NirValue(value);regs[*i.dest]=value;break;}
             case NirOp::Throw:{auto code=asInt(get(i.args[0]));return NirValue(code<0?code:-(code+1));}
-            case NirOp::Cast:{auto v=get(i.args[0]);Type t=typeFromName(i.text);if(t.kind==TypeKind::Float)regs[*i.dest]=asDouble(v);else if(t.isInteger())regs[*i.dest]=typedBits(asInt(v),t.kind);else if(t.kind==TypeKind::Pointer)regs[*i.dest]=asInt(v);else regs[*i.dest]=v;break;}
+            case NirOp::Cast:{
+                auto v=get(i.args[0]);
+                Type t=typeFromName(i.text);
+                if(t.kind==TypeKind::Float){
+                    if(auto n=std::get_if<std::int64_t>(&v)){
+                        const auto sourceKind=i.args[0]<fn.registerTypes.size()
+                            ?fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
+                        Type source;source.kind=sourceKind;
+                        regs[*i.dest]=source.isInteger()&&
+                            (sourceKind==TypeKind::U64||sourceKind==TypeKind::Usize)
+                            ?static_cast<double>(static_cast<std::uint64_t>(*n))
+                            :static_cast<double>(*n);
+                    }else regs[*i.dest]=asDouble(v);
+                }else if(t.isInteger()){
+                    if(auto f=std::get_if<double>(&v)){
+                        const auto width=static_cast<int>(t.size()*8);
+                        const bool unsignedTarget=t.kind==TypeKind::U8||
+                            t.kind==TypeKind::U16||t.kind==TypeKind::U32||
+                            t.kind==TypeKind::U64||t.kind==TypeKind::Usize;
+                        const long double truncated=std::trunc(static_cast<long double>(*f));
+                        const long double lower=unsignedTarget?0.0L:
+                            -std::ldexp(1.0L,width-1);
+                        const long double upper=std::ldexp(1.0L,
+                            unsignedTarget?width:width-1);
+                        if(!std::isfinite(*f)||truncated<lower||truncated>=upper)
+                            throw std::runtime_error("floating-point cast out of integer range");
+                        const std::uint64_t bits=unsignedTarget
+                            ?static_cast<std::uint64_t>(truncated)
+                            :static_cast<std::uint64_t>(static_cast<std::int64_t>(truncated));
+                        std::int64_t signedBits=0;
+                        std::memcpy(&signedBits,&bits,sizeof(bits));
+                        regs[*i.dest]=typedBits(signedBits,t.kind);
+                    }else regs[*i.dest]=typedBits(asInt(v),t.kind);
+                }else if(t.kind==TypeKind::Pointer)regs[*i.dest]=asInt(v);
+                else regs[*i.dest]=v;
+                break;
+            }
             case NirOp::Unary:{auto v=get(i.args[0]);if(i.text=="!")regs[*i.dest]=!truthyValue(v);else if(i.text=="-"){if(auto n=std::get_if<std::int64_t>(&v))regs[*i.dest]=typedBits(negateInt(*n),i.type.kind);else regs[*i.dest]=-asDouble(v);}else regs[*i.dest]=v;break;}
             case NirOp::Binary:{
                 const auto kind=i.args[0]<fn.registerTypes.size()?
