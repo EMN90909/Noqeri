@@ -294,3 +294,11 @@ interpolatedString := 'f"' (text | "{{" | "}}" | "{" IDENT "}")* '"'
 
 Interpolation is opt-in and permits scalar named substitutions only. Embedded
 NUL and unmatched braces are rejected. Cross-stage parity remains unfinished.
+
+
+## Experimental Stage-0 cursor `for-in` contract
+
+`for item in cursorPointer { ... }` recognizes a typed pointer to any
+record with fields `data: *T`, `length: usize`, `front: usize`, and
+`back: usize`, where `T` is a supported scalar. The frontend lowers
+to bounded contiguous memory operations and does not consume the cursor.

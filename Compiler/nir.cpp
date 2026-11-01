@@ -137,6 +137,43 @@ Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
     if(auto x=std::dynamic_pointer_cast<IndexExpr>(expr)){
         Reg base=lowerExpr(fn,x->object);
         Reg idx=lowerExpr(fn,x->index);
+        if(x->cursor.enabled){
+            NirInstruction valid;valid.op=NirOp::CheckNonNull;valid.args={base};emit(fn,valid);
+            auto field=[&](std::size_t offset,Type kind)->Reg{
+                NirInstruction address;address.op=NirOp::PtrOffset;
+                address.dest=fn.nextReg++;address.args={base};address.target=offset;
+                address.width=1;emit(fn,address);
+                NirInstruction load;load.op=NirOp::LoadMemory;
+                load.dest=fn.nextReg++;load.args={*address.dest};
+                load.width=8;load.type=kind;emit(fn,load);
+                return *load.dest;
+            };
+            Type usizeType;usizeType.kind=TypeKind::Usize;
+            const Reg front=field(x->cursor.front,usizeType);
+            const Reg back=field(x->cursor.back,usizeType);
+            const Reg length=field(x->cursor.length,usizeType);
+            NirInstruction remaining;remaining.op=NirOp::Binary;
+            remaining.dest=fn.nextReg++;remaining.text="-";
+            remaining.args={back,front};remaining.type=usizeType;emit(fn,remaining);
+            NirInstruction relativeBounds;relativeBounds.op=NirOp::CheckBounds;
+            relativeBounds.args={idx,*remaining.dest};emit(fn,relativeBounds);
+            NirInstruction absolute;absolute.op=NirOp::Binary;
+            absolute.dest=fn.nextReg++;absolute.text="+";
+            absolute.args={front,idx};absolute.type=usizeType;emit(fn,absolute);
+            NirInstruction backBounds;backBounds.op=NirOp::CheckBounds;
+            backBounds.args={*absolute.dest,back};emit(fn,backBounds);
+            NirInstruction lengthBounds;lengthBounds.op=NirOp::CheckBounds;
+            lengthBounds.args={*absolute.dest,length};emit(fn,lengthBounds);
+            Type pointer;pointer.kind=TypeKind::Pointer;
+            pointer.pointee=std::make_shared<Type>(x->elementType);
+            const Reg data=field(x->cursor.data,pointer);
+            NirInstruction dataNonNull;dataNonNull.op=NirOp::CheckNonNull;
+            dataNonNull.args={data};emit(fn,dataNonNull);
+            NirInstruction address;address.op=NirOp::PtrOffset;
+            address.dest=fn.nextReg++;address.args={data,*absolute.dest};
+            address.width=x->elementSize;emit(fn,address);
+            return *address.dest;
+        }
         if(x->baseIsSlice){
             NirInstruction nonnull;nonnull.op=NirOp::CheckNonNull;nonnull.args={base};emit(fn,nonnull);
             NirInstruction length;length.op=NirOp::SliceLen;length.dest=fn.nextReg++;length.args={base};emit(fn,length);
@@ -314,6 +351,26 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
             emit(fn,i);return *i.dest;
         }
         if(name=="len"){
+            if(e->cursor.enabled){
+                const Reg source=lowerExpr(fn,e->args[0]);
+                NirInstruction valid;valid.op=NirOp::CheckNonNull;
+                valid.args={source};emit(fn,valid);
+                auto position=[&](std::size_t offset)->Reg{
+                    NirInstruction addr;addr.op=NirOp::PtrOffset;
+                    addr.dest=fn.nextReg++;addr.args={source};
+                    addr.target=offset;addr.width=1;emit(fn,addr);
+                    NirInstruction read;read.op=NirOp::LoadMemory;
+                    read.dest=fn.nextReg++;read.args={*addr.dest};read.width=8;
+                    read.type.kind=TypeKind::Usize;emit(fn,read);
+                    return *read.dest;
+                };
+                const Reg front=position(e->cursor.front);
+                const Reg back=position(e->cursor.back);
+                NirInstruction remaining;remaining.op=NirOp::Binary;
+                remaining.dest=fn.nextReg++;remaining.text="-";
+                remaining.args={back,front};remaining.type.kind=TypeKind::Usize;
+                emit(fn,remaining);return *remaining.dest;
+            }
             if(e->builtinCountKnown){NirInstruction i;i.op=NirOp::Const;i.dest=fn.nextReg++;i.literal=static_cast<std::int64_t>(e->builtinCount);emit(fn,i);return*i.dest;}
             Reg slice=lowerExpr(fn,e->args[0]);NirInstruction check;check.op=NirOp::CheckNonNull;check.args={slice};emit(fn,check);NirInstruction i;i.op=NirOp::SliceLen;i.dest=fn.nextReg++;i.args={slice};emit(fn,i);return*i.dest;
         }

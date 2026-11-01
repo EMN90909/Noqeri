@@ -8,6 +8,7 @@ on:
       - 'tests/native_float_print.noqeri'
       - 'tests/anonymous_record_*.noqeri'
       - 'tests/interpolated_string_*.noqeri'
+      - 'tests/iterator_cursor_*.noqeri'
       - 'Runtime/native/aot_runner.cpp'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
@@ -25,6 +26,7 @@ on:
       - 'tests/native_float_print.noqeri'
       - 'tests/anonymous_record_*.noqeri'
       - 'tests/interpolated_string_*.noqeri'
+      - 'tests/iterator_cursor_*.noqeri'
       - 'Runtime/native/aot_runner.cpp'
       - 'tests/native_float_cast_invalid_*.noqeri'
       - 'tests/typed_result_two_parameters*.noqeri'
@@ -148,6 +150,31 @@ jobs:
               exit 1
             fi
           done
+      - name: Qualify generic borrowed cursor for-in on native and reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            reference="$(./build-typed/noqeri run tests/iterator_cursor_smoke.noqeri "-$level")"
+            test "$reference" = "$(printf '%s\n' 23 90 6)"
+            node scripts/native-build.mjs tests/iterator_cursor_smoke.noqeri "build-typed/iterator-cursor-$level" --compiler=build-typed/noqeri "--opt=-$level"
+            test "$("build-typed/iterator-cursor-$level")" = "$reference"
+          done
+          for input in tests/iterator_cursor_invalid_*.noqeri; do
+            if ./build-typed/noqeri check "$input" >/dev/null 2>&1; then
+              echo "invalid cursor protocol compiled: $input" >&2
+              exit 1
+            fi
+          done
+          if ./build-typed/noqeri run tests/iterator_cursor_oob.noqeri >/dev/null 2>&1; then
+            echo 'reference failed to trap out-of-range cursor' >&2
+            exit 1
+          fi
+          node scripts/native-build.mjs tests/iterator_cursor_oob.noqeri build-typed/cursor-oob --compiler=build-typed/noqeri --opt=-O0
+          if (ulimit -c 0; build-typed/cursor-oob >/dev/null 2>&1); then
+            echo 'native failed to trap out-of-range cursor' >&2
+            exit 1
+          fi
       - name: Qualify opt-in typed interpolated strings
         shell: bash
         run: |

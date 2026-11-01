@@ -1,0 +1,8 @@
+record BrokenCursor {
+    data: *int
+    length: usize
+    front: int
+    back: usize
+}
+let cursor: BrokenCursor
+for item in &cursor { print(item) }

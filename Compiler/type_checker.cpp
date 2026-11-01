@@ -191,6 +191,34 @@ std::optional<RecordField> TypeChecker::resolveField(const Type&base,const std::
     auto r=records_.find(t.recordName);if(r==records_.end())return std::nullopt;for(const auto&f:r->second.fields)if(f.name==member)return f;return std::nullopt;
 }
 
+// Generic contiguous borrow protocol, not hardcoded to Iterator<T> names.
+// Implementers supply exactly typed data/length/front/back fields; their
+// struct may add other fields without changing the shared cursor contract.
+std::optional<CursorLayout> TypeChecker::cursorLayout(const Type&base,Type* valueType)const{
+    if(base.kind!=TypeKind::Pointer||!base.pointee||
+       base.pointee->kind!=TypeKind::Record)return std::nullopt;
+    const auto data=resolveField(base,"data");
+    const auto length=resolveField(base,"length");
+    const auto front=resolveField(base,"front");
+    const auto back=resolveField(base,"back");
+    if(!data||!length||!front||!back)return std::nullopt;
+    const Type t=typeFromName(data->typeName);
+    if(t.kind!=TypeKind::Pointer||!t.pointee||
+       !(t.pointee->isInteger()||t.pointee->kind==TypeKind::Bool||
+         t.pointee->kind==TypeKind::Float||t.pointee->kind==TypeKind::Pointer)||
+       t.pointee->size()==0||t.pointee->size()>8 ||
+       typeFromName(length->typeName).kind!=TypeKind::Usize||
+       typeFromName(front->typeName).kind!=TypeKind::Usize||
+       typeFromName(back->typeName).kind!=TypeKind::Usize||
+       data->size!=8||length->size!=8||front->size!=8||back->size!=8)
+        return std::nullopt;
+    if(valueType)*valueType=*t.pointee;
+    CursorLayout result;result.enabled=true;
+    result.data=data->offset;result.length=length->offset;
+    result.front=front->offset;result.back=back->offset;
+    return result;
+}
+
 bool TypeChecker::bindGeneric(const Type& pattern,const Type& actual,std::unordered_map<std::string,Type>& bindings) const{
     if(pattern.kind==TypeKind::Generic){auto it=bindings.find(pattern.genericName);if(it==bindings.end()){bindings[pattern.genericName]=actual;return true;}return canAssign(it->second,actual)&&canAssign(actual,it->second);}
     if(pattern.kind!=actual.kind){if(pattern.kind==TypeKind::Unknown||actual.kind==TypeKind::Unknown)return true;return false;}
@@ -619,6 +647,11 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
     if(auto e=std::dynamic_pointer_cast<MemberExpr>(expr)){Type b=checkExpr(e->object);auto f=resolveField(b,e->member);if(!f){diagnostics_.error("NOE-T3024",e->span,"type '"+b.name()+"' has no field '"+e->member+"'");return simple(TypeKind::Unknown);}e->offset=f->offset;e->fieldSize=f->size;if(b.kind==TypeKind::Pointer){e->volatileAccess=b.isVolatile;e->baseIsPointer=true;}e->fieldType=resolveType(f->typeName,e->span);return e->fieldType;}
     if(auto e=std::dynamic_pointer_cast<IndexExpr>(expr)){
         Type container=checkExpr(e->object);Type idx=checkExpr(e->index);if(!idx.isInteger()&&idx.kind!=TypeKind::Unknown)diagnostics_.error("NOE-T3025",e->index->span,"index must be an integer");
+        if(auto cursor=cursorLayout(container,&e->elementType)){
+            e->cursor=*cursor;
+            e->elementSize=e->elementType.size();
+            return e->elementType;
+        }
         if(container.kind==TypeKind::List){
             e->growableListRead=true;
             e->elementSize=8;
@@ -723,7 +756,8 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
         if(name=="len"){
             if(e->args.size()!=1){diagnostics_.error("NOE-T3040",e->span,"len expects exactly one array or slice");return simple(TypeKind::Usize);}Type t=checkExpr(e->args[0]);if(t.kind==TypeKind::Array){e->builtinCount=t.count;e->builtinCountKnown=true;}
             else if(t.kind==TypeKind::List){e->growableListMethod=true;e->builtinText="length";}
-            else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array, slice or owned list");return simple(TypeKind::Usize);
+            else if(auto cursor=cursorLayout(t)){e->cursor=*cursor;}
+            else if(t.kind!=TypeKind::Slice)diagnostics_.error("NOE-T3041",e->args[0]->span,"len expects an array, slice, owned list, or borrowed scalar cursor");return simple(TypeKind::Usize);
         }
         if(name=="slice"){
             if(e->args.size()==1){Type a=checkExpr(e->args[0]);if(a.kind!=TypeKind::Array||!a.element){diagnostics_.error("NOE-T3042",e->span,"slice(array) expects a fixed array");return simple(TypeKind::Unknown);}e->builtinCount=a.count;e->builtinCountKnown=true;e->builtinWidth=std::max<std::size_t>(1,a.element->size());Type s;s.kind=TypeKind::Slice;s.element=a.element;return s;}

@@ -43,7 +43,7 @@ private:
             expression(index->object);expression(index->index);
             if(auto name=std::dynamic_pointer_cast<NameExpr>(index->object)){
                 auto it=bounds_.find(name->name);if(it!=bounds_.end()){index->hasFixedBound=true;index->fixedBound=it->second;}
-                if(rawPointers_.count(name->name)>0&&!index->baseIsSlice)requireUnsafe(index->span,"raw pointer indexing");
+                if(rawPointers_.count(name->name)>0&&!index->baseIsSlice&&!index->cursor.enabled)requireUnsafe(index->span,"raw pointer indexing");
             }else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(index->object)){index->hasFixedBound=true;index->fixedBound=array->elements.size();}
             return;
         }

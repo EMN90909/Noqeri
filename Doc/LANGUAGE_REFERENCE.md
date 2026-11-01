@@ -355,3 +355,43 @@ composite formatting are rejected. The hosted implementation retains native
 formatted strings until process exit, limiting individual results to 1 MiB
 and total retained results to 16 MiB. Stage-2 and freestanding support remain
 unfinished.
+
+
+## Experimental generic borrowed cursor `for-in` (Stage-0 candidate)
+
+In addition to arrays, slices and selected owned lists, the Stage-0
+frontend can iterate through any caller-owned cursor record with this
+shape:
+
+```noqeri
+record Cursor {
+    data: *int
+    length: usize
+    front: usize
+    back: usize
+}
+
+let values: [int; 3] = [4, 5, 6]
+let cursor: Cursor
+cursor.data = &values[0]
+cursor.length = 3 as usize
+cursor.front = 0 as usize
+cursor.back = cursor.length
+
+for value in &cursor {
+    print(value)
+}
+```
+
+The `data` field may point to a supported 1-, 2-, 4- or 8-byte scalar
+element, including typed generic specializations of `Iterator<T>`.
+The compiler derives field offsets from the actual layout, checks the cursor
+and data pointers for null, and bounds-checks against both `back` and
+`length` on every read. The iteration is a **non-consuming traversal** from
+the cursor's current front position: it does not mutate `front`. An invalid
+cursor can trap rather than yield undefined memory access.
+
+This is a contiguous, borrowed iterator protocol, **not** support for
+arbitrary state machines, generator closures, UTF-8 codepoint iteration by
+`for-in`, or universal `next()` dispatch. The Stage-2 compiler and all
+native targets still need independent qualification.
