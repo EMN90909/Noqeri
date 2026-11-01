@@ -10,6 +10,7 @@ on:
       - 'CMakeLists.txt'
       - 'tests/portable_native_*.noqeri'
       - '.github/workflows/portable-native-c.yml'
+      - 'tests/portable-c11-consumer/CMakeLists.txt'
   pull_request:
     paths:
       - 'Compiler/portable_c_backend.cpp'
@@ -18,6 +19,7 @@ on:
       - 'CMakeLists.txt'
       - 'tests/portable_native_*.noqeri'
       - '.github/workflows/portable-native-c.yml'
+      - 'tests/portable-c11-consumer/CMakeLists.txt'
   workflow_dispatch:
 
 permissions:
@@ -54,3 +56,53 @@ jobs:
             echo "unsupported aggregate was incorrectly emitted"; exit 1
           fi
           test ! -e build-portable/rejected.c
+
+  portable-c11-cross-platform:
+    name: Compiled native scalar C11 on alternative host
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Noqeri host frontend
+        shell: bash
+        run: |
+          cmake -S . -B build-portable -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-portable --target noqeri --config Release --parallel 2
+      - name: Compile and run generated C11 on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for level in O0 O3; do
+            ./build-portable/noqeri emit-c tests/portable_native_scalar.noqeri "build-portable/smoke-$level.c" "-$level"
+            cmake -S tests/portable-c11-consumer -B "build-portable/consumer-$level"               -DNOQERI_GENERATED_SOURCE="$PWD/build-portable/smoke-$level.c"
+            cmake --build "build-portable/consumer-$level" --config Release
+            expected="$(./build-portable/noqeri run tests/portable_native_scalar.noqeri "-$level")"
+            actual="$("build-portable/consumer-$level/noqeri_generated")"
+            test "$expected" = "$actual"
+          done
+      - name: Compile and run generated C11 on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $compiler = ".\build-portable\Release\noqeri.exe"
+          if (!(Test-Path $compiler)) { throw "Windows Noqeri compiler missing" }
+          foreach ($level in @("O0","O3")) {
+            & $compiler emit-c tests/portable_native_scalar.noqeri "build-portable/smoke-$level.c" "-$level"
+            if ($LASTEXITCODE -ne 0) { throw "emit-c failed" }
+            $source = (Resolve-Path "build-portable/smoke-$level.c").Path
+            cmake -S tests/portable-c11-consumer -B "build-portable/consumer-$level" "-DNOQERI_GENERATED_SOURCE=$source"
+            if ($LASTEXITCODE -ne 0) { throw "C11 consumer configuration failed" }
+            cmake --build "build-portable/consumer-$level" --config Release
+            if ($LASTEXITCODE -ne 0) { throw "C11 consumer compilation failed" }
+            $expected = ((& $compiler run tests/portable_native_scalar.noqeri "-$level") | Out-String).TrimEnd()
+            if ($LASTEXITCODE -ne 0) { throw "reference execution failed" }
+            $native = ".\build-portable\consumer-$level\Release\noqeri_generated.exe"
+            if (!(Test-Path $native)) { throw "native consumer binary missing" }
+            $actual = ((& $native) | Out-String).TrimEnd()
+            if ($LASTEXITCODE -ne 0 -or $actual -ne $expected) { throw "native/reference output mismatch" }
+          }
