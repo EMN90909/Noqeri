@@ -2,6 +2,7 @@
 #include "abi.h"
 #include "noqeri/network_transport.hpp"
 #include "noqeri/network_dns.hpp"
+#include "noqeri/network_wireless.hpp"
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
@@ -80,6 +81,91 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
     if (name == "netHttpAvailable") {
         if (!args.empty()) return bad();
         return NirValue(noqeri::network::http_available());
+    }
+    static thread_local std::string wifi_scan_cache, bluetooth_scan_cache;
+    auto line_count = [](const std::string& lines) -> std::int64_t {
+        std::int64_t count = 0;
+        std::size_t start = 0;
+        while (start < lines.size()) {
+            auto end = lines.find('\n', start);
+            if (end == std::string::npos) end = lines.size();
+            if (end > start) ++count;
+            start = end + 1;
+        }
+        return count;
+    };
+    if (name=="wifiAvailable" || name=="netWifiAvailable") {
+        if (!args.empty()) return bad();
+        return NirValue(noqeri::network::wifi_available());
+    }
+    if (name=="wifiConnectedSsid" || name=="netWifiSsid") {
+        if (!args.empty()) return bad();
+        auto r=noqeri::network::wifi_connected_ssid();
+        network_last_error=r.error;
+        return NirValue(r.value);
+    }
+    if (name=="wifiScan" || name=="netWifiScan") {
+        if (!args.empty()) return bad();
+        auto r=noqeri::network::wifi_scan();
+        network_last_error=r.error;
+        wifi_scan_cache=r.value;
+        if (name=="wifiScan") return NirValue(r.error ? static_cast<std::int64_t>(r.error) : line_count(r.value));
+        return NirValue(r.value);
+    }
+    if (name=="wifiScanResults") {
+        if (!args.empty()) return bad();
+        return NirValue(wifi_scan_cache);
+    }
+    if (name=="wifiConnect" || name=="netWifiConnectSaved") {
+        auto ssid=net_str(0);
+        if (!ssid || (name=="wifiConnect" ? args.size()!=2 || !net_str(1) : args.size()!=1)) return bad();
+        if (name=="wifiConnect" && !net_str(1)->empty()) {
+            network_last_error=-3; // credentials must not be exposed in command line
+            return NirValue(static_cast<std::int64_t>(-3));
+        }
+        auto rc=noqeri::network::wifi_connect_saved(*ssid);
+        network_last_error=rc;
+        return NirValue(static_cast<std::int64_t>(rc));
+    }
+    if (name=="wifiDisconnect" || name=="netWifiDisconnect") {
+        if (!args.empty()) return bad();
+        auto rc=noqeri::network::wifi_disconnect();
+        network_last_error=rc;
+        return NirValue(static_cast<std::int64_t>(rc));
+    }
+    if (name=="bluetoothAvailable" || name=="netBluetoothAvailable") {
+        if (!args.empty()) return bad();
+        return NirValue(noqeri::network::bluetooth_available());
+    }
+    if (name=="bluetoothScan" || name=="netBluetoothScan") {
+        std::int64_t ms=0;
+        if (args.size()!=1 || !net_int(0,ms)) return bad();
+        if (ms<1000 || ms>30000) return bad();
+        auto r=noqeri::network::bluetooth_scan(static_cast<int>(ms));
+        network_last_error=r.error;
+        bluetooth_scan_cache=r.value;
+        if (name=="bluetoothScan")
+            return NirValue(r.error ? static_cast<std::int64_t>(r.error) : line_count(r.value));
+        return NirValue(r.value);
+    }
+    if (name=="bluetoothScanResults") {
+        if (!args.empty()) return bad();
+        return NirValue(bluetooth_scan_cache);
+    }
+    if (name=="bluetoothConnect" || name=="netBluetoothConnect") {
+        auto id=net_str(0); std::int64_t ms=0;
+        if (args.size()!=2 || !id || !net_int(1,ms)) return bad();
+        if (ms<1000 || ms>30000) return bad();
+        auto handle=noqeri::network::bluetooth_connect(*id,static_cast<int>(ms));
+        network_last_error=handle<0?static_cast<int>(handle):0;
+        return NirValue(handle);
+    }
+    if (name=="bluetoothDisconnect" || name=="netBluetoothDisconnect") {
+        std::int64_t handle=0;
+        if (args.size()!=1 || !net_int(0,handle)) return bad();
+        auto rc=noqeri::network::bluetooth_disconnect(handle);
+        network_last_error=rc;
+        return NirValue(static_cast<std::int64_t>(rc));
     }
     if (name == "netTcpConnect" || name == "tcpConnect") {
         std::int64_t port=0, timeout=0;
