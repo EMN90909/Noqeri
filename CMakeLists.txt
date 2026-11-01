@@ -22,6 +22,22 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
+# Portable native DNS runtime: OS resolver, no shell/subprocess dependency.
+add_library(noqeri_network_dns STATIC Runtime/native/network_dns.cpp)
+target_include_directories(noqeri_network_dns PUBLIC
+ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
+ $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_compile_features(noqeri_network_dns PUBLIC cxx_std_17)
+if(WIN32)
+ target_link_libraries(noqeri_network_dns PUBLIC ws2_32)
+endif()
+include(CTest)
+if(BUILD_TESTING)
+ add_executable(noqeri-network-dns-test tests/network_dns_native_test.cpp)
+ target_link_libraries(noqeri-network-dns-test PRIVATE noqeri_network_dns)
+ add_test(NAME noqeri-network-dns COMMAND noqeri-network-dns-test)
+endif()
+
 # Hosted, heap-backed int list/map/set ABI for ordinary Noqeri native AOT.
 # Opaque handles are validated; allocation is bounded and explicit close
 # releases ownership. Does not change freestanding bootstrap semantics.
@@ -442,7 +458,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
-install(TARGETS noqeri noqeri-nqri noqeri-web noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_network_dns RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Header installed through existing public include/noqeri rule.
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")
