@@ -25,7 +25,7 @@ Target selection is data-driven rather than selected from the build host. This m
 
 The current format modules define policy and constants; they are not yet proof of complete binary emitters. Stable native support requires fixtures that parse emitted objects with independent platform tools and execute/link them on each target architecture. The project can gather that evidence on local or self-managed runners without GitHub Actions.
 
-## Floating-point native casting candidate (2026-11-01)
+## Verified Linux x86-64 floating-point casts and printing (2026-11-01)
 
 The Stage-0 Linux x86-64 emitter now distinguishes numeric conversion from
 bit reinterpretation in explicit `as` casts. It emits SSE2 signed integer/
@@ -34,8 +34,14 @@ Unsigned 64-bit values are handled without treating their high bit as a sign
 bit. Non-finite values and float-to-integer values outside the target range
 trap instead of returning x86's indefinite-conversion sentinel.
 
+Hosted x86-64 AOT also supports `print(float)` using bounded six-decimal
+formatting through libc `snprintf` followed by the versioned Noqeri ABI write
+callback; the native/reference output parity suite includes signed zero.
+This implementation is **hosted**, not suitable for freestanding targets
+without an alternative formatting implementation.
+
+The differential test `tests/native_float_casts.noqeri`, invalid-conversion
+fixtures and `tests/native_float_print.noqeri` passed native and reference
+execution at -O0 and -O3 in [GitHub CI](https://github.com/EMN90909/Noqeri/actions/runs/41280755031).
 This does **not** make native code generation portable across architectures.
-The differential test `tests/native_float_casts.noqeri` and invalid-conversion
-fixtures must pass native and reference execution at -O0 and -O3 before the
-new casts are described as qualified. All other native-target restrictions
-remain in effect.
+All other native-target restrictions remain in effect.

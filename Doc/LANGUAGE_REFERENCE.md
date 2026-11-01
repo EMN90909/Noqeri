@@ -282,3 +282,37 @@ compiler and experimental Node browser-view compiler, not by the general
 Stage-2 type checker. See [WEB_MOTION.md](WEB_MOTION.md) for supported
 properties, easing presets, scroll reveals, reduced-motion behavior and
 C++ build-client commands. Browser output uses the Web Animations API.
+
+
+## Generic typed result propagation (verified Stage-0 and native subset)
+
+`std/result.noqeri` exposes `TypedResult<T,E>` when both the success
+payload and the error payload must retain their precise types:
+
+```noqeri
+import "std/result.noqeri"
+
+function check(source: *TypedResult<int, u32>): *TypedResult<int, u32> {
+    let value: int = source?
+    return source
+}
+```
+
+A failed borrowed-result `?` returns the **same pointer** to the caller.
+The enclosing function must return precisely the same
+`*TypedResult<T,E>` specialization. Successful `?` unwraps a supported
+scalar value. Cross-payload failure conversion is explicit with
+`typed_result_propagate_error`, preserving `E` and rejecting error-type
+mismatches. This is not general by-value `Result<T,E>` unwinding. Verified in
+[Linux native/reference qualification](https://github.com/EMN90909/Noqeri/actions/runs/41280571634);
+self-hosted Stage-2 NQRI support remains an independent gate.
+
+## Native floating-point output and conversion
+
+The Linux x86-64 hosted native backend supports arithmetic, comparisons,
+checked `as` conversions between IEEE-754 binary64 and integers, and
+`print(float)`. Invalid float-to-integer conversions, including NaN and
+out-of-range values, trap. The current float output uses six fractional digits
+in parity with the reference interpreter, not arbitrary user-controlled
+format strings. [Native qualification](https://github.com/EMN90909/Noqeri/actions/runs/41280755031).
+Other native architectures and freestanding float printing remain unqualified.
