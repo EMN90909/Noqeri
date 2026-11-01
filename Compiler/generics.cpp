@@ -213,7 +213,20 @@ private:
     }
 
     std::string processCall(const std::shared_ptr<CallExpr>&call,Env&env){
-        auto name=calleeName(call->callee);std::vector<std::string>args;for(auto&a:call->args)args.push_back(infer(a,env));auto fit=functions_.find(name);if(fit==functions_.end())return name=="len"?"usize":"unknown";auto fn=fit->second;if(fn->genericParams.empty())return fn->returnType.value_or("void");std::unordered_map<std::string,std::string> bindings;for(std::size_t i=0;i<fn->params.size()&&i<args.size();++i)if(fn->params[i].annotation&&!bind(*fn->params[i].annotation,args[i],fn->genericParams,bindings))diagnostics_.error("NQR-G4001",call->span,"generic arguments for '"+name+"' disagree");for(const auto&gp:fn->genericParams)if(!bindings.count(gp))diagnostics_.error("NQR-G4002",call->span,"cannot infer generic parameter '"+gp+"' for '"+name+"'");if(diagnostics_.hasErrors())return"unknown";for(const auto&[gp,requirements]:fn->genericConstraints){auto it=bindings.find(gp);if(it==bindings.end())continue;for(const auto&req:requirements)if(!capability(it->second,req))diagnostics_.error("NQR-G4003",call->span,"type '"+it->second+"' does not satisfy constraint '"+req+"' for '"+gp+"'");}if(diagnostics_.hasErrors())return"unknown";auto instance=instantiate(fn,bindings);if(auto callee=std::dynamic_pointer_cast<NameExpr>(call->callee))callee->name=instance;auto result=substitute(fn->returnType.value_or("void"),bindings);ensureType(result);return result;
+        auto name=calleeName(call->callee);std::vector<std::string>args;for(auto&a:call->args)args.push_back(infer(a,env));auto fit=functions_.find(name);
+        if(fit==functions_.end()){
+            if(name=="len")return"usize";
+            // Builtin slice(...) has a concrete element type even though
+            // it is not a declared user function. Propagate that type to
+            // generic calls such as iterator_from_slice<T>(..., slice(xs)).
+            if(name=="slice"&&(args.size()==1||args.size()==2)){
+                const auto&source=args[0];
+                if(source.rfind("[]",0)==0||source.rfind("*",0)==0||
+                   (source.size()>2&&source.front()=='['&&source.back()==']'))
+                    return"[]"+elementType(source);
+            }
+            return"unknown";
+        }auto fn=fit->second;if(fn->genericParams.empty())return fn->returnType.value_or("void");std::unordered_map<std::string,std::string> bindings;for(std::size_t i=0;i<fn->params.size()&&i<args.size();++i)if(fn->params[i].annotation&&!bind(*fn->params[i].annotation,args[i],fn->genericParams,bindings))diagnostics_.error("NQR-G4001",call->span,"generic arguments for '"+name+"' disagree");for(const auto&gp:fn->genericParams)if(!bindings.count(gp))diagnostics_.error("NQR-G4002",call->span,"cannot infer generic parameter '"+gp+"' for '"+name+"'");if(diagnostics_.hasErrors())return"unknown";for(const auto&[gp,requirements]:fn->genericConstraints){auto it=bindings.find(gp);if(it==bindings.end())continue;for(const auto&req:requirements)if(!capability(it->second,req))diagnostics_.error("NQR-G4003",call->span,"type '"+it->second+"' does not satisfy constraint '"+req+"' for '"+gp+"'");}if(diagnostics_.hasErrors())return"unknown";auto instance=instantiate(fn,bindings);if(auto callee=std::dynamic_pointer_cast<NameExpr>(call->callee))callee->name=instance;auto result=substitute(fn->returnType.value_or("void"),bindings);ensureType(result);return result;
     }
 
     std::string instantiate(const std::shared_ptr<FunctionStmt>&fn,const std::unordered_map<std::string,std::string>&bindings){
