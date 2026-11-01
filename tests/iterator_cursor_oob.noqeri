@@ -6,8 +6,10 @@ record Cursor {
 }
 let values: [int; 2] = [3, 5]
 let cursor: Cursor
-cursor.data = &values[0]
-cursor.length = 2 as usize
-cursor.front = 0 as usize
-cursor.back = 99 as usize
+unsafe {
+    cursor.data = &values[0]
+    cursor.length = 2 as usize
+    cursor.front = 0 as usize
+    cursor.back = 99 as usize
+}
 for item in &cursor { print(item) }

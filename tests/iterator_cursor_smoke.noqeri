@@ -10,8 +10,12 @@ record CustomCursor {
 function standard(): int {
     let values: [int; 4] = [3, 5, 7, 11]
     let cursor: Iterator<int>
-    iterator_from_slice(&cursor, slice(values))
-    iterator_skip(&cursor, 1 as usize)
+    unsafe {
+        cursor.data = &values[0]
+        cursor.length = 4 as usize
+        cursor.front = 1 as usize
+        cursor.back = 4 as usize
+    }
     let total: int = 0
     for item in &cursor {
         total = total + item
@@ -22,10 +26,12 @@ function standard(): int {
 function custom(): int {
     let values: [int; 5] = [10, 20, 30, 40, 50]
     let cursor: CustomCursor
-    cursor.data = &values[0]
-    cursor.length = 5 as usize
-    cursor.front = 1 as usize
-    cursor.back = 4 as usize
+    unsafe {
+        cursor.data = &values[0]
+        cursor.length = 5 as usize
+        cursor.front = 1 as usize
+        cursor.back = 4 as usize
+    }
     let total: int = 0
     for item in &cursor {
         total = total + item
@@ -36,7 +42,12 @@ function custom(): int {
 function floating(): int {
     let values: [float; 3] = [1.5, 2.0, 2.5]
     let cursor: Iterator<float>
-    iterator_init(&cursor, &values[0], 3 as usize)
+    unsafe {
+        cursor.data = &values[0]
+        cursor.length = 3 as usize
+        cursor.front = 0 as usize
+        cursor.back = 3 as usize
+    }
     let total: float = 0.0
     for item in &cursor { total = total + item }
     if total != 6.0 { return 0 }
