@@ -23,11 +23,12 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # Portable native DNS runtime: OS resolver, no shell/subprocess dependency.
-add_library(noqeri_network_dns STATIC Runtime/native/network_dns.cpp Runtime/native/network_transport.cpp)
+add_library(noqeri_network_dns STATIC Runtime/native/network_dns.cpp Runtime/native/network_transport.cpp Runtime/native/network_wireless.cpp)
 target_include_directories(noqeri_network_dns PUBLIC
  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>
  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(noqeri_network_dns PUBLIC cxx_std_17)
+set_target_properties(noqeri_network_dns PROPERTIES POSITION_INDEPENDENT_CODE ON)
 find_package(Threads REQUIRED)
 target_link_libraries(noqeri_network_dns PUBLIC Threads::Threads)
 find_package(CURL QUIET)
