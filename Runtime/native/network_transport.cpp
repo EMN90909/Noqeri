@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "noqeri/network_transport.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <atomic>
 #include <cerrno>
+#include <cctype>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -270,6 +272,19 @@ int socket_close(std::int64_t handle) {
     std::lock_guard<std::mutex> guard(e->lock);
     if (e->fd != invalid_socket) { close_native(e->fd); e->fd = invalid_socket; }
     return 0;
+}
+int socket_local_port(std::int64_t handle) {
+    auto e = lookup(handle);
+    if (!e) return -1;
+    std::lock_guard<std::mutex> guard(e->lock);
+    sockaddr_storage sa{};
+    SockLen size = static_cast<SockLen>(sizeof(sa));
+    if (getsockname(e->fd, reinterpret_cast<sockaddr*>(&sa), &size) != 0) return -1;
+    if (sa.ss_family == AF_INET)
+        return ntohs(reinterpret_cast<sockaddr_in*>(&sa)->sin_port);
+    if (sa.ss_family == AF_INET6)
+        return ntohs(reinterpret_cast<sockaddr_in6*>(&sa)->sin6_port);
+    return -1;
 }
 std::int64_t http_request(const std::string& method, const std::string& url,
                           const std::string& body, int timeout_ms) {
