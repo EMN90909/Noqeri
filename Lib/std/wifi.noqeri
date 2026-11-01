@@ -6,6 +6,7 @@ module noqeri.std.wifi
 extern function wifiAvailable(): bool
 extern function wifiConnectedSsid(): string
 extern function wifiScan(): isize
+extern function wifiScanResults(): string
 extern function wifiConnect(ssid: string, credential: string): isize
 extern function wifiDisconnect(): isize
 
@@ -17,3 +18,6 @@ export function wifi_connect(ssid: string, credential: string): isize {
     return wifiConnect(ssid, credential)
 }
 export function wifi_disconnect(): isize { return wifiDisconnect() }
+
+// The scan count is returned by wifi_scan(); results are newline-separated SSIDs.
+export function wifi_scan_results(): string { return wifiScanResults() }
