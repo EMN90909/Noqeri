@@ -66,7 +66,30 @@ rather than silently interpreted. It does not replace the direct x86-64
 assembler backend.
 
 The emitted C11 is portable **source**; a host C compiler and linker must
-produce the actual native machine code. It is not a standalone
-ELF/PE/Mach-O encoder, cross-architecture codegen, native selfhosting,
-or proof of every host's ABI. Cross-platform tests are required before
-describing any platform as qualified.
+produce the actual native machine code. This is not an independent
+ELF/PE/Mach-O object encoder, a GPU compiler or native selfhosting.
+
+### Executable qualification (2026-11-01)
+
+The scalar C11 output has passed interpreter/native output comparisons
+with both `-O0` and `-O3` in the six-job
+[host matrix](https://github.com/EMN90909/Noqeri/actions/runs/41286345170):
+
+- Linux x86-64 (Ubuntu runner)
+- Linux ARM64 (Ubuntu ARM runner)
+- macOS ARM64 (`macos-15`)
+- macOS Intel x86-64 (`macos-15-intel`)
+- Windows x86-64 (`windows-2022`)
+- Windows ARM64 (`windows-11-arm`, using native `Hostarm64/arm64/cl.exe`)
+
+The independent [Linux 32-bit i386 test](https://github.com/EMN90909/Noqeri/actions/runs/41286571242)
+compiled the exact scalar fixture with `gcc -m32`, verified the produced
+ELF file was **32-bit**, and executed it against Stage-0 output at both
+optimization levels. This qualifies 32-bit **program code** through the
+host C toolchain, not a separately distributed 32-bit Noqeri compiler.
+
+The Linux host suite also rejects unsupported aggregate and string
+arithmetic, and verifies native invalid float-to-integer casts trap rather
+than silently returning a value. Neither these tests nor the host matrix
+qualify arbitrary Noqeri programs, general closures, self-hosted compiler
+rebuilds, GPU binaries or independent target object emission.
