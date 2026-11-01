@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// Experimental BLE API contract only; requires OS implementation/permissions.
+// Device IDs are platform-provided opaque strings, not universal MAC addresses.
+module noqeri.std.bluetooth
+
+extern function bluetoothAvailable(): bool
+extern function bluetoothScan(timeoutMillis: i64): isize
+extern function bluetoothConnect(deviceId: string, timeoutMillis: i64): isize
+extern function bluetoothDisconnect(connection: usize): isize
+
+export function bluetooth_available(): bool { return bluetoothAvailable() }
+export function bluetooth_scan(timeoutMillis: i64): isize {
+    if timeoutMillis <= 0 as i64 { return -2 as isize }
+    return bluetoothScan(timeoutMillis)
+}
+export function bluetooth_connect(deviceId: string, timeoutMillis: i64): isize {
+    if textLength(deviceId) == 0 as usize || timeoutMillis <= 0 as i64 { return -2 as isize }
+    return bluetoothConnect(deviceId, timeoutMillis)
+}
+export function bluetooth_disconnect(connection: usize): isize { return bluetoothDisconnect(connection) }
