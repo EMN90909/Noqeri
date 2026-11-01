@@ -205,6 +205,10 @@ private:
     }
 
     bool bind(const std::string&pattern,const std::string&actual,const std::vector<std::string>&gps,std::unordered_map<std::string,std::string>&bindings){
+        // A null literal is valid for a pointer parameter once other
+        // callsite arguments have established any generic pointee type.
+        // It must not create a new unconstrained binding by itself.
+        if(actual=="null"&&pattern.rfind("*",0)==0)return true;
         for(const auto&gp:gps){if(pattern==gp){auto it=bindings.find(gp);if(it==bindings.end()){bindings[gp]=actual;return true;}return it->second==actual;}if(pattern=="*"+gp&&actual.rfind("*",0)==0)return bind(gp,elementType(actual),gps,bindings);if(pattern=="[]"+gp&&actual.rfind("[]",0)==0)return bind(gp,elementType(actual),gps,bindings);}
         auto p=parseMangledGeneric(pattern),a=parseMangledGeneric(actual);if(p||a){if(!p||!a||p->base!=a->base||p->args.size()!=a->args.size())return false;for(std::size_t i=0;i<p->args.size();++i)if(!bind(p->args[i],a->args[i],gps,bindings))return false;return true;}
         if(pattern.rfind("*",0)==0&&actual.rfind("*",0)==0)return bind(elementType(pattern),elementType(actual),gps,bindings);
