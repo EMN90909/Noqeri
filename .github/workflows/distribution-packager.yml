@@ -72,7 +72,7 @@ jobs:
             --os "${ matrix.os }" --cpu "${ matrix.cpu }" \
             --source-commit "$GITHUB_SHA" --qualification executed --smoke-evidence compiler-smoke.log \
             --gpu-backend wgsl-emitter --sdk-root stage --license LICENSE --output dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${ matrix.os }-${ matrix.cpu }
           path: dist/${ matrix.os }-${ matrix.cpu }/
@@ -93,7 +93,7 @@ jobs:
           python3 scripts/distribution.py combine --input dist --version "$version" \
             --source-commit "$GITHUB_SHA" \
             --require linux-x86_64,linux-arm64,windows-x86_64,macos-x86_64,macos-arm64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-verified-formats
           path: dist/

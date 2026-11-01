@@ -91,7 +91,7 @@ jobs:
           tar -C stage -czf dist/noqeri-v0.1.4-linux-x86_64-developer-preview.tar.gz .
           (cd dist && sha256sum *.tar.gz > SHA256SUMS && sha256sum -c SHA256SUMS)
           test -s dist/SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-v0.1.4-linux-x86_64-qualified
           path: dist/*

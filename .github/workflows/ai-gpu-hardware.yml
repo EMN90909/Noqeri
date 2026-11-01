@@ -20,7 +20,7 @@ jobs:
         run: bash scripts/ai-gpu-verify.sh gpu-evidence
       - name: Retain hardware, driver and numerical evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: noqeri-physical-gpu-qualification
           path: gpu-evidence/
