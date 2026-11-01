@@ -10,6 +10,14 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <wlanapi.h>
+#include <thread>
+#endif
 #ifdef __linux__
 #include <cerrno>
 #include <csignal>
@@ -105,11 +113,62 @@ bool mac_valid(const std::string& id) {
     return true;
 }
 #endif
+#ifdef _WIN32
+struct WlanSession {
+    HANDLE handle = nullptr;
+    GUID guid{};
+    bool open() {
+        DWORD negotiated = 0;
+        if (WlanOpenHandle(2, nullptr, &negotiated, &handle) != ERROR_SUCCESS) return false;
+        PWLAN_INTERFACE_INFO_LIST list = nullptr;
+        if (WlanEnumInterfaces(handle, nullptr, &list) == ERROR_SUCCESS && list) {
+            if (list->dwNumberOfItems) guid = list->InterfaceInfo[0].InterfaceGuid;
+            const bool found = list->dwNumberOfItems > 0;
+            WlanFreeMemory(list);
+            return found;
+        }
+        return false;
+    }
+    ~WlanSession() { if (handle) WlanCloseHandle(handle, nullptr); }
+};
+std::string windows_ssid(const DOT11_SSID& ssid) {
+    if (ssid.uSSIDLength > DOT11_SSID_MAX_LENGTH) return {};
+    return std::string(reinterpret_cast<const char*>(ssid.ucSSID), ssid.uSSIDLength);
+}
+std::wstring utf8_wide(const std::string& text) {
+    if (text.empty()) return {};
+    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.c_str(),
+                                    static_cast<int>(text.size()), nullptr, 0);
+    if (count <= 0) return {};
+    std::wstring out(static_cast<std::size_t>(count), L'\0');
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.c_str(),
+                             static_cast<int>(text.size()), &out[0], count)) return {};
+    return out;
+}
+std::string windows_connected_ssid(WlanSession& session) {
+    DWORD size = 0;
+    PVOID raw = nullptr;
+    WLAN_OPCODE_VALUE_TYPE opcode{};
+    DWORD status = WlanQueryInterface(session.handle, &session.guid,
+                     wlan_intf_opcode_current_connection, nullptr,
+                     &size, &raw, &opcode);
+    if (status != ERROR_SUCCESS || !raw) return {};
+    auto* info = static_cast<WLAN_CONNECTION_ATTRIBUTES*>(raw);
+    std::string name;
+    if (info->isState == wlan_interface_state_connected)
+        name = windows_ssid(info->wlanAssociationAttributes.dot11Ssid);
+    WlanFreeMemory(raw);
+    return name;
+}
+#endif
 } // namespace
 
 bool wifi_available() {
 #ifdef __linux__
     return !first_wifi_device().empty();
+#elif defined(_WIN32)
+    WlanSession session;
+    return session.open();
 #else
     return false; // adapter not linked on this OS
 #endif
@@ -127,6 +186,10 @@ WirelessResult wifi_connected_ssid() {
         begin = end + 1;
     }
     return {0, {}};
+#elif defined(_WIN32)
+    WlanSession session;
+    if (!session.open()) return {-3, {}};
+    return {0, windows_connected_ssid(session)};
 #else
     return {-3, {}};
 #endif
@@ -135,6 +198,25 @@ WirelessResult wifi_scan() {
 #ifdef __linux__
     auto r = command({"nmcli", "-t", "--escape", "no", "-f", "SSID", "device", "wifi", "list", "--rescan", "yes"}, 15000);
     return {r.error, r.output};
+#elif defined(_WIN32)
+    WlanSession session;
+    if (!session.open()) return {-3, {}};
+    // Scanning is asynchronous. The list can contain cached results until
+    // Windows reports its background scan completion.
+    WlanScan(session.handle, &session.guid, nullptr, nullptr, nullptr);
+    PWLAN_AVAILABLE_NETWORK_LIST list = nullptr;
+    DWORD rc = WlanGetAvailableNetworkList(session.handle, &session.guid, 0, nullptr, &list);
+    if (rc != ERROR_SUCCESS || !list) return {-1, {}};
+    std::string names;
+    for (DWORD i = 0; i < list->dwNumberOfItems; ++i) {
+        auto name = windows_ssid(list->Network[i].dot11Ssid);
+        if (name.empty()) continue;
+        // SSIDs can be arbitrary bytes. Escape line delimiters in this text API.
+        for (auto& ch : name) if (ch == '\n' || ch == '\r') ch = ' ';
+        names += name + "\n";
+    }
+    WlanFreeMemory(list);
+    return {0, names};
 #else
     return {-3, {}};
 #endif
@@ -143,6 +225,22 @@ int wifi_connect_saved(const std::string& ssid) {
 #ifdef __linux__
     if (ssid.empty() || ssid.size() > 32 || ssid.find('\0') != std::string::npos) return -2;
     return command({"nmcli", "connection", "up", "id", ssid}, 30000).error;
+#elif defined(_WIN32)
+    if (ssid.empty() || ssid.size() > 512 || ssid.find('\0') != std::string::npos) return -2;
+    auto profile = utf8_wide(ssid);
+    if (profile.empty()) return -2;
+    WlanSession session;
+    if (!session.open()) return -3;
+    WLAN_CONNECTION_PARAMETERS params{};
+    params.wlanConnectionMode = wlan_connection_mode_profile;
+    params.strProfile = profile.c_str();
+    params.dot11BssType = dot11_BSS_type_any;
+    if (WlanConnect(session.handle, &session.guid, &params, nullptr) != ERROR_SUCCESS) return -1;
+    for (int i = 0; i < 30; ++i) {
+        if (windows_connected_ssid(session) == ssid) return 0;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    return -1;
 #else
     (void)ssid; return -3;
 #endif
@@ -152,6 +250,10 @@ int wifi_disconnect() {
     auto device = first_wifi_device();
     if (device.empty()) return -3;
     return command({"nmcli", "device", "disconnect", device}, 15000).error;
+#elif defined(_WIN32)
+    WlanSession session;
+    if (!session.open()) return -3;
+    return WlanDisconnect(session.handle, &session.guid, nullptr) == ERROR_SUCCESS ? 0 : -1;
 #else
     return -3;
 #endif
