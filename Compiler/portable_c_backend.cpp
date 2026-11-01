@@ -94,6 +94,20 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
         diagnostics.error("NQR-C8202",{},"portable native function exceeds bounded register/instruction/argument limits");
         return false;
     }
+    // The C11 bridge is scalar-only. Reject pointer/aggregate ABIs even if
+    // their bodies happen not to dereference them in this compilation unit.
+    for(const auto& t:fn.paramTypes){
+        if(!supportedScalar(t.kind)){
+            diagnostics.error("NQR-C8209",{},"portable C11 backend does not support pointer or aggregate function arguments");
+            return false;
+        }
+    }
+    if(fn.resultType.kind!=TypeKind::Unknown &&
+       fn.resultType.kind!=TypeKind::Void &&
+       !supportedScalar(fn.resultType.kind)){
+        diagnostics.error("NQR-C8209",{},"portable C11 backend does not support pointer or aggregate function returns");
+        return false;
+    }
     // Validate *before* writing any partially usable portable output.
     for(const auto& in:fn.code){
         const bool valid=[&](){
@@ -102,15 +116,23 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                 return !std::holds_alternative<std::monostate>(in.literal);
             case NirOp::Load:case NirOp::Store:case NirOp::Nop:
                 return true;
-            case NirOp::Unary:
-                return in.args.size()==1&&(in.text=="!"||in.text=="-");
-            case NirOp::Binary:
-                return in.args.size()==2 &&
-                    (in.text=="+"||in.text=="-"||in.text=="*"||
-                     in.text=="/"||in.text=="%"||
-                     in.text=="=="||in.text=="!="||in.text=="<"||
-                     in.text=="<="||in.text==">"||in.text==">="||
-                     in.text=="&&"||in.text=="||");
+            case NirOp::Unary:case NirOp::Binary:{
+                if(in.args.size()!=(in.op==NirOp::Unary?1u:2u))
+                    return false;
+                for(const auto r:in.args){
+                    if(r>=fn.registerTypes.size())return false;
+                    const auto kind=fn.registerTypes[r].kind;
+                    if(!(fn.registerTypes[r].isNumeric()||
+                         kind==TypeKind::Bool))return false;
+                }
+                if(in.op==NirOp::Unary)
+                    return in.text=="!"||in.text=="-";
+                return in.text=="+"||in.text=="-"||in.text=="*"||
+                       in.text=="/"||in.text=="%"||
+                       in.text=="=="||in.text=="!="||in.text=="<"||
+                       in.text=="<="||in.text==">"||in.text==">="||
+                       in.text=="&&"||in.text=="||";
+            }
             case NirOp::Cast:{
                 if(in.args.size()!=1)return false;
                 Type src;
