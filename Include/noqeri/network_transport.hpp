@@ -20,6 +20,7 @@ int udp_send_to(std::int64_t handle, const std::string& host, int port,
                 const std::string& bytes, int timeout_ms);
 TextResult udp_receive(std::int64_t handle, int max_bytes, int timeout_ms);
 int socket_close(std::int64_t handle);
+int socket_local_port(std::int64_t handle);
 
 std::int64_t http_request(const std::string& method, const std::string& url,
                           const std::string& body, int timeout_ms);
