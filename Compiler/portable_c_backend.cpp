@@ -234,7 +234,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                     if(srcKind==TypeKind::String)type=4;
                     else if(srcKind==TypeKind::Bool)type=2;
                     else if(srcKind==TypeKind::Float)type=3;
-                    else if(unsignedInteger(srcKind))type=1;
+                    else if(unsignedInteger(srcKind))type=0; // Stage-0 print currently renders u64 bit patterns as signed.
                     else type=0;
                 }
                 if(type<0){diagnostics.error("NQR-C8206",{},"portable C print supports scalar int/bool/float/string only");return false;}
