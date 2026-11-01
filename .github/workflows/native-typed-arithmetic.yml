@@ -14,6 +14,7 @@ on:
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
       - 'Lib/std/iterator.noqeri'
+      - 'Lib/std/utf8.noqeri'
       - '.github/workflows/native-typed-arithmetic.yml'
   pull_request:
     paths:
@@ -33,6 +34,7 @@ on:
       - 'tests/typed_result_two_parameters*.noqeri'
       - 'Lib/std/result.noqeri'
       - 'Lib/std/iterator.noqeri'
+      - 'Lib/std/utf8.noqeri'
       - 'tests/native_indexed_fusion.noqeri'
       - 'tests/native_division_traps.py'
       - 'tests/native_bounds_*.noqeri'
