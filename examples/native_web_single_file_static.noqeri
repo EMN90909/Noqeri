@@ -1,0 +1,15 @@
+// Build directly from this file: noqeri-web build examples/native_web_single_file_static.noqeri dist/one-file
+let title = "One file Noqeri site"
+
+style """
+.poster { padding: 2rem; color: #fb5607; }
+.poster strong { font-weight: 800; }
+@media (max-width: 500px) { .poster { padding: 1rem; } }
+"""
+
+route "/" {
+    main class: "poster" {
+        h1 { title }
+        p { "Frontend and CSS in a single source file." }
+    }
+}
