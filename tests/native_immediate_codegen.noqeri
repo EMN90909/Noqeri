@@ -1,0 +1,17 @@
+// Exercise sign-extended imm32 arithmetic, shift lowering and conditionals.
+let i: i64 = 0 as i64
+let sum: i64 = 0 as i64
+while i < 1000 as i64 {
+    sum = sum + (i * 8 as i64 - 7 as i64)
+    i = i + 1 as i64
+}
+print(sum)
+print(i)
+print(i > -2147483648 as i64)
+print(i < 2147483647 as i64)
+let maximum: u64 = 18446744073709551615 as u64
+print(maximum > 2147483648 as u64)
+print(maximum < 4294967295 as u64)
+let negative: i64 = -17 as i64
+print(negative + -2147483648 as i64)
+print(negative * -1 as i64)
