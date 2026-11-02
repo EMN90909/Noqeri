@@ -325,14 +325,14 @@ int main(int argc, char** argv) {
         for (int i = 2; i < argc; ++i) {
             const std::string flag(argv[i]);
             if (flag == "--json" || flag == "--diagnostics=json" ||
-                flag == "--unsafe" || parseOptimization(flag)) continue;
+                flag == "--unsafe" || parseOptimization(flag) ||\n                flag.rfind("--target=",0)==0) continue;
             const bool isSource = !flag.empty() && flag[0] != '-';
             if (isSource && sourceIndex == -1) { sourceIndex = i; continue; }
             Diagnostics diagnostics;
             diagnostics.error("NQR-C0004", {},
                 isSource ? "check accepts only one source file" :
                            "unknown check option: " + flag,
-                "Use noqeri check app.noqeri [--json] [-O0|-O1|-O2|-O3|-Os|-Oz].");
+                "Use noqeri check app.noqeri [--target=x86_64-unknown-uefi] [--json] [-O0|-O1|-O2|-O3|-Os|-Oz].");
             if (jsonCheck) {
                 std::cout << "{\"schema\":1,\"ok\":false,\"diagnostics\":"
                           << diagnostics.toJson() << "}\n";
