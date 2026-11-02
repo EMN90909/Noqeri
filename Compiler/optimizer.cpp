@@ -552,32 +552,47 @@ bool sparseConstants(NirFunction& fn) {
 // outside the current straight-line basic block. This avoids the need for a
 // new Move instruction or cross-branch alias substitution.
 bool localGvn(NirFunction& fn) {
-    const Graph g=graphOf(fn);
-    if(!g.uniqueDefs||!g.validDominance)return false;
-    // Index uses once; avoid rescanning the trailing function for every CSE.
+    // If an earlier redundant result escapes its block, replacing uses
+    // beyond the block without global dominance proof is not allowed.
     std::unordered_map<Reg,std::size_t> lastUse;
     for(std::size_t pc=0;pc<fn.code.size();++pc)
         for(const Reg arg:fn.code[pc].args)lastUse[arg]=pc;
+    const Graph g=graphOf(fn);
+    if(!g.uniqueDefs||!g.validDominance)return false;
     bool changed=false;
     for(const auto& span:g.spans){
-        std::map<std::string,Reg> expressions;
+        std::unordered_map<std::string,Reg> expressions;
+        // All substitutions refer to an earlier *retained* definition.
+        // Rewrite operands as we advance instead of rescanning every later
+        // instruction for every redundant expression (quadratic in a long
+        // basic block with many equivalent calculations).
+        std::unordered_map<Reg,Reg> substitutions;
         for(std::size_t pc=span.first;pc<span.second;++pc){
             auto& in=fn.code[pc];
-            if(!in.dest||in.op!=NirOp::Binary||in.args.size()!=2||!safeIntResult(in)||
-               (in.text!="+"&&in.text!="-"&&in.text!="*"&&in.text!="%"))continue;
+            for(auto& arg:in.args){
+                const auto replacement=substitutions.find(arg);
+                if(replacement!=substitutions.end())arg=replacement->second;
+            }
+            if(!in.dest||in.op!=NirOp::Binary||in.args.size()!=2||
+                !safeIntResult(in)||
+                (in.text!="+"&&in.text!="-"&&in.text!="*"&&in.text!="%"))continue;
             Reg a=in.args[0],b=in.args[1];
             if((in.text=="+"||in.text=="*")&&b<a)std::swap(a,b);
             const auto key=in.text+":"+std::to_string(static_cast<int>(in.type.kind))+":"+
                            std::to_string(a)+":"+std::to_string(b);
             const auto found=expressions.find(key);
-            if(found==expressions.end()){expressions.emplace(key,*in.dest);continue;}
+            if(found==expressions.end()){
+                expressions.emplace(key,*in.dest);
+                continue;
+            }
             const Reg redundant=*in.dest,canonical=found->second;
             const auto finalUse=lastUse.find(redundant);
             if(finalUse!=lastUse.end()&&finalUse->second>=span.second)
-                continue;
-            for(std::size_t later=pc+1;later<span.second;++later)
-                for(auto& arg:fn.code[later].args)if(arg==redundant)arg=canonical;
-            in.op=NirOp::Nop;in.dest.reset();in.args.clear();changed=true;
+                continue; // Retain cross-block definitions.
+            if(redundant==canonical)continue;
+            substitutions.emplace(redundant,canonical);
+            in.op=NirOp::Nop;
+            in.dest.reset();in.args.clear();changed=true;
         }
     }
     return changed;
