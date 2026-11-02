@@ -809,8 +809,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         else if(i.text==">")inverted=unsign?"jbe":"jle";
         else if(i.text==">=")inverted=unsign?"jb":"jl";
         if(singleUse&&adjacent&&inverted){
-            load(i.args[0],"rax");load(i.args[1],"r10");
-            out<<"    cmp rax, r10\n"
+            load(i.args[0],"rax");
+            out<<"    cmp rax, "<<registerOperand(i.args[1])<<"\n"
                <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
             fusedBranches.insert(pc+1);
             break;
@@ -843,11 +843,35 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                 if(remainder)out<<"    mov rax, rdx\n";
             }
         }else{
-            load(i.args[1],"r10");
-            if(i.text=="+")out<<"    add rax, r10\n";
-            else if(i.text=="-")out<<"    sub rax, r10\n";
-            else if(i.text=="*")out<<"    imul rax, r10\n";
-            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}
+            // ALU operations can take a register or memory source directly,
+            // avoiding an extra load to R10 for every spilled RHS operand.
+            // Logical operators still require R10 to normalize both booleans.
+            const bool logical=i.text=="&&"||i.text=="||";
+            if(logical)load(i.args[1],"r10");
+            const auto rhs=logical?std::string("r10"):registerOperand(i.args[1]);
+            if(i.text=="+")out<<"    add rax, "<<rhs<<"\n";
+            else if(i.text=="-")out<<"    sub rax, "<<rhs<<"\n";
+            else if(i.text=="*")out<<"    imul rax, "<<rhs<<"\n";
+            else if(logical){
+                out<<"    test rax, rax\n    setne al\n    movzx rax, al\n"
+                   <<"    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"
+                   <<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");
+            }else{
+                out<<"    cmp rax, "<<rhs<<"\n";
+                if(i.text=="==")out<<"    sete al\n";
+                else if(i.text=="!=")out<<"    setne al\n";
+                else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");
+                else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");
+                else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");
+                else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");
+                else{
+                    diagnostics.error("NQR-N5003",{},
+                        "unsupported native binary operator '"+i.text+"'");
+                    return false;
+                }
+                out<<"    movzx rax, al\n";
+            }
+        }
         if(i.text=="+"||i.text=="-"||i.text=="*"||
            i.text=="/"||i.text=="%")
             normalizeIntegerResult(out,i.type.kind);
