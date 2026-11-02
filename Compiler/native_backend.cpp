@@ -87,7 +87,10 @@ std::string regSlot(Reg r){return"QWORD PTR [rbp-"+std::to_string((static_cast<s
 std::size_t varOffset(const NirFunction&fn,const FunctionLayout&l,const std::string&name){auto it=l.variableIndex.find(name);auto index=static_cast<std::size_t>(fn.nextReg)+(it==l.variableIndex.end()?0:it->second)+1;return index*8;}
 std::string varSlot(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"QWORD PTR [rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
 std::string varAddress(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"[rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
-std::string symbolForCall(const NirProgram&p,const std::string&name){for(const auto&f:p.functions)if(f.name==name)return(f.isExtern||f.isExport)?safe(f.name):internalSymbol(f.name);return safe(name);}
+std::string symbolForCall(const std::unordered_map<std::string,std::string>& symbols,const std::string& name){
+    const auto it=symbols.find(name);
+    return it==symbols.end()?safe(name):it->second;
+}
 
 void emitRuntime(std::ostream&out){out<<R"ASM(
 .data
@@ -301,7 +304,7 @@ void normalizeIntegerResult(std::ostream&out,TypeKind kind){
 }
 bool safeInlineAsm(const std::string& text){if(text.empty())return false;if(text.find('\n')!=std::string::npos||text.find('\r')!=std::string::npos||text.find(':')!=std::string::npos)return false;auto p=text.find_first_not_of(" \t");return p!=std::string::npos&&text[p]!='.';}
 
-bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns,const std::map<std::string,std::string>&strings,Diagnostics&diagnostics){
+bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns,const std::map<std::string,std::string>&strings,const std::unordered_map<std::string,std::string>& symbols,Diagnostics&diagnostics){
     if(fn.isExtern)return true;
     auto l=layoutFor(fn,returns);const char*args[]={"rdi","rsi","rdx","rcx","r8","r9"};
     // Physically allocate NIR registers while reserving volatile rax/r10/r11
@@ -833,7 +836,7 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
            i.text=="/"||i.text=="%")
             normalizeIntegerResult(out,i.type.kind);
         store(*i.dest,"rax");break;}
-        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float)out<<"    call noqeri_rt_print_float\n";else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(p,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
+        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float)out<<"    call noqeri_rt_print_float\n";else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(symbols,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
@@ -854,7 +857,17 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     std::ofstream out(output,std::ios::trunc);if(!out){diagnostics.error("NQR-N5000",{},"cannot write assembly output: "+output.string());return false;}
     std::map<std::string,std::string>strings;std::size_t sid=0;auto collect=[&](const NirFunction&f){for(const auto&i:f.code)if(i.op==NirOp::Const)if(auto s=std::get_if<std::string>(&i.literal))if(!strings.count(*s))strings[*s]=".L_noqeri_str_"+std::to_string(sid++);};collect(p.entry);for(const auto&f:p.functions)collect(f);
     std::unordered_map<std::string,ValueKind>returns;for(int pass=0;pass<3;++pass)for(const auto&f:p.functions)if(!f.isExtern)returns[f.name]=inferReturn(f,returns);
-    out<<".intel_syntax noprefix\n.text\n";emitRuntime(out);if(!emitFunction(out,p,p.entry,returns,strings,diagnostics))return false;for(const auto&f:p.functions)if(!emitFunction(out,p,f,returns,strings,diagnostics))return false;
+    // Index call targets once rather than scanning every function per callsite.
+    // emplace keeps the previous first-match behavior for duplicate symbols.
+    std::unordered_map<std::string,std::string> callSymbols;
+    callSymbols.reserve(p.functions.size());
+    for(const auto& f:p.functions)
+        callSymbols.emplace(f.name,(f.isExtern||f.isExport)?
+            safe(f.name):internalSymbol(f.name));
+    out<<".intel_syntax noprefix\n.text\n";emitRuntime(out);
+    if(!emitFunction(out,p,p.entry,returns,strings,callSymbols,diagnostics))return false;
+    for(const auto&f:p.functions)
+        if(!emitFunction(out,p,f,returns,strings,callSymbols,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
