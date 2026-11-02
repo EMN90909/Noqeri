@@ -703,7 +703,11 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             return l;case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return simple(TypeKind::Bool);default:return simple(TypeKind::Unknown);}
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
-        if(auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee)){
+        // atomic.* is a built-in namespace, not a variable whose receiver
+        // must be resolved. Checking it as a member first emitted a spurious
+        // NQR-T3002 "unknown symbol 'atomic'" before built-in dispatch.
+        if(auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee);
+           member && calleeName(e->callee).rfind("atomic.",0)!=0){
             Type receiver=checkExpr(member->object);
             if(receiver.kind==TypeKind::List){
                 if(member->member=="append"){
