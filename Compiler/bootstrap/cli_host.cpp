@@ -325,7 +325,8 @@ int main(int argc, char** argv) {
         for (int i = 2; i < argc; ++i) {
             const std::string flag(argv[i]);
             if (flag == "--json" || flag == "--diagnostics=json" ||
-                flag == "--unsafe" || parseOptimization(flag) ||\n                flag.rfind("--target=",0)==0) continue;
+                flag == "--unsafe" || parseOptimization(flag) ||
+                flag.rfind("--target=",0)==0) continue;
             const bool isSource = !flag.empty() && flag[0] != '-';
             if (isSource && sourceIndex == -1) { sourceIndex = i; continue; }
             Diagnostics diagnostics;
