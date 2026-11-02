@@ -842,7 +842,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
     // ELF x86-64 native objects must not request an executable stack.
-    out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
+    if(!uefiFreestanding)out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
     return !diagnostics.hasErrors();
 }
 } // namespace noe
