@@ -1,0 +1,40 @@
+// A full-stack website in ONE .noqeri file: state, routes, forms, and CSS.
+// Run: noqeri-web serve-app examples/native_web_single_file.noqeri 8080
+import "noqeri/ui" as ui
+
+let greeting = "Hello from Noqeri"
+let submissions = 0
+
+theme {
+    primary: "#fb5607"
+    background: "#fffaf4"
+}
+
+style """
+.hero {
+    max-width: 42rem;
+    margin: 3rem auto;
+    padding: 2rem;
+    border: 2px solid var(--nq-primary);
+    border-radius: 16px;
+}
+.hero h1 { font-size: clamp(2rem, 5vw, 3rem); }
+@media (max-width: 600px) {
+    .hero { margin: 1rem; padding: 1rem; }
+}
+"""
+
+route "/" {
+    main class: "hero" {
+        h1 { greeting }
+        p { "Messages received: " + submissions }
+        form on.submit {
+            validate(message, 2, 64)
+            greeting = form.message
+            submissions = submissions + 1
+        } {
+            ui.TextField("A new greeting", "message", "2 to 64 characters")
+            ui.SubmitButton("Update greeting")
+        }
+    }
+}
