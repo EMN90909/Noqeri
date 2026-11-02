@@ -43,7 +43,7 @@ jobs:
           ! grep -Eq 'snprintf(@PLT)?|GNU-stack' build/uefi-test/firmware.s
           clang -target x86_64-pc-windows-msvc -c build/uefi-test/firmware.s -o build/uefi-test/firmware.obj
           clang -target x86_64-pc-windows-msvc -c tests/uefi/efi_bridge.S -o build/uefi-test/efi_bridge.obj
-          lld-link /nologo /machine:x64 /nodefaultlib /subsystem:efi_application /entry:efi_entry /fixed:no /out:build/uefi-test/BOOTX64.EFI build/uefi-test/firmware.obj build/uefi-test/efi_bridge.obj
+          lld-link /nologo /machine:x64 /nodefaultlib /subsystem:efi_application /entry:efi_entry /include:efi_base_reloc /fixed:no /out:build/uefi-test/BOOTX64.EFI build/uefi-test/firmware.obj build/uefi-test/efi_bridge.obj
           python3 - <<'PY'
           import struct
           p = open('build/uefi-test/BOOTX64.EFI', 'rb').read()
