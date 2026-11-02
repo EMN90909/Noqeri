@@ -258,7 +258,7 @@ noqeri_rt_platform:
         const auto first=runtime.find("// Hosted x86-64 native float output.");
         const auto last=runtime.find("noqeri_rt_clock_millis:",first);
         if(first!=std::string::npos&&last!=std::string::npos)
-            runtime.replace(first,last-first,"noqeri_rt_print_float:\\n    ud2\\n");
+            runtime.replace(first,last-first,"noqeri_rt_print_float:\n    ud2\n");
     }
     out<<runtime;
 }
