@@ -335,6 +335,15 @@ if(BUILD_TESTING)
  target_compile_features(noqeri-simd-codegen-test PRIVATE cxx_std_17)
  target_link_libraries(noqeri-simd-codegen-test PRIVATE noqeri_abi)
  noqeri_apply_warnings(noqeri-simd-codegen-test)
+ add_executable(noqeri-native-immediate-test
+   tests/cpp/native_immediate_emit_test.cpp Compiler/native_backend.cpp)
+ target_include_directories(noqeri-native-immediate-test PRIVATE
+   Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri-native-immediate-test PRIVATE cxx_std_17)
+ target_link_libraries(noqeri-native-immediate-test PRIVATE noqeri_abi)
+ noqeri_apply_warnings(noqeri-native-immediate-test)
+ add_test(NAME noqeri-native-immediates
+   COMMAND noqeri-native-immediate-test ${CMAKE_CURRENT_BINARY_DIR}/native-immediates.s)
  add_executable(noqeri-optimizer-test tests/cpp/optimizer_liveness_test.cpp Compiler/optimizer.cpp)
  add_executable(noqeri-register-allocator-test tests/cpp/register_allocator_cfg_test.cpp Compiler/register_alloc.cpp)
  target_include_directories(noqeri-register-allocator-test PRIVATE Include/noqeri Compiler/bootstrap)
