@@ -88,6 +88,8 @@ struct Project {
     std::set<std::string> mutableState, persistentState;
     std::size_t nextActionId = 0;
     std::map<std::string,std::string> theme;
+    std::string styles; // Optional multiline CSS from the same .noqeri source.
+    bool hasStyles=false;
     DbConfiguration database;
     bool databaseConfigured=false;
     std::map<std::string,std::string> queries;
@@ -121,6 +123,7 @@ bool wordStart(char c) { return std::isalpha(static_cast<unsigned char>(c)) || c
 bool wordContinue(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c=='_'; }
 std::vector<Token> lex(const std::string& source) {
     std::vector<Token> out;
+    out.reserve(std::min<std::size_t>(source.size()/5+8,50000));
     std::size_t i=0,line=1;
     auto add=[&](std::string v,bool q=false) {
         if (out.size()>=50000) throw std::runtime_error("web-native token limit exceeded");
@@ -142,6 +145,17 @@ std::vector<Token> lex(const std::string& source) {
                 ++i;
             }
             if (!terminated) throw std::runtime_error("unterminated Noqeri block comment");
+            continue;
+        }
+        // Triple-quoted literals keep CSS readable without escaping each line.
+        if (c=='"' && source.compare(i,3,"\"\"\"")==0) {
+            const auto end=source.find("\"\"\"",i+3);
+            if(end==std::string::npos)
+                throw std::runtime_error("unterminated multiline web-native string at line "+std::to_string(line));
+            std::string value=source.substr(i+3,end-i-3);
+            line+=static_cast<std::size_t>(std::count(value.begin(),value.end(),'\n'));
+            i=end+3;
+            add(std::move(value),true);
             continue;
         }
         if (c=='"') {
@@ -561,6 +575,16 @@ public:
                         fail("duplicate theme token");
                     take(","); take(";");
                 }
+            } else if (!library && take("style")) {
+                if(p.hasStyles)fail("duplicate style declaration");
+                p.hasStyles=true;
+                p.styles=literalString();
+                if(p.styles.size()>65536)fail("inline CSS exceeds 64 KiB");
+                if(p.styles.find('\0')!=std::string::npos)
+                    fail("inline CSS contains a NUL byte");
+                for(unsigned char ch:p.styles)
+                    if(ch<32 && ch!='\n' && ch!='\r' && ch!='\t')
+                        fail("inline CSS contains unsupported control characters");
             } else if (!library && take("layout")) {
                 if(p.hasLayout)fail("duplicate layout");
                 p.hasLayout=true;p.layout=children();
@@ -711,7 +735,7 @@ std::string render(const std::vector<Node>& nodes,const Project& p,
     }
     return result;
 }
-std::string css(const std::map<std::string,std::string>& theme) {
+std::string css(const std::map<std::string,std::string>& theme,const std::string& customStyles={}) {
     std::map<std::string,std::string> tokens={
         {"primary","#3158d5"},{"accent","#15803d"},{"background","#f7f8fc"},
         {"surface","#ffffff"},{"text","#1b2436"},{"muted","#526177"},
@@ -767,6 +791,7 @@ button,input{font:inherit}a{color:var(--nq-primary)}
 .nq-stat-value{font-size:2rem;font-weight:750;line-height:1.2}
 .nq-stat-label{font-size:.9rem;color:var(--nq-muted)}
 )CSS";
+    if(!customStyles.empty())out+="\n"+customStyles+"\n";
     return out;
 }
 fs::path uiSource(const char* argv0) {
@@ -813,13 +838,23 @@ void promoteStandaloneView(Project& project) {
         project.hasFallback=false;
     }
 }
+// Accept an application directory or a single .noqeri file. A file does not
+// need a manifest, a JS bundler or a separate CSS file.
+fs::path webEntry(const fs::path& input) {
+    const auto resolved=fs::weakly_canonical(input);
+    std::error_code ec;
+    if(fs::is_directory(resolved,ec))return resolved/"main.noqeri";
+    if(fs::is_regular_file(resolved,ec)&&resolved.extension()==".noqeri")return resolved;
+    throw std::runtime_error("native web input must be a .noqeri file or project directory");
+}
 void build(const fs::path& input,const fs::path& output,const char* executable) {
-    const fs::path root=fs::weakly_canonical(input);
+    const fs::path sourceFile=webEntry(input);
+    const fs::path root=sourceFile.parent_path();
     const fs::path dest=fs::absolute(output).lexically_normal();
     if (root==dest || dest.string().rfind(root.string()+std::string(1,fs::path::preferred_separator),0)==0)
         throw std::runtime_error("output must not be inside the source project");
     Project project;
-    Parser(readText(root/"main.noqeri"),project).parse();
+    Parser(readText(sourceFile),project).parse();
     promoteStandaloneView(project);
     if(!project.clientLoads.empty()||!project.clientSubscriptions.empty()||project.hasClientMount||
        !project.clientMotions.empty()||!project.clientTimelines.empty())
@@ -850,7 +885,7 @@ void build(const fs::path& input,const fs::path& output,const char* executable) 
     }
     if (project.hasFallback) pages.emplace("404.html",htmlPage(project.hasLayout?
         render(project.layout,project,{},0,&project.fallback):render(project.fallback,project),"theme.css"));
-    const auto styles=css(project.theme);
+    const auto styles=css(project.theme,project.styles);
     fs::create_directories(dest);
     for (const auto& [name,html]:pages) writeText(dest/name,html);
     writeText(dest/"theme.css",styles);
@@ -1048,7 +1083,7 @@ int main(int argc,char** argv) {
         std::cerr<<"Usage: noqeri-web build <project-dir> <output-dir>\n"
                  <<"       noqeri-web build-client <project-dir> <output-dir>  (native browser ESM, no Node)\n"
                  <<"       noqeri-web serve <output-dir> [port]  (localhost-only, POSIX)\n"
-                 <<"       noqeri-web serve-app <source-dir> [port] [state-file]  (server actions, POSIX)\n"
+                 <<"       noqeri-web serve-app <source-dir|file.noqeri> [port] [state-file]  (server actions, POSIX)\n"
                  <<"       noqeri-web drivers      show available external DB provider status\n"
                  <<"       noqeri-web compile <source-dir> <native-executable> (POSIX, bootstrap)\n";
         return 2;
