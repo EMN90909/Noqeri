@@ -364,6 +364,7 @@ if(BUILD_TESTING)
    "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
    -P ${CMAKE_SOURCE_DIR}/tests/cmake/native_web_smoke.cmake)
  add_test(NAME noqeri-check-hello COMMAND noqeri check ${CMAKE_SOURCE_DIR}/examples/hello.noqeri)
+ add_test(NAME noqeri-atomic-namespace COMMAND noqeri check ${CMAKE_SOURCE_DIR}/tests/native_named_local_promotion.noqeri)
  add_test(NAME noqeri-tests COMMAND noqeri test ${CMAKE_SOURCE_DIR}/tests)
  add_test(NAME noqeri-noqeri-owned-components COMMAND noqeri run ${CMAKE_SOURCE_DIR}/tests/noqeri_owned_components.noqeri)
  add_test(NAME noqeri-library-suite COMMAND noqeri run ${CMAKE_SOURCE_DIR}/tests/noqeri_library_suite.noqeri)
