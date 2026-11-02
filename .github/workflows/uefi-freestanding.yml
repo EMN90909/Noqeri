@@ -48,7 +48,7 @@ jobs:
           import struct
           p = open('build/uefi-test/BOOTX64.EFI', 'rb').read()
           pe = struct.unpack_from('<I', p, 0x3c)[0]
-          assert p[:2] == b'MZ' and p[pe:pe+4] == b'PE\\0\\0'
+          assert p[:2] == b'MZ' and p[pe:pe+4] == b'PE\0\0'
           assert struct.unpack_from('<H', p, pe+4)[0] == 0x8664
           assert struct.unpack_from('<H', p, pe+24)[0] == 0x20b
           assert struct.unpack_from('<H', p, pe+24+68)[0] == 10
