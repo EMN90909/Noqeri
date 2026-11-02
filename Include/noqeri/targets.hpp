@@ -14,7 +14,7 @@ struct TargetInfo { TargetTriple triple; std::size_t pointerWidth=8; std::size_t
 class TargetRegistry { public: static TargetInfo resolve(const std::string& triple); static std::vector<std::string> supported(); };
 struct ProcessResult { int exitCode=-1; bool launched=false; };
 class ProcessRunner { public: ProcessResult run(const std::filesystem::path& executable,const std::vector<std::string>& args,Diagnostics& diagnostics) const; };
-class NativeBackend { public: bool emitAssembly(const NirProgram& program,const std::filesystem::path& output,Diagnostics& diagnostics) const; };
+class NativeBackend { public: bool emitAssembly(const NirProgram& program,const std::filesystem::path& output,Diagnostics& diagnostics,bool uefiFreestanding=false) const; };
 // Checked C11 AOT bridge; host C compiler emits platform-native machine code
 // for a deliberately restricted, typed scalar NIR subset.
 class PortableCBackend {
