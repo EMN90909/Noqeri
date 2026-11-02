@@ -1,0 +1,39 @@
+name: Native direct-copy correctness and native parity
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/native_backend.cpp'
+      - 'tests/native_direct_local_moves.noqeri'
+      - 'tests/native_direct_local_moves.py'
+      - '.github/workflows/native-direct-local-moves.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-native-direct-moves:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Build release Stage-0 compiler
+        run: |
+          cmake -S . -B build-compare -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+          cmake --build build-compare --target noqeri --parallel 2
+      - name: Check standalone O0 and O3 execution plus direct-copy assembly
+        run: python3 tests/native_direct_local_moves.py build-compare/noqeri
+      - name: Compare C, Go, Noqeri on exactly the same runner
+        run: python3 scripts/native-crosslang-compare.py
+      - name: Save native performance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-direct-local-moves-parity
+          path: build/comparison/crosslang-report.json
+          if-no-files-found: warn
