@@ -789,7 +789,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
     }
     AppStore app;
     app.stateFile=fs::absolute(stateFile).lexically_normal();
-    Parser(sourceOverride?*sourceOverride:readText(input/"main.noqeri"),app.project).parse();
+    Parser(sourceOverride?*sourceOverride:readText(webEntry(input)),app.project).parse();
     if(!app.project.uiAlias.empty())
         Parser(uiOverride?*uiOverride:readText(uiSource(executable)),app.project,true).parse();
     promoteStandaloneView(app.project);
@@ -842,7 +842,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                 throw std::runtime_error("route parameter conflicts with application state: "+name);
         }
     }
-    app.styles=css(app.project.theme);
+    app.styles=css(app.project.theme,app.project.styles);
     for(const auto& [name,_]:app.project.components) {
         std::map<std::string,const Node*> found;
         validateActions(app.project.components.at(name).children,app.project,found);
