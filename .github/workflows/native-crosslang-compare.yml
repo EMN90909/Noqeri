@@ -29,7 +29,7 @@ jobs:
         run: python3 scripts/native-crosslang-compare.py
       - name: Preserve raw samples and reproducibility evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crosslang-native-evidence
           path: build/comparison/crosslang-report.json

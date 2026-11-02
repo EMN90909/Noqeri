@@ -185,7 +185,7 @@ jobs:
           if (Test-Path 'artifacts/_CPack_Packages') {
             Remove-Item -Recurse -Force 'artifacts/_CPack_Packages'
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-${{ matrix.target }}
           path: artifacts/*
@@ -258,7 +258,7 @@ jobs:
           version=$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
           test -n "$version"
           bash scripts/distribution/termux-deb.sh stage artifacts "$RELEASE_TARGET" "$version"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-${{ matrix.target }}
           path: artifacts/*
@@ -311,7 +311,7 @@ jobs:
           grep -F "versionName '$version'" AndroidApp/app/build.gradle
           mkdir -p artifacts
           cp "$apk" "artifacts/noqeri-$version-android-universal-debug.apk"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-android-apk
           path: artifacts/*
@@ -355,7 +355,7 @@ jobs:
             cpack --config build-freebsd/CPackConfig.cmake -G FREEBSD -B artifacts
             for pkgfile in artifacts/*.pkg; do pkg info -F "$pkgfile"; done
             rm -rf artifacts/_CPack_Packages build-freebsd stage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-${{ matrix.target }}
           path: artifacts/*
@@ -400,7 +400,7 @@ jobs:
             test -n "$version"
             sh scripts/distribution/openbsd-package.sh stage artifacts "$RELEASE_TARGET" "$version"
             rm -rf build-openbsd stage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: noqeri-${{ matrix.target }}
           path: artifacts/*

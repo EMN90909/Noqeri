@@ -253,7 +253,7 @@ jobs:
               raise SystemExit("CFG scalar promotion regressed benchmark by more than 20%")
           PY
       - name: Upload raw measurements
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: noqeri-native-perf-ab
           path: candidate/build/native-perf-ab.json

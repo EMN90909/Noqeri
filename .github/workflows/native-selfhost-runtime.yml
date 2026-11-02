@@ -270,7 +270,7 @@ jobs:
           test "$result" = "41"
       - name: Upload generated Stage-1 seed candidate
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: noqeri-stage1-seed-${{ github.sha }}
           if-no-files-found: error
@@ -324,7 +324,7 @@ jobs:
           }
       - name: Upload candidate seed and bootstrap proof
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bootstrap-candidate-nqri-${{ github.sha }}
           if-no-files-found: error
