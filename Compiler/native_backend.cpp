@@ -55,7 +55,7 @@ void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
 
 ValueKind literalKind(const NirValue&v){if(std::holds_alternative<std::int64_t>(v))return ValueKind::Int;if(std::holds_alternative<bool>(v))return ValueKind::Bool;if(std::holds_alternative<std::string>(v))return ValueKind::String;if(std::holds_alternative<double>(v))return ValueKind::Float;return ValueKind::Null;}
 bool isComparison(const std::string&op){return op=="=="||op=="!="||op=="<"||op=="<="||op==">"||op==">="||op=="&&"||op=="||";}
-std::string safe(const std::string&name){std::string out;for(char c:name)out+=(std::isalnum(static_cast<unsigned char>(c))||c=='_')?c:'_';return out;}
+std::string safe(const std::string&name){std::string out;out.reserve(name.size());for(unsigned char c:name)out.push_back((std::isalnum(c)||c=='_')?static_cast<char>(c):'_');return out;}
 std::string internalSymbol(const std::string&name){return"noqeri_fn_"+safe(name);}
 std::string pcLabel(const NirFunction&fn,std::size_t pc){return".L_"+safe(fn.name)+"_"+std::to_string(pc);}
 std::string localLabel(const NirFunction&fn,std::size_t pc,const std::string&suffix){return".L_"+safe(fn.name)+"_"+std::to_string(pc)+"_"+suffix;}
@@ -63,7 +63,7 @@ std::size_t align16(std::size_t n){return(n+15u)&~std::size_t(15u);}
 
 struct FunctionLayout{std::vector<std::string>variables;std::unordered_map<std::string,std::size_t>variableIndex;std::vector<ValueKind>regKinds;std::unordered_map<std::string,ValueKind>varKinds;};
 FunctionLayout layoutFor(const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns){
-    FunctionLayout l;l.regKinds.assign(fn.nextReg,ValueKind::Unknown);auto add=[&](const std::string&n){if(!l.variableIndex.count(n)){l.variableIndex[n]=l.variables.size();l.variables.push_back(n);}};
+    FunctionLayout l;l.regKinds.assign(fn.nextReg,ValueKind::Unknown);l.variables.reserve(fn.params.size()+fn.code.size()/4);l.variableIndex.reserve(fn.params.size()+fn.code.size()/4);l.varKinds.reserve(fn.params.size()+fn.code.size()/4);auto add=[&](const std::string&n){if(!l.variableIndex.count(n)){l.variableIndex[n]=l.variables.size();l.variables.push_back(n);}};
     for(const auto&p:fn.params)add(p);for(const auto&i:fn.code)if(i.op==NirOp::Load||i.op==NirOp::Store||i.op==NirOp::AddressOf)add(i.text);
     for(const auto&i:fn.code){auto rk=[&](Reg r){return r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;};
         if(i.op==NirOp::Const&&i.dest)l.regKinds[*i.dest]=literalKind(i.literal);
