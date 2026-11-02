@@ -428,6 +428,24 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         const std::string target=it==physical.end()?regSlot(r):it->second;
         if(target!=cpu)out<<"    mov "<<target<<", "<<cpu<<"\n";
     };
+    // Copy named locals directly to/from allocated registers where possible.
+    // x86-64 MOV cannot copy memory to memory; keep RAX as the reserved
+    // scratch register for those cases, preserving existing spill behavior.
+    const auto registerOperand=[&](Reg r)->std::string{
+        const auto it=physical.find(r);
+        return it==physical.end()?regSlot(r):it->second;
+    };
+    const auto copyWord=[&](const std::string& destination,
+                           const std::string& source){
+        if(destination==source)return;
+        const bool destinationMemory=destination.rfind("QWORD PTR [",0)==0;
+        const bool sourceMemory=source.rfind("QWORD PTR [",0)==0;
+        if(destinationMemory&&sourceMemory)
+            out<<"    mov rax, "<<source<<"\n"
+               <<"    mov "<<destination<<", rax\n";
+        else
+            out<<"    mov "<<destination<<", "<<source<<"\n";
+    };
     // Emitting one unused assembler label per NIR opcode forces the assembler
     // and linker to process needless symbols. Only branch destinations need
     // PC labels; diagnostic/trap labels remain emitted at their own sites.
@@ -551,8 +569,12 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             out<<"    mov rax, 0x"<<std::hex<<bits<<std::dec<<"\n";
         }else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";
         else{diagnostics.error("NQR-N5001",{},"unsupported native literal");return false;}store(*i.dest,"rax");break;}
-        case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
+        case NirOp::Load:if(i.dest){
+            copyWord(registerOperand(*i.dest),variableOperand(i.text));
+        }break;
+        case NirOp::Store:if(!i.args.empty()){
+            copyWord(variableOperand(i.text),registerOperand(i.args[0]));
+        }break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){
             const bool sign=*i.dest<fn.registerTypes.size()&&
