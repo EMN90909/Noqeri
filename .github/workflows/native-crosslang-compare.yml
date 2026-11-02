@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Benchmarks/comparison/**'
+      - 'Compiler/native_backend.cpp'
       - 'scripts/native-crosslang-compare.py'
       - '.github/workflows/native-crosslang-compare.yml'
 permissions:

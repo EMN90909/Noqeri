@@ -748,6 +748,19 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         const bool unsign=isUnsigned(operandKind)||
             (i.args[1]<fn.registerTypes.size()&&
              isUnsigned(fn.registerTypes[i.args[1]].kind));
+        // x86-64 arithmetic and compare instructions encode a sign-extended
+        // 32-bit immediate. A known u64 constant is safe only if its *64-bit
+        // bit pattern* equals that sign extension (not merely its low 32 bits).
+        // This avoids a second register load and is valid even at -O0.
+        const auto knownRhs=constantValues.find(i.args[1]);
+        const bool immediate32=knownRhs!=constantValues.end()&&
+            knownRhs->second>=std::numeric_limits<std::int32_t>::min()&&
+            knownRhs->second<=std::numeric_limits<std::int32_t>::max();
+        const bool arithmeticImmediate=i.text=="+"||i.text=="-"||i.text=="*";
+        const bool compareImmediate=i.text=="=="||i.text=="!="||
+            i.text=="<"||i.text=="<="||i.text==">"||i.text==">=";
+        const bool useImmediate=immediate32&&
+            (arithmeticImmediate||compareImmediate);
         // If a comparison feeds only the immediately following conditional
         // branch, emit one compare and a direct inverted jcc. Preserve NIR
         // short-circuit structure: RHS evaluation is never speculated.
@@ -765,9 +778,10 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         else if(i.text==">")inverted=unsign?"jbe":"jle";
         else if(i.text==">=")inverted=unsign?"jb":"jl";
         if(singleUse&&adjacent&&inverted){
-            load(i.args[0],"rax");load(i.args[1],"r10");
-            out<<"    cmp rax, r10\n"
-               <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
+            load(i.args[0],"rax");
+            if(useImmediate)out<<"    cmp rax, "<<knownRhs->second<<"\n";
+            else{load(i.args[1],"r10");out<<"    cmp rax, r10\n";}
+            out<<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
             fusedBranches.insert(pc+1);
             break;
         }
@@ -799,11 +813,30 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                 if(remainder)out<<"    mov rax, rdx\n";
             }
         }else{
-            load(i.args[1],"r10");
-            if(i.text=="+")out<<"    add rax, r10\n";
-            else if(i.text=="-")out<<"    sub rax, r10\n";
-            else if(i.text=="*")out<<"    imul rax, r10\n";
-            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}
+            if(!useImmediate)load(i.args[1],"r10");
+            if(i.text=="+"){
+                if(useImmediate)out<<"    add rax, "<<knownRhs->second<<"\n";
+                else out<<"    add rax, r10\n";
+            }else if(i.text=="-"){
+                if(useImmediate)out<<"    sub rax, "<<knownRhs->second<<"\n";
+                else out<<"    sub rax, r10\n";
+            }else if(i.text=="*"){
+                if(useImmediate){
+                    const auto multiplier=knownRhs->second;
+                    if(multiplier==0)out<<"    xor eax, eax\n";
+                    else if(multiplier==1){} // Identity is already in rax.
+                    else if(multiplier==-1)out<<"    neg rax\n";
+                    else if(multiplier>0&&
+                            (static_cast<std::uint64_t>(multiplier)&
+                             (static_cast<std::uint64_t>(multiplier)-1))==0){
+                        unsigned shift=0;
+                        for(auto v=static_cast<std::uint64_t>(multiplier);v>1;v>>=1)
+                            ++shift;
+                        out<<"    shl rax, "<<shift<<"\n";
+                    }else out<<"    imul rax, rax, "<<multiplier<<"\n";
+                }else out<<"    imul rax, r10\n";
+            }
+            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{if(useImmediate)out<<"    cmp rax, "<<knownRhs->second<<"\n";else out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}
         if(i.text=="+"||i.text=="-"||i.text=="*"||
            i.text=="/"||i.text=="%")
             normalizeIntegerResult(out,i.type.kind);
