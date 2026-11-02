@@ -5,6 +5,57 @@
 
 The Noqeri web framework now has a **separate compiled native static mode**. A Noqeri source file describes pages, themes, and reusable UI components. The standalone `noqeri-web` program compiles them directly to static HTML/CSS; **neither building nor viewing these pages requires Node.js, npm, JavaScript, or a JavaScript engine**. The optional preview HTTP server is implemented natively, without Node.
 
+## One-file websites (frontend + backend + CSS)
+
+A native Noqeri web app can now live in **one** `.noqeri` file. The
+`route` body defines the HTML frontend, `form on.submit` contains
+server-side actions, and a multiline `style """ ... """` declaration
+provides CSS. The existing `theme`, `database` and `query`
+declarations can live alongside them. No separate HTML, CSS, Node or
+JavaScript source files are required for the server-rendered path.
+
+```noqeri
+let greeting = "Hello!"
+style """
+.hero { max-width: 40rem; margin: auto; padding: 2rem; }
+@media (max-width: 600px) { .hero { padding: 1rem; } }
+"""
+
+route "/" {
+    main class: "hero" {
+        h1 { greeting }
+        form on.submit {
+            validate(message, 2, 64)
+            greeting = form.message
+        } {
+            input name: "message" {}
+            button type: "submit" { "Save" }
+        }
+    }
+}
+```
+
+```sh
+# Run the app from its source file, including server-side form handling:
+./build/noqeri-web serve-app examples/native_web_single_file.noqeri 8080
+
+# Or compile it into a self-contained native server binary (POSIX):
+./build/noqeri-web compile examples/native_web_single_file.noqeri ./my-web-app
+./my-web-app 8080
+
+# For pages without server actions, output static HTML/CSS:
+./build/noqeri-web build examples/native_web_single_file_static.noqeri dist/one-file
+```
+
+The former directory input (`project/main.noqeri`) still works. Custom
+CSS is appended after Noqeri's theme stylesheet, so selectors can override
+theme defaults. The raw multiline style is limited to 64 KiB, written as
+a **same-origin external CSS asset**, and subject to the existing Content
+Security Policy. This is a web-framework syntax feature, not a change to
+the general-purpose Noqeri language grammar. Server actions are currently
+restricted to the supported native form/mutation subset; this is **not**
+an arbitrary server-function runtime.
+
 ## Compile and run
 
 Build the native compiler once with an available C++17 toolchain and CMake:
