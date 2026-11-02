@@ -1,0 +1,57 @@
+name: UEFI freestanding x86-64 compiler qualification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Compiler/native_backend.cpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'Compiler/linker.cpp'
+      - 'Include/noqeri/targets.hpp'
+      - 'tests/uefi/**'
+      - '.github/workflows/uefi-freestanding.yml'
+  pull_request:
+    paths:
+      - 'Compiler/native_backend.cpp'
+      - 'Compiler/bootstrap/cli_host.cpp'
+      - 'Compiler/linker.cpp'
+      - 'Include/noqeri/targets.hpp'
+      - 'tests/uefi/**'
+      - '.github/workflows/uefi-freestanding.yml'
+permissions:
+  contents: read
+jobs:
+  uefi-coff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler and EFI linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ clang lld binutils
+      - name: Build Noqeri stage-0 compiler
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DBUILD_TESTING=OFF
+          cmake --build build --target noqeri --parallel 2
+      - name: Compile Noqeri to UEFI COFF objects
+        run: |
+          mkdir -p build/uefi-test
+          ./build/noqeri targets | grep -q x86_64-unknown-uefi
+          ./build/noqeri check tests/uefi/firmware.noqeri --target=x86_64-unknown-uefi --unsafe -O2
+          ./build/noqeri build tests/uefi/firmware.noqeri build/uefi-test/firmware.s --target=x86_64-unknown-uefi --unsafe -O2
+          ! grep -Eq 'snprintf(@PLT)?|GNU-stack' build/uefi-test/firmware.s
+          clang -target x86_64-pc-windows-msvc -c build/uefi-test/firmware.s -o build/uefi-test/firmware.obj
+          clang -target x86_64-pc-windows-msvc -c tests/uefi/efi_bridge.S -o build/uefi-test/efi_bridge.obj
+          lld-link /nologo /machine:x64 /nodefaultlib /subsystem:efi_application /entry:efi_entry /fixed:no /out:build/uefi-test/BOOTX64.EFI build/uefi-test/firmware.obj build/uefi-test/efi_bridge.obj
+          python3 - <<'PY'
+          import struct
+          p = open('build/uefi-test/BOOTX64.EFI', 'rb').read()
+          pe = struct.unpack_from('<I', p, 0x3c)[0]
+          assert p[:2] == b'MZ' and p[pe:pe+4] == b'PE\\0\\0'
+          assert struct.unpack_from('<H', p, pe+4)[0] == 0x8664
+          assert struct.unpack_from('<H', p, pe+24)[0] == 0x20b
+          assert struct.unpack_from('<H', p, pe+24+68)[0] == 10
+          assert struct.unpack_from('<I', p, pe+24+112+5*8)[0] != 0
+          print('PASS: freestanding PE32+ AMD64 EFI app with relocations')
+          PY
