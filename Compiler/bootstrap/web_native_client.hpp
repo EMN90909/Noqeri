@@ -192,12 +192,13 @@ fs::path clientRuntimePath(const char* executable) {
 }
 
 void buildClient(const fs::path& input,const fs::path& output,const char* executable) {
-    const auto root=fs::canonical(input),out=fs::absolute(output).lexically_normal();
+    const auto sourceFile=webEntry(input);
+    const auto root=sourceFile.parent_path(),out=fs::absolute(output).lexically_normal();
     const auto relative=out.lexically_relative(root);
     if(out==root||(!relative.empty()&&*relative.begin()!=".."&&!relative.is_absolute()))
         throw std::runtime_error("client output must be outside source tree");
     Project project;
-    Parser(readText(root/"main.noqeri"),project).parse();
+    Parser(readText(sourceFile),project).parse();
     if(!project.uiAlias.empty())
         Parser(readText(uiSource(executable)),project,true).parse();
     promoteStandaloneView(project);
@@ -342,7 +343,7 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
         pages.emplace(target,head);
     }
     // Parse and render ALL routes before writing output: fail closed.
-    const auto styles=css(htmlProject.theme);
+    const auto styles=css(htmlProject.theme,htmlProject.styles);
     const auto runtime=readText(clientRuntimePath(executable));
     fs::create_directories(out/"__noqeri");
     for(const auto& [path,data]:pages)writeText(out/path,data);
