@@ -304,7 +304,7 @@ void normalizeIntegerResult(std::ostream&out,TypeKind kind){
 }
 bool safeInlineAsm(const std::string& text){if(text.empty())return false;if(text.find('\n')!=std::string::npos||text.find('\r')!=std::string::npos||text.find(':')!=std::string::npos)return false;auto p=text.find_first_not_of(" \t");return p!=std::string::npos&&text[p]!='.';}
 
-bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns,const std::map<std::string,std::string>&strings,const std::unordered_map<std::string,std::string>& symbols,Diagnostics&diagnostics){
+bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns,const std::map<std::string,std::string>&strings,const std::unordered_map<std::string,std::string>& symbols,Diagnostics&diagnostics){
     if(fn.isExtern)return true;
     auto l=layoutFor(fn,returns);const char*args[]={"rdi","rsi","rdx","rcx","r8","r9"};
     // Physically allocate NIR registers while reserving volatile rax/r10/r11
@@ -865,9 +865,9 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
         callSymbols.emplace(f.name,(f.isExtern||f.isExport)?
             safe(f.name):internalSymbol(f.name));
     out<<".intel_syntax noprefix\n.text\n";emitRuntime(out);
-    if(!emitFunction(out,p,p.entry,returns,strings,callSymbols,diagnostics))return false;
+    if(!emitFunction(out,p.entry,returns,strings,callSymbols,diagnostics))return false;
     for(const auto&f:p.functions)
-        if(!emitFunction(out,p,f,returns,strings,callSymbols,diagnostics))return false;
+        if(!emitFunction(out,f,returns,strings,callSymbols,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
