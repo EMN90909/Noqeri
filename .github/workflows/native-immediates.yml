@@ -1,0 +1,27 @@
+name: Native immediate correctness
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Compiler/native_backend.cpp'
+      - 'tests/native_immediate_codegen.noqeri'
+      - 'tests/native_immediate_codegen.py'
+      - '.github/workflows/native-immediates.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-immediates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Stage-0 compiler (Release)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON
+          cmake --build build --target noqeri --parallel 2
+      - name: Verify standalone AOT arithmetic, signedness and emitted immediates
+        run: python3 tests/native_immediate_codegen.py build/noqeri
