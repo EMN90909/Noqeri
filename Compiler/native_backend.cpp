@@ -428,6 +428,24 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         const std::string target=it==physical.end()?regSlot(r):it->second;
         if(target!=cpu)out<<"    mov "<<target<<", "<<cpu<<"\n";
     };
+    // Copy named locals directly to/from allocated registers where possible.
+    // x86-64 MOV cannot copy memory to memory; keep RAX as the reserved
+    // scratch register for those cases, preserving existing spill behavior.
+    const auto registerOperand=[&](Reg r)->std::string{
+        const auto it=physical.find(r);
+        return it==physical.end()?regSlot(r):it->second;
+    };
+    const auto copyWord=[&](const std::string& destination,
+                           const std::string& source){
+        if(destination==source)return;
+        const bool destinationMemory=destination.rfind("QWORD PTR [",0)==0;
+        const bool sourceMemory=source.rfind("QWORD PTR [",0)==0;
+        if(destinationMemory&&sourceMemory)
+            out<<"    mov rax, "<<source<<"\n"
+               <<"    mov "<<destination<<", rax\n";
+        else
+            out<<"    mov "<<destination<<", "<<source<<"\n";
+    };
     // Emitting one unused assembler label per NIR opcode forces the assembler
     // and linker to process needless symbols. Only branch destinations need
     // PC labels; diagnostic/trap labels remain emitted at their own sites.
@@ -551,34 +569,60 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
             out<<"    mov rax, 0x"<<std::hex<<bits<<std::dec<<"\n";
         }else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";
         else{diagnostics.error("NQR-N5001",{},"unsupported native literal");return false;}store(*i.dest,"rax");break;}
-        case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
+        case NirOp::Load:if(i.dest){
+            copyWord(registerOperand(*i.dest),variableOperand(i.text));
+        }break;
+        case NirOp::Store:if(!i.args.empty()){
+            copyWord(variableOperand(i.text),registerOperand(i.args[0]));
+        }break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){
             const bool sign=*i.dest<fn.registerTypes.size()&&
                 signedNarrow(fn.registerTypes[*i.dest].kind);
+            // For full-width scalar reads, load into the allocated register
+            // itself. Avoid the RAX -> r12-r15 hop in array-heavy loops.
+            const auto destination=physical.find(*i.dest);
+            const bool directQword=i.width==8&&destination!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
                 load(pointer.args[0],"rax");
                 load(pointer.args[1],"r11");
-                emitIndexedLoad(out,i.width,sign,pointer.width);
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", QWORD PTR [rax + r11*"
+                       <<pointer.width<<"]\n";
+                else emitIndexedLoad(out,i.width,sign,pointer.width);
             }else{
                 load(i.args[0],"rax");
-                emitLoadWidth(out,i.width,sign);
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", QWORD PTR [rax]\n";
+                else emitLoadWidth(out,i.width,sign);
             }
-            store(*i.dest,"rax");
+            if(!directQword)store(*i.dest,"rax");
         }break;
         case NirOp::StoreMemory:if(i.args.size()==2){
+            // Similarly, when a full-width store already has its value in
+            // an allocated register, skip staging it through R10.
+            const auto value=physical.find(i.args[1]);
+            const bool directQword=i.width==8&&value!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
                 load(pointer.args[0],"rax");
                 load(pointer.args[1],"r11");
-                load(i.args[1],"r10");
-                emitIndexedStore(out,i.width,pointer.width);
+                if(directQword)
+                    out<<"    mov QWORD PTR [rax + r11*"<<pointer.width
+                       <<"], "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    emitIndexedStore(out,i.width,pointer.width);
+                }
             }else{
                 load(i.args[0],"rax");
-                load(i.args[1],"r10");
-                emitStoreWidth(out,i.width);
+                if(directQword)
+                    out<<"    mov QWORD PTR [rax], "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    emitStoreWidth(out,i.width);
+                }
             }
         }break;
         case NirOp::PtrOffset:if(fusedPointers.count(pc))break;else if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
@@ -765,8 +809,8 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         else if(i.text==">")inverted=unsign?"jbe":"jle";
         else if(i.text==">=")inverted=unsign?"jb":"jl";
         if(singleUse&&adjacent&&inverted){
-            load(i.args[0],"rax");load(i.args[1],"r10");
-            out<<"    cmp rax, r10\n"
+            load(i.args[0],"rax");
+            out<<"    cmp rax, "<<registerOperand(i.args[1])<<"\n"
                <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
             fusedBranches.insert(pc+1);
             break;
@@ -799,11 +843,35 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
                 if(remainder)out<<"    mov rax, rdx\n";
             }
         }else{
-            load(i.args[1],"r10");
-            if(i.text=="+")out<<"    add rax, r10\n";
-            else if(i.text=="-")out<<"    sub rax, r10\n";
-            else if(i.text=="*")out<<"    imul rax, r10\n";
-            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}
+            // ALU operations can take a register or memory source directly,
+            // avoiding an extra load to R10 for every spilled RHS operand.
+            // Logical operators still require R10 to normalize both booleans.
+            const bool logical=i.text=="&&"||i.text=="||";
+            if(logical)load(i.args[1],"r10");
+            const auto rhs=logical?std::string("r10"):registerOperand(i.args[1]);
+            if(i.text=="+")out<<"    add rax, "<<rhs<<"\n";
+            else if(i.text=="-")out<<"    sub rax, "<<rhs<<"\n";
+            else if(i.text=="*")out<<"    imul rax, "<<rhs<<"\n";
+            else if(logical){
+                out<<"    test rax, rax\n    setne al\n    movzx rax, al\n"
+                   <<"    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"
+                   <<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");
+            }else{
+                out<<"    cmp rax, "<<rhs<<"\n";
+                if(i.text=="==")out<<"    sete al\n";
+                else if(i.text=="!=")out<<"    setne al\n";
+                else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");
+                else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");
+                else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");
+                else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");
+                else{
+                    diagnostics.error("NQR-N5003",{},
+                        "unsupported native binary operator '"+i.text+"'");
+                    return false;
+                }
+                out<<"    movzx rax, al\n";
+            }
+        }
         if(i.text=="+"||i.text=="-"||i.text=="*"||
            i.text=="/"||i.text=="%")
             normalizeIntegerResult(out,i.type.kind);

@@ -1,0 +1,19 @@
+// Local-to-local copies, register-spilled copies and loop-backedge values.
+let n: int = 0
+let total: int = 0
+let step: int = 1
+while n < 1000 {
+    total = total + n
+    n = n + step
+}
+print(total)
+print(n)
+let original: int = 7
+let middle: int = original
+let copied: int = middle
+print(copied)
+let values: [int; 4]
+values[0] = total
+values[1] = copied
+values[2] = values[0] + values[1]
+print(values[2])
