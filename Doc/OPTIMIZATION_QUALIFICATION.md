@@ -23,6 +23,285 @@
 | PGO | Not implemented | Instrumentation, counter collection, profile validation, hot/cold layout |
 | Target cost models | `TargetCostModel` includes conservative heuristic x86_64/ARM64 integer ops and 128-bit candidate SIMD width; unknown targets deny SIMD assumptions | Empirically calibrated throughput/latency models or use by vector/codegen passes |
 
+## Stage-0 local GVN compile-time complexity (November 2026)
+
+The integer local common-subexpression pass historically replaced each
+redundant result by rescanning all remaining instructions in its basic
+block. With many equivalent expressions, the substitution stage could
+perform quadratic work. The PR's implementation walks each block once
+and replaces operands through a per-block register-alias map. Eligible
+arithmetic, type checks, cross-block escape restrictions, and the
+original dominance guard are retained.
+
+**Qualification:** `tests/cpp/optimizer_gvn_perf_test.cpp` verifies that
+repeated safe integer calculations reduce to one retained definition,
+that side-effecting stores remain intact, and that a result used in a
+different basic block is **not** eliminated. The
+`optimizer-gvn-ab.yml` workflow compiles the *same* stress fixture
+against the PR's base and head `Compiler/optimizer.cpp` on one runner.
+Its `optimizer-gvn-ab.json` artifact records raw paired samples and
+median Stage-0 optimizer-pass latency. Do not infer a compiled program
+runtime speedup, or cross-language Rust/Zig parity, from this
+compiler-latency metric.
+
+Run the local correctness test with:
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target noqeri-optimizer-gvn-test
+ctest --test-dir build -R '^noqeri-optimizer-gvn
+
+- **O0:** No optimizations.
+- **O1:** Existing local constant folding, dead-code elimination and proven safe bounds-check simplification.
+- **O2:** O1, dominance-gated sparse constant propagation, branch pruning, conservative local integer GVN and identity strength reduction. Proven redundant bounds checks with identical operands and guarded unsigned fixed-array indices are removed only when the CFG and mutation proof succeeds.
+- **O3:** O2, capped structured literal plus nontrapping invariant Int/I64 addition/subtraction/multiplication LICM, and local literal scheduling for register pressure.
+- **Oz:** Conservative algebraic/CFG optimization with code size goal; no speculative loop unroll.
+- **Os:** O1-like baseline. Not automatically equivalent to O3.
+
+All passes must preserve Noqeri's source-visible side effects, overflow and trap semantics. Unknown pointer interactions are MayAlias. Volatile/atomic loads, inline assembly, exception edges and unqualified floating-point rearrangements are not removed or moved. A target cost profile in a header does not mean SIMD instructions are emitted.
+
+## Benchmarking native code generation
+
+The Linux x86-64 Stage-0 emitter uses conservative, callee-saved physical
+registers for allocated NIR values. It still reserves the original virtual
+stack slots; most named mutable locals still live in memory, except for
+one eligible loop-hot local promoted to saved RBX. This is a
+first-stage improvement, **not** proof of globally optimal register
+allocation or elimination of redundant array bounds checks.
+
+For assembly inspection run
+`node scripts/native-build.mjs Benchmarks/workloads/sorting.noqeri build/benchmarks/sorting --compiler=build/noqeri --opt=-O3 --keep-asm`.
+The generated `.s` file is preserved beside the executable, and its
+SHA-256 is recorded in the native provenance JSON. For fail-closed benchmark
+coverage, pass `--require-workloads=noqeri:sorting` to
+`scripts/benchmark-suite.mjs`, using a complete local commands file.
+That argument ensures the named result is *measured*, not simply configured.
+
+The GitHub Native AOT performance A/B workflow builds both baseline and
+candidate Stage-0 compilers under identical settings, compares matching
+standalone workloads on one runner, and uploads raw samples. Comparisons must
+not be presented as self-hosted Stage-2 performance.
+
+## Native x86-64 improvements on 2026-10-24
+
+- **Typed NIR optimization:** the TypeChecker still runs first, but NIR type
+  analysis now runs before optimization, with CFG metadata rebuilt after transformation.
+  Integer constant comparisons, division and remainders use the signedness
+  of their typed operands rather than always interpreting the bits as i64.
+- **Safe array indexing:** the type checker now attaches an actual fixed
+  array length to `IndexExpr`; that was previously missing for local fixed
+  arrays and was a genuine missing-bounds-check correctness issue.
+  O2/O3/Oz remove an explicit `CheckBounds` if either an identical test
+  dominates it or an unsigned index is proven smaller than a fixed bound
+  by a dominating conditional, with no intervening named-local assignment,
+  unknown call, inline assembly, or unchecked memory write.
+- **Constant division:** the Stage-0 emitter uses 64-bit reciprocal multiply
+  and a single remainder correction for non-power-of-two divisors. Power
+  of two divisors use shift/mask. Signed operands are converted through
+  their unsigned magnitude and restored according to truncation/remainder
+  sign semantics. Division by zero and i64 min / -1 retain hardware trap
+  behavior; unproven divisors keep hardware `div`/`idiv`.
+- **Machine lowering:** the native emitter fuses adjacent single-use integer
+  comparisons with conditional branches, chooses unsigned x86 flags for
+  typed unsigned comparisons, sign-extends signed narrow-memory loads,
+  avoids unused instruction labels, and shortens positive fixed array
+  bounds tests to one unsigned compare. These techniques are not yet in
+  the NQRI-VM/self-host Stage-2 backend.
+- **Regression and performance evidence:** run
+  `python3 tests/native_division_matrix.py` after building
+  `build-native/noqeri` to exercise signed/unsigned quotient and remainder
+  over multiple integer extremes at O0 and O3. The native-typed-arithmetic
+  CI test requires unsigned/narrow results and traps for invalid indexes.
+  The same-runner native A/B workflow measures already-sorted traversal,
+  dependent modulo, and compiler latency; its raw results are not global
+  speed claims.
+
+## Required next engineering phases
+
+1. Implement canonical SSA formation/renaming, Phi nodes, critical-edge splitting and SSA destruction; test mutable register variables at joins and loop latches.
+2. Add memory SSA plus alias+escape proofs before global GVN, arithmetic LICM or redundant-load elimination.
+3. Define typed vector instructions, lane semantics, alignment and scalar fallback across native backends, then add SLP and loop vectorization with auto-generated differential fixtures.
+4. Make target feature detection and cost tables drive pass legality and codegen. Benchmark ARM64, baseline x86_64 and older Intel GPUs independently.
+5. Implement LTO IR summaries and whole-program symbol linking, profile instrumentation and checked PGO metadata; compare PGO to a no-profile baseline.
+6. Run O0/O1/O2/O3/Oz differential tests, native sanitizer/fuzzer suites, multithreaded memory tests and CMake release builds on Linux and Windows. Record compile time, executable speed and memory before claiming mature performance.
+
+**Release gate:** native Stage-2 compiler parity, real NoeSQL integration, full platform qualification and performance baselines are not yet proven. Keep these pass statuses explicit in published documentation.
+
+## Issue #48 native optimization status (October 24, 2026)
+
+- **Correctness regression fixed:** O3 no longer folds signed i64 minimum
+  divided/remainder by -1 into a nontrapping constant. The native qualification
+  suite now expects SIGFPE at both O0 and O3 for overflow and zero division.
+- **Bounds proof hardening:** a guarded index cannot inherit stale range
+  information from a scalar load preceding a named-local mutation.
+- **Loop hoisting:** the Stage-0 pass now covers nontrapping invariant
+  64-bit integer `+`, `-`, `*` as well as literals. This is not general
+  SSA/Phi construction or arbitrary code motion.
+- **Compiler analyses:** loop candidate counting and stack-pointer root
+  propagation use linear-time scans/worklists instead of repeated scans.
+- **Native measurements:** hot-local RBX promotion passed ABI/native
+  correctness tests but its same-runner already-sorted insertion-sort speedup
+  was ~1.001x, essentially unchanged. The scoped O3 LICM branch measured
+  ~1.263x on dependent modulo and ~0.894x on the already-sorted traversal;
+  neither supports a blanket speedup claim.
+- **Better benchmarking:** a fresh deterministic seeded data fill every sorting
+  round adds a reshuffled-sorting A/B lane with checksum 13104300. A test-only
+  change yielded median 21.932 vs 21.911 ms, within practical measurement noise.
+
+**Still pending:** full SSA and Phi creation/destruction, memory SSA,
+induction/range proofs beyond guarded scalar cases, generalized
+unrolling/vectorization, full typed integer-width semantics and
+native Stage-2/Stage-3 self-hosted compiler parity. Issue #48 remains open.
+
+## CFG scalar promotion qualification (October 24, 2026)
+
+PR #66 adds conservative fixed-point scalar facts at control-flow joins.
+A local Load is forwarded only when all incoming reachable paths agree on
+one dominating register with an identical supported integer/Boolean type.
+An address-taken or volatile variable, side-effect barrier, loop-carried
+mutation or divergent predecessor retains the memory Load. This is not a
+replacement for explicit Phi instruction lowering or memory SSA.
+
+The same-runner native benchmark with three million iterations through a
+branch diamond produced median runtime **5.389196 ms** (previous main) versus
+**5.117053 ms** (candidate), approximately **1.053x** for this one workload.
+The benchmark and Linux/Windows bootstrap qualification passed on PR #66.
+Those timings do not establish a cross-workload or cross-target speedup.
+
+## Additional Issue #48 compiler work (October 24, 2026)
+
+- **PR #68:** sparse integer constant propagation uses a def-use worklist
+  rather than rescanning whole NIR bodies until no constant changes. This is
+  *not* complete edge-sensitive SCCP or Phi-lattice propagation.
+- **PR #70:** guarded fixed-array bounds-check removal indexes unknown memory
+  writes by prefix counts and named-local Store positions, replacing repeated
+  instruction rescans. Stale-value, may-alias, signed nonnegativity and
+  loop-backedge safety qualifications remain intact.
+- **PR #72:** transitive NIR DCE register liveness uses a dependency worklist,
+  conservatively combining operands from repeated definitions. A 2,048-link
+  live chain and 512-link dead chain are regression-tested.
+- **PR #71:** Stage-0 native arithmetic now normalizes u8/i8/u16/i16
+  and u32/i32 signedness and wrapping at operation boundaries, matched by
+  typed optimizer constant folding. The TypeChecker's declared array,
+  field and pointer element types now reach the NIR LoadMemory instruction:
+  generic StackAlloc byte pointers no longer mislabel 64-bit indexed loads
+  as u8. O0 and O3 narrow-integer and 64-bit matrix results agree with
+  expected outputs; Linux/Windows bootstrap and independent GCC/Clang
+  Stage-1 seed reproducibility passed. This is not cross-target or
+  self-hosted Stage-2 native instruction-selection parity.
+
+These changes reduce repeated compiler analyses but provide no universal
+end-to-end compiler speedup guarantee. Neither full SSA/Phi, general loop
+induction/range proof, auto-vectorization, nor native compiler self-hosting
+is complete.
+
+## Issue #48 engineering qualification: additional foundations
+
+The following changes are merged and qualified by the native compiler and
+Linux/Windows NQRI bootstrap workflows. They do **not** imply that the entire
+compiler optimization roadmap is complete.
+
+- PR #75 adds a conservative whole-memory version graph with explicit memory
+  join Phi records. Only nonvolatile repeated loads from proved nonescaping
+  stack roots may be reused when the same pointer, type, width, incoming
+  memory version and CFG dominance are proven. Unknown writes, calls, atomic
+  operations, fences, volatile accesses and inline assembly invalidate or
+  disable this proof. This is not per-object MemorySSA and does not itself
+  lower scalar Phi copies.
+- PR #76 adds opt-in fail-closed release performance gate arguments to
+  scripts/perf-gate.mjs. Required workload IDs, same-host profiles, raw
+  samples, independently recomputed median/p95, native AOT provenance,
+  deterministic output and two release regressions are verified. This
+  provides evidence policy, not measured parity with another language.
+- PR #77 removes more redundant bounds checks when a guarded index plus
+  a positive constant is provably in range without overflow. It also
+  fixes the unsafe stale-snapshot case where the checked index was read
+  before a mutation but the guard used a newer value. This is a scoped
+  affine range proof, not general symbolic induction analysis.
+- PR #78 inserts a typed scalar Phi candidate for a strictly eligible
+  two-way acyclic branch join, lowers it into predecessor-edge NIR Cast
+  copies and removes the redundant join Load. Native O0/O3 tests select
+  both incoming values correctly. It refuses loops, exceptional flows,
+  address-taken/volatile variables, critical edges and unsupported types.
+  This is not complete general scalar SSA or edge copy resolution.
+
+Still missing or unqualified: general scalar SSA renaming and Phi
+insertion/destruction (including critical edges and loops), per-object memory
+SSA and interprocedural alias analysis, induction trip-count proofs, general
+safe unrolling, typed vector NIR and SIMD machine lowering, full integer
+parity across native, interpreter and NQRI, native self-hosted Stage-2/Stage-3
+executables, and broad measured cross-language performance comparisons.
+
+## Differential Stage-0 backend integer parity
+
+The native typed-arithmetic CI suite directly compares the C++ Stage-0
+reference interpreter against native x86-64 AOT output, at both O0 and O3, for
+unsigned wide division and comparison, narrow signed and unsigned overflow,
+branch Phi selection and guarded loops. Neither backend may silently disagree
+on printed observable output. This is qualification of two Stage-0 execution
+paths on the cited fixtures. NQRI VM integer-width parity, other target ABIs
+and exhaustive integer edge-case fuzzing remain unqualified.
+
+## Additional Issue #48 qualification, 25 October 2026
+
+- **PR #79:** conservative executable O3 guarded loop 2x unrolling for
+  single-entry/single-backedge loops without exceptional or complex CFG.
+  It duplicates the condition between iterations, preserving odd and zero
+  trip counts, traps and side effects. It does not imply vectorization.
+- **PR #80:** named mutable-local Store-version SSA analysis now constructs
+  scalar Phi records at CFG joins **and loop headers**, excluding volatile
+  and address-taken locals. Loop Phi nodes are *analysis only* until general
+  critical-edge-safe lowering is implemented.
+- **PR #81:** per-nonescaping-stack-allocation MemorySSA partitions and
+  NoAlias-safe load reuse across unrelated stack writes. MayAlias, volatile,
+  atomic and unknown effects remain barriers.
+- **PR #82:** Stage-0 interpreter no longer interprets large unsigned
+  arithmetic as signed. O0/O3 reference-interpreter-vs-native-AOT parity
+  compares unsigned, narrow signed/wrapping, Phi and guarded-loop fixtures.
+  This does not establish full NQRI/ARM64/WASM parity.
+- **PR #84:** records *real* C/Go/Noqeri native execution evidence on the
+  same AMD EPYC 7763 GitHub runner with 25 samples and deterministic
+  outputs. Measured median durations in milliseconds:
+
+  | Workload | C O3 | Go | Noqeri Stage-0 AOT O3 |
+  | --- | ---: | ---: | ---: |
+  | 5M modulo | 16.39 | 23.86 | 20.03 |
+  | 200-pass 16x16 matrix | 0.91 | 1.88 | 5.15 |
+  | 200-round reshuffled insertion sorting | 2.66 | 3.29 | 17.80 |
+
+  Each sample includes process startup. Machine/runner performance can
+  vary; source, output validation, toolchain, binary hashes and full raw
+  timing samples are archived in the GitHub Actions artifact
+  `crosslang-native-evidence`. The three kernels **do not establish
+  broad performance parity**; matrix and sorting identify optimization
+  deficits to prioritize.
+
+Still unqualified: a complete scalar SSA renamer/loop Phi lowering pass;
+general per-object/interprocedural MemorySSA; induction trip-count and
+cost-based unrolling; actual SIMD vector instruction emission; integer
+semantics across NQRI and all native targets; an independently executing
+Noqeri-written native Stage-2/Stage-3 compiler; representative system-level
+cross-language parity and release CPU/RSS profiling. The native self-host
+gate remains fail-closed.
+
+## Further Issue #48 implementation: PRs #85, #87 and #88
+
+- **PR #85 merged:** executable typed scalar loop-header Phi lowered into preheader and backedge copies; the backedge jumps past initialization. Native O0/O2/O3 and bootstrap tests passed. General SSA across arbitrary loops and critical edges remains incomplete.
+- **PR #87 merged:** guarded array bounds proofs now accept selected affine index times positive stride plus constant offset, using overflow-safe quotient bounds in the declared integer width. Unsafe u8 wrap and off-by-one counterexamples still trap.
+- **PR #88 merged:** NOQERI_EXPERIMENTAL_SIMD=1 produces real 128-bit SSE2 two-lane integer add/sub code from safe straight-line operations. Emitted paddq and psubq were assembled, linked and executed with expected results. No default vectorization or measured speedup is claimed.
+- **PR #89 closed unmerged:** reserving three hot named loop variables instead of one showed no median speedup in 21 interleaved samples with matching outputs. Matrix one/three: 2.3036/2.3179 ms; reshuffled sorting one/three: 18.2790/18.3007 ms. The default backend remains unchanged.
+
+Missing: general executable SSA and Phi resolution, heap/global/interprocedural MemorySSA, arbitrary loop induction analysis, cost-effective automatic SIMD loop vectorization, NQRI and all-native-target integer parity, a genuinely Noqeri-owned independent native Stage-2/Stage-3 compiler, and representative CPU/RSS/cross-language performance parity. scripts/bootstrap-native.sh remains intentionally fail-closed.
+
+## Explicit Phi destruction and critical-edge native qualification
+
+- PR #91 merged: typed `NirPhiNode` and `lowerPhiNodes` accept complete incoming scalar Phi assignments per CFG predecessor and split both taken and fallthrough edges (including critical edges). All source values are staged in fresh typed temporaries before any destination copy, so cycles preserve simultaneous assignment. Unsupported or ambiguous edges fail without changing NIR. The existing diamond optimization uses this shared edge splitter. Full general SSA construction is separate.
+- PR #93 merged: standalone x86-64 codegen fixture now runs taken/fallthrough branches and a loop carrying two mutually swapped Phi destinations. One iteration yields 210, two yield 120. Linux/Windows bootstrap and native arithmetic tests passed.
+
+These changes implement general scalar Phi destruction for explicit valid inputs; do not label full SSA construction complete. Further work includes emitting arbitrary SSA Phi inputs automatically from dominance-frontier renaming, more extensive alias and exception CFG coverage, and expanding native target parity.
+ --output-on-failure
+```
+
 ## Native pipeline eligibility
 
 - **O0:** No optimizations.
