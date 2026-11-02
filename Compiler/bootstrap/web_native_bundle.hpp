@@ -29,7 +29,8 @@ fs::path nativeWebCompilerSource(const char* executable) {
     throw std::runtime_error("native web bootstrap source not installed; set NOQERI_WEB_COMPILER_SOURCE");
 }
 void compileApplication(const fs::path& input,const fs::path& executable,const char* self) {
-    const auto source=readText(fs::weakly_canonical(input)/"main.noqeri");
+    const auto sourceFile=webEntry(input);
+    const auto source=readText(sourceFile);
     Project project;
     Parser(source,project).parse();
     if(project.routes.empty())throw std::runtime_error("compiled app requires routes");
@@ -51,7 +52,7 @@ void compileApplication(const fs::path& input,const fs::path& executable,const c
        path.find('\\')!=std::string::npos)
         throw std::runtime_error("unsafe compiler source path for embedded build");
     const auto destination=fs::absolute(executable).lexically_normal();
-    if(destination==fs::weakly_canonical(input/"main.noqeri"))
+    if(destination==sourceFile)
         throw std::runtime_error("output would replace Noqeri application source");
     const auto staging=fs::path(destination.string()+".cpp");
     const auto partial=fs::path(destination.string()+".pending");
