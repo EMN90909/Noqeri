@@ -579,28 +579,50 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){
             const bool sign=*i.dest<fn.registerTypes.size()&&
                 signedNarrow(fn.registerTypes[*i.dest].kind);
+            // For full-width scalar reads, load into the allocated register
+            // itself. Avoid the RAX -> r12-r15 hop in array-heavy loops.
+            const auto destination=physical.find(*i.dest);
+            const bool directQword=i.width==8&&destination!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
                 load(pointer.args[0],"rax");
                 load(pointer.args[1],"r11");
-                emitIndexedLoad(out,i.width,sign,pointer.width);
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", QWORD PTR [rax + r11*"
+                       <<pointer.width<<"]\n";
+                else emitIndexedLoad(out,i.width,sign,pointer.width);
             }else{
                 load(i.args[0],"rax");
-                emitLoadWidth(out,i.width,sign);
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", QWORD PTR [rax]\n";
+                else emitLoadWidth(out,i.width,sign);
             }
-            store(*i.dest,"rax");
+            if(!directQword)store(*i.dest,"rax");
         }break;
         case NirOp::StoreMemory:if(i.args.size()==2){
+            // Similarly, when a full-width store already has its value in
+            // an allocated register, skip staging it through R10.
+            const auto value=physical.find(i.args[1]);
+            const bool directQword=i.width==8&&value!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
                 load(pointer.args[0],"rax");
                 load(pointer.args[1],"r11");
-                load(i.args[1],"r10");
-                emitIndexedStore(out,i.width,pointer.width);
+                if(directQword)
+                    out<<"    mov QWORD PTR [rax + r11*"<<pointer.width
+                       <<"], "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    emitIndexedStore(out,i.width,pointer.width);
+                }
             }else{
                 load(i.args[0],"rax");
-                load(i.args[1],"r10");
-                emitStoreWidth(out,i.width);
+                if(directQword)
+                    out<<"    mov QWORD PTR [rax], "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    emitStoreWidth(out,i.width);
+                }
             }
         }break;
         case NirOp::PtrOffset:if(fusedPointers.count(pc))break;else if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
