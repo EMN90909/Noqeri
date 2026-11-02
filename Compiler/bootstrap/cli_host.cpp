@@ -28,7 +28,7 @@ void usage() {
               << "  check [file] [-O...] [--json]     show beginner hints or machine-readable errors\n"
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
-              << "  build [file] [assembly] [-O...]   emit target assembly\n"
+              << "  build [file] [assembly] [-O...] [--target=x86_64-unknown-uefi]   emit target assembly\n"
               << "  emit-c [file] [out.c] [-O...]     emit checked portable C11 for native compilation\n"
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
@@ -73,6 +73,7 @@ CompileOptions optionsFromArgs(int argc, char** argv, const std::string& target)
     for (int i = 2; i < argc; ++i) {
         if (auto level = parseOptimization(argv[i])) options.optimization = *level;
         else if (std::string(argv[i]) == "--unsafe") options.allowUnsafe = true;
+        else if (std::string(argv[i]).rfind("--target=",0)==0) options.target = std::string(argv[i]).substr(9);
     }
     return options;
 }
@@ -324,14 +325,15 @@ int main(int argc, char** argv) {
         for (int i = 2; i < argc; ++i) {
             const std::string flag(argv[i]);
             if (flag == "--json" || flag == "--diagnostics=json" ||
-                flag == "--unsafe" || parseOptimization(flag)) continue;
+                flag == "--unsafe" || parseOptimization(flag) ||
+                flag.rfind("--target=",0)==0) continue;
             const bool isSource = !flag.empty() && flag[0] != '-';
             if (isSource && sourceIndex == -1) { sourceIndex = i; continue; }
             Diagnostics diagnostics;
             diagnostics.error("NQR-C0004", {},
                 isSource ? "check accepts only one source file" :
                            "unknown check option: " + flag,
-                "Use noqeri check app.noqeri [--json] [-O0|-O1|-O2|-O3|-Os|-Oz].");
+                "Use noqeri check app.noqeri [--target=x86_64-unknown-uefi] [--json] [-O0|-O1|-O2|-O3|-Os|-Oz].");
             if (jsonCheck) {
                 std::cout << "{\"schema\":1,\"ok\":false,\"diagnostics\":"
                           << diagnostics.toJson() << "}\n";
@@ -688,7 +690,7 @@ int main(int argc, char** argv) {
             std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".s");
             if (output.extension().empty()) output += ".s";
             Diagnostics d;
-            if (!NativeBackend{}.emitAssembly(compilation.nir, output, d)) { d.print(path.string()); return 1; }
+            if (!NativeBackend{}.emitAssembly(compilation.nir, output, d, options.target=="x86_64-unknown-uefi")) { d.print(path.string()); return 1; }
             std::cout << "emitted Noqeri x86-64 assembly: " << output << "\ntarget=" << options.target << "\nentry=noqeri_entry(noqeri_abi*)\n";
             return 0;
         }

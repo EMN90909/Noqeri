@@ -1,0 +1,17 @@
+// Freestanding x86-64 firmware smoke test. Compiler must emit pure COFF
+// compatible assembly with no libc or hosted floating formatting linkage.
+extern function fw_probe(address: usize): usize
+
+record Header {
+    first: u64
+    second: u64
+}
+export function noqeri_uefi_main(image: usize, system: usize): usize {
+    let signature: Header
+    signature.first = 0x1122334455667788 as u64
+    signature.second = 0x8877665544332211 as u64
+    if image == 0 as usize || system == 0 as usize { return 1 as usize }
+    let data: *u64 = &signature.first
+    if data[0] != signature.first { return 2 as usize }
+    return fw_probe(system)
+}

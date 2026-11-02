@@ -89,7 +89,7 @@ std::string varSlot(const NirFunction&fn,const FunctionLayout&l,const std::strin
 std::string varAddress(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"[rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
 std::string symbolForCall(const NirProgram&p,const std::string&name){for(const auto&f:p.functions)if(f.name==name)return(f.isExtern||f.isExport)?safe(f.name):internalSymbol(f.name);return safe(name);}
 
-void emitRuntime(std::ostream&out){out<<R"ASM(
+void emitRuntime(std::ostream&out,bool uefi){std::string runtime=R"ASM(
 .data
 .align 8
 noqeri_abi_current:
@@ -253,7 +253,15 @@ noqeri_rt_platform:
 .L_noqeri_platform_fail:
     lea rax, [rip + .L_noqeri_standalone]
     ret
-)ASM";}
+)ASM";
+    if(uefi){
+        const auto first=runtime.find("// Hosted x86-64 native float output.");
+        const auto last=runtime.find("noqeri_rt_clock_millis:",first);
+        if(first!=std::string::npos&&last!=std::string::npos)
+            runtime.replace(first,last-first,"noqeri_rt_print_float:\n    ud2\n");
+    }
+    out<<runtime;
+}
 bool signedNarrow(TypeKind kind){
     return kind==TypeKind::I8||kind==TypeKind::I16||kind==TypeKind::I32;
 }
@@ -817,7 +825,7 @@ bool emitFunction(std::ostream&out,const NirProgram&p,const NirFunction&fn,const
 }
 }
 
-bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&output,Diagnostics&diagnostics)const{
+bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&output,Diagnostics&diagnostics,bool uefiFreestanding)const{
     if(!p.entry.partitions.empty()){
         diagnostics.error("NQR-PGAS301",{},"native backend does not yet lower @partition arrays to remote addresses; refusing local execution");
         return false;
@@ -829,12 +837,12 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     std::ofstream out(output,std::ios::trunc);if(!out){diagnostics.error("NQR-N5000",{},"cannot write assembly output: "+output.string());return false;}
     std::map<std::string,std::string>strings;std::size_t sid=0;auto collect=[&](const NirFunction&f){for(const auto&i:f.code)if(i.op==NirOp::Const)if(auto s=std::get_if<std::string>(&i.literal))if(!strings.count(*s))strings[*s]=".L_noqeri_str_"+std::to_string(sid++);};collect(p.entry);for(const auto&f:p.functions)collect(f);
     std::unordered_map<std::string,ValueKind>returns;for(int pass=0;pass<3;++pass)for(const auto&f:p.functions)if(!f.isExtern)returns[f.name]=inferReturn(f,returns);
-    out<<".intel_syntax noprefix\n.text\n";emitRuntime(out);if(!emitFunction(out,p,p.entry,returns,strings,diagnostics))return false;for(const auto&f:p.functions)if(!emitFunction(out,p,f,returns,strings,diagnostics))return false;
+    out<<".intel_syntax noprefix\n.text\n";emitRuntime(out,uefiFreestanding);if(!emitFunction(out,p,p.entry,returns,strings,diagnostics))return false;for(const auto&f:p.functions)if(!emitFunction(out,p,f,returns,strings,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
     // ELF x86-64 native objects must not request an executable stack.
-    out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
+    if(!uefiFreestanding)out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
     return !diagnostics.hasErrors();
 }
 } // namespace noe
