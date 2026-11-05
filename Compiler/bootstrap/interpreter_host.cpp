@@ -362,7 +362,20 @@ NirValue Interpreter::runFunction(const NirProgram&p,const NirFunction&fn,const 
                     }
                     break;
                 }
-                std::string error;if(i.text=="host"||i.text=="abi"){if(a.empty()||!std::holds_alternative<std::string>(a[0]))throw std::runtime_error(i.text+" requires a string service name");std::string service=std::get<std::string>(a[0]);std::vector<NirValue>serviceArgs(a.begin()+1,a.end());std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,service,serviceArgs,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),service,serviceArgs,error);if(!result)throw std::runtime_error(error.empty()?"unknown ABI service "+service:error);regs[*i.dest]=*result;break;}std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,i.text,a,error);if(!result)result=callNoqeriAbi(defaultNoqeriAbi(),i.text,a,error);if(!result)throw std::runtime_error(error.empty()?"unknown function "+i.text:error);regs[*i.dest]=*result;break;}
+                std::string error;if(i.text=="host"||i.text=="abi"){if(a.empty()||!std::holds_alternative<std::string>(a[0]))throw std::runtime_error(i.text+" requires a string service name");std::string service=std::get<std::string>(a[0]);std::vector<NirValue>serviceArgs(a.begin()+1,a.end());std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,service,serviceArgs,error);
+                    // A custom embedding ABI must opt in to networking explicitly.
+                    const bool restricted=service.rfind("net",0)==0||service.rfind("tcp",0)==0||
+                        service.rfind("udp",0)==0||service.rfind("wifi",0)==0||
+                        service.rfind("bluetooth",0)==0||service.rfind("httpClient",0)==0||
+                        service=="dnsResolveFirst";
+                    if(!result&&(!restricted||!host_||host_==defaultNoqeriAbi()))
+                        result=callNoqeriAbi(defaultNoqeriAbi(),service,serviceArgs,error);if(!result)throw std::runtime_error(error.empty()?"unknown ABI service "+service:error);regs[*i.dest]=*result;break;}std::optional<NirValue>result;if(host_)result=callNoqeriAbi(host_,i.text,a,error);
+                const bool restricted=i.text.rfind("net",0)==0||i.text.rfind("tcp",0)==0||
+                    i.text.rfind("udp",0)==0||i.text.rfind("wifi",0)==0||
+                    i.text.rfind("bluetooth",0)==0||i.text.rfind("httpClient",0)==0||
+                    i.text=="dnsResolveFirst";
+                if(!result&&(!restricted||!host_||host_==defaultNoqeriAbi()))
+                    result=callNoqeriAbi(defaultNoqeriAbi(),i.text,a,error);if(!result)throw std::runtime_error(error.empty()?"unknown function "+i.text:error);regs[*i.dest]=*result;break;}
             case NirOp::Jump:pc=i.target;continue;
             case NirOp::JumpIfFalse:if(!truthyValue(get(i.args[0]))){pc=i.target;continue;}break;
             case NirOp::Return:return i.args.empty()?NirValue(std::monostate{}):get(i.args[0]);
