@@ -17,9 +17,25 @@ cmake -S . -B "$build_dir" -DCMAKE_BUILD_TYPE=Release \
 cmake --build "$build_dir" --target noqeri \
   noqeri-owned-collections-test noqeri-owned-value-list-test \
   noqeri-register-allocator-test noqeri-native-bounds-fastpath-test \
-  noqeri-owned-alloc-bench --parallel 2
+  noqeri-owned-alloc-bench noqeri-simd-codegen-test \
+  noqeri-optimizer-test --parallel 2
 ctest --test-dir "$build_dir" --output-on-failure \
-  -R '^(noqeri-owned-collections|noqeri-owned-value-list|noqeri-register-allocator-cfg|noqeri-native-bounds-fastpath)$'
+  -R '^(noqeri-owned-collections|noqeri-owned-value-list|noqeri-register-allocator-cfg|noqeri-native-bounds-fastpath|noqeri-optimizer-liveness)
+python3 tests/native_branchfree_division.py --compiler="$build_dir/noqeri"
+python3 tests/native_direct_local_moves.py "$build_dir/noqeri"
+python3 tests/native_division_traps.py --compiler="$build_dir/noqeri"
+python3 tests/native_bounds_local.py --compiler="$build_dir/noqeri"
+NOQERI_EXPERIMENTAL_SIMD=1 "$build_dir/noqeri-simd-codegen-test" \
+  "$build_dir/simd-broadcast.s"
+python3 scripts/local-allocation-profile.py \
+  --candidate "$build_dir/noqeri-owned-alloc-bench" \
+  --output "$build_dir/allocation-profile.json"
+python3 scripts/local-native-vs-c.py \
+  --compiler "$build_dir/noqeri" \
+  --output "$build_dir/c-vs-noqeri.json"
+printf '\nLocal native correctness tests passed.\n'
+printf 'No runtime speedup versus C is asserted by this script.\n'
+
 python3 tests/native_branchfree_division.py --compiler="$build_dir/noqeri"
 python3 tests/native_direct_local_moves.py "$build_dir/noqeri"
 python3 tests/native_division_traps.py --compiler="$build_dir/noqeri"
