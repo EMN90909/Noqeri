@@ -11,7 +11,6 @@ import argparse
 import hashlib
 import json
 import math
-import os
 import platform
 import statistics
 import subprocess
@@ -38,7 +37,6 @@ for mode in MODES:
     samples = {name: [] for name in programs}
     expected = None
     def run(name):
-        nonlocal_dummy = None
         start = time.perf_counter_ns()
         done = subprocess.run(
             [str(programs[name]), mode], capture_output=True,
