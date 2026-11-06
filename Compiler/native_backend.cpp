@@ -621,6 +621,27 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     const bool loopSimd=(!loopEnv||std::string(loopEnv)!="0")&&
         !experimentalSimd;
     if(loopSimd){
+        // Each source register is classified once. Repeating a full
+        // function scan for every candidate pack made compilation quadratic
+        // for large kernels with hundreds of contiguous stack objects.
+        std::vector<std::uint8_t> nonprivateRoots(fn.nextReg,0);
+        std::vector<std::uint8_t> escapingPointers(fn.nextReg,0);
+        std::vector<bool> mayClobberAfter(fn.code.size()+1,false);
+        for(std::size_t pc=fn.code.size();pc-->0;){
+            const auto& in=fn.code[pc];
+            mayClobberAfter[pc]=mayClobberAfter[pc+1]||
+                in.op==NirOp::Call||in.op==NirOp::Intrinsic||
+                in.op==NirOp::InlineAsm;
+            for(std::size_t k=0;k<in.args.size();++k){
+                const Reg r=in.args[k];
+                if(r>=fn.nextReg)continue;
+                if(!(k==0&&in.op==NirOp::PtrOffset))
+                    nonprivateRoots[r]=1;
+                if(!(k==0&&(in.op==NirOp::LoadMemory||
+                            in.op==NirOp::StoreMemory)))
+                    escapingPointers[r]=1;
+            }
+        }
         std::unordered_map<Reg,std::size_t> onlyDefinitions;
         for(std::size_t pc=0;pc<fn.code.size();++pc)
             if(fn.code[pc].dest&&
@@ -685,20 +706,12 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             if(root==onlyDefinitions.end()||
                fn.code[root->second].op!=NirOp::StackAlloc||
                fn.code[root->second].width<16)continue;
-            bool privateStack=true;
-            for(const auto& instr:fn.code){
-                for(std::size_t k=0;k<instr.args.size();++k){
-                    const auto arg=instr.args[k];
-                    if(arg==ptrA->first&&
-                       !(instr.op==NirOp::PtrOffset&&k==0))
-                        privateStack=false;
-                    if((arg==a.args[0]||arg==b.args[0])&&
-                       !(k==0&&(instr.op==NirOp::LoadMemory||
-                                 instr.op==NirOp::StoreMemory)))
-                        privateStack=false;
-                }
-            }
-            if(!privateStack)continue;
+            if(ptrA->first>=nonprivateRoots.size()||
+               a.args[0]>=escapingPointers.size()||
+               b.args[0]>=escapingPointers.size()||
+               nonprivateRoots[ptrA->first]||
+               escapingPointers[a.args[0]]||
+               escapingPointers[b.args[0]])continue;
             std::size_t loopHeader=fn.code.size();
             for(std::size_t end=pc+6;end<fn.code.size();++end){
                 const auto& edge=fn.code[end];
@@ -716,17 +729,23 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             if(rhsValue.op!=NirOp::Const||
                !std::holds_alternative<std::int64_t>(rhsValue.literal))
                 continue;
-            bool clobber=false;
-            for(std::size_t at=rhs->second+1;at<fn.code.size();++at){
-                const auto& operation=fn.code[at];
-                if(operation.op==NirOp::Call||
-                   operation.op==NirOp::Intrinsic||
-                   operation.op==NirOp::InlineAsm){
-                    clobber=true;break;
+            // Hoisted XMM5 must be initialized on every path to the
+            // loop. A straight-line entry prefix before the constant is
+            // a conservative dominance proof; do not speculate across
+            // branches, early returns or exception handling.
+            bool straightPrefix=true;
+            for(std::size_t at=0;at<rhs->second;++at){
+                const auto op=fn.code[at].op;
+                if(op==NirOp::Jump||op==NirOp::JumpIfFalse||
+                   op==NirOp::Return||op==NirOp::Throw||
+                   op==NirOp::Try||op==NirOp::InlineAsm){
+                    straightPrefix=false;break;
                 }
             }
-            if(clobber||(!loopSimdBroadcastAt.empty()&&
-               !loopSimdBroadcastAt.count(rhs->second)))continue;
+            if(!straightPrefix||jumpTargets.count(rhs->second)||
+               mayClobberAfter[rhs->second+1]||
+               (!loopSimdBroadcastAt.empty()&&
+                !loopSimdBroadcastAt.count(rhs->second)))continue;
             loopSimdStarts.insert(pc);
             loopSimdStackRoot[pc]=root->second;
             loopSimdSubtract[pc]=(addA.text=="-");
