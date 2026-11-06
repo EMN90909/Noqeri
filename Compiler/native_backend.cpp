@@ -736,10 +736,22 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         case NirOp::Try:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");auto ok=localLabel(fn,pc,"try_ok");out<<"    test rax, rax\n    jns "<<ok<<"\n";restoreSaved();out<<"    leave\n    ret\n"<<ok<<":\n";store(*i.dest,"rax");}break;
         case NirOp::Throw:if(!i.args.empty()){load(i.args[0],"rax");auto encoded=localLabel(fn,pc,"throw_encoded");out<<"    test rax, rax\n    js "<<encoded<<"\n    neg rax\n    sub rax, 1\n"<<encoded<<":\n";restoreSaved();out<<"    leave\n    ret\n";}break;
         case NirOp::Cast:if(i.dest&&!i.args.empty()){
-            load(i.args[0],"rax");
             const auto sourceKind=i.args[0]<fn.registerTypes.size()
                 ?fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
             const auto targetKind=i.type.kind;
+            // SSA Phi destruction uses same-type scalar Cast instructions as
+            // edge copies. Do not round-trip each copy through RAX when an
+            // allocated physical register or direct stack MOV can do it.
+            // Only full-width scalar identity casts qualify: narrow integer
+            // casts still need truncation/sign extension.
+            const bool identity64=sourceKind==targetKind&&
+                (integer64(targetKind)||targetKind==TypeKind::Float||
+                 targetKind==TypeKind::Bool);
+            if(identity64){
+                copyWord(registerOperand(*i.dest),registerOperand(i.args[0]));
+                break;
+            }
+            load(i.args[0],"rax");
             Type sourceType;sourceType.kind=sourceKind;
             Type targetType;targetType.kind=targetKind;
             if(targetKind==TypeKind::Float&&sourceType.isInteger()){
