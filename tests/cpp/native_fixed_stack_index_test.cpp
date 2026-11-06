@@ -88,12 +88,15 @@ int main(int argc,char** argv) {
     const auto taken=region(assembly,"address_taken_array","");
     const std::regex rbpIndexed(
         R"(QWORD PTR \[rbp - [0-9]+ \+ (r11|r12|r13|r14|r15)\*8\])");
+    const std::regex registerIndexed(
+        R"(QWORD PTR \[(rax|r12|r13|r14|r15) \+ (r11|r12|r13|r14|r15)\*8\])");
     if(fast.empty()||rebound.empty()||taken.empty()||
        !std::regex_search(fast,rbpIndexed)||
        std::regex_search(rebound,rbpIndexed)||
        std::regex_search(taken,rbpIndexed)||
        fast.find("ud2")==std::string::npos||
-       rebound.find("QWORD PTR [rax + r11*8]")==std::string::npos) {
+       !std::regex_search(rebound,registerIndexed)||
+       !std::regex_search(taken,registerIndexed)) {
         std::cerr<<"fixed stack-index specialization or fallback failed\n";
         return 1;
     }
