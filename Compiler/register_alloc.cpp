@@ -102,6 +102,35 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
     std::sort(plan.intervals.begin(),plan.intervals.end(),[](const auto& a,const auto& b){
         return a.begin<b.begin||(a.begin==b.begin&&a.value<b.value);
     });
+    // Loop-aware allocation cost. Spilling a loop-carried value can turn a
+    // single arithmetic instruction into repeated memory traffic on every
+    // iteration. Weight uses inside natural backedges more heavily while
+    // conservatively leaving interval/liveness construction unchanged.
+    // A malformed target is ignored by the heuristic, not used to alter CFG.
+    std::vector<std::uint64_t> hotUses(fn.nextReg,0);
+    // Use a signed difference vector: nested backedges increase the weight
+    // but cap it to avoid letting a pathological nesting count overflow.
+    std::vector<int> depthDiff(n+1,0);
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+           in.target<=pc && in.target<n) {
+            ++depthDiff[in.target];
+            --depthDiff[pc+1];
+        }
+    }
+    int currentDepth=0;
+    for(std::size_t pc=0;pc<n;++pc){
+        currentDepth+=depthDiff[pc];
+        const auto weight=static_cast<std::uint64_t>(1+
+            4*std::min(std::max(currentDepth,0),4));
+        for(const auto reg:fn.code[pc].args)
+            if(reg<hotUses.size())hotUses[reg]+=weight;
+        // A definition still has a cost to spill; a use inside a loop has
+        // far greater impact than a single definition outside it.
+        if(fn.code[pc].dest&&*fn.code[pc].dest<hotUses.size())
+            ++hotUses[*fn.code[pc].dest];
+    }
     struct Active{std::size_t interval;std::string reg;};
     std::vector<Active> active;
     std::unordered_map<Reg,RegisterLocation> locations;
@@ -120,15 +149,29 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
         }
         if(iv.type.size()>8||available.empty()){
             if(iv.type.size()<=8&&!active.empty()){
-                auto farther=std::max_element(active.begin(),active.end(),
+                // Prefer keeping the interval whose values are referenced
+                // most often inside natural loops. On equal cost, retain the
+                // original farthest-end eviction rule.
+                const auto victim=std::min_element(active.begin(),active.end(),
                     [&](const auto& a,const auto& b){
-                        return plan.intervals[a.interval].end<plan.intervals[b.interval].end;
+                        const auto ra=plan.intervals[a.interval].value;
+                        const auto rb=plan.intervals[b.interval].value;
+                        const auto wa=ra<hotUses.size()?hotUses[ra]:0;
+                        const auto wb=rb<hotUses.size()?hotUses[rb]:0;
+                        if(wa!=wb)return wa<wb;
+                        return plan.intervals[a.interval].end>
+                               plan.intervals[b.interval].end;
                     });
-                if(plan.intervals[farther->interval].end>iv.end){
-                    const auto evicted=plan.intervals[farther->interval];
-                    const auto physical=farther->reg;
+                const auto victimReg=plan.intervals[victim->interval].value;
+                const auto oldWeight=victimReg<hotUses.size()?hotUses[victimReg]:0;
+                const auto newWeight=iv.value<hotUses.size()?hotUses[iv.value]:0;
+                if(newWeight>oldWeight||
+                   (newWeight==oldWeight&&
+                    plan.intervals[victim->interval].end>iv.end)){
+                    const auto evicted=plan.intervals[victim->interval];
+                    const auto physical=victim->reg;
                     spill(evicted);
-                    *farther=Active{current,physical};
+                    *victim=Active{current,physical};
                     locations[iv.value]=RegisterLocation{iv.value,physical,false,0};
                     continue;
                 }
