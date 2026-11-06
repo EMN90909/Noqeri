@@ -14,7 +14,7 @@ if not compiler.is_absolute():
     compiler=(ROOT/compiler).resolve()
 if not compiler.is_file():
     parser.error(f"compiler missing: {compiler}")
-expected="1\n-50\n50\n50\n-50\n47\n1\n8\n"
+expected="1\n-50\n50\n50\n-50\n47\n1\n8\n1\n-8\n8\n11\n"
 with tempfile.TemporaryDirectory(prefix="noqeri-sort-local-") as temp:
     for opt in ("-O0","-O3"):
         binary=Path(temp)/("heap-"+opt[1:])
