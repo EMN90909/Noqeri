@@ -1415,6 +1415,184 @@ bool unrollGuardedLoop2x(NirFunction& fn){
     fn.code=std::move(out);
     return true;
 }
+// General CFG-based scalar mem2reg for nonescaping named locals.
+//
+// analyzeScalarSsa already constructs stable store versions and join/loop
+// Phi versions with a fixed-point solver. Turn that version graph into
+// executable SSA, then destruct Phis on the exact predecessor edges.
+// Unlike the old one-diamond/one-loop patterns, this handles multiple
+// eligible variables, nested branches and multiple loop backedges.
+//
+// Fail closed for uninitialized paths, volatile/address-taken locals,
+// incompatible types or unsupported Phi edges. Do not rewrite observable
+// memory accesses unless EVERY reachable Load has a valid reaching value.
+bool promoteGeneralScalarSsa(NirFunction& fn) {
+    if(fn.code.empty()||fn.code.size()>100000)return false;
+    const Graph cfg=graphOf(fn);
+    if(!cfg.uniqueDefs||!cfg.validDominance)return false;
+    const auto analysis=analyzeScalarSsa(fn);
+    if(!analysis.valid||analysis.variables.empty())return false;
+    const std::size_t n=fn.code.size();
+    const auto scalarCast=[](TypeKind kind)->const char*{
+        switch(kind){
+            case TypeKind::Int:return "int";
+            case TypeKind::I8:return "i8";
+            case TypeKind::I16:return "i16";
+            case TypeKind::I32:return "i32";
+            case TypeKind::I64:return "i64";
+            case TypeKind::U8:return "u8";
+            case TypeKind::U16:return "u16";
+            case TypeKind::U32:return "u32";
+            case TypeKind::U64:return "u64";
+            case TypeKind::Usize:return "usize";
+            case TypeKind::Isize:return "isize";
+            case TypeKind::Bool:return "bool";
+            default:return nullptr;
+        }
+    };
+    std::unordered_set<std::string> excluded(fn.params.begin(),fn.params.end());
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::InlineAsm||in.op==NirOp::Try)return false;
+        if(in.op==NirOp::AddressOf)excluded.insert(in.text);
+        if((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile)
+            excluded.insert(in.text);
+    }
+    std::unordered_map<std::string,std::size_t> candidate;
+    std::vector<Type> types(analysis.variables.size());
+    std::vector<const char*> casts(analysis.variables.size(),nullptr);
+    for(std::size_t v=0;v<analysis.variables.size();++v){
+        const auto& name=analysis.variables[v];
+        if(excluded.count(name))continue;
+        bool valid=true,hasLoad=false,hasStore=false,typed=false;
+        Type type;
+        for(std::size_t pc=0;pc<n&&valid;++pc){
+            const auto& in=fn.code[pc];
+            if(in.text!=name)continue;
+            TypeKind kind=TypeKind::Unknown;
+            if(in.op==NirOp::Load){
+                if(!in.dest||*in.dest>=fn.registerTypes.size()){
+                    valid=false;break;
+                }
+                kind=fn.registerTypes[*in.dest].kind;
+                hasLoad=true;
+            }else if(in.op==NirOp::Store){
+                if(in.args.size()!=1||
+                   in.args[0]>=fn.registerTypes.size()){
+                    valid=false;break;
+                }
+                kind=fn.registerTypes[in.args[0]].kind;
+                hasStore=true;
+            }else continue;
+            if(!scalarCast(kind)){valid=false;break;}
+            if(!typed){type.kind=kind;typed=true;}
+            else if(type.kind!=kind){valid=false;break;}
+        }
+        if(!valid||!hasLoad||!hasStore)continue;
+        const auto& versions=analysis.phis;
+        // An incoming version of zero denotes uninitialized storage.
+        // A Phi with even one such incoming cannot replace a native Load.
+        for(const auto& phi:versions)
+            if(phi.variable==name)
+                for(const auto& incoming:phi.incoming)
+                    if(incoming.second==0)valid=false;
+        if(!valid)continue;
+        for(std::size_t b=0;b<cfg.spans.size()&&valid;++b){
+            if(!cfg.reachable[b])continue;
+            std::size_t version=analysis.blockEntry[b][v];
+            for(std::size_t pc=cfg.spans[b].first;pc<cfg.spans[b].second;++pc){
+                const auto& in=fn.code[pc];
+                if(in.text!=name)continue;
+                if(in.op==NirOp::Load&&version==0){valid=false;break;}
+                if(in.op==NirOp::Store)version=pc+1;
+            }
+        }
+        if(!valid)continue;
+        candidate.emplace(name,v);
+        types[v]=type;
+        casts[v]=scalarCast(type.kind);
+    }
+    if(candidate.empty())return false;
+    NirFunction rewritten=fn;
+    std::unordered_map<std::size_t,Reg> versions;
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Store&&candidate.count(in.text))
+            versions.emplace(pc+1,in.args[0]);
+    }
+    Reg next=std::max(rewritten.nextReg,
+                      static_cast<Reg>(rewritten.registerTypes.size()));
+    for(const auto& in:fn.code)
+        if(in.dest){
+            if(*in.dest==std::numeric_limits<Reg>::max())return false;
+            next=std::max(next,static_cast<Reg>(*in.dest+1));
+        }
+    // Stable Phi destination for every selected (block, local) version.
+    for(const auto& phi:analysis.phis){
+        if(!candidate.count(phi.variable))continue;
+        if(next==std::numeric_limits<Reg>::max())return false;
+        const auto v=candidate.at(phi.variable);
+        versions.emplace(phi.version,next);
+        // registerTypes is indexed by Reg; resize before writing.
+        if(rewritten.registerTypes.size()<=next)
+            rewritten.registerTypes.resize(static_cast<std::size_t>(next)+1);
+        rewritten.registerTypes[next]=types[v];
+        ++next;
+    }
+    std::vector<NirPhiNode> phis;
+    for(const auto& phi:analysis.phis){
+        const auto it=candidate.find(phi.variable);
+        if(it==candidate.end())continue;
+        NirPhiNode node;
+        node.block=phi.block;
+        node.dest=versions.at(phi.version);
+        node.type=types[it->second];
+        for(const auto& [pred,version]:phi.incoming){
+            const auto value=versions.find(version);
+            if(value==versions.end())return false;
+            node.incoming.emplace_back(pred,value->second);
+        }
+        phis.push_back(std::move(node));
+    }
+    for(std::size_t b=0;b<cfg.spans.size();++b){
+        if(!cfg.reachable[b])continue;
+        // Iterating the small chosen local set avoids mutating the analysis.
+        // Fixed-point blockEntry values are the reaching SSA versions.
+        for(std::size_t pc=cfg.spans[b].first;pc<cfg.spans[b].second;++pc){
+            auto& in=rewritten.code[pc];
+            const auto found=candidate.find(in.text);
+            if(found==candidate.end())continue;
+            const auto v=found->second;
+            if(in.op==NirOp::Load){
+                // Determine the current SSA version from block entry,
+                // followed by all preceding local stores in this block.
+                std::size_t version=analysis.blockEntry[b][v];
+                for(std::size_t prior=cfg.spans[b].first;prior<pc;++prior){
+                    const auto& before=fn.code[prior];
+                    if(before.op==NirOp::Store&&before.text==in.text)
+                        version=prior+1;
+                }
+                const auto value=versions.find(version);
+                if(value==versions.end())return false;
+                in.op=NirOp::Cast;
+                in.args={value->second};
+                in.type=types[v];
+                in.text=casts[v];
+            }else if(in.op==NirOp::Store){
+                in.op=NirOp::Nop;
+                in.args.clear();
+                in.text.clear();
+            }
+        }
+    }
+    rewritten.nextReg=next;
+    // Empty-Phi regions are still promoted: ordinary copies replace loads.
+    // General Phi destruction refuses malformed critical/fallthrough edges
+    // without modifying rewritten; keep the original function on failure.
+    if(!phis.empty()&&!lowerPhiNodes(rewritten,phis))return false;
+    fn=std::move(rewritten);
+    return true;
+}
+
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -1484,7 +1662,8 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
        level==OptimizationLevel::Oz){
         // Both transforms lower Phi values into edge copies; run LAST.
-        if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
+        if(!promoteGeneralScalarSsa(fn))
+            if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
     }
 }
 }
