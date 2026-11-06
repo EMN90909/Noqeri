@@ -51,6 +51,24 @@ int main(int argc,char** argv){
     auto subtract=makeFunction("simd_sub","-",40,8,11,4);
     subtract.isExport=true;
     p.functions.push_back(subtract);
+    // Both lanes add the same source register. SSE2 should broadcast the
+    // value once and retain the same exact 64-bit wrapping semantics.
+    noe::NirFunction shared;
+    shared.name="simd_shared_rhs";
+    shared.isExport=true;
+    shared.nextReg=7;
+    shared.registerTypes.resize(7);
+    for(noe::Reg r=1;r<7;++r)
+        shared.registerTypes[r].kind=noe::TypeKind::U64;
+    shared.code={
+        value(1,10),value(2,20),value(3,30),
+        op(4,"+",1,2),op(5,"+",3,2),op(6,"+",4,5)
+    };
+    noe::NirInstruction sharedRet;
+    sharedRet.op=noe::NirOp::Return;
+    sharedRet.args={6};
+    shared.code.push_back(sharedRet);
+    p.functions.push_back(shared);
     noe::Diagnostics diagnostics;
     if(!noe::NativeBackend{}.emitAssembly(p,argv[1],diagnostics)){
         for(const auto& error:diagnostics.items())
@@ -62,7 +80,8 @@ int main(int argc,char** argv){
     const std::string assembly((std::istreambuf_iterator<char>(file)),
                                std::istreambuf_iterator<char>());
     if(assembly.find("paddq xmm0, xmm2")==std::string::npos||
-       assembly.find("psubq xmm0, xmm2")==std::string::npos){
+       assembly.find("psubq xmm0, xmm2")==std::string::npos||
+       assembly.find("punpcklqdq xmm2, xmm2")==std::string::npos){
         std::cerr<<"experimental SSE2 packed operations absent\n";
         return 1;
     }
