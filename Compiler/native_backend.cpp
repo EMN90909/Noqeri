@@ -99,7 +99,7 @@ void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
 
 ValueKind literalKind(const NirValue&v){if(std::holds_alternative<std::int64_t>(v))return ValueKind::Int;if(std::holds_alternative<bool>(v))return ValueKind::Bool;if(std::holds_alternative<std::string>(v))return ValueKind::String;if(std::holds_alternative<double>(v))return ValueKind::Float;return ValueKind::Null;}
 bool isComparison(const std::string&op){return op=="=="||op=="!="||op=="<"||op=="<="||op==">"||op==">="||op=="&&"||op=="||";}
-std::string safe(const std::string&name){std::string out;for(char c:name)out+=(std::isalnum(static_cast<unsigned char>(c))||c=='_')?c:'_';return out;}
+std::string safe(const std::string&name){std::string out;out.reserve(name.size());for(char c:name)out+=(std::isalnum(static_cast<unsigned char>(c))||c=='_')?c:'_';return out;}
 std::string internalSymbol(const std::string&name){return"noqeri_fn_"+safe(name);}
 std::string pcLabel(const NirFunction&fn,std::size_t pc){return".L_"+safe(fn.name)+"_"+std::to_string(pc);}
 std::string localLabel(const NirFunction&fn,std::size_t pc,const std::string&suffix){return".L_"+safe(fn.name)+"_"+std::to_string(pc)+"_"+suffix;}
@@ -358,10 +358,14 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     // integer literals remain constants even when optimization has not
     // folded the Cast instruction itself.
     std::unordered_map<Reg,std::int64_t> constantValues;
-    std::unordered_map<Reg,unsigned> definitions;
-    for(const auto& in:fn.code)if(in.dest)++definitions[*in.dest];
+    constantValues.reserve(fn.nextReg/8+8);
+    // NIR virtual registers are densely numbered. Counting definitions in a
+    // vector avoids a hash insertion for every instruction emitted.
+    std::vector<unsigned> definitions(fn.nextReg,0);
+    for(const auto& in:fn.code)
+        if(in.dest&&*in.dest<definitions.size())++definitions[*in.dest];
     for(const auto& in:fn.code){
-        if(!in.dest||definitions[*in.dest]!=1)continue;
+        if(!in.dest||*in.dest>=definitions.size()||definitions[*in.dest]!=1)continue;
         if(in.op==NirOp::Const){
             if(auto v=std::get_if<std::int64_t>(&in.literal))constantValues[*in.dest]=*v;
         }else if(in.op==NirOp::Cast&&in.args.size()==1&&
@@ -475,15 +479,34 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         const std::string target=it==physical.end()?regSlot(r):it->second;
         if(target!=cpu)out<<"    mov "<<target<<", "<<cpu<<"\n";
     };
+    // Copy named locals directly to/from allocated registers where possible.
+    // x86-64 MOV cannot copy memory to memory; keep RAX as the reserved
+    // scratch register for those cases, preserving existing spill behavior.
+    const auto registerOperand=[&](Reg r)->std::string{
+        const auto it=physical.find(r);
+        return it==physical.end()?regSlot(r):it->second;
+    };
+    const auto copyWord=[&](const std::string& destination,
+                           const std::string& source){
+        if(destination==source)return;
+        const bool destinationMemory=destination.rfind("QWORD PTR [",0)==0;
+        const bool sourceMemory=source.rfind("QWORD PTR [",0)==0;
+        if(destinationMemory&&sourceMemory)
+            out<<"    mov rax, "<<source<<"\n"
+               <<"    mov "<<destination<<", rax\n";
+        else
+            out<<"    mov "<<destination<<", "<<source<<"\n";
+    };
     // Emitting one unused assembler label per NIR opcode forces the assembler
     // and linker to process needless symbols. Only branch destinations need
     // PC labels; diagnostic/trap labels remain emitted at their own sites.
     std::unordered_set<std::size_t> jumpTargets;
-    std::unordered_map<Reg,std::size_t> useCounts;
+    jumpTargets.reserve(fn.code.size()/8+8);
+    std::vector<std::size_t> useCounts(fn.nextReg,0);
     for(const auto& i:fn.code){
         if(i.op==NirOp::Jump||i.op==NirOp::JumpIfFalse)
             jumpTargets.insert(i.target);
-        for(auto r:i.args)++useCounts[r];
+        for(auto r:i.args)if(r<useCounts.size())++useCounts[r];
     }
     std::unordered_set<std::size_t> fusedBranches;
     std::unordered_set<std::size_t> fusedPointers;
@@ -494,7 +517,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
            pointer.args.size()!=2||
            (pointer.width!=1&&pointer.width!=2&&
             pointer.width!=4&&pointer.width!=8)||
-           jumpTargets.count(pc+1)||useCounts[*pointer.dest]!=1)
+           jumpTargets.count(pc+1)||*pointer.dest>=useCounts.size()||
+           useCounts[*pointer.dest]!=1)
             continue;
         if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
            !access.args.empty()&&access.args[0]==*pointer.dest)
@@ -598,34 +622,60 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             out<<"    mov rax, 0x"<<std::hex<<bits<<std::dec<<"\n";
         }else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";
         else{diagnostics.error("NQR-N5001",{},"unsupported native literal");return false;}store(*i.dest,"rax");break;}
-        case NirOp::Load:if(i.dest){out<<"    mov rax, "<<variableOperand(i.text)<<"\n";store(*i.dest,"rax");}break;
-        case NirOp::Store:if(!i.args.empty()){load(i.args[0],"rax");out<<"    mov "<<variableOperand(i.text)<<", rax\n";}break;
+        case NirOp::Load:if(i.dest){
+            copyWord(registerOperand(*i.dest),variableOperand(i.text));
+        }break;
+        case NirOp::Store:if(!i.args.empty()){
+            copyWord(variableOperand(i.text),registerOperand(i.args[0]));
+        }break;
         case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){
             const bool sign=*i.dest<fn.registerTypes.size()&&
                 signedNarrow(fn.registerTypes[*i.dest].kind);
+            // For full-width scalar reads, load into the allocated register
+            // itself. Avoid the RAX -> r12-r15 hop in array-heavy loops.
+            const auto destination=physical.find(*i.dest);
+            const bool directQword=i.width==8&&destination!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
                 load(pointer.args[0],"rax");
                 load(pointer.args[1],"r11");
-                emitIndexedLoad(out,i.width,sign,pointer.width);
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", QWORD PTR [rax + r11*"
+                       <<pointer.width<<"]\n";
+                else emitIndexedLoad(out,i.width,sign,pointer.width);
             }else{
                 load(i.args[0],"rax");
-                emitLoadWidth(out,i.width,sign);
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", QWORD PTR [rax]\n";
+                else emitLoadWidth(out,i.width,sign);
             }
-            store(*i.dest,"rax");
+            if(!directQword)store(*i.dest,"rax");
         }break;
         case NirOp::StoreMemory:if(i.args.size()==2){
+            // Similarly, when a full-width store already has its value in
+            // an allocated register, skip staging it through R10.
+            const auto value=physical.find(i.args[1]);
+            const bool directQword=i.width==8&&value!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
                 load(pointer.args[0],"rax");
                 load(pointer.args[1],"r11");
-                load(i.args[1],"r10");
-                emitIndexedStore(out,i.width,pointer.width);
+                if(directQword)
+                    out<<"    mov QWORD PTR [rax + r11*"<<pointer.width
+                       <<"], "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    emitIndexedStore(out,i.width,pointer.width);
+                }
             }else{
                 load(i.args[0],"rax");
-                load(i.args[1],"r10");
-                emitStoreWidth(out,i.width);
+                if(directQword)
+                    out<<"    mov QWORD PTR [rax], "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    emitStoreWidth(out,i.width);
+                }
             }
         }break;
         case NirOp::PtrOffset:if(fusedPointers.count(pc))break;else if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
@@ -798,7 +848,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         // If a comparison feeds only the immediately following conditional
         // branch, emit one compare and a direct inverted jcc. Preserve NIR
         // short-circuit structure: RHS evaluation is never speculated.
-        const bool singleUse=i.dest&&useCounts[*i.dest]==1;
+        const bool singleUse=i.dest&&*i.dest<useCounts.size()&&useCounts[*i.dest]==1;
         const bool adjacent=pc+1<fn.code.size()&&
             fn.code[pc+1].op==NirOp::JumpIfFalse&&
             fn.code[pc+1].args.size()==1&&
