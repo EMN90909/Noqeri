@@ -18,9 +18,31 @@ cmake --build "$build_dir" --target noqeri \
   noqeri-owned-collections-test noqeri-owned-value-list-test \
   noqeri-register-allocator-test noqeri-native-bounds-fastpath-test \
   noqeri-owned-alloc-bench noqeri-simd-codegen-test \
-  noqeri-optimizer-test noqeri-auto-loop-simd-emitter --parallel 2
+  noqeri-optimizer-test noqeri-optimizer-gvn-test \
+  noqeri-native-immediate-test noqeri-auto-loop-simd-emitter --parallel 2
 ctest --test-dir "$build_dir" --output-on-failure \
-  -R '^(noqeri-owned-collections|noqeri-owned-value-list|noqeri-register-allocator-cfg|noqeri-native-bounds-fastpath|noqeri-optimizer-liveness)$'
+  -R '^(noqeri-owned-collections|noqeri-owned-value-list|noqeri-register-allocator-cfg|noqeri-native-bounds-fastpath|noqeri-optimizer-liveness|noqeri-optimizer-gvn|noqeri-native-immediates)
+python3 tests/native_branchfree_division.py --compiler="$build_dir/noqeri"
+python3 tests/native_direct_local_moves.py "$build_dir/noqeri"
+python3 tests/native_division_traps.py --compiler="$build_dir/noqeri"
+python3 tests/native_bounds_local.py --compiler="$build_dir/noqeri"
+NOQERI_EXPERIMENTAL_SIMD=1 "$build_dir/noqeri-simd-codegen-test" \
+  "$build_dir/simd-broadcast.s"
+python3 scripts/local-allocation-profile.py \
+  --candidate "$build_dir/noqeri-owned-alloc-bench" \
+  --output "$build_dir/allocation-profile.json"
+python3 scripts/local-compiler-profile.py \
+  --candidate "$build_dir/noqeri" \
+  --output "$build_dir/compiler-profile.json"
+python3 scripts/local-auto-loop-simd.py \
+  --emitter "$build_dir/noqeri-auto-loop-simd-emitter" \
+  --output "$build_dir/auto-loop-simd.json"
+python3 scripts/local-native-vs-c.py \
+  --compiler "$build_dir/noqeri" \
+  --output "$build_dir/c-vs-noqeri.json"
+printf '\nLocal correctness and performance measurements completed.\n'
+printf 'Inspect JSON artifacts; no unmeasured C-speedup claim is implied.\n'
+
 python3 tests/native_branchfree_division.py --compiler="$build_dir/noqeri"
 python3 tests/native_direct_local_moves.py "$build_dir/noqeri"
 python3 tests/native_division_traps.py --compiler="$build_dir/noqeri"
