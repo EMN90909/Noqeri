@@ -697,23 +697,28 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         }
         case NirOp::CheckBounds:{
             if(i.args.size()!=2){diagnostics.error("NQR-N5023",{},"malformed NIR bounds-check instruction");return false;}
-            load(i.args[0],"rax");
             const auto failed=localLabel(fn,pc,"bounds_fail");
             const auto valid=localLabel(fn,pc,"bounds_ok");
             const auto fixed=constantValues.find(i.args[1]);
-            // A fixed non-negative length <= INT64_MAX needs only one
-            // unsigned comparison: every negative i64 index is encoded above
-            // every representable fixed length. Dynamic slice bounds retain
-            // the explicit negative-index test.
+            // For fixed nonnegative lengths, one unsigned comparison is
+            // sufficient: every negative i64 index is encoded above the
+            // representable length. Compare the allocated register (or
+            // stack operand) DIRECTLY instead of copying it into RAX.
+            // The memory operand is valid for CMP with both imm32 and a
+            // register; x86-64 never permits memory-to-memory CMP.
             if(fixed!=constantValues.end()&&fixed->second>=0){
+                const auto index=registerOperand(i.args[0]);
                 if(fixed->second<=std::numeric_limits<std::int32_t>::max())
-                    out<<"    cmp rax, "<<fixed->second<<"\n";
+                    out<<"    cmp "<<index<<", "<<fixed->second<<"\n";
                 else{
                     out<<"    mov r10, "<<fixed->second<<"\n";
-                    out<<"    cmp rax, r10\n";
+                    out<<"    cmp "<<index<<", r10\n";
                 }
                 out<<"    jb "<<valid<<"\n    ud2\n"<<valid<<":\n";
             }else{
+                // Dynamic slice lengths need an explicit sign test.
+                // Keep the existing conservative lowering semantics.
+                load(i.args[0],"rax");
                 out<<"    test rax, rax\n    js "<<failed<<"\n";
                 load(i.args[1],"r10");
                 out<<"    cmp rax, r10\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
