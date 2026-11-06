@@ -358,6 +358,16 @@ if(BUILD_TESTING)
  noqeri_apply_warnings(noqeri-native-immediate-test)
  add_test(NAME noqeri-native-immediates
    COMMAND noqeri-native-immediate-test ${CMAKE_CURRENT_BINARY_DIR}/native-immediates.s)
+ add_executable(noqeri-fixed-stack-index-test
+   tests/cpp/native_fixed_stack_index_test.cpp Compiler/native_backend.cpp)
+ target_include_directories(noqeri-fixed-stack-index-test PRIVATE
+   Include/noqeri Compiler/bootstrap)
+ target_compile_features(noqeri-fixed-stack-index-test PRIVATE cxx_std_17)
+ target_link_libraries(noqeri-fixed-stack-index-test PRIVATE noqeri_abi)
+ noqeri_apply_warnings(noqeri-fixed-stack-index-test)
+ add_test(NAME noqeri-fixed-stack-index
+   COMMAND noqeri-fixed-stack-index-test
+           ${CMAKE_CURRENT_BINARY_DIR}/native-fixed-stack-index.s)
  add_executable(noqeri-native-bounds-fastpath-test
    tests/cpp/native_bounds_fastpath_codegen_test.cpp Compiler/native_backend.cpp)
  target_include_directories(noqeri-native-bounds-fastpath-test PRIVATE
