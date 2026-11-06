@@ -1142,11 +1142,41 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 else out<<"    "<<(i.text=="+"?"add":"sub")
                         <<" rax, "<<rhsImmediate->second<<"\n";
             }else{
-            load(i.args[1],"r10");
-            if(i.text=="+")out<<"    add rax, r10\n";
-            else if(i.text=="-")out<<"    sub rax, r10\n";
-            else if(i.text=="*")out<<"    imul rax, r10\n";
-            else if(i.text=="&&"||i.text=="||"){out<<"    test rax, rax\n    setne al\n    movzx rax, al\n    test r10, r10\n    setne r10b\n    movzx r10, r10b\n"<<(i.text=="&&"?"    and rax, r10\n":"    or rax, r10\n");}else{out<<"    cmp rax, r10\n";if(i.text=="==")out<<"    sete al\n";else if(i.text=="!=")out<<"    setne al\n";else if(i.text=="<")out<<(unsign?"    setb al\n":"    setl al\n");else if(i.text=="<=")out<<(unsign?"    setbe al\n":"    setle al\n");else if(i.text==">")out<<(unsign?"    seta al\n":"    setg al\n");else if(i.text==">=")out<<(unsign?"    setae al\n":"    setge al\n");else{diagnostics.error("NQR-N5003",{},"unsupported native binary operator '"+i.text+"'");return false;}out<<"    movzx rax, al\n";}}
+                // Integer ALU operations accept r/m64 operands directly.
+                // Avoid copying hot register or spilled RHS values into
+                // R10 for ordinary add/sub/mul/compare instructions.
+                // Logical operators retain the normalized-R10 path.
+                const auto rhs=registerOperand(i.args[1]);
+                if(i.text=="+")out<<"    add rax, "<<rhs<<"\n";
+                else if(i.text=="-")out<<"    sub rax, "<<rhs<<"\n";
+                else if(i.text=="*")out<<"    imul rax, "<<rhs<<"\n";
+                else if(i.text=="&&"||i.text=="||"){
+                    load(i.args[1],"r10");
+                    out<<"    test rax, rax\n    setne al\n"
+                       <<"    movzx rax, al\n    test r10, r10\n"
+                       <<"    setne r10b\n    movzx r10, r10b\n"
+                       <<(i.text=="&&"?"    and rax, r10\n":
+                                        "    or rax, r10\n");
+                }else{
+                    out<<"    cmp rax, "<<rhs<<"\n";
+                    if(i.text=="==")out<<"    sete al\n";
+                    else if(i.text=="!=")out<<"    setne al\n";
+                    else if(i.text=="<")
+                        out<<(unsign?"    setb al\n":"    setl al\n");
+                    else if(i.text=="<=")
+                        out<<(unsign?"    setbe al\n":"    setle al\n");
+                    else if(i.text==">")
+                        out<<(unsign?"    seta al\n":"    setg al\n");
+                    else if(i.text==">=")
+                        out<<(unsign?"    setae al\n":"    setge al\n");
+                    else{
+                        diagnostics.error("NQR-N5003",{},
+                            "unsupported native binary operator '"+i.text+"'");
+                        return false;
+                    }
+                    out<<"    movzx rax, al\n";
+                }
+            }
             }
         if(i.text=="+"||i.text=="-"||i.text=="*"||
            i.text=="/"||i.text=="%")
