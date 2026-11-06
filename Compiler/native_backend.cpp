@@ -1091,10 +1091,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                rhsImmediate->second>=std::numeric_limits<std::int32_t>::min()&&
                rhsImmediate->second<=std::numeric_limits<std::int32_t>::max())
                 out<<"    cmp rax, "<<rhsImmediate->second<<"\n";
-            else {
-                load(i.args[1],"r10");
-                out<<"    cmp rax, r10\n";
-            }
+            else
+                out<<"    cmp rax, "<<registerOperand(i.args[1])<<"\n";
             out
                <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
             fusedBranches.insert(pc+1);
