@@ -5,14 +5,10 @@ export function nqInsertionSortI64(values: []i64): void {
     while index < len(values) {
         let current: i64 = values[index]
         let cursor: usize = index
-        let scanning: bool = true
-        while cursor > 0 && scanning {
-            if values[cursor - 1] > current {
-                values[cursor] = values[cursor - 1]
-                cursor = cursor - 1
-            } else {
-                scanning = false
-            }
+        while cursor > 0 {
+            if values[cursor - 1] <= current { break }
+            values[cursor] = values[cursor - 1]
+            cursor = cursor - 1
         }
         values[cursor] = current
         index = index + 1
@@ -24,14 +20,10 @@ export function nqInsertionSortDescendingI64(values: []i64): void {
     while index < len(values) {
         let current: i64 = values[index]
         let cursor: usize = index
-        let scanning: bool = true
-        while cursor > 0 && scanning {
-            if values[cursor - 1] < current {
-                values[cursor] = values[cursor - 1]
-                cursor = cursor - 1
-            } else {
-                scanning = false
-            }
+        while cursor > 0 {
+            if values[cursor - 1] >= current { break }
+            values[cursor] = values[cursor - 1]
+            cursor = cursor - 1
         }
         values[cursor] = current
         index = index + 1
