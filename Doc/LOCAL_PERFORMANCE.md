@@ -58,3 +58,63 @@ algorithm checks and a shell syntax check are not substitutes for building
 the full compiler, running the native tests, or capturing same-machine
 benchmark results. Until local qualification has been executed successfully,
 treat the work as **unqualified** for production or release performance claims.
+
+## 2026-11-06: register pressure, NIR SSA/Phi, and bounds follow-on
+
+This update is **a targeted optimization pass, not complete general SSA or
+automatic SIMD vectorization**:
+
+- **Register pressure:** linear-scan eviction ranks virtual registers by
+  their weighted uses inside natural CFG backedges. Hot loop-carried values
+  should no longer lose their register to shorter-lived cold values merely
+  because the cold interval ends first. The original conservative live-in/
+  live-out analysis and unique virtual-register intervals remain in force.
+- **Def-use construction:** dense virtual-register programs use a compact
+  adjacency array in the transitive dead-code elimination worklist, with a
+  sparse fallback for invalid/huge register ranges. All dependencies from
+  multiple definitions remain live until full SSA is implemented.
+- **Phi copy lowering:** same-type 64-bit scalars, floats, and Booleans use
+  direct machine copies instead of unnecessary RAX round trips. Narrow
+  scalar conversions retain their original normalization.
+- **Fixed array checks:** native x86-64 code can CMP an allocated register
+  or memory index directly against a proven fixed nonnegative length. Dynamic
+  slice bounds still receive signed-negative and upper-bound checks.
+- **Experimental packed SSE2:** where both packed 64-bit arithmetic lanes
+  use an identical RHS, broadcast it once. Prevent packing across an
+  intermediate definition of any required input. Existing opt-in behavior
+  remains: `NOQERI_EXPERIMENTAL_SIMD=1`. This does NOT establish a
+  profitable or general loop-vectorization pass.
+
+A new native bounds emitter check and a local O0/O3 execution regression
+cover fixed-array guard success, OOB traps, index mutation, and scalar Phi
+outcomes. The allocator unit test now covers a hot loop value facing an
+overlapping cold interval. Existing optimizer liveness tests include an
+additional long-chain workload exercising dense transitive dependencies.
+
+### Reproduce local results
+
+```sh
+bash scripts/local-perf-qualify.sh
+```
+
+The runner builds the compiler and native runtime on Linux x86-64, runs
+the correctness tests, then writes three evidence files:
+
+- `build-local-perf/allocation-profile.json` — explicit owned collection
+  create/grow/read/free paths and thread contention.
+- `build-local-perf/compiler-profile.json` — native Stage-0 compiler
+  latency with raw samples for a 501-function source.
+- `build-local-perf/c-vs-noqeri.json` — verified standalone native-AOT
+  versus optimized C on modulo, 16×16 matrix and reshuffled sorting.
+
+For meaningful A/B on the **same physical machine**, retain a separately
+built baseline compiler and baseline allocation benchmark executable,
+and use `--baseline` with `scripts/local-compiler-profile.py` and
+`scripts/local-allocation-profile.py`. No baseline speeds are fabricated
+when a baseline binary is not provided.
+
+**Qualification:** the full source checkout is not mounted in the current
+coding environment and the external GitHub host cannot be cloned here.
+Consequently, this implementation has not passed the complete build/CTest,
+native execution, sanitizers, or any same-host comparison with C. Those are
+required before release claims or default-enabling additional vectorization.
