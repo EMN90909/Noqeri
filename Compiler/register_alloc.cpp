@@ -15,13 +15,16 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
     AllocationPlan plan;
     const std::size_t n=fn.code.size();
     if(!n)return plan;
-    std::set<std::size_t> leaders{0};
+    std::vector<std::size_t> leaders{0};
+    leaders.reserve(std::min<std::size_t>(n,64));
     for(std::size_t pc=0;pc<n;++pc){
         const auto& in=fn.code[pc];
-        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&in.target<n)leaders.insert(in.target);
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&in.target<n)leaders.push_back(in.target);
         if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse||
-            in.op==NirOp::Return||in.op==NirOp::Throw)&&pc+1<n)leaders.insert(pc+1);
+            in.op==NirOp::Return||in.op==NirOp::Throw)&&pc+1<n)leaders.push_back(pc+1);
     }
+    std::sort(leaders.begin(),leaders.end());
+    leaders.erase(std::unique(leaders.begin(),leaders.end()),leaders.end());
     struct Block{
         std::size_t begin=0,end=0;
         std::vector<std::size_t> succ;
@@ -68,7 +71,8 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
             }
         }
     }
-    std::map<Reg,LiveInterval> intervals;
+    std::unordered_map<Reg,LiveInterval> intervals;
+    intervals.reserve(std::min<std::size_t>(fn.nextReg,n*2));
     auto touch=[&](Reg reg,std::size_t pc){
         auto it=intervals.find(reg);
         if(it==intervals.end()){
@@ -101,6 +105,7 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
     struct Active{std::size_t interval;std::string reg;};
     std::vector<Active> active;
     std::unordered_map<Reg,RegisterLocation> locations;
+    locations.reserve(plan.intervals.size());
     auto spill=[&](const LiveInterval& iv){
         RegisterLocation loc;
         loc.value=iv.value;loc.spilled=true;loc.spillSlot=plan.spillSlots++;
