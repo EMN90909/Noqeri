@@ -23,6 +23,7 @@ python3 tests/native_branchfree_division.py --compiler="$build_dir/noqeri"
 python3 tests/native_direct_local_moves.py "$build_dir/noqeri"
 python3 tests/native_division_traps.py --compiler="$build_dir/noqeri"
 python3 tests/native_bounds_local.py --compiler="$build_dir/noqeri"
+python3 tests/native_sort_heap_local.py --compiler="$build_dir/noqeri"
 python3 tests/native_fixed_stack_index_local.py \
   --emitter "$build_dir/noqeri-fixed-stack-index-test"
 NOQERI_EXPERIMENTAL_SIMD=1 "$build_dir/noqeri-simd-codegen-test" \
