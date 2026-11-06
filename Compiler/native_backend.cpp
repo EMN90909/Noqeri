@@ -1250,9 +1250,20 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 rhsImmediate->second<=std::numeric_limits<std::int32_t>::max()&&
                 (i.text=="+"||i.text=="-"||i.text=="*");
             if(hasImmediate) {
-                if(i.text=="*")
-                    out<<"    imul rax, rax, "<<rhsImmediate->second<<"\n";
-                else out<<"    "<<(i.text=="+"?"add":"sub")
+                if(i.text=="*"){
+                    const auto factor=rhsImmediate->second;
+                    const auto bits=static_cast<std::uint64_t>(factor);
+                    // Multiplication by a positive power of two is the
+                    // same modular integer operation as SHL. Matrix row
+                    // offsets such as row*16 become one inexpensive shift.
+                    // Narrow integer result normalization still follows.
+                    if(factor>0&&!(bits&(bits-1))){
+                        unsigned shift=0;
+                        for(auto x=bits;x>1;x>>=1)++shift;
+                        if(shift)out<<"    shl rax, "<<shift<<"\n";
+                    }else if(factor==0)out<<"    xor eax, eax\n";
+                    else out<<"    imul rax, rax, "<<factor<<"\n";
+                }else out<<"    "<<(i.text=="+"?"add":"sub")
                         <<" rax, "<<rhsImmediate->second<<"\n";
             }else{
                 // Integer ALU operations accept r/m64 operands directly.
