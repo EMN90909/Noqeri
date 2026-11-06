@@ -1555,29 +1555,23 @@ bool promoteGeneralScalarSsa(NirFunction& fn) {
     }
     for(std::size_t b=0;b<cfg.spans.size();++b){
         if(!cfg.reachable[b])continue;
-        // Iterating the small chosen local set avoids mutating the analysis.
-        // Fixed-point blockEntry values are the reaching SSA versions.
+        // Track the reaching version in O(1) per instruction instead of
+        // rescanning the block for every Load in long array/loop kernels.
+        auto reaching=analysis.blockEntry[b];
         for(std::size_t pc=cfg.spans[b].first;pc<cfg.spans[b].second;++pc){
             auto& in=rewritten.code[pc];
             const auto found=candidate.find(in.text);
             if(found==candidate.end())continue;
             const auto v=found->second;
             if(in.op==NirOp::Load){
-                // Determine the current SSA version from block entry,
-                // followed by all preceding local stores in this block.
-                std::size_t version=analysis.blockEntry[b][v];
-                for(std::size_t prior=cfg.spans[b].first;prior<pc;++prior){
-                    const auto& before=fn.code[prior];
-                    if(before.op==NirOp::Store&&before.text==in.text)
-                        version=prior+1;
-                }
-                const auto value=versions.find(version);
+                const auto value=versions.find(reaching[v]);
                 if(value==versions.end())return false;
                 in.op=NirOp::Cast;
                 in.args={value->second};
                 in.type=types[v];
                 in.text=casts[v];
             }else if(in.op==NirOp::Store){
+                reaching[v]=pc+1;
                 in.op=NirOp::Nop;
                 in.args.clear();
                 in.text.clear();
