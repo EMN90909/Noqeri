@@ -1573,5 +1573,44 @@ int main() {
                   "dense liveness retains transitive uses and removes dead work"))
             return 1;
     }
+    {
+        // Two independent SSA Phis at one join should emit four direct
+        // predecessor-edge assignments, not eight save+assign operations.
+        // The separate cyclic-Phi emitter test still requires staging.
+        noe::NirFunction fn;
+        fn.name="phi_independent";
+        fn.registerTypes.resize(9);
+        for(noe::Reg r=1;r<9;++r)
+            fn.registerTypes[r].kind=noe::TypeKind::U64;
+        fn.registerTypes[5].kind=noe::TypeKind::Bool;
+        fn.nextReg=9;
+        auto jump=withArgs(noe::NirOp::Jump,{});
+        jump.target=8;
+        auto branch=withArgs(noe::NirOp::JumpIfFalse,{5});
+        branch.target=8;
+        auto sum=withArgs(noe::NirOp::Binary,{6,7});
+        sum.dest=8;sum.text="+";
+        fn.code={constant(1,7),constant(2,8),
+                 constant(3,12),constant(4,17),
+                 constant(5,1),branch,jump,
+                 withArgs(noe::NirOp::Nop,{}),sum,
+                 withArgs(noe::NirOp::Return,{8})};
+        noe::NirPhiNode a,b;
+        a.block=b.block=3;
+        a.dest=6;b.dest=7;
+        a.type.kind=b.type.kind=noe::TypeKind::U64;
+        a.incoming={{0,1},{1,2}};
+        b.incoming={{0,3},{1,4}};
+        if(!check(noe::lowerPhiNodes(fn,{a,b}),
+                  "independent multi-Phi lowering succeeds"))return 1;
+        std::size_t direct=0,temps=0;
+        for(const auto& in:fn.code)if(in.op==noe::NirOp::Cast&&in.dest){
+            if(*in.dest==6||*in.dest==7)++direct;
+            if(*in.dest>=9)++temps;
+        }
+        if(!check(direct==4&&temps==0&&fn.nextReg==9,
+                  "independent parallel-copy edges avoid unnecessary staging"))
+            return 1;
+    }
     return 0;
 }
