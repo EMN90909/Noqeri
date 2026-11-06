@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <regex>
 #include <string>
 
 namespace {
@@ -72,12 +73,18 @@ int main(int argc,char** argv) {
     const std::string assembly((std::istreambuf_iterator<char>(file)),
                                std::istreambuf_iterator<char>());
     for(const auto* expected:{"add rax, 3","sub rax, -1",
-                               "imul rax, rax, 7","cmp rax, 4",
-                               "add rax, r10"}) {
+                               "imul rax, rax, 7","cmp rax, 4"}) {
         if(assembly.find(expected)==std::string::npos) {
             std::cerr<<"missing immediate/fallback assembly: "<<expected<<"\n";
             return 1;
         }
+    }
+    // Non-imm32 operands now use the allocated register or spill slot
+    // directly. Do not force an unnecessary R10 staging copy.
+    if(!std::regex_search(assembly,
+        std::regex(R"(add rax, (r1[2-5]|QWORD PTR \[rbp-[0-9]+\]))"))){
+        std::cerr<<"missing direct register/memory ALU fallback\n";
+        return 1;
     }
     return 0;
 }
