@@ -833,6 +833,23 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         return "QWORD PTR [rbp - "+std::to_string(fixedStorage[root])+
                " + "+indexReg+"*8]";
     };
+    // For arbitrary pointer-backed scalar arrays, x86 can use an allocated
+    // base and index as memory operands without two redundant MOVs through
+    // RAX/R11. This is safe for any fused PtrOffset of a full-width access,
+    // even when no fixed StackAlloc provenance can be established.
+    const auto registerIndexedAddress=[&](const NirInstruction& pointer){
+        const Reg base=pointer.args[0],index=pointer.args[1];
+        const auto basePhysical=physical.find(base);
+        const auto indexPhysical=physical.find(index);
+        const std::string baseReg=basePhysical==physical.end()?"rax":
+            basePhysical->second;
+        const std::string indexReg=indexPhysical==physical.end()?"r11":
+            indexPhysical->second;
+        if(basePhysical==physical.end())load(base,"rax");
+        if(indexPhysical==physical.end())load(index,"r11");
+        return "QWORD PTR ["+baseReg+" + "+indexReg+"*"+
+               std::to_string(pointer.width)+"]";
+    };
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
         if(loopSimdSkipped.count(pc))continue;
         if(loopSimdStarts.count(pc)){
@@ -919,13 +936,15 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     if(directQword)
                         out<<"    mov "<<destination->second<<", "<<*stack<<"\n";
                     else out<<"    mov rax, "<<*stack<<"\n";
+                }else if(i.width==8){
+                    const auto address=registerIndexedAddress(pointer);
+                    if(directQword)
+                        out<<"    mov "<<destination->second<<", "<<address<<"\n";
+                    else out<<"    mov rax, "<<address<<"\n";
                 }else{
                     load(pointer.args[0],"rax");
                     load(pointer.args[1],"r11");
-                    if(directQword)
-                        out<<"    mov "<<destination->second<<", QWORD PTR [rax + r11*"
-                           <<pointer.width<<"]\n";
-                    else emitIndexedLoad(out,i.width,sign,pointer.width);
+                    emitIndexedLoad(out,i.width,sign,pointer.width);
                 }
             }else{
                 load(i.args[0],"rax");
@@ -951,16 +970,19 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                         load(i.args[1],"r10");
                         out<<"    mov "<<*stack<<", r10\n";
                     }
+                }else if(i.width==8){
+                    const auto address=registerIndexedAddress(pointer);
+                    if(directQword)
+                        out<<"    mov "<<address<<", "<<value->second<<"\n";
+                    else{
+                        load(i.args[1],"r10");
+                        out<<"    mov "<<address<<", r10\n";
+                    }
                 }else{
                     load(pointer.args[0],"rax");
                     load(pointer.args[1],"r11");
-                    if(directQword)
-                        out<<"    mov QWORD PTR [rax + r11*"<<pointer.width
-                           <<"], "<<value->second<<"\n";
-                    else{
-                        load(i.args[1],"r10");
-                        emitIndexedStore(out,i.width,pointer.width);
-                    }
+                    load(i.args[1],"r10");
+                    emitIndexedStore(out,i.width,pointer.width);
                 }
             }else{
                 load(i.args[0],"rax");
