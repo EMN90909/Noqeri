@@ -850,6 +850,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         return "QWORD PTR ["+baseReg+" + "+indexReg+"*"+
                std::to_string(pointer.width)+"]";
     };
+    std::vector<std::string> coldTrapLabels;
+    coldTrapLabels.reserve(fn.code.size()/8+1);
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
         if(loopSimdSkipped.count(pc))continue;
         if(loopSimdStarts.count(pc)){
@@ -1007,14 +1009,17 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         case NirOp::CheckNonNull:{
             if(i.args.size()!=1){diagnostics.error("NQR-N5022",{},"malformed NIR null-check instruction");return false;}
             load(i.args[0],"rax");
-            const auto valid=localLabel(fn,pc,"nonnull_ok");
-            out<<"    test rax, rax\n    jnz "<<valid<<"\n    ud2\n"<<valid<<":\n";
+            const auto failed=localLabel(fn,pc,"nonnull_fail");
+            // Normal accesses fall through. Cold trap instructions live
+            // outside the loop instead of requiring a taken success branch.
+            out<<"    test rax, rax\n    jz "<<failed<<"\n";
+            coldTrapLabels.push_back(failed);
             break;
         }
         case NirOp::CheckBounds:{
             if(i.args.size()!=2){diagnostics.error("NQR-N5023",{},"malformed NIR bounds-check instruction");return false;}
             const auto failed=localLabel(fn,pc,"bounds_fail");
-            const auto valid=localLabel(fn,pc,"bounds_ok");
+            coldTrapLabels.push_back(failed);
             const auto fixed=constantValues.find(i.args[1]);
             // For fixed nonnegative lengths, one unsigned comparison is
             // sufficient: every negative i64 index is encoded above the
@@ -1030,14 +1035,14 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     out<<"    mov r10, "<<fixed->second<<"\n";
                     out<<"    cmp "<<index<<", r10\n";
                 }
-                out<<"    jb "<<valid<<"\n    ud2\n"<<valid<<":\n";
+                out<<"    jae "<<failed<<"\n";
             }else{
                 // Dynamic slice lengths need an explicit sign test.
                 // Keep the existing conservative lowering semantics.
                 load(i.args[0],"rax");
                 out<<"    test rax, rax\n    js "<<failed<<"\n";
                 load(i.args[1],"r10");
-                out<<"    cmp rax, r10\n    jb "<<valid<<"\n"<<failed<<":\n    ud2\n"<<valid<<":\n";
+                out<<"    cmp rax, r10\n    jae "<<failed<<"\n";
             }
             break;
         }
@@ -1295,7 +1300,18 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
         case NirOp::Nop:break;
-    }}return true;
+    }}
+    if(!coldTrapLabels.empty()){
+        // If malformed NIR ever reaches the end without a Return, this
+        // unconditional branch keeps valid fallthrough out of the trap
+        // island. Normal functions have already returned here.
+        const auto done=localLabel(fn,fn.code.size(),"cold_traps_end");
+        out<<"    jmp "<<done<<"\n";
+        for(const auto& name:coldTrapLabels)
+            out<<name<<":\n    ud2\n";
+        out<<done<<":\n";
+    }
+    return true;
 }
 }
 
