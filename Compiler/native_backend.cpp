@@ -811,6 +811,28 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         loopSimdBroadcastAt.clear();
     }
     }
+    // One memory instruction can address a fixed local array directly via
+    // RBP + index*stride + displacement. Avoid materializing the aggregate
+    // base pointer on every read/shift in insertion sort, and on every
+    // strided multiplication in a small matrix kernel. Bounds checks remain
+    // separate and fully active; only address calculation is shortened.
+    const auto fixedStackAddress=[&](const NirInstruction& pointer)
+        ->std::optional<std::string>{
+        if(pointer.op!=NirOp::PtrOffset||pointer.args.size()!=2||
+           pointer.width!=8)return std::nullopt;
+        const Reg base=pointer.args[0],index=pointer.args[1];
+        if(base>=stackRoot.size()||stackRoot[base]==noStackRoot||
+           index>=fn.nextReg)return std::nullopt;
+        const auto root=stackRoot[base];
+        if(root>=fixedStorage.size()||fixedStorage[root]==0)return std::nullopt;
+        const auto physicallyAllocated=physical.find(index);
+        std::string indexReg="r11";
+        if(physicallyAllocated!=physical.end())
+            indexReg=physicallyAllocated->second;
+        else load(index,"r11");
+        return "QWORD PTR [rbp - "+std::to_string(fixedStorage[root])+
+               " + "+indexReg+"*8]";
+    };
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
         if(loopSimdSkipped.count(pc))continue;
         if(loopSimdStarts.count(pc)){
@@ -891,12 +913,20 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const bool directQword=i.width==8&&destination!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
-                load(pointer.args[0],"rax");
-                load(pointer.args[1],"r11");
-                if(directQword)
-                    out<<"    mov "<<destination->second<<", QWORD PTR [rax + r11*"
-                       <<pointer.width<<"]\n";
-                else emitIndexedLoad(out,i.width,sign,pointer.width);
+                const auto stack=i.width==8?fixedStackAddress(pointer):
+                    std::nullopt;
+                if(stack){
+                    if(directQword)
+                        out<<"    mov "<<destination->second<<", "<<*stack<<"\n";
+                    else out<<"    mov rax, "<<*stack<<"\n";
+                }else{
+                    load(pointer.args[0],"rax");
+                    load(pointer.args[1],"r11");
+                    if(directQword)
+                        out<<"    mov "<<destination->second<<", QWORD PTR [rax + r11*"
+                           <<pointer.width<<"]\n";
+                    else emitIndexedLoad(out,i.width,sign,pointer.width);
+                }
             }else{
                 load(i.args[0],"rax");
                 if(directQword)
@@ -912,14 +942,25 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const bool directQword=i.width==8&&value!=physical.end();
             if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
-                load(pointer.args[0],"rax");
-                load(pointer.args[1],"r11");
-                if(directQword)
-                    out<<"    mov QWORD PTR [rax + r11*"<<pointer.width
-                       <<"], "<<value->second<<"\n";
-                else{
-                    load(i.args[1],"r10");
-                    emitIndexedStore(out,i.width,pointer.width);
+                const auto stack=i.width==8?fixedStackAddress(pointer):
+                    std::nullopt;
+                if(stack){
+                    if(directQword)
+                        out<<"    mov "<<*stack<<", "<<value->second<<"\n";
+                    else{
+                        load(i.args[1],"r10");
+                        out<<"    mov "<<*stack<<", r10\n";
+                    }
+                }else{
+                    load(pointer.args[0],"rax");
+                    load(pointer.args[1],"r11");
+                    if(directQword)
+                        out<<"    mov QWORD PTR [rax + r11*"<<pointer.width
+                           <<"], "<<value->second<<"\n";
+                    else{
+                        load(i.args[1],"r10");
+                        emitIndexedStore(out,i.width,pointer.width);
+                    }
                 }
             }else{
                 load(i.args[0],"rax");
