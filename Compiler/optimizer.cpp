@@ -1656,7 +1656,10 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
     if(level==OptimizationLevel::O2||level==OptimizationLevel::O3||
        level==OptimizationLevel::Oz){
         // Both transforms lower Phi values into edge copies; run LAST.
-        if(!promoteGeneralScalarSsa(fn))
+        // General mem2reg is enabled at the fully optimizing O3 level.
+        // O2/Oz retain the previously qualified narrow Phi transforms.
+        // Both paths use the same safety-checked predecessor-edge lowering.
+        if(level!=OptimizationLevel::O3||!promoteGeneralScalarSsa(fn))
             if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
     }
 }
