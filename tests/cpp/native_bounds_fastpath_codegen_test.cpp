@@ -40,8 +40,9 @@ int main(int argc,char** argv) {
                                std::istreambuf_iterator<char>());
     // The constant bounds length must compare directly against a physical
     // register rather than staging the value through RAX. Keep the trap.
-    if(!std::regex_search(asmText,std::regex(R"(cmp r1[2-5], 8\n\s+jb )"))||
-       asmText.find("ud2")==std::string::npos) {
+    if(!std::regex_search(asmText,std::regex(R"(cmp r1[2-5], 8\n\s+jae )"))||
+       asmText.find("ud2")==std::string::npos||
+       asmText.find("cold_traps_end")==std::string::npos) {
         std::cerr<<"missing direct fixed-length CMP and trap\n";
         return 1;
     }
