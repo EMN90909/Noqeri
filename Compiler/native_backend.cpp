@@ -571,6 +571,56 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
            !access.args.empty()&&access.args[0]==*pointer.dest)
             fusedPointers.insert(pc);
     }
+    // Fuse a single-use scalar array LoadMemory into its immediately
+    // following compare-and-branch. One or two side-effect-free named
+    // local/constant definitions may separate the load and comparison
+    // (e.g. the insertion-sort key). The address is held in reserved R8
+    // until CMP, never across a call, write, volatile access or new CFG
+    // entry. Pointer loads and bounds traps still occur in source order.
+    std::unordered_map<std::size_t,std::size_t> memoryComparisons;
+    std::unordered_set<std::size_t> delayedLoads;
+    for(std::size_t pc=1;pc+1<fn.code.size();++pc){
+        const auto& compare=fn.code[pc];
+        const auto& branch=fn.code[pc+1];
+        if(compare.op!=NirOp::Binary||!compare.dest||
+           compare.args.size()!=2||compare.isVolatile||
+           *compare.dest>=useCounts.size()||
+           useCounts[*compare.dest]!=1||
+           branch.op!=NirOp::JumpIfFalse||
+           branch.args.size()!=1||
+           branch.args[0]!=*compare.dest||
+           jumpTargets.count(pc)||jumpTargets.count(pc+1))continue;
+        if(compare.text!="=="&&compare.text!="!="&&
+           compare.text!="<"&&compare.text!="<="&&
+           compare.text!=">"&&compare.text!=">=")continue;
+        const auto earliest=pc>4?pc-4:0;
+        for(std::size_t prior=pc;prior-->earliest;){
+            const auto& load=fn.code[prior];
+            if(load.op==NirOp::LoadMemory&&load.dest&&
+               *load.dest==compare.args[0]&&load.width==8&&
+               !load.isVolatile&&load.args.size()==1&&
+               *load.dest<definitions.size()&&definitions[*load.dest]==1&&
+               useCounts[*load.dest]==1){
+                bool safe=true;
+                for(std::size_t middle=prior+1;middle<pc;++middle){
+                    const auto& between=fn.code[middle];
+                    if(jumpTargets.count(middle)||
+                       !((between.op==NirOp::Load&&!between.isVolatile)||
+                         (between.op==NirOp::Const)||
+                         (between.op==NirOp::Nop))){
+                        safe=false;break;
+                    }
+                }
+                if(safe){
+                    memoryComparisons.emplace(pc,prior);
+                    delayedLoads.insert(prior);
+                }
+                break;
+            }
+            if(load.op!=NirOp::Load&&! (load.op==NirOp::Const) &&
+               load.op!=NirOp::Nop)break;
+        }
+    }
     // Experimental two-lane 64-bit SLP: use real SSE2 paddq/psubq for
     // independent scalar operations in one straight-line region. Disabled
     // by default because pack/unpack overhead can exceed scalar cost; no
@@ -853,6 +903,17 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     std::vector<std::string> coldTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(delayedLoads.count(pc)){
+            // Materialize the address, not its value, for a later memory
+            // comparison in the SAME straight-line basic block.
+            if(pc>0&&fusedPointers.count(pc-1)){
+                const auto& pointer=fn.code[pc-1];
+                const auto fixed=fixedStackAddress(pointer);
+                const auto address=fixed?*fixed:registerIndexedAddress(pointer);
+                out<<"    lea r8, "<<address.substr(sizeof("QWORD PTR ")-1)<<"\n";
+            }else load(i.args[0],"r8");
+            continue;
+        }
         if(loopSimdSkipped.count(pc))continue;
         if(loopSimdStarts.count(pc)){
             const auto root=loopSimdStackRoot.at(pc);
@@ -1200,6 +1261,20 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         else if(i.text==">")inverted=unsign?"jbe":"jle";
         else if(i.text==">=")inverted=unsign?"jb":"jl";
         if(singleUse&&adjacent&&inverted){
+            const auto delayed=memoryComparisons.find(pc);
+            if(delayed!=memoryComparisons.end()){
+                const auto rhsPhysical=physical.find(i.args[1]);
+                if(rhsPhysical!=physical.end())
+                    out<<"    cmp QWORD PTR [r8], "<<rhsPhysical->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    out<<"    cmp QWORD PTR [r8], r10\n";
+                }
+                out<<"    "<<inverted<<" "
+                   <<pcLabel(fn,fn.code[pc+1].target)<<"\n";
+                fusedBranches.insert(pc+1);
+                break;
+            }
             load(i.args[0],"rax");
             const auto rhsImmediate=constantValues.find(i.args[1]);
             if(rhsImmediate!=constantValues.end()&&
