@@ -1541,5 +1541,37 @@ int main() {
             if(in.op==noe::NirOp::Binary&&in.text=="+")++additions;
         if(!check(additions==2,"floating GVN stays disabled"))return 1;
     }
+    {
+        // Dense def-use DCE must preserve a long live chain, remove unrelated
+        // dead computations, and keep all operands of a register that has
+        // MULTIPLE definitions until complete SSA conversion exists.
+        constexpr noe::Reg live=1500,dead=700;
+        noe::NirProgram p;
+        auto seed=withArgs(noe::NirOp::Load,{});
+        seed.dest=1;seed.text="input";
+        p.entry.code.push_back(seed);
+        for(noe::Reg r=2;r<=live;++r){
+            auto step=withArgs(noe::NirOp::Unary,{r-1});
+            step.dest=r;step.text="-";
+            p.entry.code.push_back(step);
+        }
+        for(noe::Reg r=live+1;r<=live+dead;++r){
+            auto orphan=withArgs(noe::NirOp::Unary,{1});
+            orphan.dest=r;orphan.text="-";
+            p.entry.code.push_back(orphan);
+        }
+        auto keep=withArgs(noe::NirOp::Return,{live});
+        p.entry.code.push_back(keep);
+        p.entry.nextReg=live+dead+1;
+        p.entry.registerTypes.resize(p.entry.nextReg);
+        for(auto& type:p.entry.registerTypes)type.kind=noe::TypeKind::Int;
+        noe::Optimizer{}.optimize(p,noe::OptimizationLevel::O1);
+        std::size_t unaryCount=0;
+        for(const auto& instruction:p.entry.code)
+            if(instruction.op==noe::NirOp::Unary)++unaryCount;
+        if(!check(unaryCount==live-1,
+                  "dense liveness retains transitive uses and removes dead work"))
+            return 1;
+    }
     return 0;
 }
