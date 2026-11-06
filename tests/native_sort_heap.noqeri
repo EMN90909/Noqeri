@@ -35,3 +35,19 @@ let small: [i64; 8] = [8 as i64, 6 as i64, 4 as i64, 2 as i64, 7 as i64, 5 as i6
 nqSortI64(slice(small))
 print(small[0])
 print(small[7])
+
+let duplicates: [i64; 64]
+let d: usize = 0 as usize
+while d < 64 as usize {
+    duplicates[d] = ((d * 13 as usize + 3 as usize) % 17 as usize) as i64 - 8 as i64
+    d = d + 1 as usize
+}
+let dupView: []i64 = slice(duplicates)
+nqSortI64(dupView)
+if nqIsSortedI64(dupView) { print(1) } else { print(0) }
+print(duplicates[0])
+print(duplicates[63])
+
+let singleton: [i64; 1] = [11 as i64]
+nqSortI64(slice(singleton))
+print(singleton[0])
