@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <map>
+#include <unordered_map>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -37,7 +37,7 @@ struct List {
         if(drop){try{drop(p,context);}catch(...){/* drop callbacks may not throw */}}
     }
     void freeAll() {
-        for(std::size_t i=0;i<length;i++)destroy(at(i));
+        if(drop)for(std::size_t i=0;i<length;i++)destroy(at(i));
         ::operator delete(buffer,std::align_val_t(alignment));
         buffer=nullptr;length=0;capacity=0;
     }
@@ -46,7 +46,7 @@ struct List {
     List(const List&)=delete;
     List& operator=(const List&)=delete;
 };
-std::map<std::int64_t,std::unique_ptr<List>> entries;
+std::unordered_map<std::int64_t,std::unique_ptr<List>> entries;
 std::int64_t nextHandle=1;
 List* find(std::int64_t id){auto i=entries.find(id);return i==entries.end()?nullptr:i->second.get();}
 std::byte* allocate(const List& l,std::size_t cap) {
@@ -65,9 +65,20 @@ std::int64_t reserve(List& l,std::size_t capacity) {
     auto* replacement=allocate(l,capacity);
     if(!replacement)return -2;
     std::size_t copied=0;
-    for(;copied<l.length;copied++) {
-        if(l.copyAt(replacement+copied*l.stride,l.at(copied))!=0) {
-            discardClones(l,replacement,copied);return -6;
+    if(!l.clone) {
+        // Plain-copy elements have no ownership callbacks. One bulk copy is
+        // much faster than calling copyAt for each element when the list grows.
+        // The stride includes alignment padding; copying it is safe for this
+        // trivially-owned representation.
+        if(l.length)std::memcpy(replacement,l.buffer,l.length*l.stride);
+        copied=l.length;
+    }else{
+        // Nontrivial values must be cloned. Never bitwise-relocate them;
+        // keep the original list valid if any clone fails.
+        for(;copied<l.length;copied++) {
+            if(l.copyAt(replacement+copied*l.stride,l.at(copied))!=0) {
+                discardClones(l,replacement,copied);return -6;
+            }
         }
     }
     l.freeAll();
@@ -107,7 +118,13 @@ extern "C" std::int64_t nq_value_list_append(std::int64_t id,const void* element
     if(!element || l->aliases(element))return -5;
     if(l->length==maxElements)return -2;
     if(l->length==l->capacity){
-        const auto newCap=l->capacity==0?4:std::min(maxElements,l->capacity*2);
+        // The byte limit may fall between powers of two. Grow up to the
+        // actual capacity ceiling instead of failing early when doubling
+        // would overshoot it (while one more element would still fit).
+        const auto limit=std::min(maxElements,maxBytes/l->stride);
+        const auto newCap=std::min(limit,l->capacity==0?
+            std::size_t{4}:l->capacity*2);
+        if(newCap<=l->capacity)return -2;
         const auto status=reserve(*l,newCap);
         if(status!=0)return status;
     }
@@ -156,7 +173,7 @@ extern "C" std::int64_t nq_value_list_size(std::int64_t id) {
 extern "C" std::int64_t nq_value_list_clear(std::int64_t id) {
     std::lock_guard<std::mutex> lock(guard);
     auto* l=find(id);if(!l)return -1;
-    for(std::size_t i=0;i<l->length;i++)l->destroy(l->at(i));
+    if(l->drop)for(std::size_t i=0;i<l->length;i++)l->destroy(l->at(i));
     l->length=0;return 0;
 }
 extern "C" std::int64_t nq_value_list_close(std::int64_t id) {
