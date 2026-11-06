@@ -103,32 +103,74 @@ bool dce(NirFunction&fn){
     // Build one conservative def -> operand relation. Repeated virtual
     // register definitions contribute all their dependencies, just like the
     // previous scan, until general SSA renaming/phi insertion is available.
-    std::unordered_map<Reg,std::vector<Reg>> dependencies;
-    for(const auto& in:fn.code)if(in.dest){
-        auto& inputs=dependencies[*in.dest];
-        inputs.insert(inputs.end(),in.args.begin(),in.args.end());
-    }
-    std::unordered_set<Reg>used;
-    std::vector<Reg> pending;
-    const auto mark=[&](Reg r){
-        if(used.insert(r).second)pending.push_back(r);
-    };
-    for(const auto& in:fn.code)
-        if(sideEffect(in)||!in.dest)
-            for(const auto arg:in.args)mark(arg);
-    // Liveness reaches every dependency once, avoiding a full instruction
-    // scan per edge of a long chain of live SSA temporaries.
-    for(std::size_t cursor=0;cursor<pending.size();++cursor){
-        const auto def=dependencies.find(pending[cursor]);
-        if(def==dependencies.end())continue;
-        for(const auto arg:def->second)mark(arg);
-    }
+    // Dense NIR register IDs are the usual case. Store def-use edges in a
+    // compressed adjacency array instead of allocating a hash bucket and a
+    // separate vector for nearly every definition. Repeated definitions
+    // contribute ALL operands, preserving conservative pre-SSA liveness.
+    // Malformed/sparse IDs and enormous register ranges keep the old
+    // hash-based path rather than allocating an unbounded dense table.
     const std::size_t oldCount=fn.code.size();
+    const std::size_t slots=fn.nextReg;
+    bool dense=slots>0&&slots<=1'000'000&&
+        slots<=oldCount*8+4096;
+    if(dense)for(const auto& in:fn.code){
+        if(in.dest&&*in.dest>=slots){dense=false;break;}
+        for(const auto reg:in.args)if(reg>=slots){dense=false;break;}
+        if(!dense)break;
+    }
+    std::vector<std::uint8_t> usedBits;
+    std::unordered_set<Reg> usedSparse;
+    std::vector<Reg> pending;
+    pending.reserve(std::min<std::size_t>(slots,oldCount));
+    const auto mark=[&](Reg r){
+        if(dense){
+            if(!usedBits[r]){usedBits[r]=1;pending.push_back(r);}
+        }else if(usedSparse.insert(r).second)pending.push_back(r);
+    };
+    if(dense){
+        std::vector<std::size_t> offsets(slots+1,0);
+        for(const auto& in:fn.code)if(in.dest)
+            offsets[static_cast<std::size_t>(*in.dest)+1]+=in.args.size();
+        for(std::size_t r=1;r<offsets.size();++r)
+            offsets[r]+=offsets[r-1];
+        std::vector<Reg> operands(offsets.back());
+        auto cursor=offsets;
+        for(const auto& in:fn.code)if(in.dest)
+            for(const auto arg:in.args)
+                operands[cursor[*in.dest]++]=arg;
+        usedBits.assign(slots,0);
+        for(const auto& in:fn.code)
+            if(sideEffect(in)||!in.dest)
+                for(const auto arg:in.args)mark(arg);
+        for(std::size_t next=0;next<pending.size();++next){
+            const auto r=pending[next];
+            for(std::size_t pos=offsets[r];pos<offsets[r+1];++pos)
+                mark(operands[pos]);
+        }
+    }else{
+        std::unordered_map<Reg,std::vector<Reg>> dependencies;
+        dependencies.reserve(oldCount);
+        for(const auto& in:fn.code)if(in.dest){
+            auto& inputs=dependencies[*in.dest];
+            inputs.insert(inputs.end(),in.args.begin(),in.args.end());
+        }
+        for(const auto& in:fn.code)
+            if(sideEffect(in)||!in.dest)
+                for(const auto arg:in.args)mark(arg);
+        for(std::size_t next=0;next<pending.size();++next){
+            const auto def=dependencies.find(pending[next]);
+            if(def==dependencies.end())continue;
+            for(const auto arg:def->second)mark(arg);
+        }
+    }
+    const auto isUsed=[&](Reg r){
+        return dense?usedBits[r]!=0:usedSparse.count(r)!=0;
+    };
     std::vector<bool>keep(oldCount,true);
     bool changed=false;
     for(std::size_t index=0;index<oldCount;++index){
         const auto&i=fn.code[index];
-        if(i.op==NirOp::Nop||(i.dest&&!used.count(*i.dest)&&!sideEffect(i))){keep[index]=false;changed=true;}
+        if(i.op==NirOp::Nop||(i.dest&&!isUsed(*i.dest)&&!sideEffect(i))){keep[index]=false;changed=true;}
     }
     if(!changed)return false;
     std::vector<std::size_t>oldToNew(oldCount+1,0);
