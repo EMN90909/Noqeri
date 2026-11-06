@@ -598,6 +598,17 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const auto& load=fn.code[prior];
             if(load.op==NirOp::LoadMemory&&load.dest&&
                *load.dest==compare.args[0]&&load.width==8&&
+               // Only full-width integer comparisons qualify. Float
+               // comparisons have NaN/ordering behavior and an SSE2 path
+               // that must never consume a deferred integer load.
+               (load.type.kind==TypeKind::Int||
+                load.type.kind==TypeKind::I64||
+                load.type.kind==TypeKind::U64||
+                load.type.kind==TypeKind::Usize||
+                load.type.kind==TypeKind::Isize)&&
+               compare.args[1]<l.regKinds.size()&&
+               l.regKinds[compare.args[1]]!=ValueKind::Float&&
+               l.regKinds[compare.args[1]]!=ValueKind::String&&
                !load.isVolatile&&load.args.size()==1&&
                *load.dest<definitions.size()&&definitions[*load.dest]==1&&
                useCounts[*load.dest]==1){
