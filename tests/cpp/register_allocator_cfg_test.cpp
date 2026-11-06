@@ -77,5 +77,37 @@ int main(){
         for(const auto& l:p.locations)if(l.spilled)slots.insert(l.spillSlot);
         if(!ok(slots.size()==p.spillSlots,"spill slots individually assigned"))return 1;
     }
+    {
+        // A cold value with a shorter interval must not evict a hot
+        // loop-carried value just because the cold one ends sooner.
+        // Spilling the hot register incurs repeated memory traffic.
+        noe::NirFunction fn;
+        auto branch=make(noe::NirOp::JumpIfFalse,{1});branch.target=10;
+        auto back=make(noe::NirOp::Jump);back.target=2;
+        fn.code={
+            make(noe::NirOp::Const,{},1), // hot, live through the loop
+            make(noe::NirOp::Const,{},2), // cold, only needed after loop
+            branch,
+            make(noe::NirOp::Store,{1}),
+            make(noe::NirOp::Store,{1}),
+            make(noe::NirOp::Store,{1}),
+            make(noe::NirOp::Store,{1}),
+            make(noe::NirOp::Store,{1}),
+            make(noe::NirOp::Store,{1}),
+            back,
+            make(noe::NirOp::Store,{2}),
+            make(noe::NirOp::Return,{1})
+        };
+        fn.nextReg=3;
+        const auto p=alloc.allocate(fn,{"r12"});
+        const auto hot=std::find_if(p.locations.begin(),p.locations.end(),
+            [](const auto& l){return l.value==1;});
+        const auto cold=std::find_if(p.locations.begin(),p.locations.end(),
+            [](const auto& l){return l.value==2;});
+        if(!ok(hot!=p.locations.end()&&!hot->spilled,
+            "keep high-frequency loop value in physical register"))return 1;
+        if(!ok(cold!=p.locations.end()&&cold->spilled,
+            "spill low-frequency scalar with overlapping interval"))return 1;
+    }
     return 0;
 }
