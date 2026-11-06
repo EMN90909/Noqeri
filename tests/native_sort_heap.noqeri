@@ -1,0 +1,37 @@
+import "../Lib/std/sort.noqeri"
+
+let ascending: [i64; 64]
+let descending: [i64; 64]
+let i: usize = 0 as usize
+while i < 64 as usize {
+    let sample: i64 = ((i * 73 as usize + 19 as usize) % 101 as usize) as i64 - 50 as i64
+    ascending[i] = sample
+    descending[i] = sample
+    i = i + 1 as usize
+}
+let asc: []i64 = slice(ascending)
+let desc: []i64 = slice(descending)
+nqSortI64(asc)
+nqSortDescendingI64(desc)
+
+let correct: bool = nqIsSortedI64(asc) && nqIsSortedDescendingI64(desc)
+let sum: i64 = 0 as i64
+let position: usize = 0 as usize
+while position < 64 as usize {
+    if ascending[position] != descending[63 as usize - position] {
+        correct = false
+    }
+    sum = sum + ascending[position]
+    position = position + 1 as usize
+}
+if correct { print(1) } else { print(0) }
+print(ascending[0])
+print(ascending[63])
+print(descending[0])
+print(descending[63])
+print(sum)
+
+let small: [i64; 8] = [8 as i64, 6 as i64, 4 as i64, 2 as i64, 7 as i64, 5 as i64, 3 as i64, 1 as i64]
+nqSortI64(slice(small))
+print(small[0])
+print(small[7])
