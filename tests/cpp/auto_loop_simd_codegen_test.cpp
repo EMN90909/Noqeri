@@ -116,11 +116,11 @@ int main(int argc,char** argv){
     std::ifstream file(argv[1]);
     const std::string text((std::istreambuf_iterator<char>(file)),
                            std::istreambuf_iterator<char>());
-    const char* env=std::getenv("NOQERI_EXPERIMENTAL_LOOP_SIMD");
-    const bool enabled=env&&std::string(env)=="1";
+    const char* env=std::getenv("NOQERI_NATIVE_LOOP_SIMD");
+    const bool enabled=!(env&&std::string(env)=="0");
     unsigned count=0;
     std::size_t indexAt=0;
-    while((indexAt=text.find("paddq xmm0, xmm1",indexAt))!=
+    while((indexAt=text.find("paddq xmm0, xmm5",indexAt))!=
           std::string::npos){++count;indexAt+=5;}
     if((enabled&&count!=kPairs)||(!enabled&&count!=0)){
         std::cerr<<"expected "<<(enabled?kPairs:0)<<" SIMD pairs, got "<<count<<"\n";
