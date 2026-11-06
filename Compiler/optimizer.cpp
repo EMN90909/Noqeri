@@ -1783,28 +1783,47 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
     remap[n]=rebuilt.size();
     for(auto& [key,edge]:edges){
         edge.stub=rebuilt.size();
-        // Read every source before overwriting any destination. This
-        // resolves swaps, 3-cycles and other parallel assignments safely.
+        // Parallel copies need staging only if a destination is also
+        // the source of ANOTHER copy on this edge. With independent
+        // destinations there is no cycle or overwrite hazard, so emit
+        // direct register-to-register copies without allocating or
+        // moving through a temporary virtual register.
+        std::unordered_set<Reg> destinationsOnEdge;
+        for(const auto& copy:edge.copies)
+            destinationsOnEdge.insert(copy.dest);
+        bool requiresStaging=false;
+        for(const auto& copy:edge.copies)
+            if(copy.source!=copy.dest &&
+               destinationsOnEdge.count(copy.source)){
+                requiresStaging=true;break;
+            }
         std::vector<Reg> staged;
-        for(const auto& copy:edge.copies){
-            if(next==std::numeric_limits<Reg>::max())return false;
-            const Reg temporary=next++;
-            result.registerTypes.resize(static_cast<std::size_t>(next));
-            result.registerTypes[temporary]=copy.type;
-            NirInstruction save;
-            save.op=NirOp::Cast;save.dest=temporary;
-            save.args={copy.source};save.type=copy.type;
-            save.text=copy.cast;
-            rebuilt.push_back(std::move(save));
-            staged.push_back(temporary);
+        if(requiresStaging){
+            // Read all original sources before writing ANY destination,
+            // including swaps and longer parallel-copy cycles.
+            for(const auto& copy:edge.copies){
+                if(next==std::numeric_limits<Reg>::max())return false;
+                const Reg temporary=next++;
+                result.registerTypes.resize(static_cast<std::size_t>(next));
+                result.registerTypes[temporary]=copy.type;
+                NirInstruction save;
+                save.op=NirOp::Cast;save.dest=temporary;
+                save.args={copy.source};save.type=copy.type;
+                save.text=copy.cast;
+                rebuilt.push_back(std::move(save));
+                staged.push_back(temporary);
+            }
         }
         for(std::size_t i=0;i<edge.copies.size();++i){
+            const auto& copy=edge.copies[i];
+            const Reg source=requiresStaging?staged[i]:copy.source;
+            if(source==copy.dest)continue;
             NirInstruction assign;
             assign.op=NirOp::Cast;
-            assign.dest=edge.copies[i].dest;
-            assign.args={staged[i]};
-            assign.type=edge.copies[i].type;
-            assign.text=edge.copies[i].cast;
+            assign.dest=copy.dest;
+            assign.args={source};
+            assign.type=copy.type;
+            assign.text=copy.cast;
             rebuilt.push_back(std::move(assign));
         }
         NirInstruction branch;
