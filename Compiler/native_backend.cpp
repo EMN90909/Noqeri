@@ -508,6 +508,53 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             jumpTargets.insert(i.target);
         for(auto r:i.args)if(r<useCounts.size())++useCounts[r];
     }
+    // Pre-resolve fixed-size stack arrays through their one-time named
+    // binding: StackAlloc -> Store("array") -> Load("array") -> PtrOffset.
+    // The binding must be initialized along the straight-line function
+    // entry before any branch and must never be reassigned or address-taken.
+    // This proves that rbp-relative addressing is identical to following
+    // the materialized pointer, even inside nested sort/matrix loops.
+    const std::size_t noStackRoot=fn.code.size();
+    std::vector<std::size_t> stackRoot(fn.nextReg,noStackRoot);
+    struct FixedBinding {std::size_t stores=0,pc=0;Reg source=0;bool taken=false;};
+    std::unordered_map<std::string,FixedBinding> bindings;
+    std::vector<bool> prefixControl(fn.code.size()+1,false);
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        prefixControl[pc+1]=prefixControl[pc]||
+            in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse||
+            in.op==NirOp::Return||in.op==NirOp::Throw||
+            in.op==NirOp::Try||in.op==NirOp::InlineAsm;
+        if(in.op==NirOp::StackAlloc&&in.dest&&
+           *in.dest<stackRoot.size()&&definitions[*in.dest]==1&&
+           fixedStorage[pc]!=0)
+            stackRoot[*in.dest]=pc;
+        if(in.op==NirOp::Store){
+            auto& binding=bindings[in.text];
+            ++binding.stores;
+            binding.pc=pc;
+            if(in.args.size()==1)binding.source=in.args[0];
+            else binding.stores=2; // malformed stores cannot establish a binding
+        }
+        if(in.op==NirOp::AddressOf)bindings[in.text].taken=true;
+    }
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        if(in.op!=NirOp::Load||!in.dest||*in.dest>=stackRoot.size()||
+           definitions[*in.dest]!=1||in.isVolatile)continue;
+        const auto it=bindings.find(in.text);
+        if(it==bindings.end())continue;
+        const auto& binding=it->second;
+        if(binding.stores!=1||binding.taken||
+           binding.pc>=fn.code.size()||
+           prefixControl[binding.pc]||
+           binding.source>=stackRoot.size()||
+           stackRoot[binding.source]==noStackRoot)continue;
+        // Because no control transfer precedes Store, it dominates every
+        // later Load. An earlier Load cannot use its future value.
+        if(pc<=binding.pc)continue;
+        stackRoot[*in.dest]=stackRoot[binding.source];
+    }
     std::unordered_set<std::size_t> fusedBranches;
     std::unordered_set<std::size_t> fusedPointers;
     for(std::size_t pc=0;pc+1<fn.code.size();++pc){
