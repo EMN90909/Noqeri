@@ -2,7 +2,7 @@
 #include "owned_collections.h"
 #include <cstdint>
 #include <limits>
-#include <map>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <unordered_map>
@@ -18,7 +18,7 @@ struct Collection {
     std::unordered_set<std::int64_t> set;
 };
 std::mutex mu;
-std::map<std::int64_t,Collection> objects;
+std::unordered_map<std::int64_t,Collection> objects;
 std::int64_t nextId=1;
 Collection* lookup(std::int64_t id) {
     const auto found=objects.find(id);
@@ -47,10 +47,12 @@ extern "C" int64_t nq_collection_add(int64_t id,int64_t key,int64_t value) {
             if(c->list.size()>=maxElements)return -2;
             c->list.push_back(value);
         }else if(c->kind==2){
-            if(!c->map.count(key)&&c->map.size()>=maxElements)return -2;
+            // Existing keys can be updated at capacity. Below capacity,
+            // avoid an unnecessary second hash-table probe on every insertion.
+            if(c->map.size()>=maxElements&&c->map.find(key)==c->map.end())return -2;
             c->map.insert_or_assign(key,value);
         }else{
-            if(!c->set.count(key)&&c->set.size()>=maxElements)return -2;
+            if(c->set.size()>=maxElements&&c->set.find(key)==c->set.end())return -2;
             c->set.insert(key);
         }
         return 0;
