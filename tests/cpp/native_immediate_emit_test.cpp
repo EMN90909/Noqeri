@@ -33,9 +33,9 @@ int main(int argc,char** argv) {
     noe::NirProgram program;
     auto& fn=program.entry;
     fn.name="__entry";
-    fn.nextReg=12;
-    fn.registerTypes.resize(12);
-    for(noe::Reg r=1;r<12;++r)fn.registerTypes[r].kind=noe::TypeKind::I64;
+    fn.nextReg=16;
+    fn.registerTypes.resize(16);
+    for(noe::Reg r=1;r<16;++r)fn.registerTypes[r].kind=noe::TypeKind::I64;
     fn.registerTypes[11].kind=noe::TypeKind::Bool;
     fn.code={
         literal(1,9),
@@ -55,6 +55,12 @@ int main(int argc,char** argv) {
     guard.args={11};
     guard.target=13;
     fn.code.push_back(guard);
+    // Row-stride scaling in 16x16 matrix kernels must use SHL, not IMUL.
+    fn.code.push_back(literal(12,16));
+    fn.code.push_back(binary(13,"*",1,12));
+    fn.code.push_back(literal(14,0));
+    fn.code.push_back(binary(15,"*",1,14));
+    fn.code[11].target=17;
     noe::NirInstruction ret;
     ret.op=noe::NirOp::Return;
     ret.args={9};
@@ -73,7 +79,8 @@ int main(int argc,char** argv) {
     const std::string assembly((std::istreambuf_iterator<char>(file)),
                                std::istreambuf_iterator<char>());
     for(const auto* expected:{"add rax, 3","sub rax, -1",
-                               "imul rax, rax, 7","cmp rax, 4"}) {
+                               "imul rax, rax, 7","cmp rax, 4",
+                               "shl rax, 4","xor eax, eax"}) {
         if(assembly.find(expected)==std::string::npos) {
             std::cerr<<"missing immediate/fallback assembly: "<<expected<<"\n";
             return 1;
