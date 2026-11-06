@@ -567,6 +567,17 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                         if(r==*first.dest||r==*second.dest)
                             compatible=false;
                     }
+                    // Reject any intermediate overwrite of a source of
+                    // either lane. Pairing would otherwise observe a value
+                    // from the wrong program point (before SSA renaming).
+                    for(std::size_t mid=pc+1;mid<at;++mid)
+                        if(fn.code[mid].dest){
+                            const auto d=*fn.code[mid].dest;
+                            if(d==first.args[0]||d==first.args[1]||
+                               d==second.args[0]||d==second.args[1]||
+                               d==*first.dest||d==*second.dest)
+                                compatible=false;
+                        }
                     if(compatible){
                         packedStarts.insert(pc);
                         packedEnds.emplace(at,pc);
@@ -574,6 +585,13 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     }
                     break;
                 }
+                // Delaying the first instruction is only legal when
+                // no intermediate NIR instruction redefines its operands
+                // or destinations. This matters for pre-SSA virtual regs.
+                if(second.dest&&
+                   (*second.dest==first.args[0]||
+                    *second.dest==first.args[1]||
+                    *second.dest==*first.dest))break;
                 const bool pure=second.op==NirOp::Nop||
                     (second.op==NirOp::Load&&!second.isVolatile)||
                     (second.op==NirOp::Const&&
@@ -599,13 +617,21 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             load(i.args[0],"rax");
             out<<"    movq xmm1, rax\n"
                <<"    punpcklqdq xmm0, xmm1\n";
-            load(first.args[1],"rax");
-            out<<"    movq xmm2, rax\n";
-            load(i.args[1],"rax");
-            out<<"    movq xmm3, rax\n"
-               <<"    punpcklqdq xmm2, xmm3\n"
-               <<(i.text=="+"?"    paddq xmm0, xmm2\n":
-                             "    psubq xmm0, xmm2\n")
+            if(first.args[1]==i.args[1]){
+                // Broadcast one invariant RHS to both lanes. Avoid one
+                // operand load, one XMM move and a redundant unpack.
+                load(first.args[1],"rax");
+                out<<"    movq xmm2, rax\n"
+                   <<"    punpcklqdq xmm2, xmm2\n";
+            }else{
+                load(first.args[1],"rax");
+                out<<"    movq xmm2, rax\n";
+                load(i.args[1],"rax");
+                out<<"    movq xmm3, rax\n"
+                   <<"    punpcklqdq xmm2, xmm3\n";
+            }
+            out<<(i.text=="+"?"    paddq xmm0, xmm2\n":
+                              "    psubq xmm0, xmm2\n")
                <<"    movq rax, xmm0\n";
             store(*first.dest,"rax");
             out<<"    psrldq xmm0, 8\n"
