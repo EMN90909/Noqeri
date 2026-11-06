@@ -27,6 +27,7 @@ cases = {
     "native_bounds_oob_trap": ("", -signal.SIGILL),
     "native_bounds_mutation_trap": ("", -signal.SIGILL),
     "native_phi_diamond": ("37\n81\n", 0),
+    "native_ssa_general": ("1\n3\n16\n20192\n133352\n", 0),
 }
 
 with tempfile.TemporaryDirectory(prefix="noqeri-bounds-") as tmp:
