@@ -19,11 +19,46 @@ bool isUnsigned(TypeKind kind){
     return kind==TypeKind::U8||kind==TypeKind::U16||kind==TypeKind::U32||
            kind==TypeKind::U64||kind==TypeKind::Usize;
 }
-// Emit a precise u64 quotient/remainder for a known divisor, using one
-// 64x64 -> 128-bit multiply plus at most one correction. No LLVM required.
-// The reciprocal floor(2^64/d) underestimates floor(n/d) by at most one.
+// Compute the branch-free unsigned division multiplier using only uint64_t
+// arithmetic, so cross-compiling the Stage-0 compiler does not require a
+// vendor-specific 128-bit integer type. This is the libdivide-style unsigned
+// magic-number construction. For a non-power-of-two d, 2^k < d < 2^(k+1).
+struct UnsignedDivisionMagic {
+    std::uint64_t multiplier=0;
+    unsigned shift=0;
+    bool add=false;
+};
+UnsignedDivisionMagic unsignedDivisionMagic(std::uint64_t divisor){
+    unsigned shift=0;
+    for(auto value=divisor;value>1;value>>=1)++shift;
+    const auto max=std::numeric_limits<std::uint64_t>::max();
+    // Start with floor(2^64/d) and the exact remainder; 2^64 is
+    // represented as UINT64_MAX + 1 without overflowing unsigned math.
+    std::uint64_t quotient=max/divisor;
+    std::uint64_t remainder=max%divisor;
+    if(remainder==divisor-1){++quotient;remainder=0;}
+    else ++remainder;
+    // Long-divide 2^(64+shift) by d. Every intermediate quotient fits
+    // u64 since d > 2^shift. Avoid overflowing 2*remainder as well.
+    for(unsigned bit=0;bit<shift;++bit){
+        const bool carry=remainder>=divisor-remainder;
+        quotient=(quotient<<1)+static_cast<std::uint64_t>(carry);
+        remainder=carry?remainder-(divisor-remainder):remainder*2;
+    }
+    const bool add=(divisor-remainder)>=(std::uint64_t{1}<<shift);
+    if(add){
+        const bool carry=remainder>=divisor-remainder;
+        quotient=(quotient<<1)+static_cast<std::uint64_t>(carry);
+    }
+    // Overflow on +1 is intentional: the multiplier is modulo 2^64.
+    return {quotient+1,shift,add};
+}
+// Exact u64 quotient/remainder for an immediate divisor. A magic multiply
+// and shift (plus an optional branchless adjustment) replace the previous
+// reciprocal correction branch. Signed lowering handles signs separately.
+// Division by zero and signed MIN/-1 remain on the trapping IDIV path.
 void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
-                                 bool remainder,const std::string& done){
+                                 bool remainder){
     if(divisor==1){
         if(remainder)out<<"    xor eax, eax\n";
         return;
@@ -32,25 +67,34 @@ void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
         unsigned shift=0;
         for(auto value=divisor;value>1;value>>=1)++shift;
         if(remainder){
-            out<<"    mov r10, "<<(divisor-1)<<"\n    and rax, r10\n";
+            if(divisor-1<=static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int32_t>::max()))
+                out<<"    and rax, "<<(divisor-1)<<"\n";
+            else out<<"    mov r10, "<<(divisor-1)<<"\n    and rax, r10\n";
         }else out<<"    shr rax, "<<shift<<"\n";
         return;
     }
-    const auto max=std::numeric_limits<std::uint64_t>::max();
-    const auto reciprocal=max/divisor+((max%divisor)==divisor-1?1u:0u);
-    out<<"    mov r11, rax\n"
-       <<"    mov r10, "<<reciprocal<<"\n"
+    const auto magic=unsignedDivisionMagic(divisor);
+    if(remainder||magic.add)out<<"    mov r11, rax\n";
+    out<<"    mov r10, "<<magic.multiplier<<"\n"
        <<"    mul r10\n"
-       <<"    mov rax, rdx\n"
-       <<"    mov r10, "<<divisor<<"\n"
-       <<"    imul rdx, r10\n"
-       <<"    sub r11, rdx\n"
-       <<"    cmp r11, r10\n"
-       <<"    jb "<<done<<"\n"
-       <<"    inc rax\n"
-       <<"    sub r11, r10\n"
-       <<done<<":\n";
-    if(remainder)out<<"    mov rax, r11\n";
+       <<"    mov rax, rdx\n";
+    if(magic.add){
+        // q = (mulhi(n, magic) + ((n - mulhi(n, magic)) >> 1)) >> shift.
+        // r11 still contains the original dividend for a remainder.
+        out<<"    mov r10, r11\n"
+           <<"    sub r10, rax\n"
+           <<"    shr r10, 1\n"
+           <<"    add rax, r10\n";
+    }
+    if(magic.shift)out<<"    shr rax, "<<magic.shift<<"\n";
+    if(remainder){
+        // n - q*d: low 64 bits suffice, and exact q*d never exceeds n.
+        out<<"    mov r10, "<<divisor<<"\n"
+           <<"    imul rax, r10\n"
+           <<"    sub r11, rax\n"
+           <<"    mov rax, r11\n";
+    }
 }
 
 ValueKind literalKind(const NirValue&v){if(std::holds_alternative<std::int64_t>(v))return ValueKind::Int;if(std::holds_alternative<bool>(v))return ValueKind::Bool;if(std::holds_alternative<std::string>(v))return ValueKind::String;if(std::holds_alternative<double>(v))return ValueKind::Float;return ValueKind::Null;}
@@ -798,8 +842,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     out<<"    mov r8, rax\n    sar r8, 63\n"
                        <<"    xor rax, r8\n    sub rax, r8\n";
                 }
-                emitUnsignedConstantDivision(out,magnitude,remainder,
-                    localLabel(fn,pc,"div_done"));
+                emitUnsignedConstantDivision(out,magnitude,remainder);
                 if(!unsign){
                     if(divisor<0&&!remainder)out<<"    not r8\n";
                     out<<"    xor rax, r8\n    sub rax, r8\n";
