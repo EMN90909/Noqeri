@@ -1427,7 +1427,24 @@ bool unrollGuardedLoop2x(NirFunction& fn){
 // incompatible types or unsupported Phi edges. Do not rewrite observable
 // memory accesses unless EVERY reachable Load has a valid reaching value.
 bool promoteGeneralScalarSsa(NirFunction& fn) {
-    if(fn.code.empty()||fn.code.size()>100000)return false;
+    if(fn.code.empty()||fn.code.size()>30000)return false;
+    // The full dominance/version analysis is unnecessary for the many
+    // short single-assignment functions without any scalar local joins.
+    // Preflight in linear time and skip the expensive CFG work unless a
+    // named local has both a Store and a Load and the function branches.
+    std::unordered_set<std::string> stores,loads;
+    bool hasControlFlow=false;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Store)stores.insert(in.text);
+        else if(in.op==NirOp::Load)loads.insert(in.text);
+        else if(in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)
+            hasControlFlow=true;
+    }
+    if(!hasControlFlow)return false;
+    bool useful=false;
+    for(const auto& name:loads)
+        if(stores.count(name)){useful=true;break;}
+    if(!useful)return false;
     const Graph cfg=graphOf(fn);
     if(!cfg.uniqueDefs||!cfg.validDominance)return false;
     const auto analysis=analyzeScalarSsa(fn);
