@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <mutex>
 #include <memory>
 #include <new>
@@ -17,7 +18,7 @@ struct Map {
     std::map<std::string,std::string> data;
 };
 std::mutex mutex;
-std::map<std::int64_t,std::unique_ptr<Map>> registry;
+std::unordered_map<std::int64_t,std::unique_ptr<Map>> registry;
 std::int64_t nextId=1;
 Map* find(std::int64_t id,bool set){
     auto it=registry.find(id);
