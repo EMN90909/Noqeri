@@ -31,6 +31,23 @@ int main(){
  assert(nq_value_list_get(h,0,&value)==0&&value==1);
  assert(nq_value_list_clear(h)==0&&nq_value_list_size(h)==0);
  assert(nq_value_list_close(h)==0&&nq_value_list_append(h,&value)==-1);
+ // Non-power-of-two element widths exercise aligned stride copies across
+ // multiple growth reallocations. Verify payloads remain byte-exact.
+ const auto padded=nq_value_list_new_copy(33,32);
+ assert(padded>0);
+ std::uint8_t bytes[33]{};
+ for(std::uint32_t i=0;i<4096;++i){
+  for(std::uint32_t k=0;k<33;++k)bytes[k]=static_cast<std::uint8_t>(i+k);
+  assert(nq_value_list_append(padded,bytes)==0);
+ }
+ for(std::uint32_t i=0;i<4096;i+=127){
+  std::uint8_t actual[33]{};
+  assert(nq_value_list_get(padded,i,actual)==0);
+  for(std::uint32_t k=0;k<33;++k)
+   assert(actual[k]==static_cast<std::uint8_t>(i+k));
+ }
+ assert(nq_value_list_close(padded)==0);
+ assert(nq_value_list_size(padded)==-1);
  Tracker tracker;
  assert(nq_value_list_new_custom(sizeof(Item),alignof(Item),clone,nullptr,&tracker)==-5);
  const auto c=nq_value_list_new_custom(sizeof(Item),alignof(Item),clone,drop,&tracker);
