@@ -57,3 +57,90 @@ export function nqIsSortedDescendingI64(values: []i64): bool {
     }
     return true
 }
+
+// In-place worst-case O(n log n) heap sort, with zero heap allocation.
+// The existing insertion sort remains the small-array/stable-sort API.
+// This is an explicitly UNSTABLE comparison sort, so users requiring stable
+// order for equal keys should keep using nqInsertionSortI64.
+function nqSiftDownMaxI64(values: []i64, start: usize, length: usize): void {
+    let root: usize = start
+    while true {
+        if length < 2 as usize { return }
+        if root > (length - 2 as usize) / 2 as usize { return }
+        let child: usize = root * 2 as usize + 1 as usize
+        let best: usize = root
+        if values[best] < values[child] { best = child }
+        if child + 1 as usize < length {
+            if values[best] < values[child + 1 as usize] { best = child + 1 as usize }
+        }
+        if best == root { return }
+        let value: i64 = values[root]
+        values[root] = values[best]
+        values[best] = value
+        root = best
+    }
+}
+
+function nqSiftDownMinI64(values: []i64, start: usize, length: usize): void {
+    let root: usize = start
+    while true {
+        if length < 2 as usize { return }
+        if root > (length - 2 as usize) / 2 as usize { return }
+        let child: usize = root * 2 as usize + 1 as usize
+        let best: usize = root
+        if values[best] > values[child] { best = child }
+        if child + 1 as usize < length {
+            if values[best] > values[child + 1 as usize] { best = child + 1 as usize }
+        }
+        if best == root { return }
+        let value: i64 = values[root]
+        values[root] = values[best]
+        values[best] = value
+        root = best
+    }
+}
+
+// General ascending sort. The 24-element crossover keeps short arrays
+// cheap while avoiding insertion sort's quadratic work on large arrays.
+export function nqSortI64(values: []i64): void {
+    let count: usize = len(values)
+    if count <= 24 as usize {
+        nqInsertionSortI64(values)
+        return
+    }
+    let start: usize = count / 2 as usize
+    while start > 0 as usize {
+        start = start - 1 as usize
+        nqSiftDownMaxI64(values, start, count)
+    }
+    let end: usize = count
+    while end > 1 as usize {
+        end = end - 1 as usize
+        let value: i64 = values[0]
+        values[0] = values[end]
+        values[end] = value
+        nqSiftDownMaxI64(values, 0 as usize, end)
+    }
+}
+
+// Descending counterpart, using a min-heap.
+export function nqSortDescendingI64(values: []i64): void {
+    let count: usize = len(values)
+    if count <= 24 as usize {
+        nqInsertionSortDescendingI64(values)
+        return
+    }
+    let start: usize = count / 2 as usize
+    while start > 0 as usize {
+        start = start - 1 as usize
+        nqSiftDownMinI64(values, start, count)
+    }
+    let end: usize = count
+    while end > 1 as usize {
+        end = end - 1 as usize
+        let value: i64 = values[0]
+        values[0] = values[end]
+        values[end] = value
+        nqSiftDownMinI64(values, 0 as usize, end)
+    }
+}
