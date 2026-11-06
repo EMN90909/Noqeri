@@ -118,3 +118,58 @@ coding environment and the external GitHub host cannot be cloned here.
 Consequently, this implementation has not passed the complete build/CTest,
 native execution, sanitizers, or any same-host comparison with C. Those are
 required before release claims or default-enabling additional vectorization.
+
+## 2026-11-06: CFG-wide scalar SSA and automatic stack-loop SSE2
+
+This iteration extends the compiler beyond the earlier single-diamond and
+single-loop Phi patterns. It implements a conservative **O3 CFG-wide scalar
+mem2reg** pass using stable reaching Store versions and executable predecessor
+Phi copies. It can promote multiple scalar locals through nested branches,
+joins and loop backedges in one function. It refuses to rewrite uninitialized,
+address-taken, volatile, incompatible-type, exceptional, or ambiguous paths.
+Multiple independent Phi moves now skip redundant temporary staging; cycles
+still preserve their original simultaneous-copy semantics.
+
+The native x86-64 backend also uses direct r/m64 operands for integer
+arithmetic/comparisons, including fused compare/conditional-branch lowering,
+rather than unnecessarily staging the RHS in R10. Earlier constant-immediate
+and division fast paths are preserved.
+
+**Automatic loop SIMD:** the backend now recognizes repeated independent
+2 x 64-bit contiguous **private stack** load/add-or-sub/store groups. When
+four or more eligible groups share a provably invariant scalar RHS, it emits
+SSE2 packed updates using an XMM5 broadcast. It rejects unknown pointers,
+escapes, volatile accesses, intervening opaque calls, branches into the
+six-instruction group, and non-dominating broadcasts. This precise pattern
+is enabled by default for Linux x86-64 native-AOT output. Use
+\`NOQERI_NATIVE_LOOP_SIMD=0\` when invoking the compiler to disable it for an
+independent scalar comparison. The unrelated, higher-overhead SLP experiment
+remains opt-in through \`NOQERI_EXPERIMENTAL_SIMD=1\`.
+
+### Local-only qualification (GitHub Actions not required)
+
+\`\`\`sh
+bash scripts/local-perf-qualify.sh
+\`\`\`
+
+This also generates:
+
+- \`build-local-perf/auto-loop-simd.json\`: 25 interleaved native samples
+  comparing scalar and automatic SSE2 on 32 independent private stack pairs.
+- \`build-local-perf/c-vs-noqeri.json\`: same-runner C and Noqeri AOT
+  comparison with verified output and raw samples.
+- \`build-local-perf/compiler-profile.json\`: Stage-0 compilation latency.
+- \`build-local-perf/allocation-profile.json\`: owned collection API costs.
+
+Additional O0/O3 native checks cover multiple loop-carried variables, nested
+loops, branches, and bounds-trap parity.
+
+**Scope and claims:** this is NOT complete program-wide SSA across all
+aggregate/aliasing/exceptional constructs; it is not full loop
+auto-vectorization of arbitrary arrays or runtime-sized loops. It does not
+implement a tracing garbage collector: Noqeri continues to use its explicit
+owned-value allocation and cleanup APIs. C performance parity cannot be
+asserted without executing the above same-host benchmarks and comparing the
+actual output and raw timing evidence. No GitHub Actions were used to test
+this change. A full build and native execution remain unverified where the
+repository cannot be cloned into the local build environment.
