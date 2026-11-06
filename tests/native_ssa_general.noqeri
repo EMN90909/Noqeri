@@ -1,0 +1,27 @@
+// Nested branches with multiple loop-carried locals exercise general scalar
+// mem2reg + parallel predecessor-edge Phi copies at -O3.
+function accumulate(limit: usize): usize {
+    let i: usize = 0 as usize
+    let even: usize = 0 as usize
+    let odd: usize = 0 as usize
+    let mix: usize = 1 as usize
+    while i < limit {
+        if i % 2 as usize == 0 as usize {
+            even = even + i
+            mix = mix + 2 as usize
+        } else {
+            odd = odd + i
+            mix = mix + 3 as usize
+        }
+        if i % 3 as usize == 0 as usize {
+            mix = mix + i
+        }
+        i = i + 1 as usize
+    }
+    return even * 1000 as usize + odd * 10 as usize + mix
+}
+print(accumulate(0 as usize))
+print(accumulate(1 as usize))
+print(accumulate(2 as usize))
+print(accumulate(9 as usize))
+print(accumulate(23 as usize))
