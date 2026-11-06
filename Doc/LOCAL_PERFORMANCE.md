@@ -182,13 +182,13 @@ session. No new speedup is claimed until the local A/B report exists.**
 
 The two comparison workloads remain unchanged:
 
-- \`sorting_reshuffled.noqeri\`: 200 independently seeded, 256-element
-  insertion-sort rounds, checksum \`13104300\`. This deliberately matches
-  \`Benchmarks/comparison/workloads.go\` and \`.c\`; it is *not* replaced by
+- `sorting_reshuffled.noqeri`: 200 independently seeded, 256-element
+  insertion-sort rounds, checksum `13104300`. This deliberately matches
+  `Benchmarks/comparison/workloads.go` and `.c`; it is *not* replaced by
   a faster algorithm to inflate a benchmark score.
-- \`matrix.noqeri\`: 16x16 integer matrix multiplication, with the same
+- `matrix.noqeri`: 16x16 integer matrix multiplication, with the same
   200 passes used by Go/C in comparison runs, verified outputs
-  \`29971\` and \`28448\`.
+  `29971` and `28448`.
 
 ### Native compiler optimizations
 
@@ -201,44 +201,50 @@ The two comparison workloads remain unchanged:
    allocated base/index registers rather than staging both through RAX
    and R11. Keep scalar-width and unfused cases on the original path.
 3. Place bounds and null traps out of the normal loop fallthrough path:
-   hot checks use \`jae\`/\`jz\` to an out-of-line \`ud2\` island.
+   hot checks use `jae`/`jz` to an out-of-line `ud2` island.
    Invalid indices (including index == length) still trap.
 4. Replace immediate positive power-of-two integer multiplication
-   (\`row * 16\`) with a bitwise shift. Preserve the existing integer
+   (`row * 16`) with a bitwise shift. Preserve the existing integer
    result-width normalization.
+
+5. For eligible 64-bit integer comparisons, fold a single-use
+   array `LoadMemory` into the subsequent compare-and-branch. Only a short
+   sequence of nonvolatile named-local loads, constants or NOPs may appear
+   between them. Reject floating-point values, stores, control-flow entries
+   and other operations that could change source-order behavior.
 
 These are general x86-64 native lowering optimizations, not hard-coded
 identification of a benchmark program or function name.
 
 ### Sorting API
 
-\`Lib/std/sort.noqeri\` now provides \`nqSortI64\` and
-\`nqSortDescendingI64\`: in-place worst-case O(n log n) heap sorting,
+`Lib/std/sort.noqeri` now provides `nqSortI64` and
+`nqSortDescendingI64`: in-place worst-case O(n log n) heap sorting,
 with the established insertion sort used for arrays of 24 or fewer
 elements. The heap-sort API is **not stable** (equal keys may reorder);
-\`nqInsertionSortI64\` retains its original stable semantics.
+`nqInsertionSortI64` retains its original stable semantics.
 No tracing collector or hidden heap allocation is required.
 
 ### Qualification
 
 On Linux x86-64, after checking out this commit:
 
-\`\`\`sh
+```sh
 cmake -S . -B build-local-perf -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build-local-perf --target noqeri noqeri-fixed-stack-index-test --parallel 2
 python3 tests/native_fixed_stack_index_local.py --emitter build-local-perf/noqeri-fixed-stack-index-test
 python3 tests/native_sort_heap_local.py --compiler build-local-perf/noqeri
 python3 scripts/local-sorting-matrix-ab.py --candidate build-local-perf/noqeri
-\`\`\`
+```
 
 For a stronger **before/after** comparison, build the old and new
 compilers separately on the *same host*, then supply the old path with
-\`--baseline /path/to/old/noqeri\` in the final command. The report
-\`build-local-perf/sorting-matrix-ab.json\` records checked output, raw
+`--baseline /path/to/old/noqeri` in the final command. The report
+`build-local-perf/sorting-matrix-ab.json` records checked output, raw
 timing samples, medians, p95, Go/C versions, CPU, and compiler hashes.
 
-\`bash scripts/local-perf-qualify.sh\` includes these regressions and
-runs the Go comparison when \`go\` is available. No GitHub Actions,
+`bash scripts/local-perf-qualify.sh` includes these regressions and
+runs the Go comparison when `go` is available. No GitHub Actions,
 remote testing, or release deployment are necessary.
 
 **Status:** full Noqeri native compilation and same-machine C/Go
