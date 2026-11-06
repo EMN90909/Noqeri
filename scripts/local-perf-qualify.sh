@@ -30,6 +30,9 @@ NOQERI_EXPERIMENTAL_SIMD=1 "$build_dir/noqeri-simd-codegen-test" \
 python3 scripts/local-allocation-profile.py \
   --candidate "$build_dir/noqeri-owned-alloc-bench" \
   --output "$build_dir/allocation-profile.json"
+python3 scripts/local-compiler-profile.py \
+  --candidate "$build_dir/noqeri" \
+  --output "$build_dir/compiler-profile.json"
 python3 scripts/local-native-vs-c.py \
   --compiler "$build_dir/noqeri" \
   --output "$build_dir/c-vs-noqeri.json"
