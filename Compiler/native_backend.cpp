@@ -254,7 +254,7 @@ noqeri_rt_print_float:
     lea rdx, [rip + .L_noqeri_float_format]
     movq xmm0, rax
     mov al, 1
-    call snprintf@PLT
+    call snprintf
     test eax, eax
     js .L_noqeri_float_print_error
     cmp eax, 512
@@ -428,10 +428,19 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         }
     }
     if(!hasInlineAsm){
-        const auto plan=LinearScanRegisterAllocator{}.allocate(fn,{"r12","r13","r14","r15"});
+        std::vector<std::string> pool = {"r12","r13","r14","r15"};
+        if(variablePhysical.empty()) pool.push_back("rbx");
+        const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
+            [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
+        if(!hasCalls){
+            pool.push_back("rsi");
+            pool.push_back("rdi");
+            pool.push_back("r9");
+        }
+        const auto plan=LinearScanRegisterAllocator{}.allocate(fn,pool);
         for(const auto& loc:plan.locations)
             if(!loc.spilled&&!loc.physical.empty())physical.emplace(loc.value,loc.physical);
-        for(const auto* reg:{"r12","r13","r14","r15"})
+        for(const auto* reg:{"r12","r13","r14","r15","rbx","rsi","rdi"})
             if(std::any_of(physical.begin(),physical.end(),
                 [&](const auto& entry){return entry.second==reg;}))saved.emplace_back(reg);
     }
@@ -974,16 +983,46 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         }
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         switch(i.op){
-        case NirOp::Const:{if(!i.dest)break;if(auto v=std::get_if<std::int64_t>(&i.literal))out<<"    mov rax, "<<*v<<"\n";else if(auto v=std::get_if<bool>(&i.literal))out<<"    mov rax, "<<(*v?1:0)<<"\n";else if(auto v=std::get_if<std::string>(&i.literal)){auto s=strings.find(*v);if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}out<<"    lea rax, [rip + "<<s->second<<"]\n";}else if(auto v=std::get_if<double>(&i.literal)){
-            std::uint64_t bits=0;
-            static_assert(sizeof(bits)==sizeof(*v),"native f64 requires 64-bit IEEE storage");
-            std::memcpy(&bits,v,sizeof(bits));
-            out<<"    mov rax, 0x"<<std::hex<<bits<<std::dec<<"\n";
-        }else if(std::holds_alternative<std::monostate>(i.literal))out<<"    xor eax, eax\n";
-        else{diagnostics.error("NQR-N5001",{},"unsupported native literal");return false;}store(*i.dest,"rax");
+        case NirOp::Const:{
+            if(!i.dest)break;
+            const auto target = registerOperand(*i.dest);
+            const bool isReg = physical.count(*i.dest);
+            if(auto v=std::get_if<std::int64_t>(&i.literal)){
+                if(*v==0 && isReg){
+                    out<<"    xor "<<target<<", "<<target<<"\n";
+                }else if(isReg){
+                    out<<"    mov "<<target<<", "<<*v<<"\n";
+                }else if(*v>=std::numeric_limits<std::int32_t>::min()&&*v<=std::numeric_limits<std::int32_t>::max()){
+                    out<<"    mov "<<target<<", "<<*v<<"\n";
+                }else{
+                    out<<"    mov rax, "<<*v<<"\n";
+                    store(*i.dest,"rax");
+                }
+            }else if(auto v=std::get_if<bool>(&i.literal)){
+                if(!*v && isReg){
+                    out<<"    xor "<<target<<", "<<target<<"\n";
+                }else{
+                    out<<"    mov "<<target<<", "<<(*v?1:0)<<"\n";
+                }
+            }else if(auto v=std::get_if<std::string>(&i.literal)){
+                auto s=strings.find(*v);
+                if(s==strings.end()){diagnostics.error("NQR-N5005",{},"internal string-pool error");return false;}
+                out<<"    lea rax, [rip + "<<s->second<<"]\n";
+                store(*i.dest,"rax");
+            }else if(auto v=std::get_if<double>(&i.literal)){
+                std::uint64_t bits=0;
+                static_assert(sizeof(bits)==sizeof(*v),"native f64 requires 64-bit IEEE storage");
+                std::memcpy(&bits,v,sizeof(bits));
+                out<<"    mov rax, 0x"<<std::hex<<bits<<std::dec<<"\n";
+                store(*i.dest,"rax");
+            }else if(std::holds_alternative<std::monostate>(i.literal)){
+                if(isReg) out<<"    xor "<<target<<", "<<target<<"\n";
+                else { out<<"    xor eax, eax\n"; store(*i.dest,"rax"); }
+            }else{
+                diagnostics.error("NQR-N5001",{},"unsupported native literal");return false;
+            }
             if(loopSimdBroadcastAt.count(pc)){
-                // One broadcast before all loop backedges. No call or
-                // inline-asm may clobber XMM5 in this qualified function.
+                load(*i.dest,"rax");
                 out<<"    movq xmm5, rax\n"
                    <<"    punpcklqdq xmm5, xmm5\n";
             }
@@ -1299,6 +1338,42 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             fusedBranches.insert(pc+1);
             break;
         }
+        if(i.dest){
+            const auto destPhysical=physical.find(*i.dest);
+            const bool destIsReg=destPhysical!=physical.end();
+            const bool is64BitAlu=(i.text=="+"||i.text=="-"||i.text=="*")&&
+                (i.type.kind==TypeKind::Int||i.type.kind==TypeKind::I64||
+                 i.type.kind==TypeKind::U64||i.type.kind==TypeKind::Usize||
+                 i.type.kind==TypeKind::Isize);
+            if(destIsReg&&is64BitAlu){
+                const std::string targetReg=destPhysical->second;
+                const auto rhsImmediate=constantValues.find(i.args[1]);
+                const bool hasImmediate=rhsImmediate!=constantValues.end()&&
+                    rhsImmediate->second>=std::numeric_limits<std::int32_t>::min()&&
+                    rhsImmediate->second<=std::numeric_limits<std::int32_t>::max();
+                if(registerOperand(i.args[0])!=targetReg)
+                    out<<"    mov "<<targetReg<<", "<<registerOperand(i.args[0])<<"\n";
+                if(hasImmediate){
+                    if(i.text=="*"){
+                        const auto factor=rhsImmediate->second;
+                        const auto bits=static_cast<std::uint64_t>(factor);
+                        if(factor>0&&!(bits&(bits-1))){
+                            unsigned shift=0;
+                            for(auto x=bits;x>1;x>>=1)++shift;
+                            if(shift)out<<"    shl "<<targetReg<<", "<<shift<<"\n";
+                        }else if(factor==0)out<<"    xor "<<targetReg<<", "<<targetReg<<"\n";
+                        else out<<"    imul "<<targetReg<<", "<<targetReg<<", "<<factor<<"\n";
+                    }else out<<"    "<<(i.text=="+"?"add":"sub")
+                            <<" "<<targetReg<<", "<<rhsImmediate->second<<"\n";
+                }else{
+                    const auto rhs=registerOperand(i.args[1]);
+                    if(i.text=="+")out<<"    add "<<targetReg<<", "<<rhs<<"\n";
+                    else if(i.text=="-")out<<"    sub "<<targetReg<<", "<<rhs<<"\n";
+                    else if(i.text=="*")out<<"    imul "<<targetReg<<", "<<rhs<<"\n";
+                }
+                break;
+            }
+        }
         load(i.args[0],"rax");
         if(i.text=="/"||i.text=="%"){
             const auto it=constantValues.find(i.args[1]);
@@ -1438,8 +1513,10 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
     out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
+#if !defined(_WIN32)
     // ELF x86-64 native objects must not request an executable stack.
     out<<"\n.section .note.GNU-stack,\"\",@progbits\n";
+#endif
     return !diagnostics.hasErrors();
 }
 } // namespace noe

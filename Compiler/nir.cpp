@@ -94,7 +94,22 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
         closeOwnedLists(fn,0);
         emit(fn,std::move(i));return;
     }
-    if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){Reg c=lowerExpr(fn,s->condition);NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};auto jp=fn.code.size();emit(fn,std::move(j));lowerStmt(fn,s->thenBranch);if(s->elseBranch){NirInstruction end;end.op=NirOp::Jump;auto ep=fn.code.size();emit(fn,std::move(end));fn.code[jp].target=fn.code.size();lowerStmt(fn,s->elseBranch);fn.code[ep].target=fn.code.size();}else fn.code[jp].target=fn.code.size();return;}
+    if(auto s=std::dynamic_pointer_cast<IfStmt>(stmt)){
+        std::vector<std::size_t> falseJumps;
+        lowerBranchCondition(fn,s->condition,falseJumps);
+        lowerStmt(fn,s->thenBranch);
+        if(s->elseBranch){
+            NirInstruction end;end.op=NirOp::Jump;auto ep=fn.code.size();emit(fn,std::move(end));
+            const auto elseTarget=fn.code.size();
+            for(const auto pos:falseJumps)fn.code[pos].target=elseTarget;
+            lowerStmt(fn,s->elseBranch);
+            fn.code[ep].target=fn.code.size();
+        }else{
+            const auto endTarget=fn.code.size();
+            for(const auto pos:falseJumps)fn.code[pos].target=endTarget;
+        }
+        return;
+    }
     if(auto s=std::dynamic_pointer_cast<BreakStmt>(stmt)){
         if(!loopOwnedBoundaries_.empty())
             closeOwnedLists(fn,loopOwnedBoundaries_.back());
@@ -105,8 +120,8 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
         NirInstruction jump;jump.op=NirOp::Jump;const auto pos=fn.code.size();emit(fn,std::move(jump));if(!continueJumps_.empty())continueJumps_.back().push_back(pos);return;}
     if(auto s=std::dynamic_pointer_cast<WhileStmt>(stmt)){
         const auto start=fn.code.size();
-        Reg c=lowerExpr(fn,s->condition);
-        NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};const auto exitJump=fn.code.size();emit(fn,std::move(j));
+        std::vector<std::size_t> exitJumps;
+        lowerBranchCondition(fn,s->condition,exitJumps);
         breakJumps_.push_back({});continueJumps_.push_back({});
         loopOwnedBoundaries_.push_back(ownedListVariables_.size());
         lowerStmt(fn,s->body);
@@ -114,11 +129,24 @@ void Lowerer::lowerStmt(NirFunction&fn,const StmtPtr&stmt){
         for(const auto pos:continueJumps_.back())fn.code[pos].target=start;
         NirInstruction back;back.op=NirOp::Jump;back.target=start;emit(fn,std::move(back));
         const auto end=fn.code.size();
-        fn.code[exitJump].target=end;
+        for(const auto pos:exitJumps)fn.code[pos].target=end;
         for(const auto pos:breakJumps_.back())fn.code[pos].target=end;
         breakJumps_.pop_back();continueJumps_.pop_back();
         return;
     }
+}
+void Lowerer::lowerBranchCondition(NirFunction& fn,const ExprPtr& cond,std::vector<std::size_t>& falseJumps){
+    if(auto b=std::dynamic_pointer_cast<BinaryExpr>(cond)){
+        if(b->op==TokenKind::AndAnd){
+            lowerBranchCondition(fn,b->left,falseJumps);
+            lowerBranchCondition(fn,b->right,falseJumps);
+            return;
+        }
+    }
+    Reg c=lowerExpr(fn,cond);
+    NirInstruction j;j.op=NirOp::JumpIfFalse;j.args={c};
+    falseJumps.push_back(fn.code.size());
+    emit(fn,std::move(j));
 }
 Reg Lowerer::lowerAddress(NirFunction&fn,const ExprPtr&expr){
     if(auto n=std::dynamic_pointer_cast<NameExpr>(expr)){
