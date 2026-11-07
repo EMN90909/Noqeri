@@ -1,22 +1,14 @@
-let values: [int; 256]
-let i: usize = 0 as usize
-while i < 256 as usize {
-    values[i] = ((i * 7919 as usize + 104729 as usize) % 65521 as usize) as int
-    i = i + 1 as usize
-}
+import "../../Lib/std/sort.noqeri"
+
+let values: [i64; 256]
 let round: usize = 0 as usize
 while round < 200 as usize {
-    let a: usize = 1 as usize
-    while a < 256 as usize {
-        let key: int = values[a]
-        let b: usize = a
-        while b > 0 as usize && values[b - 1 as usize] > key {
-            values[b] = values[b - 1 as usize]
-            b = b - 1 as usize
-        }
-        values[b] = key
-        a = a + 1 as usize
+    let i: usize = 0 as usize
+    while i < 256 as usize {
+        values[i] = ((i * 7919 as usize + (round + 1 as usize) * 104729 as usize) % 65521 as usize) as i64
+        i = i + 1 as usize
     }
+    nqSortI64(slice(values))
     round = round + 1 as usize
 }
 print(values[0])

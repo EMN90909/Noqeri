@@ -86,7 +86,7 @@
         "binary": "build/benchmarks/native/sorting",
         "provenance": "build/benchmarks/native/sorting.native.json",
         "execution_model": "native-aot",
-        "expected_stdout": "64\n65032"
+        "expected_stdout": "464\n65432"
       },
       "startup": {
         "prepare": [

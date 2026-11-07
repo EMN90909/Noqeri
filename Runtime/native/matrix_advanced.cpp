@@ -31,6 +31,10 @@ double element(const Matrix& x,std::size_t axis,std::size_t group,std::size_t j)
     return axis==0?x.at(j,group):x.at(group,j);
 }
 struct LogRow { double top, log_denom; };
+struct ColumnLogStats {
+    std::vector<double> top;
+    std::vector<double> log_denom;
+};
 LogRow log_row(const Matrix& x,std::size_t axis,std::size_t group) {
     const std::size_t count=axis==0?x.rows:x.cols;
     double top=element(x,axis,group,0);
@@ -40,6 +44,24 @@ LogRow log_row(const Matrix& x,std::size_t axis,std::size_t group) {
         denom+=std::exp(element(x,axis,group,i)-top);
     require(denom>0 && std::isfinite(denom),"invalid log-sum-exp");
     return {top,std::log(static_cast<double>(denom))};
+}
+ColumnLogStats column_log_stats(const Matrix& x) {
+    ColumnLogStats stats{
+        std::vector<double>(x.cols,-std::numeric_limits<double>::infinity()),
+        std::vector<double>(x.cols,0.0)
+    };
+    for(std::size_t i=0;i<x.rows;++i)
+        for(std::size_t j=0;j<x.cols;++j)
+            stats.top[j]=std::max(stats.top[j],x.values[i*x.cols+j]);
+    std::vector<long double> denom(x.cols,0.0L);
+    for(std::size_t i=0;i<x.rows;++i)
+        for(std::size_t j=0;j<x.cols;++j)
+            denom[j]+=std::exp(x.values[i*x.cols+j]-stats.top[j]);
+    for(std::size_t j=0;j<x.cols;++j) {
+        require(denom[j]>0 && std::isfinite(denom[j]),"invalid log-sum-exp");
+        stats.log_denom[j]=std::log(static_cast<double>(denom[j]));
+    }
+    return stats;
 }
 void set(Matrix& out,std::size_t axis,std::size_t group,std::size_t j,double v) {
     if(axis==0)out.at(j,group)=v;
@@ -71,6 +93,14 @@ double trace(const Matrix& x) {
 Matrix softmax(const Matrix& x,std::size_t axis) {
     valid(x);
     Matrix out(x.rows,x.cols);
+    if(axis==0) {
+        const auto stats=column_log_stats(x);
+        for(std::size_t i=0;i<x.rows;++i)
+            for(std::size_t j=0;j<x.cols;++j)
+                out.values[i*x.cols+j]=std::exp(
+                    x.values[i*x.cols+j]-stats.top[j]-stats.log_denom[j]);
+        return checked(std::move(out));
+    }
     const std::size_t n=groups(x,axis),count=axis==0?x.rows:x.cols;
     for(std::size_t g=0;g<n;++g) {
         const auto row=log_row(x,axis,g);
@@ -82,6 +112,14 @@ Matrix softmax(const Matrix& x,std::size_t axis) {
 Matrix log_softmax(const Matrix& x,std::size_t axis) {
     valid(x);
     Matrix out(x.rows,x.cols);
+    if(axis==0) {
+        const auto stats=column_log_stats(x);
+        for(std::size_t i=0;i<x.rows;++i)
+            for(std::size_t j=0;j<x.cols;++j)
+                out.values[i*x.cols+j]=
+                    (x.values[i*x.cols+j]-stats.top[j])-stats.log_denom[j];
+        return checked(std::move(out));
+    }
     const std::size_t n=groups(x,axis),count=axis==0?x.rows:x.cols;
     for(std::size_t g=0;g<n;++g) {
         const auto row=log_row(x,axis,g);
@@ -92,6 +130,13 @@ Matrix log_softmax(const Matrix& x,std::size_t axis) {
 }
 Matrix logsumexp(const Matrix& x,std::size_t axis) {
     valid(x);
+    if(axis==0) {
+        const auto stats=column_log_stats(x);
+        Matrix out(1,x.cols);
+        for(std::size_t j=0;j<x.cols;++j)
+            out.values[j]=stats.top[j]+stats.log_denom[j];
+        return checked(std::move(out));
+    }
     const std::size_t n=groups(x,axis);
     Matrix out(axis==0?1:x.rows,axis==0?x.cols:1);
     for(std::size_t g=0;g<n;++g) {
@@ -102,6 +147,14 @@ Matrix logsumexp(const Matrix& x,std::size_t axis) {
 }
 Matrix maximum(const Matrix& x,std::size_t axis) {
     valid(x);
+    if(axis==0) {
+        Matrix out(1,x.cols);
+        std::copy_n(x.values.data(),x.cols,out.values.data());
+        for(std::size_t i=1;i<x.rows;++i)
+            for(std::size_t j=0;j<x.cols;++j)
+                out.values[j]=std::max(out.values[j],x.values[i*x.cols+j]);
+        return out;
+    }
     const std::size_t n=groups(x,axis),count=axis==0?x.rows:x.cols;
     Matrix out(axis==0?1:x.rows,axis==0?x.cols:1);
     for(std::size_t g=0;g<n;++g) {
@@ -113,6 +166,14 @@ Matrix maximum(const Matrix& x,std::size_t axis) {
 }
 Matrix minimum(const Matrix& x,std::size_t axis) {
     valid(x);
+    if(axis==0) {
+        Matrix out(1,x.cols);
+        std::copy_n(x.values.data(),x.cols,out.values.data());
+        for(std::size_t i=1;i<x.rows;++i)
+            for(std::size_t j=0;j<x.cols;++j)
+                out.values[j]=std::min(out.values[j],x.values[i*x.cols+j]);
+        return out;
+    }
     const std::size_t n=groups(x,axis),count=axis==0?x.rows:x.cols;
     Matrix out(axis==0?1:x.rows,axis==0?x.cols:1);
     for(std::size_t g=0;g<n;++g) {
@@ -124,6 +185,14 @@ Matrix minimum(const Matrix& x,std::size_t axis) {
 }
 std::vector<std::size_t> argmax(const Matrix& x,std::size_t axis) {
     valid(x);
+    if(axis==0) {
+        std::vector<std::size_t> result(x.cols,0);
+        for(std::size_t i=1;i<x.rows;++i)
+            for(std::size_t j=0;j<x.cols;++j)
+                if(x.values[i*x.cols+j]>x.values[result[j]*x.cols+j])
+                    result[j]=i;
+        return result;
+    }
     const std::size_t n=groups(x,axis),count=axis==0?x.rows:x.cols;
     std::vector<std::size_t> result(n,0);
     for(std::size_t g=0;g<n;++g)
