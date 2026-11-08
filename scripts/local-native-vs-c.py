@@ -25,6 +25,7 @@ SOURCES = {
     ),
     "modulo": ("Benchmarks/workloads/modulo_ab.noqeri", "239999951\n"),
     "matrix": ("build-local-perf/matrix-comparison.noqeri", "29971\n28448\n"),
+    "sorting_stable": ("Benchmarks/workloads/sorting.noqeri", "64\n65032\n"),
     "sorting_reshuffled": (
         "Benchmarks/workloads/sorting_reshuffled.noqeri", "13104300\n"
     ),
@@ -133,7 +134,7 @@ report = {
     "self_hosted_compiler": False,
     "results": out,
     "limitations": (
-        "Four deterministic kernels on one Linux x86-64 host; not "
+        "Five deterministic kernels on one Linux x86-64 host; not "
         "general C performance parity. This run is local, not CI."
     ),
 }
