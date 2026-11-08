@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="noqeri-sort-checksum-test-") as temp:
         print(f"{opt}: in-place/stable sorting, exact arithmetic, and checksums PASS")
     # Retain the original general-sort compatibility output as an independent
     # golden fixture for callers that already use nqSortI64.
-    golden="1\\n-50\\n50\\n50\\n-50\\n47\\n1\\n8\\n1\\n-8\\n8\\n11\\n"
+    golden=chr(10).join(("1","-50","50","50","-50","47","1","8","1","-8","8","11"))+chr(10)
     for opt in ("-O0","-O3"):
         binary=Path(temp)/("sort-compat-"+opt[1:])
         subprocess.run([
