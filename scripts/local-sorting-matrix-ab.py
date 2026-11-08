@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local sorting/matrix performance A/B: Noqeri vs Go vs C.
+"""Local sorting/matrix/arithmetic performance A/B: Noqeri vs Go vs C.
 
 Build a RELEASE Stage-0 Noqeri compiler first. Example:
     cmake -S . -B build-local-perf -DCMAKE_BUILD_TYPE=Release
@@ -27,6 +27,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKLOADS = {
+    "arithmetic_checksum": {
+        "source": ROOT / "Benchmarks/workloads/arithmetic_checksum.noqeri",
+        "expected": "12488332508630596960\n",
+    },
     "sorting_reshuffled": {
         "source": ROOT / "Benchmarks/workloads/sorting_reshuffled.noqeri",
         "expected": "13104300\n",
