@@ -1,138 +1,287 @@
 module noqeri.std.sort
 
+// Stable insertion sort is a useful small-range building block. Reuse each
+// preceding element instead of reading it twice for compare and assignment.
 export function nqInsertionSortI64(values: []i64): void {
+    let count: usize = len(values)
     let index: usize = 1 as usize
-    while index < len(values) {
+    while index < count {
         let current: i64 = values[index]
         let cursor: usize = index
-        while cursor > 0 {
-            if values[cursor - 1] <= current { break }
-            values[cursor] = values[cursor - 1]
-            cursor = cursor - 1
+        while cursor > 0 as usize {
+            let previous: i64 = values[cursor - 1 as usize]
+            if previous <= current { break }
+            values[cursor] = previous
+            cursor = cursor - 1 as usize
         }
         values[cursor] = current
-        index = index + 1
+        index = index + 1 as usize
     }
 }
 
 export function nqInsertionSortDescendingI64(values: []i64): void {
+    let count: usize = len(values)
     let index: usize = 1 as usize
-    while index < len(values) {
+    while index < count {
         let current: i64 = values[index]
         let cursor: usize = index
-        while cursor > 0 {
-            if values[cursor - 1] >= current { break }
-            values[cursor] = values[cursor - 1]
-            cursor = cursor - 1
+        while cursor > 0 as usize {
+            let previous: i64 = values[cursor - 1 as usize]
+            if previous >= current { break }
+            values[cursor] = previous
+            cursor = cursor - 1 as usize
         }
         values[cursor] = current
-        index = index + 1
+        index = index + 1 as usize
     }
 }
 
 export function nqIsSortedI64(values: []i64): bool {
-    if len(values) < 2 { return true }
+    let count: usize = len(values)
     let index: usize = 1 as usize
-    while index < len(values) {
-        if values[index - 1] > values[index] { return false }
-        index = index + 1
+    while index < count {
+        if values[index - 1 as usize] > values[index] { return false }
+        index = index + 1 as usize
     }
     return true
 }
 
 export function nqIsSortedDescendingI64(values: []i64): bool {
-    if len(values) < 2 { return true }
+    let count: usize = len(values)
     let index: usize = 1 as usize
-    while index < len(values) {
-        if values[index - 1] < values[index] { return false }
-        index = index + 1
+    while index < count {
+        if values[index - 1 as usize] < values[index] { return false }
+        index = index + 1 as usize
     }
     return true
 }
 
-// In-place worst-case O(n log n) heap sort, with zero heap allocation.
-// The existing insertion sort remains the small-array/stable-sort API.
-// This is an explicitly UNSTABLE comparison sort, so users requiring stable
-// order for equal keys should keep using nqInsertionSortI64.
-function nqSiftDownMaxI64(values: []i64, start: usize, length: usize): void {
+// Heapsort is the introsort worst-case fallback. Indices are relative to a
+// half-open [first, last) range so a partition needs no temporary slice.
+function nqSiftDownRangeI64(values: []i64, first: usize, start: usize, size: usize, descending: bool): void {
     let root: usize = start
-    while true {
-        if length < 2 as usize { return }
-        if root > (length - 2 as usize) / 2 as usize { return }
+    while size > 1 as usize {
+        if root > (size - 2 as usize) / 2 as usize { return }
         let child: usize = root * 2 as usize + 1 as usize
-        let best: usize = root
-        if values[best] < values[child] { best = child }
-        if child + 1 as usize < length {
-            if values[best] < values[child + 1 as usize] { best = child + 1 as usize }
+        let selected: usize = root
+        if descending {
+            if values[first + selected] > values[first + child] { selected = child }
+            if child + 1 as usize < size {
+                if values[first + selected] > values[first + child + 1 as usize] {
+                    selected = child + 1 as usize
+                }
+            }
+        } else {
+            if values[first + selected] < values[first + child] { selected = child }
+            if child + 1 as usize < size {
+                if values[first + selected] < values[first + child + 1 as usize] {
+                    selected = child + 1 as usize
+                }
+            }
         }
-        if best == root { return }
-        let value: i64 = values[root]
-        values[root] = values[best]
-        values[best] = value
-        root = best
+        if selected == root { return }
+        let temporary: i64 = values[first + root]
+        values[first + root] = values[first + selected]
+        values[first + selected] = temporary
+        root = selected
     }
 }
 
-function nqSiftDownMinI64(values: []i64, start: usize, length: usize): void {
-    let root: usize = start
-    while true {
-        if length < 2 as usize { return }
-        if root > (length - 2 as usize) / 2 as usize { return }
-        let child: usize = root * 2 as usize + 1 as usize
-        let best: usize = root
-        if values[best] > values[child] { best = child }
-        if child + 1 as usize < length {
-            if values[best] > values[child + 1 as usize] { best = child + 1 as usize }
-        }
-        if best == root { return }
-        let value: i64 = values[root]
-        values[root] = values[best]
-        values[best] = value
-        root = best
+function nqHeapSortRangeI64(values: []i64, first: usize, last: usize, descending: bool): void {
+    let count: usize = last - first
+    let start: usize = count / 2 as usize
+    while start > 0 as usize {
+        start = start - 1 as usize
+        nqSiftDownRangeI64(values, first, start, count, descending)
+    }
+    let end: usize = count
+    while end > 1 as usize {
+        end = end - 1 as usize
+        let temporary: i64 = values[first]
+        values[first] = values[first + end]
+        values[first + end] = temporary
+        nqSiftDownRangeI64(values, first, 0 as usize, end, descending)
     }
 }
 
-// General ascending sort. The 24-element crossover keeps short arrays
-// cheap while avoiding insertion sort's quadratic work on large arrays.
+function nqInsertionSortRangeI64(values: []i64, first: usize, last: usize, descending: bool): void {
+    let index: usize = first + 1 as usize
+    while index < last {
+        let current: i64 = values[index]
+        let cursor: usize = index
+        if descending {
+            while cursor > first {
+                let previous: i64 = values[cursor - 1 as usize]
+                if previous >= current { break }
+                values[cursor] = previous
+                cursor = cursor - 1 as usize
+            }
+        } else {
+            while cursor > first {
+                let previous: i64 = values[cursor - 1 as usize]
+                if previous <= current { break }
+                values[cursor] = previous
+                cursor = cursor - 1 as usize
+            }
+        }
+        values[cursor] = current
+        index = index + 1 as usize
+    }
+}
+
+function nqMedian3I64(first: i64, second: i64, third: i64): i64 {
+    if first < second {
+        if second < third { return second }
+        if first < third { return third }
+        return first
+    }
+    if first < third { return first }
+    if second < third { return third }
+    return second
+}
+
+// Median-of-three, duplicate-aware 3-way partition, and smaller-side-first
+// recursion. The depth guard guarantees worst-case O(n log n) comparisons
+// and O(log n) stack even for adversarial sorted, reversed and equal inputs.
+function nqIntroSortRangeI64(values: []i64, first: usize, last: usize, depth: usize, descending: bool): void {
+    let low: usize = first
+    let high: usize = last
+    let remainingDepth: usize = depth
+    while high - low > 24 as usize {
+        if remainingDepth == 0 as usize {
+            nqHeapSortRangeI64(values, low, high, descending)
+            return
+        }
+        remainingDepth = remainingDepth - 1 as usize
+        let middle: usize = low + (high - low) / 2 as usize
+        let pivot: i64 = nqMedian3I64(values[low], values[middle], values[high - 1 as usize])
+        let lower: usize = low
+        let cursor: usize = low
+        let upper: usize = high
+        if descending {
+            while cursor < upper {
+                let item: i64 = values[cursor]
+                if item > pivot {
+                    let temporary: i64 = values[lower]
+                    values[lower] = item
+                    values[cursor] = temporary
+                    lower = lower + 1 as usize
+                    cursor = cursor + 1 as usize
+                } else if item < pivot {
+                    upper = upper - 1 as usize
+                    let temporary: i64 = values[upper]
+                    values[upper] = item
+                    values[cursor] = temporary
+                } else {
+                    cursor = cursor + 1 as usize
+                }
+            }
+        } else {
+            while cursor < upper {
+                let item: i64 = values[cursor]
+                if item < pivot {
+                    let temporary: i64 = values[lower]
+                    values[lower] = item
+                    values[cursor] = temporary
+                    lower = lower + 1 as usize
+                    cursor = cursor + 1 as usize
+                } else if item > pivot {
+                    upper = upper - 1 as usize
+                    let temporary: i64 = values[upper]
+                    values[upper] = item
+                    values[cursor] = temporary
+                } else {
+                    cursor = cursor + 1 as usize
+                }
+            }
+        }
+        if lower - low < high - upper {
+            if lower > low {
+                nqIntroSortRangeI64(values, low, lower, remainingDepth, descending)
+            }
+            low = upper
+        } else {
+            if upper < high {
+                nqIntroSortRangeI64(values, upper, high, remainingDepth, descending)
+            }
+            high = lower
+        }
+    }
+    if high - low > 1 as usize {
+        nqInsertionSortRangeI64(values, low, high, descending)
+    }
+}
+
+function nqIntroDepthI64(count: usize): usize {
+    let remaining: usize = count
+    let depth: usize = 0 as usize
+    while remaining > 1 as usize {
+        remaining = remaining / 2 as usize
+        depth = depth + 2 as usize
+    }
+    return depth
+}
+
+// Fast general-purpose in-place sort, unstable. Stable callers can use the
+// insertion API for short inputs or nqStableSortI64WithScratch for large ones.
 export function nqSortI64(values: []i64): void {
     let count: usize = len(values)
-    if count <= 24 as usize {
-        nqInsertionSortI64(values)
-        return
-    }
-    let start: usize = count / 2 as usize
-    while start > 0 as usize {
-        start = start - 1 as usize
-        nqSiftDownMaxI64(values, start, count)
-    }
-    let end: usize = count
-    while end > 1 as usize {
-        end = end - 1 as usize
-        let value: i64 = values[0]
-        values[0] = values[end]
-        values[end] = value
-        nqSiftDownMaxI64(values, 0 as usize, end)
-    }
+    if count < 2 as usize { return }
+    nqIntroSortRangeI64(values, 0 as usize, count, nqIntroDepthI64(count), false)
 }
 
-// Descending counterpart, using a min-heap.
 export function nqSortDescendingI64(values: []i64): void {
     let count: usize = len(values)
-    if count <= 24 as usize {
-        nqInsertionSortDescendingI64(values)
-        return
+    if count < 2 as usize { return }
+    nqIntroSortRangeI64(values, 0 as usize, count, nqIntroDepthI64(count), true)
+}
+
+// Stable O(n log n) mergesort with caller-owned scratch. A short scratch
+// buffer returns false without modifying values. Merge ties from the left.
+export function nqStableSortI64WithScratch(values: []i64, scratch: []i64): bool {
+    let count: usize = len(values)
+    if len(scratch) < count { return false }
+    if count < 2 as usize { return true }
+    let width: usize = 1 as usize
+    while width < count {
+        let first: usize = 0 as usize
+        while first < count {
+            let middle: usize = count
+            if width < count - first { middle = first + width }
+            let last: usize = count
+            if width < count - middle { last = middle + width }
+            let left: usize = first
+            let right: usize = middle
+            let output: usize = first
+            while left < middle && right < last {
+                if values[left] <= values[right] {
+                    scratch[output] = values[left]
+                    left = left + 1 as usize
+                } else {
+                    scratch[output] = values[right]
+                    right = right + 1 as usize
+                }
+                output = output + 1 as usize
+            }
+            while left < middle {
+                scratch[output] = values[left]
+                left = left + 1 as usize
+                output = output + 1 as usize
+            }
+            while right < last {
+                scratch[output] = values[right]
+                right = right + 1 as usize
+                output = output + 1 as usize
+            }
+            first = last
+        }
+        let index: usize = 0 as usize
+        while index < count {
+            values[index] = scratch[index]
+            index = index + 1 as usize
+        }
+        if width > count / 2 as usize { return true }
+        width = width * 2 as usize
     }
-    let start: usize = count / 2 as usize
-    while start > 0 as usize {
-        start = start - 1 as usize
-        nqSiftDownMinI64(values, start, count)
-    }
-    let end: usize = count
-    while end > 1 as usize {
-        end = end - 1 as usize
-        let value: i64 = values[0]
-        values[0] = values[end]
-        values[end] = value
-        nqSiftDownMinI64(values, 0 as usize, end)
-    }
+    return true
 }
