@@ -280,9 +280,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="$(printf '%s\n' 29971 28448)"
+          expected="$(printf '%s\n' 73 198)"
           for level in O0 O3; do
-            node scripts/native-build.mjs Benchmarks/workloads/matrix.noqeri "build-typed/matrix-${level}" --compiler=build-typed/noqeri "--opt=-${level}"
+            node scripts/native-build.mjs tests/native_matrix_i64.noqeri "build-typed/matrix-${level}" --compiler=build-typed/noqeri "--opt=-${level}"
             test "$("build-typed/matrix-${level}")" = "$expected"
           done
       - name: Verify signed and unsigned narrow memory loads

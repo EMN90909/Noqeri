@@ -1,0 +1,21 @@
+// Matrix indexing and signed 64-bit multiplication correctness (not timed).
+let a: [i64; 4] = [2 as i64, 3 as i64, 5 as i64, 7 as i64]
+let b: [i64; 4] = [11 as i64, 13 as i64, 17 as i64, 19 as i64]
+let c: [i64; 4]
+let row: usize = 0 as usize
+while row < 2 as usize {
+    let col: usize = 0 as usize
+    while col < 2 as usize {
+        let total: i64 = 0 as i64
+        let k: usize = 0 as usize
+        while k < 2 as usize {
+            total = total + a[row * 2 as usize + k] * b[k * 2 as usize + col]
+            k = k + 1 as usize
+        }
+        c[row * 2 as usize + col] = total
+        col = col + 1 as usize
+    }
+    row = row + 1 as usize
+}
+print(c[0])
+print(c[3])

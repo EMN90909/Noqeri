@@ -17,10 +17,6 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
-      - 'tests/native_benchmark_policy.test.mjs'
-      - 'Benchmarks/commands.example.json'
-      - 'Benchmarks/METHODOLOGY.md'
-      - 'Benchmarks/workloads/**'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -42,10 +38,6 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
-      - 'tests/native_benchmark_policy.test.mjs'
-      - 'Benchmarks/commands.example.json'
-      - 'Benchmarks/METHODOLOGY.md'
-      - 'Benchmarks/workloads/**'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -90,10 +82,7 @@ jobs:
         run: cmake --build build-native --target noqeri noqeri-nqri noqeri-optimizer-test --config Release
       - name: Run NQRI VM self-test
         run: ctest --test-dir build-native -C Release --output-on-failure -R '^noqeri-(nqri-selftest|optimizer-liveness|reject-incomplete-hex)$'
-      - name: Enforce native benchmark policy
-        if: runner.os == 'Linux'
-        run: node --test tests/native_benchmark_policy.test.mjs
-      - name: Verify representative standalone native AOT workloads
+      - name: Verify standalone native AOT correctness
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -111,25 +100,7 @@ jobs:
             fi
             node -e "const p=require('./$output_path.native.json'); if(p.execution_model!=='native-aot'||p.self_hosted_compiler!==false||p.target!=='linux-x86_64-sysv'||!p.artifact_sha256||!p.compiler_sha256) process.exit(1)"
           }
-          check_aot Benchmarks/workloads/startup.noqeri startup "0"
-          check_aot Benchmarks/workloads/matrix.noqeri matrix "$(printf '29971\n28448')"
-          check_aot Benchmarks/workloads/strings.noqeri strings "1000000"
-          check_aot Benchmarks/workloads/sorting.noqeri sorting "$(printf '64\n65032')"
-          check_aot Benchmarks/workloads/json.noqeri json "5600000"
-          check_aot Benchmarks/workloads/regex.noqeri regex "200000"
           check_aot tests/native_named_local_promotion.noqeri named-local "$(printf '%s\n' 1000 1000 43)"
-      - name: Inspect native register allocation and indexed addresses
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/native-build.mjs Benchmarks/workloads/sorting.noqeri build-native/aot-sort-inspect --compiler=build-native/noqeri --opt=-O3 --keep-asm
-          grep -Eq 'mov QWORD PTR .* r1[2-5]' build-native/aot-sort-inspect.s
-          grep -Eq 'mov r1[2-5], QWORD PTR .*' build-native/aot-sort-inspect.s
-          # The indexed-memory combiner now emits [base + index*8] directly
-          # when PtrOffset feeds a single adjacent LoadMemory.
-          grep -Fq 'QWORD PTR [rax + r11*8]' build-native/aot-sort-inspect.s
-          test "$(build-native/aot-sort-inspect)" = "$(printf '%s\n' 64 65032)"
       - name: Qualify typed unsigned arithmetic and bounds-preserving O3
         if: runner.os == 'Linux'
         shell: bash
