@@ -1,0 +1,7 @@
+// index == length must still raise the native bounds trap.
+function readAt(values: []i64, index: usize): i64 {
+    return values[index]
+}
+let values: [i64; 3] = [7 as i64, 21 as i64, 35 as i64]
+let view: []i64 = slice(values)
+print(readAt(view, 3 as usize))

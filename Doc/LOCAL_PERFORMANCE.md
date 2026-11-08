@@ -251,3 +251,48 @@ remote testing, or release deployment are necessary.
 benchmarks have not been executed in this environment (the repository
 cannot be cloned by the local build runtime). Independent algorithm
 and assembler spot checks are not substitutes for these tests.
+
+## 2026-11-08: dynamic unsigned bounds and arithmetic-checksum comparison
+
+The user-supplied timings motivating this change were: reshuffled sort
+Noqeri 34.080 ms vs C 4.574 ms, repeated stable sort 4.450 ms vs C 1.368 ms,
+matrix 5.585 ms vs C 1.167 ms, and arithmetic checksum 28.730 ms vs C
+22.921 ms. **These were not reproduced by this patch**; there is no
+measured faster-than-C claim.
+
+The Stage-0 x86-64 AOT emitter now uses a single unsigned CMP/JAE for
+runtime-sized slice bounds when the index register has a proven unsigned
+type. When the index is signed or untyped, both the negative-index trap and
+the upper-bound trap remain. The fast path handles the x86 prohibition on
+memory-to-memory CMP by loading one operand into RAX only when necessary.
+No bounds checking is disabled. Two heavily reused non-address-taken named
+locals may also occupy RBX and R12; register assignment reserves those
+physical registers so SSA temporaries cannot alias them. These changes
+do **not** automatically imply an improvement over C, particularly on the
+O3 scalar-SSA path.
+
+Local differential tests extend the native bounds codegen fixture and
+exercise in-range and index-equals-length dynamic slices at O0 and O3.
+The comparison fixtures now cover stable sorting, reshuffled sorting,
+16x16 integer matrix multiplication, and a **new** dependent unsigned
+arithmetic checksum with the same formulas across Noqeri, C and Go.
+The original arithmetic figures above may have used a different algorithm:
+do not treat the new checksum's times as a historical before/after score.
+
+On a full Linux x86-64 checkout, with no GitHub Actions:
+
+```sh
+cmake -S . -B build-local-perf -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build-local-perf --target noqeri noqeri-native-bounds-fastpath-test --parallel 2
+ctest --test-dir build-local-perf -R '^noqeri-native-bounds-fastpath$' --output-on-failure
+python3 tests/native_bounds_local.py --compiler=build-local-perf/noqeri
+python3 scripts/local-sorting-matrix-ab.py --candidate build-local-perf/noqeri
+python3 scripts/local-native-vs-c.py --compiler build-local-perf/noqeri
+```
+
+For a real compiler improvement result, run
+`scripts/local-sorting-matrix-ab.py --baseline /path/to/older/noqeri`
+with both compilers built as Release on the **same** host. Inspect raw
+medians, p95, output parity and native provenance. Until those runs
+are available, the compiler build, native execution, and superiority to C
+remain **unverified**, not passed.

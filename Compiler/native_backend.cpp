@@ -388,9 +388,10 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     std::vector<std::string> saved;
     const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
         [](const NirInstruction& i){return i.op==NirOp::InlineAsm;});
-    // Reserve RBX for the most frequently referenced named local in loops.
-    // Address-taken locals and inline-asm functions stay on the stack.
-    // RBX is callee-saved and never used by virtual-register allocation.
+    // Keep the two hottest non-address-taken named locals in callee-saved
+    // registers. Repeated loop-carried loads/stores otherwise round-trip
+    // through the frame even when the values fit in machine registers.
+    // Remove claimed registers from the virtual-register allocator's pool.
     std::unordered_map<std::string,std::string> variablePhysical;
     if(!hasInlineAsm&&!fn.code.empty()){
         std::unordered_set<std::string> addressTaken,initialized;
@@ -417,19 +418,30 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 hot[in.text]+=static_cast<std::size_t>(std::min(depth,4))*
                     (in.op==NirOp::Load?2u:1u);
         }
-        std::string best;
-        std::size_t score=0;
-        for(const auto& entry:hot)if(entry.second>score){
-            best=entry.first;score=entry.second;
-        }
-        if(score>=2){
-            variablePhysical.emplace(best,"rbx");
-            saved.emplace_back("rbx");
+        std::vector<std::pair<std::string,std::size_t>> ranked(
+            hot.begin(),hot.end());
+        std::sort(ranked.begin(),ranked.end(),[](const auto& a,const auto& b){
+            return a.second>b.second||
+                   (a.second==b.second&&a.first<b.first);
+        });
+        // Keep the main local in RBX. Reserve one more callee-saved
+        // register only for a genuinely hot second local; preserve the
+        // remaining r13-r15 for SSA temporaries and induction arithmetic.
+        const char* hotRegisters[]={"rbx","r12"};
+        for(std::size_t n=0;n<ranked.size()&&n<2;++n){
+            if(ranked[n].second<(n==0?2u:8u))break;
+            variablePhysical.emplace(ranked[n].first,hotRegisters[n]);
+            saved.emplace_back(hotRegisters[n]);
         }
     }
     if(!hasInlineAsm){
         std::vector<std::string> pool = {"r12","r13","r14","r15"};
-        if(variablePhysical.empty()) pool.push_back("rbx");
+        for(const auto& entry:variablePhysical)
+            pool.erase(std::remove(pool.begin(),pool.end(),entry.second),
+                       pool.end());
+        if(std::none_of(variablePhysical.begin(),variablePhysical.end(),
+                [](const auto& entry){return entry.second=="rbx";}))
+            pool.push_back("rbx");
         const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
         if(!hasCalls){
@@ -1148,12 +1160,30 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 }
                 out<<"    jae "<<failed<<"\n";
             }else{
-                // Dynamic slice lengths need an explicit sign test.
-                // Keep the existing conservative lowering semantics.
-                load(i.args[0],"rax");
-                out<<"    test rax, rax\n    js "<<failed<<"\n";
-                load(i.args[1],"r10");
-                out<<"    cmp rax, r10\n    jae "<<failed<<"\n";
+                const auto indexKind=i.args[0]<fn.registerTypes.size()?
+                    fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
+                if(isUnsigned(indexKind)){
+                    // An unsigned index cannot be negative. Comparing it
+                    // directly against the dynamic length avoids a TEST/JS
+                    // and two scratch-register moves in tight slice loops.
+                    // x86 CMP permits at most one memory operand.
+                    const auto index=registerOperand(i.args[0]);
+                    const auto length=registerOperand(i.args[1]);
+                    const bool indexMemory=index.rfind("QWORD PTR [",0)==0;
+                    const bool lengthMemory=length.rfind("QWORD PTR [",0)==0;
+                    if(indexMemory&&lengthMemory){
+                        load(i.args[0],"rax");
+                        out<<"    cmp rax, "<<length<<"\n";
+                    }else out<<"    cmp "<<index<<", "<<length<<"\n";
+                    out<<"    jae "<<failed<<"\n";
+                }else{
+                    // Signed and untyped indexes retain the explicit
+                    // negative-index trap even for huge dynamic lengths.
+                    load(i.args[0],"rax");
+                    out<<"    test rax, rax\n    js "<<failed<<"\n";
+                    load(i.args[1],"r10");
+                    out<<"    cmp rax, r10\n    jae "<<failed<<"\n";
+                }
             }
             break;
         }

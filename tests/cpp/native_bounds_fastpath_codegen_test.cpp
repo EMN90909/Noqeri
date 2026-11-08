@@ -46,5 +46,41 @@ int main(int argc,char** argv) {
         std::cerr<<"missing direct fixed-length CMP and trap\n";
         return 1;
     }
+    // A dynamic unsigned index needs only a single unsigned comparison.
+    // A signed index must still trap negatives before the upper-bound test.
+    noe::NirInstruction dynamicIndex;
+    dynamicIndex.op=noe::NirOp::Load;
+    dynamicIndex.dest=1;
+    dynamicIndex.text="runtimeIndex";
+    noe::NirInstruction dynamicLength=dynamicIndex;
+    dynamicLength.dest=2;
+    dynamicLength.text="runtimeLength";
+    p.entry.code={dynamicIndex,dynamicLength,bound,ret};
+    p.entry.registerTypes[2].kind=noe::TypeKind::Usize;
+    auto dynamicAsm=[&](noe::TypeKind indexKind)->std::string {
+        p.entry.registerTypes[1].kind=indexKind;
+        noe::Diagnostics errors;
+        if(!noe::NativeBackend{}.emitAssembly(p,argv[1],errors))
+            return {};
+        std::ifstream file(argv[1]);
+        if(!file)return {};
+        return std::string((std::istreambuf_iterator<char>(file)),
+                           std::istreambuf_iterator<char>());
+    };
+    const auto unsignedAsm=dynamicAsm(noe::TypeKind::Usize);
+    if(unsignedAsm.empty()||
+       !std::regex_search(unsignedAsm,
+           std::regex(R"(cmp [^\n]+\n\s+jae )"))||
+       unsignedAsm.find("    js ")!=std::string::npos){
+        std::cerr<<"dynamic unsigned bounds must use one unsigned CMP/JAE guard\n";
+        return 1;
+    }
+    const auto signedAsm=dynamicAsm(noe::TypeKind::I64);
+    if(signedAsm.empty()||
+       signedAsm.find("    js ")==std::string::npos||
+       signedAsm.find("    jae ")==std::string::npos){
+        std::cerr<<"dynamic signed bounds lost the negative-index trap\n";
+        return 1;
+    }
     return 0;
 }

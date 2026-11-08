@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local sorting/matrix performance A/B: Noqeri vs Go vs C.
+"""Local sorting/matrix/arithmetic performance A/B: Noqeri vs Go vs C.
 
 Build a RELEASE Stage-0 Noqeri compiler first. Example:
     cmake -S . -B build-local-perf -DCMAKE_BUILD_TYPE=Release
@@ -10,9 +10,10 @@ For a same-host Noqeri compiler regression:
     python3 scripts/local-sorting-matrix-ab.py \
         --baseline /path/to/older/noqeri --candidate build-local-perf/noqeri
 
-No GitHub Actions. Exactly the same reshuffled insertion-sort work and 200
-16x16 matrix passes as Benchmarks/comparison/workloads.go/.c. Outputs must
-match before warmups and after every timed run. Raw samples are retained.
+No GitHub Actions. The C/Go/Noqeri fixtures perform the same work:
+200 stable and reshuffled insertion-sort rounds, 200 16x16 matrix passes,
+and a five-million-iteration wrapping u64 arithmetic checksum. Outputs
+must match before warmups and after every timed run. Raw samples are retained.
 """
 import argparse
 import hashlib
@@ -27,6 +28,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKLOADS = {
+    "arithmetic_checksum": {
+        "source": ROOT / "Benchmarks/workloads/arithmetic_checksum.noqeri",
+        "expected": "12488332508630596960\n",
+    },
+    "sorting_stable": {
+        "source": ROOT / "Benchmarks/workloads/sorting.noqeri",
+        "expected": "64\n65032\n",
+    },
     "sorting_reshuffled": {
         "source": ROOT / "Benchmarks/workloads/sorting_reshuffled.noqeri",
         "expected": "13104300\n",

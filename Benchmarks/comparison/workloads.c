@@ -27,6 +27,17 @@ static int compare_double(const void* a, const void* b) {
     return (da > db) - (da < db);
 }
 
+// Wrapping unsigned arithmetic is defined in C, Go and Noqeri.
+static uint64_t run_arithmetic_checksum(void) {
+    uint64_t acc=0;
+    for(uint64_t i=0;i<5000000u;i++)
+        acc=acc*UINT64_C(1664525)+i*UINT64_C(1013904223)+UINT64_C(17);
+    return acc;
+}
+static void arithmetic_checksum(void) {
+    printf("%" PRIu64 "\n",run_arithmetic_checksum());
+}
+
 static uint64_t run_modulo(void) {
     uint64_t acc=0;
     for(uint64_t i=0;i<5000000u;i++)
@@ -59,6 +70,30 @@ static void matrix(void) {
     int64_t o0 = 0, o255 = 0;
     run_matrix(&o0, &o255);
     printf("%" PRId64 "\n%" PRId64 "\n", o0, o255);
+}
+
+static void run_sorting_stable(int64_t* out0, int64_t* out255) {
+    int64_t values[256];
+    for(size_t i=0;i<256;i++)
+        values[i]=(int64_t)((i*7919u+104729u)%65521u);
+    for(size_t round=0;round<200;round++){
+        for(size_t a=1;a<256;a++){
+            int64_t key=values[a];
+            size_t b=a;
+            while(b>0&&values[b-1]>key){
+                values[b]=values[b-1];
+                b--;
+            }
+            values[b]=key;
+        }
+    }
+    *out0=values[0];
+    *out255=values[255];
+}
+static void sorting_stable(void) {
+    int64_t o0=0,o255=0;
+    run_sorting_stable(&o0,&o255);
+    printf("%" PRId64 "\n%" PRId64 "\n",o0,o255);
 }
 
 static uint64_t run_reshuffled(void) {
@@ -95,7 +130,16 @@ int main(int argc,char**argv) {
         double* timings = (double*)malloc(sizeof(double)*samples);
         char output_buf[256] = {0};
 
-        if(strcmp(workload,"modulo")==0){
+        if(strcmp(workload,"arithmetic_checksum")==0){
+            for(int w=0;w<3;w++) run_arithmetic_checksum();
+            for(int sample=0;sample<samples;sample++){
+                double t0=get_time_ms();
+                uint64_t res=run_arithmetic_checksum();
+                double t1=get_time_ms();
+                timings[sample]=t1-t0;
+                snprintf(output_buf,sizeof(output_buf),"%" PRIu64,res);
+            }
+        }else if(strcmp(workload,"modulo")==0){
             for(int w=0;w<3;w++) run_modulo();
             for(int s=0;s<samples;s++){
                 double t0 = get_time_ms();
@@ -113,6 +157,16 @@ int main(int argc,char**argv) {
                 double t1 = get_time_ms();
                 timings[s] = t1 - t0;
                 snprintf(output_buf, sizeof(output_buf), "%" PRId64 " %" PRId64, o0, o255);
+            }
+        }else if(strcmp(workload,"sorting_stable")==0){
+            int64_t o0=0,o255=0;
+            for(int w=0;w<3;w++) run_sorting_stable(&o0,&o255);
+            for(int sample=0;sample<samples;sample++){
+                double t0=get_time_ms();
+                run_sorting_stable(&o0,&o255);
+                double t1=get_time_ms();
+                timings[sample]=t1-t0;
+                snprintf(output_buf,sizeof(output_buf),"%" PRId64 " %" PRId64,o0,o255);
             }
         }else if(strcmp(workload,"sorting_reshuffled")==0){
             for(int w=0;w<3;w++) run_reshuffled();
@@ -140,8 +194,10 @@ int main(int argc,char**argv) {
         free(timings);
         return 0;
     }
+    if(strcmp(argv[1],"arithmetic_checksum")==0){arithmetic_checksum();return 0;}
     if(strcmp(argv[1],"modulo")==0){modulo();return 0;}
     if(strcmp(argv[1],"matrix")==0){matrix();return 0;}
+    if(strcmp(argv[1],"sorting_stable")==0){sorting_stable();return 0;}
     if(strcmp(argv[1],"sorting_reshuffled")==0){reshuffled();return 0;}
     return 2;
 }
