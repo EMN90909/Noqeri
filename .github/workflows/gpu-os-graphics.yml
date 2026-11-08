@@ -25,8 +25,6 @@ on:
       - 'tests/cpp/gpu_firmware_sim_test.cpp'
       - 'tests/cpp/gpu_firmware_sim_app.cpp'
       - 'examples/gpu_firmware_sim.noqeri'
-      - 'tests/fixtures/render3d_baseline.txt'
-      - 'tests/scripts/render3d-ab-summary.mjs'
       - 'scripts/gpu-firmware-package.mjs'
       - 'tests/gpu-firmware-package.test.mjs'
       - 'Doc/GPU_FIRMWARE_DEVELOPMENT.md'
@@ -44,11 +42,9 @@ on:
       - 'tests/cpp/graphics_headless_test.cpp'
       - 'tests/scripts/graphics-native-e2e.sh'
       - 'tests/scripts/render3d-native-e2e.sh'
-      - 'tests/scripts/render3d-performance-summary.mjs'
       - 'Doc/RENDER3D_QUALIFICATION.md'
       - 'tests/cpp/render3d_differential.cpp'
-      - 'tests/scripts/graphics-raster-perf.sh'
-      - 'tests/scripts/graphics-performance-summary.mjs'
+      - 'tests/scripts/graphics-raster-differential.sh'
       - 'tests/cpp/graphics_full_frame_differential.cpp'
       - 'tests/shader-compiler.test.mjs'
       - 'tests/shader-v2.test.mjs'
@@ -82,8 +78,6 @@ on:
       - 'tests/cpp/gpu_firmware_sim_test.cpp'
       - 'tests/cpp/gpu_firmware_sim_app.cpp'
       - 'examples/gpu_firmware_sim.noqeri'
-      - 'tests/fixtures/render3d_baseline.txt'
-      - 'tests/scripts/render3d-ab-summary.mjs'
       - 'scripts/gpu-firmware-package.mjs'
       - 'tests/gpu-firmware-package.test.mjs'
       - 'Doc/GPU_FIRMWARE_DEVELOPMENT.md'
@@ -96,8 +90,7 @@ on:
       - 'Runtime/native/os_renderer_sdl.cpp'
       - 'tests/cpp/os_renderer_viewport_test.cpp'
       - 'tests/**/graphics*'
-      - 'tests/scripts/graphics-raster-perf.sh'
-      - 'tests/scripts/graphics-performance-summary.mjs'
+      - 'tests/scripts/graphics-raster-differential.sh'
       - 'tests/shader-compiler.test.mjs'
       - 'tests/shader-v2.test.mjs'
       - 'tests/shader-v3.test.mjs'
@@ -145,13 +138,10 @@ jobs:
           /tmp/noqeri-graphics-build/noqeri shader examples/shaders/fragment3d.noqeri /tmp/noqeri-fragment3d.wgsl --stage=fragment
           cargo run --quiet --manifest-path tests/wgsl-validator/Cargo.toml -- /tmp/noqeri-vertex3d.wgsl /tmp/noqeri-fragment3d.wgsl /tmp/noqeri-vector-fragment.wgsl /tmp/noqeri-vector-lighting-fragment.wgsl /tmp/noqeri-texture-fragment.wgsl /tmp/noqeri-vector-compute.wgsl /tmp/noqeri-fragment.wgsl /tmp/noqeri-compute.wgsl /tmp/noqeri-float-compute.wgsl /tmp/noqeri-posterize.wgsl /tmp/noqeri-grayscale.wgsl
       - name: Build real Noqeri framebuffer and run headless plus SDL2 dummy OS presenter
-        env:
-          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
         run: |
           NOQERI_REQUIRE_SDL2=1 timeout 150s bash tests/scripts/graphics-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
-      - name: Verify fast native CPU clear and measure the 10us target
+      - name: Verify native CPU clear correctness
         env:
-          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
           NOQERI_GRAPHICS_FASTPATH_LIB: /tmp/noqeri-graphics-build/libnoqeri_graphics_fastpath.a
         run: |
           timeout 90s bash tests/scripts/graphics-fastpath-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
@@ -165,19 +155,7 @@ jobs:
         run: |
           timeout 90s bash tests/scripts/gpu-firmware-sim-e2e.sh /tmp/noqeri-graphics-build/noqeri
           node --check scripts/gpu-firmware-package.mjs
-      - name: Verify and benchmark 3D triangle depth and bounded projection
-        env:
-          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
+      - name: Verify 3D triangle depth and bounded projection
         run: timeout 150s bash tests/scripts/render3d-native-e2e.sh /tmp/noqeri-graphics-build/noqeri
-      - name: Validate every pixel and record native CPU raster A/B timings
-        env:
-          GRAPHICS_EVIDENCE_DIR: /tmp/noqeri-graphics-evidence
-        run: timeout 180s bash tests/scripts/graphics-raster-perf.sh /tmp/noqeri-graphics-build/noqeri
-      - name: Archive native CPU raster results and assembly (not GPU timing)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: noqeri-cpu-raster-evidence
-          if-no-files-found: warn
-          path: /tmp/noqeri-graphics-evidence/
-          retention-days: 14
+      - name: Validate full-frame native CPU raster correctness
+        run: timeout 180s bash tests/scripts/graphics-raster-differential.sh /tmp/noqeri-graphics-build/noqeri

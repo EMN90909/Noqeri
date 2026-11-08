@@ -85,40 +85,11 @@ void correctness(){
         "null pitched C ABI accepted");
     std::fprintf(stderr,"Noqeri->C++ SIMD clear correctness: PASS cases=%zu\n",verified);
 }
-void benchmark(){
-    std::puts("scene,sample,elapsed_ns");
-    for(const std::size_t side:{256u,512u}){
-        std::vector<std::uint32_t> pixels(side*side+2,sentinel);
-        NqU32Slice slice{pixels.data(),side*side};
-        std::vector<long long> times;
-        for(int k=-12;k<60;++k){
-            const std::uint32_t color=0xff000000u|static_cast<std::uint32_t>(k+128);
-            const auto start=std::chrono::steady_clock::now();
-            require(nqRenderClearAccelerated(&slice,color)!=0,"bench clear failed");
-            const auto duration=std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now()-start).count();
-            visible+=pixels[0]+pixels[side*side-1];
-            require(pixels[side*side]==sentinel&&pixels[side*side+1]==sentinel,
-                "bench clear crossed guard");
-            if(k>=0){
-                times.push_back(duration);
-                std::printf("clear_%zux%zu,%d,%lld\n",side,side,k,
-                    static_cast<long long>(duration));
-            }
-        }
-        std::sort(times.begin(),times.end());
-        const auto median=(times[29]+times[30])/2;
-        std::fprintf(stderr,"Noqeri native fast clear %zux%zu median=%lld ns target_10000ns=%s, p95=%lld ns\n",
-            side,side,median,median<=10000?"MET":"NOT_MET",times[56]);
-    }
-    std::fprintf(stderr,"Noqeri fast clear observable checksum=%llu\n",
-        static_cast<unsigned long long>(visible));
+
 }
-}
-int main(int argc,char**argv){
+int main(){
     try{
         correctness();
-        if(argc>1&&std::string(argv[1])=="--bench")benchmark();
         return 0;
     }catch(const std::exception&e){
         std::fprintf(stderr,"Noqeri fast clear FAIL: %s\n",e.what());

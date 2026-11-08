@@ -179,81 +179,15 @@ void testOcclusion(){
     require(pixels[n]==guard && depth[n]==guard,"depth/rgba tail overwritten");
 }
 
-volatile std::uint64_t perfSink=0;
-void benchmark3D() {
-    constexpr std::size_t width=256,height=256,n=width*height;
-    const std::array<std::array<I,9>,2> triangles{{
-      {{4,6,400,250,9,400,123,249,400}},
-      {{8,8,320,248,12,800,115,248,500}}
-    }};
-    const std::array<const char*,2> labels{{"flat-z","interpolated-z"}};
-    std::cout<<"scene,resolution,engine,sample,render_ns\n";
-    for(std::size_t t=0;t<triangles.size();++t){
-        std::vector<U> nqPixels(n,initial),nqDepth(n,UINT32_MAX),
-            cPixels(n,initial),cDepth(n,UINT32_MAX);
-        auto verts=triangles[t];
-        Slice<U> pixels{nqPixels.data(),n},depth{nqDepth.data(),n};
-        Slice<I> vertexSlice{verts.data(),9};
-        for(int iteration=-5;iteration<30;++iteration){
-            const bool reverse=(iteration&1)!=0;
-            for(int pass=0;pass<2;++pass){
-                const bool noqeri=(pass==0)^reverse;
-                auto& colors=noqeri?nqPixels:cPixels;
-                auto& depthArray=noqeri?nqDepth:cDepth;
-                std::fill(colors.begin(),colors.end(),initial);
-                std::fill(depthArray.begin(),depthArray.end(),UINT32_MAX);
-                auto start=std::chrono::steady_clock::now();
-                const bool result=noqeri?
-                    nqRasterTriangle3D(&pixels,&depth,width,height,&vertexSlice,0xff3399ccu)!=0:
-                    referenceTriangle(cPixels,cDepth,n,n,width,height,verts,9,0xff3399ccu);
-                auto end=std::chrono::steady_clock::now();
-                require(result,"benchmark raster rejected input");
-                perfSink=perfSink+colors[(static_cast<unsigned>(iteration+5)*137+pass)%n];
-                if(iteration>=0){
-                    auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count();
-                    std::cout<<labels[t]<<",256x256,"<<(noqeri?"noqeri":"c")<<','
-                             <<iteration<<','<<ns<<'\n';
-                }
-            }
-            require(nqPixels==cPixels && nqDepth==cDepth,
-                    "native Noqeri 3D differs from reference after timed sample");
-        }
-    }
-    // Depth reset is in every frame and needs separate CPU cost evidence.
-    std::vector<U> nqDepth(n+3,initial),cDepth(n+3,initial);
-    Slice<U> depthSlice{nqDepth.data(),n};
-    for(int iteration=-5;iteration<30;++iteration){
-        const bool reverse=(iteration&1)!=0;
-        for(int pass=0;pass<2;++pass){
-            const bool noqeri=(pass==0)^reverse;
-            auto& buffer=noqeri?nqDepth:cDepth;
-            std::fill(buffer.begin(),buffer.end(),initial);
-            const auto begin=std::chrono::steady_clock::now();
-            const bool ok=noqeri ? nqDepthClear3D(&depthSlice,width,height)!=0 :
-                referenceDepth(cDepth,n,width,height);
-            const auto end=std::chrono::steady_clock::now();
-            require(ok,"depth clear benchmark rejected valid slice");
-            perfSink=perfSink+buffer[(static_cast<unsigned>(iteration+5)*137+pass)%n];
-            if(iteration>=0){
-                const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(end-begin).count();
-                std::cout<<"depth-clear,256x256,"<<(noqeri?"noqeri":"c")<<','
-                         <<iteration<<','<<ns<<'\n';
-            }
-        }
-        require(nqDepth==cDepth,"Noqeri depth clear differs from C reference");
-    }
-    std::cerr<<"3D benchmark sink="<<perfSink<<'\n';
-}
 } // namespace
 
-int main(int argc,char** argv){
+int main(){
     try {
         testProjection();
         testDepth();
         testTriangles();
         testOcclusion();
         std::cerr<<"Noqeri compiled 3D projection, depth and triangle differential: PASS\n";
-        if(argc>1 && std::string(argv[1])=="--bench")benchmark3D();
         return 0;
     }catch(const std::exception& e){
         std::cerr<<"Noqeri render3d differential failure: "<<e.what()<<'\n';

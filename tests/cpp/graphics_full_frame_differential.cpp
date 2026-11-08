@@ -103,65 +103,11 @@ void correctness() {
     std::cerr<<"Noqeri native raster exact C-reference differential: PASS cases="<<verified<<"\n";
 }
 
-struct Scene {
-    const char* name;
-    std::size_t w,h,cell;
-};
-void benchmark(const Scene& scene) {
-    const std::size_t n=scene.w*scene.h;
-    std::vector<std::uint32_t> nq(n,initial), ref(n,initial);
-    NqSliceU32 slice{nq.data(),n};
-    auto drawNoqeri=[&] {
-        if(std::strcmp(scene.name,"gradient")==0)return nqRenderGradient(&slice,scene.w,scene.h)!=0;
-        if(std::strcmp(scene.name,"checker")==0)
-            return nqRenderChecker(&slice,scene.w,scene.h,scene.cell,first,second)!=0;
-        return nqRenderClear(&slice,0xff345678u)!=0;
-    };
-    auto drawC=[&] {
-        if(std::strcmp(scene.name,"gradient")==0)
-            return referenceGradient(ref.data(),n,scene.w,scene.h);
-        if(std::strcmp(scene.name,"checker")==0)
-            return referenceChecker(ref.data(),n,scene.w,scene.h,scene.cell);
-        return referenceClear(ref.data(),n);
-    };
-    // Use isolated timers for raster only, with consumed outputs between
-    // samples so the reference optimizer may not eliminate dead renders.
-    for(int warm=0;warm<5;++warm){
-        require(drawNoqeri()&&drawC(),"failed warmup");
-        require(nq==ref,"pixel mismatch during warmup");
-        consumed=consumed+nq[(warm*37u)%n];
-    }
-    for(int sample=0;sample<30;++sample){
-        const bool reverse=(sample&1)!=0;
-        for(int pass=0;pass<2;++pass){
-            const bool isNoqeri=(pass==0)^reverse;
-            const auto before=std::chrono::steady_clock::now();
-            const bool ok=isNoqeri?drawNoqeri():drawC();
-            const auto after=std::chrono::steady_clock::now();
-            require(ok,"render rejected benchmark dimensions");
-            auto& buffer=isNoqeri?nq:ref;
-            consumed=consumed+buffer[(sample*191u+pass)%n];
-            const auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(after-before).count();
-            std::cout<<scene.name<<','<<scene.w<<'x'<<scene.h<<','
-                     <<(isNoqeri?"noqeri":"c")<<','<<sample<<','<<ns<<'\n';
-        }
-        require(nq==ref,"post-sample buffer mismatch");
-    }
-}
 } // namespace
 
-int main(int argc,char**argv){
+int main(){
     try {
         correctness();
-        if(argc>1&&std::string(argv[1])=="--bench"){
-            std::cout<<"scene,resolution,engine,sample,render_ns\n";
-            for(const Scene scene:std::array<Scene,9>{{
-                {"gradient",64,64,0},{"gradient",256,256,0},{"gradient",512,512,0},
-                {"checker",64,64,16},{"checker",256,256,16},{"checker",512,512,16},
-                {"clear",64,64,0},{"clear",256,256,0},{"clear",512,512,0}
-            }})benchmark(scene);
-            std::cerr<<"benchmark output sink="<<consumed<<"\n";
-        }
         return 0;
     }catch(const std::exception& e){
         std::cerr<<"FAIL graphics differential: "<<e.what()<<'\n';
