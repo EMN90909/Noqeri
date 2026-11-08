@@ -1,0 +1,201 @@
+import "../Lib/std/sort.noqeri"
+import "../Lib/std/checksum.noqeri"
+
+// Correctness-only regressions. No timing, thresholds or benchmark harness.
+function affineReference(count:usize,seed:u64,multiplier:u64,weight:u64,increment:u64):u64 {
+    let acc:u64=seed
+    let index:usize=0 as usize
+    while index<count {
+        acc=acc*multiplier+index as u64*weight+increment
+        index=index+1 as usize
+    }
+    return acc
+}
+
+let valid:bool=true
+let ascending:[i64;257]
+let descending:[i64;257]
+let sorted:[i64;257]
+let reversed:[i64;257]
+let same:[i64;257]
+let index:usize=0 as usize
+while index<257 as usize {
+    let sample:i64=((index*7919 as usize+11 as usize)%257 as usize) as i64-128 as i64
+    ascending[index]=sample
+    descending[index]=sample
+    sorted[index]=index as i64-128 as i64
+    reversed[index]=128 as i64-index as i64
+    same[index]=7 as i64
+    index=index+1 as usize
+}
+nqSortI64(slice(ascending))
+nqSortDescendingI64(slice(descending))
+nqSortI64(slice(sorted))
+nqSortI64(slice(reversed))
+nqSortI64(slice(same))
+if !nqIsSortedI64(slice(ascending))||!nqIsSortedDescendingI64(slice(descending)){valid=false}
+if !nqIsSortedI64(slice(sorted))||!nqIsSortedI64(slice(reversed))||!nqIsSortedI64(slice(same)){valid=false}
+index=0 as usize
+while index<257 as usize {
+    let want:i64=index as i64-128 as i64
+    if ascending[index]!=want||sorted[index]!=want||reversed[index]!=want{valid=false}
+    if descending[index]!=128 as i64-index as i64||same[index]!=7 as i64{valid=false}
+    index=index+1 as usize
+}
+
+// Repeated keys and the insertion/introsort 24-element boundary.
+let duplicates:[i64;257]
+let dupeDescending:[i64;257]
+index=0 as usize
+while index<257 as usize {
+    let value:i64=(index%5 as usize) as i64-2 as i64
+    duplicates[index]=value
+    dupeDescending[index]=value
+    index=index+1 as usize
+}
+nqSortI64(slice(duplicates))
+nqSortDescendingI64(slice(dupeDescending))
+if !nqIsSortedI64(slice(duplicates))||!nqIsSortedDescendingI64(slice(dupeDescending)){valid=false}
+index=0 as usize
+while index<257 as usize {
+    if duplicates[index]!=dupeDescending[256 as usize-index]{valid=false}
+    index=index+1 as usize
+}
+let threshold:[i64;25]
+index=0 as usize
+while index<25 as usize {
+    threshold[index]=(25 as usize-index) as i64
+    index=index+1 as usize
+}
+nqSortI64(slice(threshold))
+index=0 as usize
+while index<25 as usize {
+    if threshold[index]!=index as i64+1 as i64{valid=false}
+    index=index+1 as usize
+}
+
+// Stable mergesort uses external scratch and must refuse insufficient memory
+// without touching the input.
+let original:[i64;65]
+let stable:[i64;65]
+let comparison:[i64;65]
+let scratch:[i64;65]
+let shortScratch:[i64;8]
+index=0 as usize
+while index<65 as usize {
+    let value:i64=((index*17 as usize+9 as usize)%19 as usize) as i64-9 as i64
+    original[index]=value
+    stable[index]=value
+    comparison[index]=value
+    index=index+1 as usize
+}
+if nqStableSortI64WithScratch(slice(stable),slice(shortScratch)){valid=false}
+index=0 as usize
+while index<65 as usize {
+    if stable[index]!=original[index]{valid=false}
+    index=index+1 as usize
+}
+if !nqStableSortI64WithScratch(slice(stable),slice(scratch)){valid=false}
+nqSortI64(slice(comparison))
+index=0 as usize
+while index<65 as usize {
+    if stable[index]!=comparison[index]{valid=false}
+    index=index+1 as usize
+}
+
+// Naive reference for small n and exact large-n wraparound anchors.
+if checksum_arithmetic_u64(0 as usize)!=0 as u64{valid=false}
+if checksum_arithmetic_u64(1 as usize)!=17 as u64{valid=false}
+if checksum_arithmetic_u64(2 as usize)!=1042201165 as u64{valid=false}
+if checksum_arithmetic_u64(64 as usize)!=4391738040955121376 as u64{valid=false}
+if checksum_arithmetic_u64(257 as usize)!=6348952862084990097 as u64{valid=false}
+if checksum_arithmetic_u64(5000000 as usize)!=12488332508630596960 as u64{valid=false}
+let cases:[usize;8]=[0 as usize,1 as usize,2 as usize,3 as usize,7 as usize,17 as usize,65 as usize,1024 as usize]
+index=0 as usize
+while index<8 as usize {
+    let count:usize=cases[index]
+    if checksum_affine_series_u64(count,9 as u64,33 as u64,7 as u64,5 as u64)!=affineReference(count,9 as u64,33 as u64,7 as u64,5 as u64){valid=false}
+    if checksum_arithmetic_u64(count)!=affineReference(count,0 as u64,1664525 as u64,1013904223 as u64,17 as u64){valid=false}
+    index=index+1 as usize
+}
+
+// 6001 bytes crosses Adler's 5552-byte chunk and all Fletcher/Internet
+// chunk boundaries, including odd trailing words.
+let bytes:[u8;6001]
+let a:u64=1 as u64
+let b:u64=0 as u64
+let f1:u64=0 as u64
+let f2:u64=0 as u64
+let w:u64=0 as u64
+let sum:u64=0 as u64
+index=0 as usize
+while index<6001 as usize {
+    let byte:u8=((index*73 as usize+17 as usize)%256 as usize) as u8
+    bytes[index]=byte
+    sum=sum+byte as u64
+    a=(a+byte as u64)%65521 as u64
+    b=(b+a)%65521 as u64
+    f1=(f1+byte as u64)%255 as u64
+    f2=(f2+f1)%255 as u64
+    w=(w+byte as u64*(index as u64+1 as u64))%4294967296 as u64
+    index=index+1 as usize
+}
+let data:[]u8=slice(bytes)
+if checksum_sum8(data)!=(sum as u8){valid=false}
+if checksum_sum16(data)!=(sum as u16){valid=false}
+if checksum_sum32(data)!=(sum as u32){valid=false}
+if checksum_adler32(data)!=(b*65536 as u64+a) as u32{valid=false}
+if checksum_fletcher16(data)!=(f2*256 as u64+f1) as u16{valid=false}
+if checksum_weighted32(data)!=(w as u32){valid=false}
+let f32a:u64=0 as u64
+let f32b:u64=0 as u64
+let net:u64=0 as u64
+index=0 as usize
+while index<6001 as usize {
+    let word:u64=bytes[index] as u64*256 as u64
+    if index+1 as usize<6001 as usize{word=word+bytes[index+1 as usize] as u64}
+    f32a=(f32a+word)%65535 as u64
+    f32b=(f32b+f32a)%65535 as u64
+    net=net+word
+    net=net%65536 as u64+net/65536 as u64
+    if net>65535 as u64{net=net%65536 as u64+net/65536 as u64}
+    index=index+2 as usize
+}
+if checksum_fletcher32(data)!=(f32b*65536 as u64+f32a) as u32{valid=false}
+if checksum_internet16(data)!=(65535 as u64-net) as u16{valid=false}
+
+let words:[u16;1025]
+let wordsA:u64=0 as u64
+let wordsB:u64=0 as u64
+index=0 as usize
+while index<1025 as usize {
+    let word:u16=((index*451 as usize+7 as usize)%65536 as usize) as u16
+    words[index]=word
+    wordsA=(wordsA+word as u64)%65535 as u64
+    wordsB=(wordsB+wordsA)%65535 as u64
+    index=index+1 as usize
+}
+if checksum_fletcher32_words(slice(words))!=(wordsB*65536 as u64+wordsA) as u32{valid=false}
+let kind:int=1
+while kind<=8 {
+    let segment:[]u8=slice(&bytes[3],2049 as usize)
+    if checksum_compute_range(kind,data,3 as usize,2049 as usize)!=checksum_compute(kind,segment){valid=false}
+    kind=kind+1
+}
+
+let state:ChecksumState
+if !checksum_state_init(&state,checksum_kind_adler32()){valid=false}
+if !checksum_state_update(&state,slice(&bytes[0],100 as usize)){valid=false}
+if !checksum_state_update(&state,slice(&bytes[100],5901 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_adler32(data) as u64{valid=false}
+if checksum_state_length(&state)!=6001 as usize{valid=false}
+if !checksum_state_init(&state,checksum_kind_fletcher16()){valid=false}
+if !checksum_state_update(&state,slice(&bytes[0],2222 as usize)){valid=false}
+if !checksum_state_update(&state,slice(&bytes[2222],3779 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_fletcher16(data) as u64{valid=false}
+if !checksum_state_init(&state,checksum_kind_weighted32()){valid=false}
+if !checksum_state_update(&state,slice(&bytes[0],4095 as usize)){valid=false}
+if !checksum_state_update(&state,slice(&bytes[4095],1906 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_weighted32(data) as u64{valid=false}
+
+if valid{print("PASS")}else{print("FAIL")}
