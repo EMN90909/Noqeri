@@ -1,9 +1,0 @@
-// Dependent wrapping u64 checksum: identical integer work in Noqeri, C and Go.
-// No division, I/O inside the loop, or cross-language signed-overflow UB.
-let i: u64 = 0 as u64
-let acc: u64 = 0 as u64
-while i < 5000000 as u64 {
-    acc = acc * 1664525 as u64 + i * 1013904223 as u64 + 17 as u64
-    i = i + 1 as u64
-}
-print(acc)

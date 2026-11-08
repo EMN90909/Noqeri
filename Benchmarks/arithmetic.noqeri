@@ -1,7 +1,0 @@
-let total: int = 0
-let i: int = 0
-while (i < 10000) {
-    total = total + i
-    i = i + 1
-}
-print(total)

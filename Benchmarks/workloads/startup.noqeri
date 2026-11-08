@@ -1,2 +1,0 @@
-let value: int = 0
-print(value)
