@@ -19,6 +19,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = {
+    "arithmetic_checksum": (
+        "Benchmarks/workloads/arithmetic_checksum.noqeri",
+        "12488332508630596960\n",
+    ),
     "modulo": ("Benchmarks/workloads/modulo_ab.noqeri", "239999951\n"),
     "matrix": ("build-local-perf/matrix-comparison.noqeri", "29971\n28448\n"),
     "sorting_reshuffled": (
@@ -129,7 +133,7 @@ report = {
     "self_hosted_compiler": False,
     "results": out,
     "limitations": (
-        "Three deterministic kernels on one Linux x86-64 host; not "
+        "Four deterministic kernels on one Linux x86-64 host; not "
         "general C performance parity. This run is local, not CI."
     ),
 }
