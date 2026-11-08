@@ -37,7 +37,23 @@ export function checksum_sum32(data:[]u8):u32{
     while index<count { sum=sum+data[index] as u64 index=index+1 as usize }
     return sum as u32
 }
-export function checksum_weighted32(data:[]u8):u32{let sum:u64=0 as u64 let index:usize=0 as usize while index<len(data){let weight:u64=(index as u64+1 as u64)%4294967296 as u64 sum=(sum+data[index] as u64*weight)%4294967296 as u64 index=index+1 as usize} return sum as u32}
+export function checksum_weighted32(data:[]u8):u32{
+    let sum:u64=0 as u64
+    let index:usize=0 as usize
+    let count:usize=len(data)
+    while index<count {
+        let block:usize=count-index
+        if block>4096 as usize{block=4096 as usize}
+        let end:usize=index+block
+        while index<end {
+            let weight:u64=(index as u64+1 as u64)%4294967296 as u64
+            sum=sum+data[index] as u64*weight
+            index=index+1 as usize
+        }
+        sum=sum%4294967296 as u64
+    }
+    return sum as u32
+}
 // Adler-32 NMAX=5552 keeps both accumulators within u32 between reductions.
 // This removes two expensive non-power-of-two remainders per input byte.
 export function checksum_adler32(data:[]u8):u32{
@@ -152,10 +168,87 @@ export function internet_checksum_reset(out:*InternetChecksumState):bool{return 
 
 export function checksum_state_init(out:*ChecksumState,kind:int):bool{if out==null||!checksum_kind_valid(kind){return false} out.kind=kind out.value=0 as u64 out.auxiliary=0 as u64 out.length=0 as usize if kind==checksum_kind_adler32(){out.value=1 as u64} return true}
 export function checksum_state_reset(out:*ChecksumState):bool{if out==null{return false} return checksum_state_init(out,out.kind)}
-export function checksum_state_update(out:*ChecksumState,data:[]u8):bool{if out==null||!checksum_kind_valid(out.kind){return false} if len(data)>18446744073709551615 as usize-out.length{return false} let index:usize=0 as usize while index<len(data){let byte:u64=data[index] as u64 if out.kind==checksum_kind_sum8(){out.value=(out.value+byte)%256 as u64}else if out.kind==checksum_kind_sum16(){out.value=(out.value+byte)%65536 as u64}else if out.kind==checksum_kind_sum32(){out.value=(out.value+byte)%4294967296 as u64}else if out.kind==checksum_kind_adler32(){let a:u64=out.value%65536 as u64 let b:u64=out.value/65536 as u64 a=(a+byte)%65521 as u64 b=(b+a)%65521 as u64 out.value=b*65536 as u64+a}else if out.kind==checksum_kind_fletcher16(){out.value=(out.value+byte)%255 as u64 out.auxiliary=(out.auxiliary+out.value)%255 as u64}else if out.kind==checksum_kind_weighted32(){let position:u64=out.length as u64+index as u64+1 as u64 out.value=(out.value+byte*(position%4294967296 as u64))%4294967296 as u64} index=index+1 as usize} out.length=out.length+len(data) return true}
+// Streaming variants dispatch once, accumulate locally and only write state
+// back at block boundaries. The unsupported streaming kinds retain their
+// historical no-op state behavior; one-shot checksum_compute handles both.
+export function checksum_state_update(out:*ChecksumState,data:[]u8):bool{
+    if out==null||!checksum_kind_valid(out.kind){return false}
+    let count:usize=len(data)
+    if count>18446744073709551615 as usize-out.length{return false}
+    let index:usize=0 as usize
+    let kind:int=out.kind
+    if kind==checksum_kind_sum8()||kind==checksum_kind_sum16()||kind==checksum_kind_sum32(){
+        let total:u64=out.value
+        while index<count { total=total+data[index] as u64 index=index+1 as usize }
+        if kind==checksum_kind_sum8(){out.value=total%256 as u64}
+        else if kind==checksum_kind_sum16(){out.value=total%65536 as u64}
+        else {out.value=total%4294967296 as u64}
+    }else if kind==checksum_kind_adler32(){
+        let a:u64=out.value%65536 as u64
+        let b:u64=out.value/65536 as u64
+        while index<count {
+            let block:usize=count-index
+            if block>5552 as usize {block=5552 as usize}
+            let end:usize=index+block
+            while index<end {
+                a=a+data[index] as u64
+                b=b+a
+                index=index+1 as usize
+            }
+            a=a%65521 as u64
+            b=b%65521 as u64
+        }
+        out.value=b*65536 as u64+a
+    }else if kind==checksum_kind_fletcher16(){
+        let first:u64=out.value
+        let second:u64=out.auxiliary
+        while index<count {
+            let block:usize=count-index
+            if block>512 as usize {block=512 as usize}
+            let end:usize=index+block
+            while index<end {
+                first=first+data[index] as u64
+                second=second+first
+                index=index+1 as usize
+            }
+            first=first%255 as u64
+            second=second%255 as u64
+        }
+        out.value=first
+        out.auxiliary=second
+    }else if kind==checksum_kind_weighted32(){
+        let total:u64=out.value
+        while index<count {
+            let block:usize=count-index
+            if block>4096 as usize{block=4096 as usize}
+            let end:usize=index+block
+            while index<end {
+                let position:u64=out.length as u64+index as u64+1 as u64
+                total=total+data[index] as u64*(position%4294967296 as u64)
+                index=index+1 as usize
+            }
+            total=total%4294967296 as u64
+        }
+        out.value=total
+    }
+    out.length=out.length+count
+    return true
+}
 export function checksum_state_value(out:*ChecksumState):u64{if out==null{return 0 as u64} if out.kind==checksum_kind_fletcher16(){return out.auxiliary*256 as u64+out.value} return out.value}
 export function checksum_state_length(out:*ChecksumState):usize{if out==null{return 0 as usize} return out.length}
-export function checksum_compute(kind:int,data:[]u8):u64{if kind==checksum_kind_internet16(){return checksum_internet16(data) as u64} if kind==checksum_kind_fletcher32(){return checksum_fletcher32(data) as u64} let state:ChecksumState if !checksum_state_init(&state,kind){return 0 as u64} if !checksum_state_update(&state,data){return 0 as u64} return checksum_state_value(&state)}
+// Dispatch once for the entire input. Do not re-check the checksum kind on
+// every byte or repeatedly dereference a streaming-state record.
+export function checksum_compute(kind:int,data:[]u8):u64{
+    if kind==checksum_kind_sum8(){return checksum_sum8(data) as u64}
+    if kind==checksum_kind_sum16(){return checksum_sum16(data) as u64}
+    if kind==checksum_kind_sum32(){return checksum_sum32(data) as u64}
+    if kind==checksum_kind_adler32(){return checksum_adler32(data) as u64}
+    if kind==checksum_kind_fletcher16(){return checksum_fletcher16(data) as u64}
+    if kind==checksum_kind_fletcher32(){return checksum_fletcher32(data) as u64}
+    if kind==checksum_kind_internet16(){return checksum_internet16(data) as u64}
+    if kind==checksum_kind_weighted32(){return checksum_weighted32(data) as u64}
+    return 0 as u64
+}
 export function checksum_verify(kind:int,data:[]u8,expected:u64):bool{return checksum_compute(kind,data)==expected}
 export function checksum_frame(kind:int,data:[]u8):ChecksumFrame{let out:ChecksumFrame out.kind=kind out.payloadLength=len(data) out.checksum=checksum_compute(kind,data) return out}
 export function checksum_frame_valid(frame:ChecksumFrame):bool{return checksum_kind_valid(frame.kind)}
