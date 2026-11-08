@@ -72,6 +72,30 @@ static void matrix(void) {
     printf("%" PRId64 "\n%" PRId64 "\n", o0, o255);
 }
 
+static void run_sorting_stable(int64_t* out0, int64_t* out255) {
+    int64_t values[256];
+    for(size_t i=0;i<256;i++)
+        values[i]=(int64_t)((i*7919u+104729u)%65521u);
+    for(size_t round=0;round<200;round++){
+        for(size_t a=1;a<256;a++){
+            int64_t key=values[a];
+            size_t b=a;
+            while(b>0&&values[b-1]>key){
+                values[b]=values[b-1];
+                b--;
+            }
+            values[b]=key;
+        }
+    }
+    *out0=values[0];
+    *out255=values[255];
+}
+static void sorting_stable(void) {
+    int64_t o0=0,o255=0;
+    run_sorting_stable(&o0,&o255);
+    printf("%" PRId64 "\n%" PRId64 "\n",o0,o255);
+}
+
 static uint64_t run_reshuffled(void) {
     int64_t values[256];
     uint64_t checksum=0;
@@ -134,6 +158,16 @@ int main(int argc,char**argv) {
                 timings[s] = t1 - t0;
                 snprintf(output_buf, sizeof(output_buf), "%" PRId64 " %" PRId64, o0, o255);
             }
+        }else if(strcmp(workload,"sorting_stable")==0){
+            int64_t o0=0,o255=0;
+            for(int w=0;w<3;w++) run_sorting_stable(&o0,&o255);
+            for(int sample=0;sample<samples;sample++){
+                double t0=get_time_ms();
+                run_sorting_stable(&o0,&o255);
+                double t1=get_time_ms();
+                timings[sample]=t1-t0;
+                snprintf(output_buf,sizeof(output_buf),"%" PRId64 " %" PRId64,o0,o255);
+            }
         }else if(strcmp(workload,"sorting_reshuffled")==0){
             for(int w=0;w<3;w++) run_reshuffled();
             for(int s=0;s<samples;s++){
@@ -163,6 +197,7 @@ int main(int argc,char**argv) {
     if(strcmp(argv[1],"arithmetic_checksum")==0){arithmetic_checksum();return 0;}
     if(strcmp(argv[1],"modulo")==0){modulo();return 0;}
     if(strcmp(argv[1],"matrix")==0){matrix();return 0;}
+    if(strcmp(argv[1],"sorting_stable")==0){sorting_stable();return 0;}
     if(strcmp(argv[1],"sorting_reshuffled")==0){reshuffled();return 0;}
     return 2;
 }
