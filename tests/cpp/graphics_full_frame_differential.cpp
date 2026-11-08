@@ -1,9 +1,7 @@
-// Bitwise differential qualification and raw-frame CPU timing for native
-// Noqeri raster kernels. C++ is the independent reference, not a pixel renderer
-// used by production Noqeri. No GPU or SDL work is measured in this file.
+// Bitwise CPU raster differential qualification. C++ is the independent
+// correctness reference, not the production Noqeri pixel renderer.
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -22,7 +20,6 @@ extern "C" std::uint64_t nqRenderChecker(NqSliceU32*, std::size_t, std::size_t,
 extern "C" std::uint64_t nqRenderClear(NqSliceU32*, std::uint32_t);
 
 namespace {
-volatile std::uint64_t consumed = 0;
 constexpr std::uint32_t initial = 0xdefaced1u;
 constexpr std::uint32_t first = 0xff00ff00u;
 constexpr std::uint32_t second = 0xffff0000u;

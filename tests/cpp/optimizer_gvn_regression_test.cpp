@@ -1,5 +1,4 @@
 #include "compiler.hpp"
-#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string>

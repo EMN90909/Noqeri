@@ -134,23 +134,7 @@ The repository test command already runs `noqeri test tests`, so the new fixture
 
 ## Performance evidence
 
-The earlier benchmark manifest and its foundational-structure workloads for bitset, Bloom filter, deque, heap and priority queue have been retired. Correctness and conformance tests remain in `tests/`.
-
-Those entries are deliberately marked `unmeasured`. No timing numbers were invented. The existing performance gate already refuses to report a passing comparison when result IDs are not comparable.
-
-Every future measured result should include:
-
-- source commit SHA;
-- backend and target;
-- compiler/build profile and flags;
-- OS/CPU where available;
-- safety and overflow modes;
-- input size;
-- warmup/sample counts;
-- raw samples;
-- median and p95 (or another documented tail statistic);
-- memory/binary-size metrics where relevant;
-- exact benchmark fixture and baseline revision.
+In-repository benchmark fixtures, timing harnesses, and performance gates have been retired. No performance measurements are implied by correctness checks. Comparative speed claims require separate independently reproducible evidence.
 
 ## Ecosystem/registry gate
 

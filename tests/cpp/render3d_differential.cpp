@@ -1,7 +1,6 @@
 // Native Noqeri 3D CPU raster differential test. This C++ file is ONLY a
 // reference oracle and driver. Geometry/raster implementation is in Noqeri.
 #include <algorithm>
-#include <chrono>
 #include <array>
 #include <cstddef>
 #include <cstdint>

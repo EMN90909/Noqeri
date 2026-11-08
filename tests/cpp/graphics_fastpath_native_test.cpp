@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -21,7 +20,6 @@ extern "C" std::uint64_t nqRenderClearRowsAccelerated(
     NqU32Slice*,std::size_t,std::size_t,std::size_t,std::uint32_t);
 namespace {
 constexpr std::uint32_t sentinel=0xdedebee7u;
-volatile std::uint64_t visible=0;
 void require(bool okay,const char* message){
     if(!okay)throw std::runtime_error(message);
 }
