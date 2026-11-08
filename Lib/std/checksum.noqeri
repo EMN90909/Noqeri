@@ -157,12 +157,72 @@ export function checksum_internet16(data:[]u8):u16{
 export function checksum_internet16_verify(data:[]u8,expected:u16):bool{return checksum_internet16(data)==expected}
 
 export function fletcher_state_init(out:*FletcherState,modulus:u64):bool{if out==null||modulus<2 as u64{return false} out.sum1=0 as u64 out.sum2=0 as u64 out.modulus=modulus out.length=0 as usize return true}
-export function fletcher_state_update(out:*FletcherState,data:[]u8):bool{if out==null||out.modulus<2 as u64{return false} let index:usize=0 as usize while index<len(data){out.sum1=(out.sum1+data[index] as u64)%out.modulus out.sum2=(out.sum2+out.sum1)%out.modulus if out.length==18446744073709551615 as usize{return false} out.length=out.length+1 as usize index=index+1 as usize} return true}
+export function fletcher_state_update(out:*FletcherState,data:[]u8):bool{
+    if out==null||out.modulus<2 as u64{return false}
+    let count:usize=len(data)
+    if count>18446744073709551615 as usize-out.length{return false}
+    let modulus:u64=out.modulus
+    let first:u64=out.sum1
+    let second:u64=out.sum2
+    let index:usize=0 as usize
+    if modulus<=65535 as u64 {
+        // For bounded moduli, a 512-byte block cannot overflow u64.
+        while index<count {
+            let block:usize=count-index
+            if block>512 as usize{block=512 as usize}
+            let end:usize=index+block
+            while index<end {
+                first=first+data[index] as u64
+                second=second+first
+                index=index+1 as usize
+            }
+            first=first%modulus
+            second=second%modulus
+        }
+    }else{
+        // Arbitrary caller moduli need reductions every step: even two
+        // large residues could overflow before modulo.
+        while index<count {
+            first=(first+data[index] as u64)%modulus
+            second=(second+first)%modulus
+            index=index+1 as usize
+        }
+    }
+    out.sum1=first
+    out.sum2=second
+    out.length=out.length+count
+    return true
+}
 export function fletcher_state_value16(out:*FletcherState):u16{if out==null||out.modulus!=255 as u64{return 0 as u16} return(out.sum2*256 as u64+out.sum1)as u16}
 export function fletcher_state_reset(out:*FletcherState):bool{if out==null||out.modulus<2 as u64{return false} out.sum1=0 as u64 out.sum2=0 as u64 out.length=0 as usize return true}
 
 export function internet_checksum_init(out:*InternetChecksumState):bool{if out==null{return false} out.sum=0 as u64 out.oddByte=0 as u8 out.hasOdd=false out.length=0 as usize return true}
-export function internet_checksum_update(out:*InternetChecksumState,data:[]u8):bool{if out==null{return false} let index:usize=0 as usize if out.hasOdd&&len(data)>0 as usize{out.sum=checksum_fold16(out.sum+out.oddByte as u64*256 as u64+data[0] as u64) out.hasOdd=false index=1 as usize} while index+1 as usize<len(data){out.sum=checksum_fold16(out.sum+data[index] as u64*256 as u64+data[index+1 as usize] as u64) index=index+2 as usize} if index<len(data){out.oddByte=data[index] out.hasOdd=true} if len(data)>18446744073709551615 as usize-out.length{return false} out.length=out.length+len(data) return true}
+export function internet_checksum_update(out:*InternetChecksumState,data:[]u8):bool{
+    if out==null{return false}
+    let count:usize=len(data)
+    if count>18446744073709551615 as usize-out.length{return false}
+    let sum:u64=out.sum
+    let index:usize=0 as usize
+    if out.hasOdd&&count>0 as usize{
+        sum=sum+out.oddByte as u64*256 as u64+data[0] as u64
+        out.hasOdd=false
+        index=1 as usize
+    }
+    let words:usize=0 as usize
+    while index+1 as usize<count{
+        sum=sum+data[index] as u64*256 as u64+data[index+1 as usize] as u64
+        index=index+2 as usize
+        words=words+1 as usize
+        if words==2048 as usize{
+            sum=checksum_fold16(sum)
+            words=0 as usize
+        }
+    }
+    if index<count{out.oddByte=data[index] out.hasOdd=true}
+    out.sum=checksum_fold16(sum)
+    out.length=out.length+count
+    return true
+}
 export function internet_checksum_value(out:*InternetChecksumState):u16{if out==null{return 0 as u16} let sum:u64=out.sum if out.hasOdd{sum=checksum_fold16(sum+out.oddByte as u64*256 as u64)} return(65535 as u64-checksum_fold16(sum))as u16}
 export function internet_checksum_reset(out:*InternetChecksumState):bool{return internet_checksum_init(out)}
 
