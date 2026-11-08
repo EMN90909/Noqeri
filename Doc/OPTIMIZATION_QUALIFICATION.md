@@ -33,7 +33,7 @@ and replaces operands through a per-block register-alias map. Eligible
 arithmetic, type checks, cross-block escape restrictions, and the
 original dominance guard are retained.
 
-**Qualification:** `tests/cpp/optimizer_gvn_perf_test.cpp` verifies that
+**Qualification:** `tests/cpp/optimizer_gvn_regression_test.cpp` verifies that
 repeated safe integer calculations reduce to one retained definition,
 that side-effecting stores remain intact, and that a result used in a
 different basic block is **not** eliminated. The
@@ -60,27 +60,9 @@ ctest --test-dir build -R '^noqeri-optimizer-gvn
 
 All passes must preserve Noqeri's source-visible side effects, overflow and trap semantics. Unknown pointer interactions are MayAlias. Volatile/atomic loads, inline assembly, exception edges and unqualified floating-point rearrangements are not removed or moved. A target cost profile in a header does not mean SIMD instructions are emitted.
 
-## Benchmarking native code generation
+## Native code-generation inspection
 
-The Linux x86-64 Stage-0 emitter uses conservative, callee-saved physical
-registers for allocated NIR values. It still reserves the original virtual
-stack slots; most named mutable locals still live in memory, except for
-one eligible loop-hot local promoted to saved RBX. This is a
-first-stage improvement, **not** proof of globally optimal register
-allocation or elimination of redundant array bounds checks.
-
-For assembly inspection run
-`node scripts/native-build.mjs Benchmarks/workloads/sorting.noqeri build/benchmarks/sorting --compiler=build/noqeri --opt=-O3 --keep-asm`.
-The generated `.s` file is preserved beside the executable, and its
-SHA-256 is recorded in the native provenance JSON. For fail-closed benchmark
-coverage, pass `--require-workloads=noqeri:sorting` to
-`scripts/benchmark-suite.mjs`, using a complete local commands file.
-That argument ensures the named result is *measured*, not simply configured.
-
-The GitHub Native AOT performance A/B workflow builds both baseline and
-candidate Stage-0 compilers under identical settings, compares matching
-standalone workloads on one runner, and uploads raw samples. Comparisons must
-not be presented as self-hosted Stage-2 performance.
+Use `scripts/native-build.mjs` with a native correctness fixture from `tests/` and `--keep-asm` to inspect Stage-0 assembly. The repository no longer bundles runtime performance suites or comparison runners.
 
 ## Native x86-64 improvements on 2026-10-24
 
@@ -208,11 +190,7 @@ compiler optimization roadmap is complete.
   operations, fences, volatile accesses and inline assembly invalidate or
   disable this proof. This is not per-object MemorySSA and does not itself
   lower scalar Phi copies.
-- PR #76 adds opt-in fail-closed release performance gate arguments to
-  scripts/perf-gate.mjs. Required workload IDs, same-host profiles, raw
-  samples, independently recomputed median/p95, native AOT provenance,
-  deterministic output and two release regressions are verified. This
-  provides evidence policy, not measured parity with another language.
+- The historical in-repository performance gate was removed with the benchmark tooling; independent results remain necessary before any speed claims.
 - PR #77 removes more redundant bounds checks when a guarded index plus
   a positive constant is provably in range without overflow. It also
   fixes the unsafe stale-snapshot case where the checked index was read
@@ -313,27 +291,9 @@ These changes implement general scalar Phi destruction for explicit valid inputs
 
 All passes must preserve Noqeri's source-visible side effects, overflow and trap semantics. Unknown pointer interactions are MayAlias. Volatile/atomic loads, inline assembly, exception edges and unqualified floating-point rearrangements are not removed or moved. A target cost profile in a header does not mean SIMD instructions are emitted.
 
-## Benchmarking native code generation
+## Native code-generation inspection
 
-The Linux x86-64 Stage-0 emitter uses conservative, callee-saved physical
-registers for allocated NIR values. It still reserves the original virtual
-stack slots; most named mutable locals still live in memory, except for
-one eligible loop-hot local promoted to saved RBX. This is a
-first-stage improvement, **not** proof of globally optimal register
-allocation or elimination of redundant array bounds checks.
-
-For assembly inspection run
-`node scripts/native-build.mjs Benchmarks/workloads/sorting.noqeri build/benchmarks/sorting --compiler=build/noqeri --opt=-O3 --keep-asm`.
-The generated `.s` file is preserved beside the executable, and its
-SHA-256 is recorded in the native provenance JSON. For fail-closed benchmark
-coverage, pass `--require-workloads=noqeri:sorting` to
-`scripts/benchmark-suite.mjs`, using a complete local commands file.
-That argument ensures the named result is *measured*, not simply configured.
-
-The GitHub Native AOT performance A/B workflow builds both baseline and
-candidate Stage-0 compilers under identical settings, compares matching
-standalone workloads on one runner, and uploads raw samples. Comparisons must
-not be presented as self-hosted Stage-2 performance.
+Use `scripts/native-build.mjs` with a native correctness fixture from `tests/` and `--keep-asm` to inspect Stage-0 assembly. The repository no longer bundles runtime performance suites or comparison runners.
 
 ## Native x86-64 improvements on 2026-10-24
 
@@ -461,11 +421,7 @@ compiler optimization roadmap is complete.
   operations, fences, volatile accesses and inline assembly invalidate or
   disable this proof. This is not per-object MemorySSA and does not itself
   lower scalar Phi copies.
-- PR #76 adds opt-in fail-closed release performance gate arguments to
-  scripts/perf-gate.mjs. Required workload IDs, same-host profiles, raw
-  samples, independently recomputed median/p95, native AOT provenance,
-  deterministic output and two release regressions are verified. This
-  provides evidence policy, not measured parity with another language.
+- The historical in-repository performance gate was removed with the benchmark tooling; independent results remain necessary before any speed claims.
 - PR #77 removes more redundant bounds checks when a guarded index plus
   a positive constant is provably in range without overflow. It also
   fixes the unsafe stale-snapshot case where the checked index was read

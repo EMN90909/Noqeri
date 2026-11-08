@@ -6,7 +6,7 @@ for path in $required; do
   if [ ! -e "$path" ]; then echo "missing required repository path: $path" >&2; exit 1; fi
 done
 
-for path in Modules/README.md Objects/README.md Lib/README.md Lib/test/README.md Android/README.md Mac/README.md PC/README.md PCbuild/README.md Platforms/README.md Parser/README.md Runtime/README.md Programs/README.md Benchmarks/README.md Compiler/README.md Tools/README.md Tools/build/README.md Tools/fuzz/README.md Parser/lexer.cpp Parser/parser.cpp Runtime/abi.cpp Runtime/interpreter.cpp Programs/noqeri.cpp Programs/formatter.cpp Programs/lsp.cpp Programs/package.cpp Programs/test_runner.cpp Tools/build/production.cpp; do
+for path in Modules/README.md Objects/README.md Lib/README.md Lib/test/README.md Android/README.md Mac/README.md PC/README.md PCbuild/README.md Platforms/README.md Parser/README.md Runtime/README.md Programs/README.md Compiler/README.md Tools/README.md Tools/build/README.md Tools/fuzz/README.md Parser/lexer.cpp Parser/parser.cpp Runtime/abi.cpp Runtime/interpreter.cpp Programs/noqeri.cpp Programs/formatter.cpp Programs/lsp.cpp Programs/package.cpp Programs/test_runner.cpp Tools/build/production.cpp; do
   if [ -e "$path" ]; then echo "obsolete placeholder/bootstrap-leak path present: $path" >&2; exit 1; fi
 done
 

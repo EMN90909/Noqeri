@@ -8,6 +8,6 @@ noqeri uses layers rather than one monolithic test command.
 4. **Native smoke tests** on Linux x86-64 compile and execute a native `.noqeri` program.
 5. **Sanitizer CI** builds the compiler with ASan/UBSan on Linux and runs the core CTest suite.
 6. **Fuzzing** is staged under `Tools/fuzz/` and must be expanded before a stable production release.
-7. **Benchmarks** live in `Benchmarks/` and are kept separate from correctness tests so performance regressions can be tracked without weakening conformance requirements.
+7. **Native correctness tests** remain separate from speed claims. This repository does not bundle benchmarking suites or timing harnesses.
 
 A syntax or semantic change is incomplete unless grammar/reference docs and relevant tests change together.

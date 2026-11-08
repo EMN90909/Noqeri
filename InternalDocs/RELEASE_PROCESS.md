@@ -24,9 +24,9 @@ Noqeri now contains a language-owned race event/instrumentation model in `Compil
 
 Run the dependency/security audit with advisory data available. `unknown` advisory status is not clean status. Follow `InternalDocs/SECURITY_RESPONSE.md` for embargoed vulnerabilities.
 
-## 3. Performance evidence
+## 3. Performance claims
 
-Run the benchmark suite using `Benchmarks/METHODOLOGY.md`, archive raw samples and compare the candidate against an accepted same-host baseline with `scripts/perf-gate.mjs`. If an important workload exceeds its threshold, the performance gate fails until the regression is understood and explicitly resolved.
+No benchmark suite or timing gate ships with Noqeri. A release performance claim requires independently reproducible same-host measurements, including output validation and relevant build flags. Do not infer performance superiority from compiler code changes alone.
 
 Do not publish “faster than Rust/Zig/C/C++/Go” from a microbenchmark or from an unmatched machine. Comparative claims must link to the exact reproducible result bundle that supports them.
 
@@ -65,4 +65,4 @@ The tool never manufactures a signature or silently calls an unsigned release si
 
 After upload, download every public artifact through the user-facing distribution path and verify SHA-256 plus signature. Verify installer/archive startup on its named OS/architecture, `noqeri --version`, a first program, package install/offline path, and at least one real corpus project.
 
-Publish the manifest, checksums, signature, SBOM, source revision, supported-version statement, known limitations, performance methodology/results, security contact, compatibility evidence and corpus evidence together. A release becomes `stable` because these support obligations are met, not because its version string says stable.
+Publish the manifest, checksums, signature, SBOM, source revision, supported-version statement, known limitations, security contact, compatibility evidence and corpus evidence together. A release becomes `stable` because these support obligations are met, not because its version string says stable.

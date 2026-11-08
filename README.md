@@ -344,7 +344,7 @@ Grammar/        Language grammar
 examples/       Language, web, rendering and shader examples
 Doc/            Specifications, qualification status and guides
 tests/          Compiler, conformance, platform and integration tests
-scripts/        Build, verification and benchmarking tools
+scripts/        Build and verification tools
 Brand/          Project artwork
 ```
 
@@ -364,7 +364,7 @@ The full build has additional native test targets and prerequisites. To run the 
 node scripts/qualify-release.mjs
 ```
 
-**A failing release gate is meaningful.** It can identify unavailable suites, missing external qualifications or native self-hosting gaps; a passing unit test alone is not evidence of a stable release. Benchmarks similarly must distinguish interpreted/NQRI execution from [verified Linux x86-64 native AOT execution](Benchmarks/METHODOLOGY.md).
+**A failing release gate is meaningful.** It can identify unavailable suites, missing external qualifications or native self-hosting gaps; a passing unit test alone is not evidence of a stable release. Comparative performance claims require independently reproduced native AOT measurements. Benchmark fixtures and runners are not included in this repository.
 
 ## Project status
 

@@ -99,13 +99,6 @@ generated WGSL with Naga.
 
 ## Performance and qualification
 
-The earlier **measured** native 2D 256×256 benchmark improved gradient
-by 2.69× and checker by 2.41× over pinned Noqeri source on a matched
-GitHub runner (see `Doc/CPU_RASTER_PERFORMANCE.md`). Clearing
-remained essentially unchanged and slower than C. This new 3D pipeline
-did not exist in the pinned benchmark; **no legitimate before/after 3D
-speedup can be claimed from that dataset**.
-
 A production 3D release still requires hardware/driver/WebGPU
 qualification (including output pixel comparisons, device loss, resize,
 timing, pacing and real GPU timestamps), plus broader engine features.
@@ -121,24 +114,6 @@ controlled demos and differential testing. Do not treat it as a
 general-purpose production 3D game engine. Stage-2 self-hosted WGSL
 generation also remains unqualified; these WGSL stages are generated
 by the Stage-0 C++ emitter.
-
-## First 3D CPU performance evidence (2026-10-24)
-
-GitHub Actions [run 40121020892](https://github.com/EMN90909/Noqeri/actions/runs/40121020892)
-passed native 3D differential qualification and archived 30 raw samples
-per engine and depth scene. The independent C++ reference recomputes
-barycentric pixel coverage across the full surface; it is **not** an
-identical implementation of the Noqeri optimized incremental algorithm.
-
-| 256×256 | Noqeri median | Independent C++ median | Noqeri/C++ time ratio |
-|---|---:|---:|---:|
-| Flat depth | 0.334 ms | 0.093 ms | 3.60× |
-| Interpolated depth | 0.349 ms | 0.092 ms | 3.79× |
-
-No earlier Noqeri 3D CPU implementation was measured in the uploaded
-performance CSV, so these numbers establish a performance baseline
-rather than a historical improvement. No real GPU shader timestamps
-or physical-device performance were measured.
 
 ## Multi-frame WebGPU resource reuse
 
@@ -173,7 +148,7 @@ not a proof that all native memory operations are memory-safe.
 The edge interpolation path now advances its depth numerator along both
 horizontal pixels and scanline rows, replacing three multiplications per
 raster row with a precomputed signed step. The paired same-compiler
-benchmark compares against the pinned `tests/fixtures/render3d_baseline.txt`
+benchmark compares against the pinned the former performance baseline fixture
 and rejects a greater-than-25% median slowdown.
 
 The WebGPU host now offers
@@ -211,39 +186,9 @@ scalar remainder. This does not relax dimension validation and never
 writes beyond the visible `width * height` pixels. The full-buffer
 reference check includes truncated slices and untouched tail sentinels.
 
-The independent 3D benchmark records three scenes: flat-depth triangles,
-interpolated-depth triangles and depth-buffer clear at 256×256. Each
-scene is tested with thirty native Noqeri and C++ samples. The A/B
-comparison builds the pinned original `render3d.noqeri` with the
-**same** compiler and reference driver as the updated source. CI gates
-a median regression above 25%. This is native CPU performance evidence,
-not GPU shader execution or frame rate qualification.
+## Guarded-pointer 3D correctness
 
-## New guarded-pointer 3D performance evidence
-
-The rasterizer and depth clear now validate framebuffer slice lengths
-before deriving native nonvolatile pointers, and then use those pointers
-only for indexes proven below `width * height`. This removes dynamic
-slice-header checks from the hot loop while retaining the C++ full-buffer
-oracle and no-write invalid-input tests. External code must not mutate
-or invalidate the buffers during rendering.
-
-GitHub Actions [run 40127662918](https://github.com/EMN90909/Noqeri/actions/runs/40127662918)
-passed native correctness, shader validation, the GPU firmware simulator
-and a 30-sample same-host A/B comparison against the pinned previous
-Noqeri source:
-
-| 256×256 native CPU operation | Previous median | Candidate median | Speedup |
-|---|---:|---:|---:|
-| Flat-depth triangle | 0.470 ms | 0.424 ms | 1.109× |
-| Interpolated-depth triangle | 0.455 ms | 0.433 ms | 1.053× |
-| Clear Z-buffer | 0.129 ms | 0.103 ms | 1.254× |
-
-The results reflect the complete candidate optimization relative to the
-pinned Noqeri implementation, not individual instruction attribution.
-CI runner results vary with host loading; speedups require continued
-same-run regression monitoring. These are CPU benchmarks only and do not
-qualify GPU/driver performance or physical firmware execution.
+The rasterizer and depth clear validate framebuffer slice lengths before deriving nonvolatile pointers. Native differential tests verify the resulting pixels, invalid inputs, and unchanged tail sentinels.
 
 ## Resize without rebuilding shader pipelines
 
@@ -282,7 +227,7 @@ For the native CPU path, flat-depth triangles now take a separate
 pixel loop without depth numerator increments or integer depth
 division. Interpolated depth keeps its original exact division and
 strict depth comparison. The independent CPU full-frame differential
-and native pinned-source benchmark must pass before performance
+and native native differential qualification must pass before performance
 improvements may be claimed.
 
 No actual indexed-mesh physical GPU FPS or real-driver performance

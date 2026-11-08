@@ -11,7 +11,7 @@ $required = @(
 )
 foreach ($path in $required) { if (-not (Test-Path $path)) { throw "missing required repository path: $path" } }
 
-$obsolete = @('Modules/README.md','Objects/README.md','Lib/README.md','Lib/test/README.md','Android/README.md','Mac/README.md','PC/README.md','PCbuild/README.md','Platforms/README.md','Parser/README.md','Runtime/README.md','Programs/README.md','Benchmarks/README.md','Compiler/README.md','Tools/README.md','Tools/build/README.md','Tools/fuzz/README.md','Parser/lexer.cpp','Parser/parser.cpp','Runtime/abi.cpp','Runtime/interpreter.cpp','Programs/noqeri.cpp','Programs/formatter.cpp','Programs/lsp.cpp','Programs/package.cpp','Programs/test_runner.cpp','Tools/build/production.cpp')
+$obsolete = @('Modules/README.md','Objects/README.md','Lib/README.md','Lib/test/README.md','Android/README.md','Mac/README.md','PC/README.md','PCbuild/README.md','Platforms/README.md','Parser/README.md','Runtime/README.md','Programs/README.md','Compiler/README.md','Tools/README.md','Tools/build/README.md','Tools/fuzz/README.md','Parser/lexer.cpp','Parser/parser.cpp','Runtime/abi.cpp','Runtime/interpreter.cpp','Programs/noqeri.cpp','Programs/formatter.cpp','Programs/lsp.cpp','Programs/package.cpp','Programs/test_runner.cpp','Tools/build/production.cpp')
 foreach ($path in $obsolete) { if (Test-Path $path) { throw "obsolete placeholder/bootstrap-leak path present: $path" } }
 
 $legacy = Get-ChildItem -Recurse -File | Where-Object { $_.Extension -eq '.noe' -or $_.Extension -eq '.ric' }

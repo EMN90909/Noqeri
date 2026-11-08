@@ -60,7 +60,7 @@ compiler supports client-side reactive updates and imports/loads that the
 native compiler does not. This overlap is **not** a claim that the browser DSL
 has been fully ported or that the compiler is written in Noqeri itself.
 
-## Performance and security gates
+## Correctness and security gates
 
 GitHub Actions now checks all of the following:
 
@@ -87,24 +87,11 @@ GitHub Actions now checks all of the following:
   principal shares one quota; unique-principal records are memory bounded.
   **This is per-process enforcement**, not cluster-wide distributed throttling;
   production traffic also needs ingress/shared-rate limits.
-- Native HTTP loopback performance in **both** JavaScript-disabled and hydrated
-  server rendering: 120 measured sequential GETs + 120 GETs at 8-client
-  concurrency, reusing a session and making fresh HTTP/1.1 connections.
-- Default **p95 GET under 250 ms**, 8-client **p95 under 500 ms**, and
-  **8-client throughput over 60 requests/s** on the shared runner. These are
-  intentionally conservative CI regression gates, **not** advertised product
-  throughput or cloud hosting SLOs.
 - Chromium browser E2E for no-JavaScript fallback, SSR hydration, native form
   POSTs, client-side routing and browser history, HTML escaping, and no
   duplicated document navigation. Client navigation p95 must be **under 800
   ms**, measured across 32 real local same-origin requests and reconciliations.
-- Experimental browser-view build benchmark of 160 assets and 4 runs per mode
-  comparing serial (`NOQERI_WEB_BUILD_CONCURRENCY=1`) and bounded batched
-  (`=8`) builds. The p95 budget for each is **under 3,000 ms**.
-  Relative speedup is reported, **not asserted**: parallel I/O is not always
-  faster on constrained disks.
-
-**Measurements must come from completed jobs**, not merely queued workflows.
+**Qualification evidence must come from completed jobs**, not merely queued workflows.
 Check the Native web, Noqeri reactive web views and Browser E2E jobs under
 [GitHub Actions](https://github.com/EMN90909/Noqeri/actions) for the exact
 commit being released. A new commit makes previous jobs' results historical.
@@ -125,12 +112,8 @@ ctest --test-dir build-release -R '^noqeri-native-web$' --output-on-failure
 # Server-side Noqeri actions with optional browser progressive enhancement:
 NOQERI_WEB_REACTIVE=1 ./build-release/noqeri web serve-app examples/native_web_actions 8080
 
-# Node-free HTTP microbenchmark on loopback only:
-python3 tests/native_web_performance.py ./build-release/noqeri-web examples/native_web_actions
-
 # Separate, experimental Node-hosted view compiler qualification:
 node --test tests/web-hydration.test.mjs tests/web-views.test.mjs
-node tests/web-build-performance.mjs
 ```
 
 Tighten budgets and test more demanding workloads on intended deployment

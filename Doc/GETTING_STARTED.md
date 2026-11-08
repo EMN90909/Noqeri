@@ -104,4 +104,4 @@ node Runtime/noqeri-quality.mjs test --overflow tests
 
 Ordinary dynamic safe indexing is still checked independently of these heavy diagnostic modes. Raw operations that bypass normal guarantees belong in explicit `unsafe { ... }` blocks.
 
-Noqeri should not claim performance leadership from anecdotes. See `Benchmarks/METHODOLOGY.md` for the evidence rules.
+Noqeri should not claim performance leadership without independently reproducible results; no benchmark suite is bundled in this repository.

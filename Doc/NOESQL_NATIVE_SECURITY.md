@@ -9,7 +9,7 @@ Run the native fixture and microbenchmark ONLY using a verified Noqeri compiler/
 ```sh
 noqeri check tests/noesql_native_security.noqeri
 noqeri run tests/noesql_native_security.noqeri
-noqeri run Benchmarks/noesql_policy.noqeri
+noqeri run external performance qualification
 ```
 
 No GitHub Actions. No performance numbers are asserted without measured execution. Before production: compile and execute the fixtures, connect authorization to every executor entry point, build the physical transaction manager, test cross-process isolation, verify fsync/recovery, fuzz corrupt inputs, and benchmark concurrent workloads across Linux/Windows/macOS. This increment does not establish parity with PostgreSQL or SQLite.
