@@ -5,6 +5,13 @@ import (
   "os"
 )
 
+func arithmeticChecksum() {
+    var acc uint64
+    for i:=uint64(0);i<5000000;i++ {
+        acc=acc*1664525+i*1013904223+17
+    }
+    fmt.Println(acc)
+}
 func modulo() {
     var acc uint64
     for i := uint64(0); i < 5000000; i++ {
@@ -55,6 +62,7 @@ func reshuffled() {
 func main() {
     if len(os.Args)!=2 { os.Exit(2) }
     switch os.Args[1] {
+    case "arithmetic_checksum":arithmeticChecksum()
     case "modulo":modulo()
     case "matrix":matrix()
     case "sorting_reshuffled":reshuffled()
