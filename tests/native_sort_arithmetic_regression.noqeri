@@ -198,4 +198,48 @@ if !checksum_state_update(&state,slice(&bytes[0],4095 as usize)){valid=false}
 if !checksum_state_update(&state,slice(&bytes[4095],1906 as usize)){valid=false}
 if checksum_state_value(&state)!=checksum_weighted32(data) as u64{valid=false}
 
+
+// Guard signed comparisons across the entire i64 domain.
+let minimum:i64=9223372036854775808 as i64
+let maximum:i64=9223372036854775807 as i64
+let extremes:[i64;5]=[maximum,0 as i64,minimum,-1 as i64,maximum]
+nqSortI64(slice(extremes))
+if extremes[0]!=minimum||extremes[1]!=-1 as i64||extremes[2]!=0 as i64||extremes[3]!=maximum||extremes[4]!=maximum{valid=false}
+
+// Both generic streaming kinds must support odd-byte boundaries, with an
+// exact value observable at every update, not just after all bytes arrive.
+if !checksum_state_init(&state,checksum_kind_fletcher32()){valid=false}
+if !checksum_state_update(&state,slice(&bytes[0],1 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_fletcher32(slice(&bytes[0],1 as usize)) as u64{valid=false}
+if !checksum_state_update(&state,slice(&bytes[1],2048 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_fletcher32(slice(&bytes[0],2049 as usize)) as u64{valid=false}
+if !checksum_state_update(&state,slice(&bytes[2049],3952 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_fletcher32(data) as u64{valid=false}
+if checksum_state_length(&state)!=6001 as usize{valid=false}
+if !checksum_state_init(&state,checksum_kind_internet16()){valid=false}
+if !checksum_state_update(&state,slice(&bytes[0],1 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_internet16(slice(&bytes[0],1 as usize)) as u64{valid=false}
+if !checksum_state_update(&state,slice(&bytes[1],2048 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_internet16(slice(&bytes[0],2049 as usize)) as u64{valid=false}
+if !checksum_state_update(&state,slice(&bytes[2049],3952 as usize)){valid=false}
+if checksum_state_value(&state)!=checksum_internet16(data) as u64{valid=false}
+
+// The dedicated network-checksum streaming record must preserve odd bytes.
+let internet:InternetChecksumState
+if !internet_checksum_init(&internet){valid=false}
+if !internet_checksum_update(&internet,slice(&bytes[0],1 as usize)){valid=false}
+if !internet_checksum_update(&internet,slice(&bytes[1],2048 as usize)){valid=false}
+if !internet_checksum_update(&internet,slice(&bytes[2049],3952 as usize)){valid=false}
+if internet_checksum_value(&internet)!=checksum_internet16(data){valid=false}
+let fletcher:FletcherState
+if !fletcher_state_init(&fletcher,255 as u64){valid=false}
+if !fletcher_state_update(&fletcher,slice(&bytes[0],2222 as usize)){valid=false}
+if !fletcher_state_update(&fletcher,slice(&bytes[2222],3779 as usize)){valid=false}
+if fletcher_state_value16(&fletcher)!=checksum_fletcher16(data){valid=false}
+
+// Invalid ranges do not read past the provided slice.
+if checksum_compute_range(7,data,6002 as usize,1 as usize)!=0 as u64{valid=false}
+if checksum_compute_range(7,data,6001 as usize,0 as usize)!=65535 as u64{valid=false}
+if checksum_arithmetic_u64(18446744073709551615 as usize)!=15537050785740491526 as u64{valid=false}
+
 if valid{print("PASS")}else{print("FAIL")}
