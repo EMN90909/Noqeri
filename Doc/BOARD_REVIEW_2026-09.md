@@ -134,7 +134,7 @@ The repository test command already runs `noqeri test tests`, so the new fixture
 
 ## Performance evidence
 
-`former benchmark manifest (removed)` now has explicit evidence states and foundational-structure workload IDs for bitset, Bloom filter, deque, heap and priority queue. `Benchmarks/structures.noqeri` provides a repeated mixed-operation workload for those structures.
+The earlier benchmark manifest and its foundational-structure workloads for bitset, Bloom filter, deque, heap and priority queue have been retired. Correctness and conformance tests remain in `tests/`.
 
 Those entries are deliberately marked `unmeasured`. No timing numbers were invented. The existing performance gate already refuses to report a passing comparison when result IDs are not comparable.
 
