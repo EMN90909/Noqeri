@@ -10,9 +10,10 @@ For a same-host Noqeri compiler regression:
     python3 scripts/local-sorting-matrix-ab.py \
         --baseline /path/to/older/noqeri --candidate build-local-perf/noqeri
 
-No GitHub Actions. Exactly the same reshuffled insertion-sort work and 200
-16x16 matrix passes as Benchmarks/comparison/workloads.go/.c. Outputs must
-match before warmups and after every timed run. Raw samples are retained.
+No GitHub Actions. The C/Go/Noqeri fixtures perform the same work:
+200 stable and reshuffled insertion-sort rounds, 200 16x16 matrix passes,
+and a five-million-iteration wrapping u64 arithmetic checksum. Outputs
+must match before warmups and after every timed run. Raw samples are retained.
 """
 import argparse
 import hashlib
