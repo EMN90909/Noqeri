@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local native O0/O3 regression for the new in-place i64 sort API."""
+"""Local native O0/O3 correctness regression for in-place introsort with heap fallback."""
 import argparse
 import subprocess
 import tempfile
@@ -32,4 +32,4 @@ with tempfile.TemporaryDirectory(prefix="noqeri-sort-local-") as temp:
                 f"{opt} heap-sort output mismatch: "
                 f"expected {expected!r}, got {result.stdout!r}"
             )
-        print(f"{opt}: heap-sort O(n log n), descending, duplicates and short-list PASS")
+        print(f"{opt}: introsort (with heap fallback), descending, duplicates and short-list PASS")

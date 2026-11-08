@@ -31,3 +31,18 @@ with tempfile.TemporaryDirectory(prefix="noqeri-sort-checksum-test-") as temp:
         if completed.stdout!="PASS\n":
             raise AssertionError(f"{opt} correctness regression: {completed.stdout!r}, stderr={completed.stderr!r}")
         print(f"{opt}: in-place/stable sorting, exact arithmetic, and checksums PASS")
+    # Retain the original general-sort compatibility output as an independent
+    # golden fixture for callers that already use nqSortI64.
+    golden="1\\n-50\\n50\\n50\\n-50\\n47\\n1\\n8\\n1\\n-8\\n8\\n11\\n"
+    for opt in ("-O0","-O3"):
+        binary=Path(temp)/("sort-compat-"+opt[1:])
+        subprocess.run([
+            "node","scripts/native-build.mjs",
+            "tests/native_sort_heap.noqeri",str(binary),
+            f"--compiler={compiler}",f"--opt={opt}",
+        ],cwd=ROOT,check=True,timeout=180)
+        completed=subprocess.run([str(binary)],cwd=ROOT,
+                                 check=True,capture_output=True,text=True,timeout=120)
+        if completed.stdout!=golden:
+            raise AssertionError(f"{opt} existing sort API output changed: {completed.stdout!r}")
+        print(f"{opt}: existing sort API golden output PASS")
