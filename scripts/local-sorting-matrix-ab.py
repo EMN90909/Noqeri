@@ -31,6 +31,10 @@ WORKLOADS = {
         "source": ROOT / "Benchmarks/workloads/arithmetic_checksum.noqeri",
         "expected": "12488332508630596960\n",
     },
+    "sorting_stable": {
+        "source": ROOT / "Benchmarks/workloads/sorting.noqeri",
+        "expected": "64\n65032\n",
+    },
     "sorting_reshuffled": {
         "source": ROOT / "Benchmarks/workloads/sorting_reshuffled.noqeri",
         "expected": "13104300\n",
