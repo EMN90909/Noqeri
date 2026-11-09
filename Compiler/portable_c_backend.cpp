@@ -19,6 +19,7 @@ bool unsignedInteger(TypeKind k) {
 bool supportedScalar(TypeKind k) {
     Type t;t.kind=k;
     return k==TypeKind::Bool||k==TypeKind::Float||k==TypeKind::String||
+           k==TypeKind::Pointer||
            (t.isInteger()&&t.size()>0&&t.size()<=8);
 }
 std::string reg(Reg r) { return "r[" + std::to_string(r) + "]"; }
@@ -27,7 +28,6 @@ std::string args(const NirInstruction& in,std::size_t index) {
 }
 std::string quote(const std::string& s) {
     std::ostringstream out;out << '"';
-    // Hex escapes can consume adjacent hex digits, so use fixed-width octal.
     for(unsigned char ch:s){
         if(ch=='"'||ch=='\\')out << '\\' << static_cast<char>(ch);
         else if(ch>=32&&ch<=126)out << static_cast<char>(ch);
@@ -36,14 +36,18 @@ std::string quote(const std::string& s) {
     out << '"';return out.str();
 }
 const char* runtime=R"C(
-/* Portable C11 machine-code bridge. This file is generated from typed NIR.
-   It requires a native C compiler, not a Noqeri NQRI bytecode interpreter. */
+/* Portable C11 machine-code bridge. Generated from typed Noqeri NIR. */
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdalign.h>
+
+static void* nq_abi_ctx = NULL;
+static int32_t (*nq_abi_write)(void*, const char*, size_t) = NULL;
+
 static uint64_t nq_bits(double x){uint64_t b=0;memcpy(&b,&x,sizeof b);return b;}
 static double nq_double(uint64_t b){double x=0;memcpy(&x,&b,sizeof x);return x;}
 static void nq_trap(void){abort();}
@@ -72,13 +76,20 @@ static uint64_t nq_div(uint64_t a,uint64_t b,int is_unsigned,int remainder){
     return (uint64_t)(remainder?x%y:x/y);
 }
 static void nq_print(uint64_t bits,int kind){
+    char buf[128];
+    int len=0;
     switch(kind){
-      case 0:printf("%" PRId64 "\n",(int64_t)bits);break;
-      case 1:printf("%" PRIu64 "\n",bits);break;
-      case 2:puts(bits?"true":"false");break;
-      case 3:printf("%.6f\n",nq_double(bits));break;
-      case 4:if(!bits)nq_trap();puts((const char*)(uintptr_t)bits);break;
+      case 0:len=snprintf(buf,sizeof(buf),"%" PRId64 "\n",(int64_t)bits);break;
+      case 1:len=snprintf(buf,sizeof(buf),"%" PRIu64 "\n",bits);break;
+      case 2:len=snprintf(buf,sizeof(buf),"%s\n",bits?"true":"false");break;
+      case 3:len=snprintf(buf,sizeof(buf),"%.6f\n",nq_double(bits));break;
+      case 4:if(!bits)nq_trap();len=snprintf(buf,sizeof(buf),"%s\n",(const char*)(uintptr_t)bits);break;
       default:nq_trap();
+    }
+    if(nq_abi_write&&len>0){
+        nq_abi_write(nq_abi_ctx,buf,(size_t)len);
+    }else if(len>0){
+        fwrite(buf,1,(size_t)len,stdout);
     }
 }
 )C";
@@ -94,8 +105,6 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
         diagnostics.error("NQR-C8202",{},"portable native function exceeds bounded register/instruction/argument limits");
         return false;
     }
-    // The C11 bridge is scalar-only. Reject pointer/aggregate ABIs even if
-    // their bodies happen not to dereference them in this compilation unit.
     for(const auto& t:fn.paramTypes){
         if(!supportedScalar(t.kind)){
             diagnostics.error("NQR-C8209",{},"portable C11 backend does not support pointer or aggregate function arguments");
@@ -108,7 +117,6 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
         diagnostics.error("NQR-C8209",{},"portable C11 backend does not support pointer or aggregate function returns");
         return false;
     }
-    // Validate *before* writing any partially usable portable output.
     for(const auto& in:fn.code){
         const bool valid=[&](){
             switch(in.op){
@@ -123,7 +131,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                     if(r>=fn.registerTypes.size())return false;
                     const auto kind=fn.registerTypes[r].kind;
                     if(!(fn.registerTypes[r].isNumeric()||
-                         kind==TypeKind::Bool))return false;
+                         kind==TypeKind::Bool||kind==TypeKind::Pointer))return false;
                 }
                 if(in.op==NirOp::Unary)
                     return in.text=="!"||in.text=="-";
@@ -137,7 +145,8 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                 if(in.args.size()!=1)return false;
                 Type src;
                 if(in.args[0]<fn.registerTypes.size())src=fn.registerTypes[in.args[0]];
-                return src.isNumeric()&&in.type.isNumeric();
+                return (src.isNumeric()||src.kind==TypeKind::Pointer)&&
+                       (in.type.isNumeric()||in.type.kind==TypeKind::Pointer);
             }
             case NirOp::Call:{
                 if(in.text=="print")
@@ -150,6 +159,24 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                        (in.op==NirOp::Jump||in.args.size()==1);
             case NirOp::Return:
                 return in.args.size()<=1;
+            case NirOp::StackAlloc:
+                return in.dest.has_value();
+            case NirOp::PtrOffset:
+                return in.dest.has_value()&&in.args.size()==2;
+            case NirOp::LoadMemory:
+                return in.dest.has_value()&&in.args.size()==1;
+            case NirOp::StoreMemory:
+                return in.args.size()==2;
+            case NirOp::CheckBounds:
+                return in.args.size()==2;
+            case NirOp::CheckNonNull:
+                return in.args.size()==1;
+            case NirOp::AddressOf:
+                return in.dest.has_value();
+            case NirOp::MakeSlice:
+                return in.dest.has_value()&&in.args.size()==2;
+            case NirOp::SliceData:case NirOp::SliceLen:
+                return in.dest.has_value()&&in.args.size()==1;
             default:return false;
             }
         }();
@@ -171,7 +198,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
     std::map<std::string,std::size_t> vars;
     for(const auto& p:fn.params)vars.emplace(p,vars.size());
     for(const auto& in:fn.code)
-        if(in.op==NirOp::Load||in.op==NirOp::Store)
+        if(in.op==NirOp::Load||in.op==NirOp::Store||in.op==NirOp::AddressOf)
             if(!vars.count(in.text))vars.emplace(in.text,vars.size());
     out<<"static uint64_t "<<symbol<<"(";
     if(fn.params.empty())out<<"void";
@@ -181,13 +208,21 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
     }
     out<<"){\n uint64_t r["<<std::max<std::uint32_t>(fn.nextReg,1)<<"]={0};\n";
     out<<" uint64_t v["<<std::max<std::size_t>(vars.size(),1)<<"]={0};\n";
+    for(std::size_t pc=0;pc<fn.code.size();++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::StackAlloc){
+            out<<" _Alignas(64) uint8_t m_"<<pc<<"["<<std::max<std::size_t>(in.width,1)<<"]={0};\n";
+        }else if(in.op==NirOp::MakeSlice){
+            out<<" uint64_t s_"<<pc<<"[2]={0};\n";
+        }
+    }
     for(std::size_t i=0;i<fn.params.size();++i)out<<" v["<<vars.at(fn.params[i])<<"]=p"<<i<<";\n";
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         const auto& in=fn.code[pc];const auto dst=in.dest?reg(*in.dest):"r[0]";
         const TypeKind srcKind=!in.args.empty()&&in.args[0]<fn.registerTypes.size()?
             fn.registerTypes[in.args[0]].kind:TypeKind::Unknown;
         const auto lhs=args(in,0),rhs=args(in,1);
-        out<<"L"<<pc<<":\n";
+        out<<"L"<<pc<<":;\n";
         switch(in.op){
         case NirOp::Const:
             if(auto v=std::get_if<std::int64_t>(&in.literal))
@@ -244,6 +279,8 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                 else out<<" "<<dst<<"=nq_bits((double)("<<(unsignedInteger(srcKind)?"uint64_t":"int64_t")<<")"<<lhs<<");\n";
             }else if(srcKind==TypeKind::Float){
                 out<<" "<<dst<<"=nq_from_float("<<lhs<<","<<(in.type.size()*8)<<","<<(unsignedInteger(target)?1:0)<<");\n";
+            }else if(target==TypeKind::Pointer||srcKind==TypeKind::Pointer){
+                out<<" "<<dst<<"="<<lhs<<";\n";
             }else{
                 out<<" "<<dst<<"=nq_narrow("<<lhs<<","<<(in.type.size()*8)<<","<<(unsignedInteger(target)?0:1)<<");\n";
             }
@@ -256,7 +293,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
                     if(srcKind==TypeKind::String)type=4;
                     else if(srcKind==TypeKind::Bool)type=2;
                     else if(srcKind==TypeKind::Float)type=3;
-                    else if(unsignedInteger(srcKind))type=0; // Stage-0 print currently renders u64 bit patterns as signed.
+                    else if(unsignedInteger(srcKind))type=0;
                     else type=0;
                 }
                 if(type<0){diagnostics.error("NQR-C8206",{},"portable C print supports scalar int/bool/float/string only");return false;}
@@ -272,10 +309,47 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
         case NirOp::JumpIfFalse:out<<" if(!"<<lhs<<")goto L"<<in.target<<";\n";break;
         case NirOp::Return:out<<" return "<<(in.args.empty()?"UINT64_C(0)":lhs)<<";\n";break;
         case NirOp::Nop:out<<" (void)0;\n";break;
+        case NirOp::StackAlloc:
+            out<<" "<<dst<<"=(uint64_t)(uintptr_t)m_"<<pc<<";\n";
+            break;
+        case NirOp::PtrOffset:
+            out<<" "<<dst<<"="<<lhs<<"+((uint64_t)(int64_t)"<<rhs<<"*"<<in.width<<");\n";
+            break;
+        case NirOp::LoadMemory:
+            if(in.width==1)out<<" "<<dst<<"=*(const uint8_t*)(uintptr_t)"<<lhs<<";\n";
+            else if(in.width==2)out<<" "<<dst<<"=*(const uint16_t*)(uintptr_t)"<<lhs<<";\n";
+            else if(in.width==4)out<<" "<<dst<<"=*(const uint32_t*)(uintptr_t)"<<lhs<<";\n";
+            else out<<" "<<dst<<"=*(const uint64_t*)(uintptr_t)"<<lhs<<";\n";
+            break;
+        case NirOp::StoreMemory:
+            if(in.width==1)out<<" *(uint8_t*)(uintptr_t)"<<lhs<<"=(uint8_t)"<<rhs<<";\n";
+            else if(in.width==2)out<<" *(uint16_t*)(uintptr_t)"<<lhs<<"=(uint16_t)"<<rhs<<";\n";
+            else if(in.width==4)out<<" *(uint32_t*)(uintptr_t)"<<lhs<<"=(uint32_t)"<<rhs<<";\n";
+            else out<<" *(uint64_t*)(uintptr_t)"<<lhs<<"="<<rhs<<";\n";
+            break;
+        case NirOp::CheckBounds:
+            out<<" if((int64_t)"<<lhs<<"<0||(uint64_t)"<<lhs<<">="<<rhs<<")nq_trap();\n";
+            break;
+        case NirOp::CheckNonNull:
+            out<<" if(!"<<lhs<<")nq_trap();\n";
+            break;
+        case NirOp::AddressOf:
+            out<<" "<<dst<<"=(uint64_t)(uintptr_t)&v["<<vars.at(in.text)<<"];\n";
+            break;
+        case NirOp::MakeSlice:
+            out<<" s_"<<pc<<"[0]="<<lhs<<"; s_"<<pc<<"[1]="<<rhs<<";\n";
+            out<<" "<<dst<<"=(uint64_t)(uintptr_t)s_"<<pc<<";\n";
+            break;
+        case NirOp::SliceData:
+            out<<" "<<dst<<"=*(const uint64_t*)(uintptr_t)"<<lhs<<";\n";
+            break;
+        case NirOp::SliceLen:
+            out<<" "<<dst<<"=*(const uint64_t*)((uintptr_t)"<<lhs<<"+8);\n";
+            break;
         default:break;
         }
     }
-    out<<"L"<<fn.code.size()<<":\n return UINT64_C(0);\n}\n";
+    out<<"L"<<fn.code.size()<<":;\n return UINT64_C(0);\n}\n";
     return true;
 }
 } // namespace
@@ -299,10 +373,22 @@ bool PortableCBackend::emitSource(const NirProgram& program,
         }
         out<<");\n";
     }
+    out<<"static uint64_t nq_entry(void);\n";
     for(const auto& fn:program.functions)
         if(!emitFunction(out,fn,symbols,diagnostics,symbols.at(fn.name)))return false;
     if(!emitFunction(out,program.entry,symbols,diagnostics,"nq_entry"))return false;
-    out<<"int main(void){(void)nq_entry();return 0;}\n";
+    out<<"typedef struct nq_abi_view { uint32_t v; uint32_t s; void* ctx; int32_t (*w)(void*,const char*,size_t); } nq_abi_view;\n"
+       <<"int64_t noqeri_entry(void* abi_ptr){\n"
+       <<"    if(abi_ptr){\n"
+       <<"        nq_abi_view* a = (nq_abi_view*)abi_ptr;\n"
+       <<"        nq_abi_ctx=a->ctx;\n"
+       <<"        nq_abi_write=a->w;\n"
+       <<"    }\n"
+       <<"    return (int64_t)nq_entry();\n"
+       <<"}\n"
+       <<"#ifndef NOQERI_NO_MAIN\n"
+       <<"int main(void){return (int)noqeri_entry(NULL);}\n"
+       <<"#endif\n";
     auto parent=output.parent_path();if(parent.empty())parent=".";
     std::error_code ec;std::filesystem::create_directories(parent,ec);
     if(ec){diagnostics.error("NQR-C8208",{},"cannot create portable C output directory: "+ec.message());return false;}

@@ -1,0 +1,49 @@
+// Verification of -O0 and -O3 optimization equivalence:
+// nested loops, array memory operations, sorting, and signed arithmetic.
+function test_nested_loops(): int {
+    let sum: int = 0
+    let i: int = 0
+    while i < 10 {
+        let j: int = 0
+        while j < 10 {
+            sum = sum + (i * 10 + j)
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return sum
+}
+
+function test_array_sort(): int {
+    let arr: [int; 5] = [42, 17, 99, 1, 23]
+    let j: int = 1
+    while j < 5 {
+        let key: int = arr[j]
+        let k: int = j - 1
+        while k >= 0 && arr[k] > key {
+            arr[k + 1] = arr[k]
+            k = k - 1
+        }
+        arr[k + 1] = key
+        j = j + 1
+    }
+    return arr[0] * 10000 + arr[4]
+}
+
+function test_signed_remainder(): int {
+    let a: int = -97
+    let b: int = 13
+    let rem: int = a % b
+    let c: int = 97
+    let rem2: int = c % b
+    return rem * 100 + rem2
+}
+
+function main_test(): int {
+    let r1: int = test_nested_loops()
+    let r2: int = test_array_sort()
+    let r3: int = test_signed_remainder()
+    return r1 + r2 + r3
+}
+
+print(main_test())

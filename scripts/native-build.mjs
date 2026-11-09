@@ -64,6 +64,7 @@ const compiler = option('compiler', process.env.NOQERI_COMPILER || 'build/noqeri
 const compilerPath = compiler.includes('/') || compiler.includes('\\') ? resolve(root, compiler) : compiler
 const cxx = option('cxx', process.env.CXX || 'c++')
 const optimization = option('opt', '-O3')
+const backend = option('backend', 'native')
 const keepAsm = process.argv.includes('--keep-asm')
 const linkAiFramework = process.argv.includes('--ai-framework')
 const linkOwnedCollections = process.argv.includes('--owned-collections')
@@ -91,7 +92,9 @@ const runnerObject = resolve(temp, 'runner.o')
 const runnerSource = resolve(root, 'Runtime/native/aot_runner.cpp')
 
 try {
-  run(compilerPath, ['build', source, assembly, optimization])
+  const buildArgs = ['build', source, assembly, optimization]
+  if (backend === 'llvm') buildArgs.push('--backend=llvm')
+  run(compilerPath, buildArgs)
   if (!existsSync(assembly) || statSync(assembly).size === 0) fail('Noqeri compiler did not emit assembly')
 
   const needsCompilerListRuntime = /\bcall\s+nq_list_(?:new|append|length|close|at|set|pop|clear)\b/.test(readFileSync(assembly, 'utf8'))
