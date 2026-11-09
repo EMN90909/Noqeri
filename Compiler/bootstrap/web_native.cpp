@@ -344,6 +344,17 @@ class Parser {
                 if (take(".")) name+="."+identifier();
                 if (name=="slot"&&peek().value=="{") {
                     n.kind="slot";expect("{");expect("}");
+                } else if (name=="json"&&peek().value=="{") {
+                    n.kind="json"; n.tag="json";
+                    expect("{");
+                    while (!take("}")) {
+                        const auto key=identifier();
+                        expect(":");
+                        n.attrs.push_back({key,expression()});
+                        take(","); take(";");
+                    }
+                    result.push_back(std::move(n));
+                    continue;
                 } else if (take("(")) {
                     n.kind="component"; n.tag=name;
                     if (!take(")")) {
@@ -588,7 +599,7 @@ public:
             } else if (!library && take("layout")) {
                 if(p.hasLayout)fail("duplicate layout");
                 p.hasLayout=true;p.layout=children();
-            } else if (!library && take("route")) {
+            } else if (!library && (take("route") || take("api"))) {
                 const auto path=literalString();
                 if (!p.routes.emplace(path,children()).second) fail("duplicate route");
             } else if (!library && take("view")) {

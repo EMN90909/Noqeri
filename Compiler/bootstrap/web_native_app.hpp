@@ -47,6 +47,27 @@ std::string hexDecode(const std::string& data) {
     }
     return value;
 }
+std::string escapeJson(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        if (c == '"') out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c == '\b') out += "\\b";
+        else if (c == '\f') out += "\\f";
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else if (c < 32) {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+            out += buf;
+        } else {
+            out += static_cast<char>(c);
+        }
+    }
+    return out;
+}
 void loadPersisted(AppStore& store) {
     for (const auto& name:store.project.persistentState)
         store.persisted[name]=store.project.globals.at(name);
@@ -315,6 +336,9 @@ std::string lower(std::string text) {
     std::transform(text.begin(),text.end(),text.begin(),[](unsigned char c){return std::tolower(c);});
     return text;
 }
+struct RequestTooLarge : std::runtime_error {
+    RequestTooLarge():std::runtime_error("request body exceeds limit"){}
+};
 struct AppRequest {
     std::string method,path,host,origin,body,cookie,type,authorization;
     bool hasOrigin=false;
@@ -360,7 +384,8 @@ AppRequest receiveAppRequest(int fd) {
     AppRequest req;std::string protocol,extra;
     start>>req.method>>req.path>>protocol>>extra;
     if(!extra.empty()||(protocol!="HTTP/1.0"&&protocol!="HTTP/1.1")||
-       (req.method!="GET"&&req.method!="POST"&&req.method!="HEAD"))
+       (req.method!="GET"&&req.method!="POST"&&req.method!="HEAD"&&
+        req.method!="PUT"&&req.method!="DELETE"&&req.method!="PATCH"))
         throw std::runtime_error("invalid HTTP request line");
     if(req.path.empty()||req.path[0]!='/'||req.path.find('%')!=std::string::npos||
        req.path.find("//")!=std::string::npos||req.path.find("..")!=std::string::npos||
@@ -394,7 +419,7 @@ AppRequest receiveAppRequest(int fd) {
                !std::all_of(val.begin(),val.end(),[](char c){return c>='0'&&c<='9';}))
                 throw std::runtime_error("invalid content-length");
             hasLength=true;length=static_cast<std::size_t>(std::stoul(val));
-            if(length>4096)throw std::runtime_error("request too large");
+            if(length>4096)throw RequestTooLarge{};
         }
         if(name=="content-type")req.type=lower(val);
         if(name=="cookie")req.cookie=val;
@@ -407,7 +432,10 @@ AppRequest receiveAppRequest(int fd) {
     if(req.method=="POST"&&(!hasLength||
         (req.type!="application/x-www-form-urlencoded"&&
          req.type!="application/x-www-form-urlencoded; charset=utf-8"&&
-         req.type!="application/x-www-form-urlencoded;charset=utf-8")))
+         req.type!="application/x-www-form-urlencoded;charset=utf-8"&&
+         req.type!="application/json"&&
+         req.type!="application/json; charset=utf-8"&&
+         req.type!="application/json;charset=utf-8")))
         throw std::runtime_error("unsupported POST encoding");
     if(req.method=="POST" && req.hasOrigin && req.origin.empty())
         throw std::runtime_error("empty Origin is not valid");
@@ -446,6 +474,7 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
               const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
         status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
+        status==413?"Payload Too Large":
         status==422?"Unprocessable Content":status==429?"Too Many Requests":status==503?"Service Unavailable":"Internal Server Error";
     std::string header="HTTP/1.1 "+std::to_string(status)+" "+reason+"\r\n"
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
@@ -531,6 +560,7 @@ RouteSelection matchAppRoute(const Project& project,const std::string& path) {
                        return std::isalnum(ch)||ch=='_'||ch=='-';
                    })) {matches=false;break;}
                 params.emplace(segments[i].substr(1),parts[i]);
+                params.emplace("params."+segments[i].substr(1),parts[i]);
             }else if(segments[i]!=parts[i]) {matches=false;break;}
         }
         if(matches)return {&nodes,std::move(params)};
@@ -965,6 +995,22 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             render(app.project.layout,app.project,{},0,&app.project.fallback):
                             render(app.project.fallback,app.project),"/theme.css"):"Page not found";
                     appReply(client,404,content,"","",head);
+                } else if(!page.nodes->empty() && (page.nodes->front().kind=="json" || page.nodes->front().tag=="json")) {
+                    const auto& jsonNode=page.nodes->front();
+                    std::string jsonContent="{";
+                    bool first=true;
+                    for(const auto& attr:jsonNode.attrs) {
+                        if(!first)jsonContent+=",";
+                        first=false;
+                        const auto val=evaluate(attr.second,page.params,app.project.globals);
+                        bool isNum=!val.empty()&&std::all_of(val.begin(),val.end(),[](char c){return c>='0'&&c<='9';});
+                        bool isBool=val=="true"||val=="false";
+                        jsonContent+="\""+attr.first+"\":";
+                        if(isNum||isBool)jsonContent+=val;
+                        else jsonContent+="\""+escapeJson(val)+"\"";
+                    }
+                    jsonContent+="}";
+                    appReply(client,200,jsonContent,"","",head,"application/json; charset=utf-8");
                 } else if(req.method=="POST") {
                     std::lock_guard<std::mutex> locked(stateGuard);
                     const auto sid=getSid(req.cookie);
@@ -1159,6 +1205,8 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                 }
             }
             }
+        } catch(const RequestTooLarge&) {
+            appReply(client,413,"Payload Too Large");
         } catch(const NativeDatabaseFailure&) {
             std::cerr<<"{\"service\":\"noqeri-web\",\"event\":\"database_failure\"}\n";
             appReply(client,503,"Database temporarily unavailable");

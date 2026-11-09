@@ -1,0 +1,5 @@
+function check_bounds(idx: int): int {
+    let users: [int; 3]
+    return users[idx]
+}
+check_bounds(10)

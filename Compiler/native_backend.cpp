@@ -296,6 +296,20 @@ noqeri_rt_platform:
 .L_noqeri_platform_fail:
     lea rax, [rip + .L_noqeri_standalone]
     ret
+noqeri_rt_bounds_trap:
+    lea rdi, [rip + .L_noqeri_bounds_err]
+    mov rsi, 46
+    call noqeri_rt_write
+    cmp eax, -1
+    jne .L_noqeri_bounds_exit
+    mov rax, 1
+    mov rdi, 2
+    lea rsi, [rip + .L_noqeri_bounds_err]
+    mov rdx, 46
+    syscall
+.L_noqeri_bounds_exit:
+    mov edi, 1
+    call exit
 )ASM";}
 bool signedNarrow(TypeKind kind){
     return kind==TypeKind::I8||kind==TypeKind::I16||kind==TypeKind::I32;
@@ -984,6 +998,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         if(allMemoryUses)fusedPointers.insert(defPc);
     }
     std::vector<std::string> coldTrapLabels;
+    std::vector<std::string> coldBoundsTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
         if(delayedLoads.count(pc)){
@@ -1211,7 +1226,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         case NirOp::CheckBounds:{
             if(i.args.size()!=2){diagnostics.error("NQR-N5023",{},"malformed NIR bounds-check instruction");return false;}
             const auto failed=localLabel(fn,pc,"bounds_fail");
-            coldTrapLabels.push_back(failed);
+            coldBoundsTrapLabels.push_back(failed);
             const auto fixed=constantValues.find(i.args[1]);
             // For fixed nonnegative lengths, one unsigned comparison is
             // sufficient: every negative i64 index is encoded above the
@@ -1572,7 +1587,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
         case NirOp::Nop:break;
     }}
-    if(!coldTrapLabels.empty()){
+    if(!coldTrapLabels.empty()||!coldBoundsTrapLabels.empty()){
         // If malformed NIR ever reaches the end without a Return, this
         // unconditional branch keeps valid fallthrough out of the trap
         // island. Normal functions have already returned here.
@@ -1580,6 +1595,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         out<<"    jmp "<<done<<"\n";
         for(const auto& name:coldTrapLabels)
             out<<name<<":\n    ud2\n";
+        for(const auto& name:coldBoundsTrapLabels)
+            out<<name<<":\n    jmp noqeri_rt_bounds_trap\n    ud2\n";
         out<<done<<":\n";
     }
     return true;
@@ -1610,7 +1627,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     for(const auto&f:p.functions)
         if(!emitFunction(out,f,returns,strings,callSymbols,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
-    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n";
+    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n.L_noqeri_bounds_err: .asciz \"NQR-R4000: runtime error: index out of bounds\\n\"\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
 #if !defined(_WIN32)
     // ELF x86-64 native objects must not request an executable stack.

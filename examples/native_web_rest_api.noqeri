@@ -1,0 +1,15 @@
+// Native REST API in Noqeri.
+// Zero boilerplate, compiled directly to a standalone native executable.
+// Run: noqeri-web serve-app examples/native_web_rest_api.noqeri 3000
+
+api "/hello" {
+    json {
+        message: "Hello from Noqeri!"
+    }
+}
+
+api "/users/:id" {
+    json {
+        id: params.id
+    }
+}

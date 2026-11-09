@@ -129,6 +129,10 @@ std::string clientNodes(const std::vector<Node>& nodes,const Project& project,
             out+=clientExpr(node.text,project,locals);
             continue;
         }
+        if(node.kind=="json") {
+            out+="\"[json api]\"";
+            continue;
+        }
         if(node.kind=="component") {
             std::string name=node.tag;
             if(!project.uiAlias.empty() &&

@@ -51,6 +51,17 @@ static int32_t (*nq_abi_write)(void*, const char*, size_t) = NULL;
 static inline uint64_t nq_bits(double x){uint64_t b=0;memcpy(&b,&x,sizeof b);return b;}
 static inline double nq_double(uint64_t b){double x=0;memcpy(&x,&b,sizeof x);return x;}
 static inline void nq_trap(void){abort();}
+static inline void nq_bounds_trap(uint64_t index, uint64_t length){
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf), "NQR-R4000: runtime error: index out of bounds: index=%" PRIu64 ", length=%" PRIu64 "\n", index, length);
+    if (nq_abi_write && n > 0) {
+        nq_abi_write(nq_abi_ctx, buf, (size_t)n);
+    } else if (n > 0) {
+        fwrite(buf, 1, (size_t)n, stderr);
+        fflush(stderr);
+    }
+    exit(1);
+}
 static inline uint64_t nq_narrow(uint64_t n,unsigned width,int is_signed){
     if(width>=64)return n;
     uint64_t mask=(UINT64_C(1)<<width)-UINT64_C(1);
@@ -328,7 +339,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
             else out<<" *(uint64_t*)(uintptr_t)"<<lhs<<"="<<rhs<<";\n";
             break;
         case NirOp::CheckBounds:
-            out<<" if((uint64_t)"<<lhs<<">=(uint64_t)"<<rhs<<")nq_trap();\n";
+            out<<" if((uint64_t)"<<lhs<<">=(uint64_t)"<<rhs<<")nq_bounds_trap((uint64_t)"<<lhs<<",(uint64_t)"<<rhs<<");\n";
             break;
         case NirOp::CheckNonNull:
             out<<" if(!"<<lhs<<")nq_trap();\n";
