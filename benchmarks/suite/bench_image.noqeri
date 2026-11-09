@@ -15,4 +15,4 @@ function bench_image(): int {
     }
     return checksum
 }
-bench_image()
+print(bench_image())

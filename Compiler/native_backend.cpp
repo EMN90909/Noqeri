@@ -420,12 +420,12 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             return a.second>b.second||
                    (a.second==b.second&&a.first<b.first);
         });
-        // Keep the main local in RBX. Reserve one more callee-saved
-        // register only for a genuinely hot second local; preserve the
-        // remaining r13-r15 for SSA temporaries and induction arithmetic.
-        const char* hotRegisters[]={"rbx","r12"};
-        for(std::size_t n=0;n<ranked.size()&&n<2;++n){
-            if(ranked[n].second<(n==0?2u:8u))break;
+        const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
+            [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
+        const char* hotRegisters[]={"rbx","r12","r13","r14","r15"};
+        const std::size_t maxHotVars = hasCalls ? 3u : 5u;
+        for(std::size_t n=0;n<ranked.size()&&n<maxHotVars;++n){
+            if(ranked[n].second<2u)break;
             variablePhysical.emplace(ranked[n].first,hotRegisters[n]);
             saved.emplace_back(hotRegisters[n]);
         }
@@ -962,6 +962,27 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         return "QWORD PTR ["+baseReg+" + "+indexReg+"*"+
                std::to_string(pointer.width)+"]";
     };
+    std::unordered_map<Reg,std::size_t> ptrOffsetDefs;
+    for(std::size_t p=0;p<fn.code.size();++p){
+        if(fn.code[p].op==NirOp::PtrOffset&&fn.code[p].dest)
+            ptrOffsetDefs[*fn.code[p].dest]=p;
+    }
+    for(const auto& [reg,defPc]:ptrOffsetDefs){
+        const auto& pointer=fn.code[defPc];
+        if(pointer.width!=8||!fixedStackAddress(pointer))continue;
+        bool allMemoryUses=true;
+        for(std::size_t u=defPc+1;u<fn.code.size();++u){
+            for(Reg arg:fn.code[u].args){
+                if(arg==reg){
+                    if(fn.code[u].op!=NirOp::LoadMemory&&fn.code[u].op!=NirOp::StoreMemory){
+                        allMemoryUses=false;break;
+                    }
+                }
+            }
+            if(!allMemoryUses)break;
+        }
+        if(allMemoryUses)fusedPointers.insert(defPc);
+    }
     std::vector<std::string> coldTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
@@ -1083,15 +1104,24 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             // itself. Avoid the RAX -> r12-r15 hop in array-heavy loops.
             const auto destination=physical.find(*i.dest);
             const bool directQword=i.width==8&&destination!=physical.end();
-            if(pc>0&&fusedPointers.count(pc-1)){
+            std::optional<std::string> stackAddr;
+            if(i.width==8){
+                if(pc>0&&fusedPointers.count(pc-1)){
+                    stackAddr=fixedStackAddress(fn.code[pc-1]);
+                }
+                if(!stackAddr){
+                    const auto def=ptrOffsetDefs.find(i.args[0]);
+                    if(def!=ptrOffsetDefs.end())
+                        stackAddr=fixedStackAddress(fn.code[def->second]);
+                }
+            }
+            if(stackAddr){
+                if(directQword)
+                    out<<"    mov "<<destination->second<<", "<<*stackAddr<<"\n";
+                else out<<"    mov rax, "<<*stackAddr<<"\n";
+            }else if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
-                const auto stack=i.width==8?fixedStackAddress(pointer):
-                    std::nullopt;
-                if(stack){
-                    if(directQword)
-                        out<<"    mov "<<destination->second<<", "<<*stack<<"\n";
-                    else out<<"    mov rax, "<<*stack<<"\n";
-                }else if(i.width==8){
+                if(i.width==8){
                     const auto address=registerIndexedAddress(pointer);
                     if(directQword)
                         out<<"    mov "<<destination->second<<", "<<address<<"\n";
@@ -1114,18 +1144,27 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             // an allocated register, skip staging it through R10.
             const auto value=physical.find(i.args[1]);
             const bool directQword=i.width==8&&value!=physical.end();
-            if(pc>0&&fusedPointers.count(pc-1)){
+            std::optional<std::string> stackAddr;
+            if(i.width==8){
+                if(pc>0&&fusedPointers.count(pc-1)){
+                    stackAddr=fixedStackAddress(fn.code[pc-1]);
+                }
+                if(!stackAddr){
+                    const auto def=ptrOffsetDefs.find(i.args[0]);
+                    if(def!=ptrOffsetDefs.end())
+                        stackAddr=fixedStackAddress(fn.code[def->second]);
+                }
+            }
+            if(stackAddr){
+                if(directQword)
+                    out<<"    mov "<<*stackAddr<<", "<<value->second<<"\n";
+                else{
+                    load(i.args[1],"r10");
+                    out<<"    mov "<<*stackAddr<<", r10\n";
+                }
+            }else if(pc>0&&fusedPointers.count(pc-1)){
                 const auto& pointer=fn.code[pc-1];
-                const auto stack=i.width==8?fixedStackAddress(pointer):
-                    std::nullopt;
-                if(stack){
-                    if(directQword)
-                        out<<"    mov "<<*stack<<", "<<value->second<<"\n";
-                    else{
-                        load(i.args[1],"r10");
-                        out<<"    mov "<<*stack<<", r10\n";
-                    }
-                }else if(i.width==8){
+                if(i.width==8){
                     const auto address=registerIndexedAddress(pointer);
                     if(directQword)
                         out<<"    mov "<<address<<", "<<value->second<<"\n";

@@ -1,4 +1,4 @@
-function bench_matrix(): void {
+function bench_matrix(): int {
     let N: int = 256
     let A: [int; 65536]
     let B: [int; 65536]
@@ -28,5 +28,6 @@ function bench_matrix(): void {
         }
         i = i + 1
     }
+    return C[N * 256 - 1]
 }
-bench_matrix()
+print(bench_matrix())

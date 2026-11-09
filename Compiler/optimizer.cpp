@@ -950,6 +950,28 @@ bool hoistLoopLiteral(NirFunction& fn) {
                                       [analysis.owner[def->second]]){
                     pureInvariant=false;
                 }
+            }else if(instruction.op==NirOp::Load&&!instruction.isVolatile){
+                bool modifiedInLoop=false;
+                for(std::size_t k=header;k<=back;++k){
+                    const auto& in=fn.code[k];
+                    if((in.op==NirOp::Store||in.op==NirOp::AddressOf)&&in.text==instruction.text){
+                        modifiedInLoop=true;break;
+                    }
+                    if(in.op==NirOp::Call||in.op==NirOp::InlineAsm){
+                        modifiedInLoop=true;break;
+                    }
+                }
+                if(!modifiedInLoop)pureInvariant=true;
+            }else if(instruction.op==NirOp::PtrOffset&&instruction.args.size()==2){
+                pureInvariant=true;
+                for(Reg arg:instruction.args){
+                    const auto def=analysis.definitions.find(arg);
+                    if(def==analysis.definitions.end()||def->second>=header||
+                       !analysis.dominates[analysis.owner[header]]
+                                          [analysis.owner[def->second]]){
+                        pureInvariant=false;break;
+                    }
+                }
             }
             if(!pureInvariant)continue;
             const auto reg=*instruction.dest;
@@ -1083,28 +1105,39 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
         const auto checkedKind=operandType(fn,check.args[0]);
         if(!loads.count(baseIndex)){
             auto def=g.definitions.find(baseIndex);
-            if(def==g.definitions.end())continue;
-            const auto& outer=fn.code[def->second];
-            if(outer.op==NirOp::Binary&&outer.text=="+"&&
-               outer.args.size()==2){
-                const auto bias=integerConst(outer.args[1]);
-                if(!bias||*bias<0)continue;
-                offset=*bias;
-                baseIndex=outer.args[0];
-                if(operandType(fn,baseIndex)!=checkedKind)continue;
+            if(def!=g.definitions.end()){
+                const auto& outer=fn.code[def->second];
+                if(outer.op==NirOp::Binary&&outer.text=="+"&&
+                   outer.args.size()==2){
+                    const auto biasR=integerConst(outer.args[1]);
+                    const auto biasL=integerConst(outer.args[0]);
+                    if(biasR&&*biasR>=0){
+                        offset=*biasR;
+                        baseIndex=outer.args[0];
+                    }else if(biasL&&*biasL>=0){
+                        offset=*biasL;
+                        baseIndex=outer.args[1];
+                    }
+                }
             }
         }
         if(!loads.count(baseIndex)){
             const auto def=g.definitions.find(baseIndex);
-            if(def==g.definitions.end())continue;
-            const auto& mul=fn.code[def->second];
-            if(mul.op!=NirOp::Binary||mul.text!="*"||
-               mul.args.size()!=2)continue;
-            const auto factor=integerConst(mul.args[1]);
-            if(!factor||*factor<=0)continue;
-            scale=*factor;
-            baseIndex=mul.args[0];
-            if(operandType(fn,baseIndex)!=checkedKind)continue;
+            if(def!=g.definitions.end()){
+                const auto& mul=fn.code[def->second];
+                if(mul.op==NirOp::Binary&&mul.text=="*"&&
+                   mul.args.size()==2){
+                    const auto factorR=integerConst(mul.args[1]);
+                    const auto factorL=integerConst(mul.args[0]);
+                    if(factorR&&*factorR>0){
+                        scale=*factorR;
+                        baseIndex=mul.args[0];
+                    }else if(factorL&&*factorL>0){
+                        scale=*factorL;
+                        baseIndex=mul.args[1];
+                    }
+                }
+            }
         }
         auto indexName=loads.find(baseIndex);
         auto limit=constants.find(check.args[1]);
@@ -1522,33 +1555,66 @@ bool unrollGuardedLoop2x(NirFunction& fn){
     if(n<6||n>4096)return false;
     const Graph cfg=graphOf(fn);
     if(!cfg.uniqueDefs||!cfg.validDominance)return false;
-    std::size_t back=n;
+    std::vector<std::size_t> candidateBackedges;
     for(std::size_t pc=0;pc<n;++pc){
         const auto& in=fn.code[pc];
         if(in.op==NirOp::Try||in.op==NirOp::Throw||
            in.op==NirOp::InlineAsm)return false;
         if(in.op==NirOp::Jump&&in.target<pc){
-            if(back!=n)return false; // reject nesting and several loops
-            back=pc;
+            candidateBackedges.push_back(pc);
         }else if(in.op==NirOp::JumpIfFalse&&in.target<pc)
             return false;
     }
-    if(back==n)return false;
-    const auto header=fn.code[back].target;
-    if(header>=back)return false;
-    const auto span=back-header;
-    if(span<3||span>24||n+span>4096)return false;
+    if(candidateBackedges.empty())return false;
+    std::size_t back=n;
+    std::size_t header=n;
     std::size_t guard=n;
-    for(std::size_t pc=header;pc<back;++pc){
-        const auto& in=fn.code[pc];
-        if(in.op==NirOp::JumpIfFalse){
-            if(guard!=n||in.target!=back+1||in.args.size()!=1)
-                return false;
-            guard=pc;
-        }else if(in.op==NirOp::Jump||in.op==NirOp::Return||
-                 in.op==NirOp::Throw)return false;
+    std::size_t span=0;
+    for(std::size_t candidateBack:candidateBackedges){
+        const auto candidateHeader=fn.code[candidateBack].target;
+        if(candidateHeader>=candidateBack)continue;
+        const auto candidateSpan=candidateBack-candidateHeader;
+        if(candidateSpan<3||candidateSpan>32||n+candidateSpan>4096)continue;
+        // Verify no other backedges exist inside this loop (innermost check)
+        bool innerBackedges=false;
+        for(std::size_t b:candidateBackedges){
+            if(b!=candidateBack&&b>candidateHeader&&b<candidateBack){
+                innerBackedges=true;break;
+            }
+        }
+        if(innerBackedges)continue;
+        std::size_t candidateGuard=n;
+        bool validControl=true;
+        for(std::size_t pc=candidateHeader;pc<candidateBack;++pc){
+            const auto& in=fn.code[pc];
+            if(in.op==NirOp::JumpIfFalse){
+                if(candidateGuard!=n||in.target!=candidateBack+1||in.args.size()!=1){
+                    validControl=false;break;
+                }
+                candidateGuard=pc;
+            }else if(in.op==NirOp::Jump||in.op==NirOp::Return||in.op==NirOp::Throw){
+                validControl=false;break;
+            }
+        }
+        if(!validControl||candidateGuard==n||candidateGuard==candidateBack-1)continue;
+        // Check no external jumps enter inside
+        bool externalEntry=false;
+        for(std::size_t pc=0;pc<n;++pc){
+            if(pc>=candidateHeader&&pc<=candidateBack)continue;
+            const auto& in=fn.code[pc];
+            if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+               in.target>candidateHeader&&in.target<=candidateBack){
+                externalEntry=true;break;
+            }
+        }
+        if(externalEntry)continue;
+        back=candidateBack;
+        header=candidateHeader;
+        guard=candidateGuard;
+        span=candidateSpan;
+        break;
     }
-    if(guard==n||guard==back-1)return false;
+    if(back==n||header==n||guard==n)return false;
     // An externally targeted instruction within the body must never be
     // entered via a path bypassing the loop's condition.
     for(std::size_t pc=0;pc<n;++pc){
@@ -1973,7 +2039,7 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         // Repeatedly hoist nontrapping, invariant integer arithmetic and
         // literals from structured loops. Each move removes one candidate
         // from the loop; cap iterations to bound compile-time overhead.
-        const auto cap=std::min<std::size_t>(8,fn.code.size());
+        const auto cap=std::min<std::size_t>(64,fn.code.size());
         for(std::size_t k=0;k<cap&&hoistLoopLiteral(fn);++k)
             dce(fn);
     }

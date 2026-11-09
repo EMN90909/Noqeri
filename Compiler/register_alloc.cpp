@@ -131,6 +131,31 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
         if(fn.code[pc].dest&&*fn.code[pc].dest<hotUses.size())
             hotUses[*fn.code[pc].dest]+=weight;
     }
+    std::unordered_map<Reg,std::size_t> immUses,totalUses;
+    for(const auto& in:fn.code){
+        for(std::size_t idx=0;idx<in.args.size();++idx){
+            Reg arg=in.args[idx];
+            ++totalUses[arg];
+            if(idx==1&&(in.op==NirOp::Binary||in.op==NirOp::CheckBounds))
+                ++immUses[arg];
+        }
+    }
+    std::unordered_set<Reg> isImm32Const;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Const&&in.dest){
+            if(auto v=std::get_if<std::int64_t>(&in.literal)){
+                if(*v>=std::numeric_limits<std::int32_t>::min()&&
+                   *v<=std::numeric_limits<std::int32_t>::max()){
+                    if(immUses[*in.dest]==totalUses[*in.dest]&&totalUses[*in.dest]>0)
+                        isImm32Const.insert(*in.dest);
+                }
+            }
+        }
+    }
+    const auto effectiveWeight=[&](Reg r)->std::uint64_t{
+        if(isImm32Const.count(r))return 0;
+        return r<hotUses.size()?hotUses[r]:0;
+    };
     struct Active{std::size_t interval;std::string reg;};
     std::vector<Active> active;
     std::unordered_map<Reg,RegisterLocation> locations;
@@ -156,15 +181,15 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
                     [&](const auto& a,const auto& b){
                         const auto ra=plan.intervals[a.interval].value;
                         const auto rb=plan.intervals[b.interval].value;
-                        const auto wa=ra<hotUses.size()?hotUses[ra]:0;
-                        const auto wb=rb<hotUses.size()?hotUses[rb]:0;
+                        const auto wa=effectiveWeight(ra);
+                        const auto wb=effectiveWeight(rb);
                         if(wa!=wb)return wa<wb;
                         return plan.intervals[a.interval].end>
                                plan.intervals[b.interval].end;
                     });
                 const auto victimReg=plan.intervals[victim->interval].value;
-                const auto oldWeight=victimReg<hotUses.size()?hotUses[victimReg]:0;
-                const auto newWeight=iv.value<hotUses.size()?hotUses[iv.value]:0;
+                const auto oldWeight=effectiveWeight(victimReg);
+                const auto newWeight=effectiveWeight(iv.value);
                 if(newWeight>oldWeight||
                    (newWeight==oldWeight&&
                     plan.intervals[victim->interval].end>iv.end)){

@@ -38,8 +38,8 @@ echo -n -e "Noqeri(AOT)\tsort\t"
 ./benchmarks/suite/c_image
 ./benchmarks/suite/cpp_image
 ./benchmarks/suite/rust_image
-./bench_image
+./benchmarks/suite/zig_image
 ./benchmarks/suite/go_image
 node benchmarks/suite/bench_image.js
 echo -n -e "Noqeri(AOT)\timage\t"
-/tmp/bench_noqeri_image
+./benchmarks/suite/noqeri_image
