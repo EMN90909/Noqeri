@@ -79,6 +79,16 @@ bounded single-head research implementation rather than full LLM pretraining.
 See [AI and language-model patch guide](Doc/AI_PATCH_V0_1_4.md). Post-tag
 binary add-ons are shipped separately from the immutable v0.1.4 original.
 
+## Native networking preview (experimental)
+
+Noqeri has an experimental **reference-interpreter** networking interface for DNS, TCP sockets,
+UDP datagrams, and HTTP(S) clients (libcurl optional), alongside Wi-Fi adapters for Linux,
+Windows and macOS and a Linux desktop BlueZ Bluetooth adapter. Some operations require
+device permissions, NetworkManager/BlueZ tools, or previously saved Wi-Fi profiles.
+Bluetooth GATT, Android Wi-Fi/Bluetooth adapters, AOT native symbol linking and hardware
+qualification are **not complete**. Do not treat an `extern` declaration as proof of a
+working native feature. See [Networking support matrix, usage and tests](Doc/NETWORKING.md).
+
 ## Native web app preview (v0.1.4)
 
 Use the **single Noqeri CLI** for native static sites, JS-free full-stack

@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: Apache-2.0
+// Interpreted/bootstrap native networking API. Underlying runtime lives in C++17.
+// Error handles: -1 IO/timeout, -2 invalid arguments, -3 optional feature unavailable.
+// Call net_last_error() immediately after a text receive to distinguish EOF from an error.
+module noqeri.std.network
+
+extern function netDnsResolve(host: string, family: int): string
+extern function netTcpConnect(host: string, port: int, timeoutMillis: int): i64
+extern function netTcpListen(address: string, port: int, backlog: int): i64
+extern function netTcpAccept(listener: i64, timeoutMillis: int): i64
+extern function netTcpSend(socket: i64, content: string, timeoutMillis: int): int
+extern function netTcpRead(socket: i64, maxBytes: int, timeoutMillis: int): string
+extern function netUdpBind(address: string, port: int): i64
+extern function netUdpSend(socket: i64, host: string, port: int, content: string, timeoutMillis: int): int
+extern function netUdpRead(socket: i64, maxBytes: int, timeoutMillis: int): string
+extern function netSocketLocalPort(socket: i64): int
+extern function netSocketClose(socket: i64): int
+extern function netLastError(): int
+
+extern function netHttpAvailable(): bool
+extern function netHttpRequest(method: string, url: string, body: string, timeoutMillis: int): i64
+extern function netHttpStatus(response: i64): int
+extern function netHttpBody(response: i64): string
+extern function netHttpHeader(response: i64, name: string): string
+extern function netHttpClose(response: i64): int
+
+export function resolve(host: string): string { return netDnsResolve(host, 0) }
+export function resolve_ipv4(host: string): string { return netDnsResolve(host, 4) }
+export function resolve_ipv6(host: string): string { return netDnsResolve(host, 6) }
+export function tcp_connect(host: string, port: int, timeoutMillis: int): i64 {
+    return netTcpConnect(host, port, timeoutMillis)
+}
+export function tcp_listen(address: string, port: int): i64 { return netTcpListen(address, port, 128) }
+export function tcp_accept(listener: i64, timeoutMillis: int): i64 { return netTcpAccept(listener, timeoutMillis) }
+export function tcp_send(socket: i64, text: string, timeoutMillis: int): int {
+    return netTcpSend(socket, text, timeoutMillis)
+}
+export function tcp_read(socket: i64, maxBytes: int, timeoutMillis: int): string {
+    return netTcpRead(socket, maxBytes, timeoutMillis)
+}
+export function udp_bind(address: string, port: int): i64 { return netUdpBind(address, port) }
+export function udp_send(socket: i64, host: string, port: int, text: string, timeoutMillis: int): int {
+    return netUdpSend(socket, host, port, text, timeoutMillis)
+}
+export function udp_read(socket: i64, maxBytes: int, timeoutMillis: int): string {
+    return netUdpRead(socket, maxBytes, timeoutMillis)
+}
+export function socket_port(socket: i64): int { return netSocketLocalPort(socket) }
+export function socket_close(socket: i64): int { return netSocketClose(socket) }
+export function last_error(): int { return netLastError() }
+export function http_available(): bool { return netHttpAvailable() }
+export function http_get(url: string, timeoutMillis: int): i64 {
+    return netHttpRequest("GET", url, "", timeoutMillis)
+}
+export function http_post(url: string, body: string, timeoutMillis: int): i64 {
+    return netHttpRequest("POST", url, body, timeoutMillis)
+}
+export function http_status(response: i64): int { return netHttpStatus(response) }
+export function http_body(response: i64): string { return netHttpBody(response) }
+export function http_header(response: i64, name: string): string { return netHttpHeader(response, name) }
+export function http_close(response: i64): int { return netHttpClose(response) }
+
+extern function netWifiAvailable(): bool
+extern function netWifiSsid(): string
+extern function netWifiScan(): string
+extern function netWifiConnectSaved(ssid: string): int
+extern function netWifiDisconnect(): int
+extern function netBluetoothAvailable(): bool
+extern function netBluetoothScan(timeoutMillis: int): string
+extern function netBluetoothConnect(deviceId: string, timeoutMillis: int): i64
+extern function netBluetoothDisconnect(connection: i64): int
+
+export function wifi_available(): bool { return netWifiAvailable() }
+export function wifi_ssid(): string { return netWifiSsid() }
+export function wifi_scan(): string { return netWifiScan() }
+export function wifi_connect_saved(ssid: string): int { return netWifiConnectSaved(ssid) }
+export function wifi_disconnect(): int { return netWifiDisconnect() }
+export function bluetooth_available(): bool { return netBluetoothAvailable() }
+export function bluetooth_scan(timeoutMillis: int): string { return netBluetoothScan(timeoutMillis) }
+export function bluetooth_connect(deviceId: string, timeoutMillis: int): i64 {
+    return netBluetoothConnect(deviceId, timeoutMillis)
+}
+export function bluetooth_disconnect(connection: i64): int { return netBluetoothDisconnect(connection) }
