@@ -1,0 +1,18 @@
+function bench_image(): int {
+    let checksum: int = 0
+    let y: int = 0
+    while y < 512 {
+        let x: int = 0
+        while x < 512 {
+            let r: int = (x + y * 3) % 256
+            let g: int = (x * 7 + y * 13) % 256
+            let b: int = (x + y) % 256
+            let pixel: int = (r * 65536) + (g * 256) + b
+            checksum = checksum + pixel
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return checksum
+}
+bench_image()

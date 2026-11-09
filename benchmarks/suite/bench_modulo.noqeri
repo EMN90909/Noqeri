@@ -1,0 +1,11 @@
+function bench_modulo(): void {
+    let sum: int = 0
+    let i: int = 1
+    while i <= 10000000 {
+        let m: int = (i * 37 + 13) % 997
+        sum = sum + m
+        i = i + 1
+    }
+    // print result prefix
+}
+bench_modulo()
