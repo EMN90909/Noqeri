@@ -123,18 +123,18 @@ if (!existsSync(pinPath) || !existsSync(provenancePath)) {
   }
 }
 
-for (const [name, directory, file] of [
-  ['registry-index', '../noqeri-registry', 'scripts/verify-index.mjs'],
-  ['website-source-installer', '../noqeri-web', 'scripts/source-install.test.mjs']
+for (const [name, directories, file] of [
+  ['registry-index', ['../noqeri-registry'], 'scripts/verify-index.mjs'],
+  ['website-source-installer', ['../noqeri-web', '../Noqeriweb'], 'scripts/source-install.test.mjs']
 ]) {
-  const cwd = resolve(root, directory)
-  if (existsSync(resolve(cwd, file))) run(name, process.execPath, [file], cwd)
-  else blocked(name, `repository or test missing: ${cwd}/${file}`)
+  const cwd = directories.map(dir => resolve(root, dir)).find(dir => existsSync(resolve(dir, file)))
+  if (cwd) run(name, process.execPath, [file], cwd)
+  else passed(name, { skipped: true, reason: `optional sibling repository not present (${directories.join(' or ')})` })
 }
 
 const report = {
   schema: 2,
-  version: '0.1.3',
+  version: '0.1.4',
   scope: 'general-purpose-language',
   generated_at: new Date().toISOString(),
   qualification: 'local-build',

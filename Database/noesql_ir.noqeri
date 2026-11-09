@@ -25,6 +25,7 @@ record NoeIrPlan {
     mutationColumn: usize
     mutationValue: NoeValue
 }
+export function noeTypeUnknown(): int { return 0 }
 export function noeTypeInt(): int { return 1 }
 export function noeTypeBool(): int { return 2 }
 export function noeTypeText(): int { return 3 }

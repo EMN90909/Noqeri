@@ -1,51 +1,54 @@
 import "../Runtime/race.noqeri"
 
-let slots: [NqRaceSlot; 16]
-nqRaceSlotsClear(slice(slots))
+function main(): int {
+    let slots: [NqRaceSlot; 16]
+    nqRaceSlotsClear(slice(slots))
 
-let first: NqRaceClock
-let second: NqRaceClock
-let report: NqRaceReport
-nqRaceClockInit(&first, 1 as u64)
-nqRaceClockInit(&second, 2 as u64)
+    let first: NqRaceClock
+    let second: NqRaceClock
+    let report: NqRaceReport
+    nqRaceClockInit(&first, 1 as u64)
+    nqRaceClockInit(&second, 2 as u64)
 
-// Two reads are safe.
-if nqRaceRead(slice(slots), &first, 4096 as u64, 8 as usize, 10 as u64, &report) != nqRaceOk() { throw 1 }
-if nqRaceRead(slice(slots), &second, 4096 as u64, 8 as usize, 20 as u64, &report) != nqRaceOk() { throw 2 }
+    // Two reads are safe.
+    if nqRaceRead(slice(slots), &first, 4096 as u64, 8 as usize, 10 as u64, &report) != nqRaceOk() { throw 1 }
+    if nqRaceRead(slice(slots), &second, 4096 as u64, 8 as usize, 20 as u64, &report) != nqRaceOk() { throw 2 }
 
-// A write from another unsynchronised task conflicts.
-nqRaceSlotsClear(slice(slots))
-nqRaceClockInit(&first, 1 as u64)
-nqRaceClockInit(&second, 2 as u64)
-if nqRaceWrite(slice(slots), &first, 8192 as u64, 8 as usize, 30 as u64, &report) != nqRaceOk() { throw 3 }
-nqRaceClockTick(&second)
-nqRaceClockTick(&second)
-if nqRaceRead(slice(slots), &second, 8192 as u64, 8 as usize, 40 as u64, &report) != nqRaceDetected() { throw 4 }
-if report.firstTask != 1 as u64 || report.secondTask != 2 as u64 { throw 5 }
+    // A write from another unsynchronised task conflicts.
+    nqRaceSlotsClear(slice(slots))
+    nqRaceClockInit(&first, 1 as u64)
+    nqRaceClockInit(&second, 2 as u64)
+    if nqRaceWrite(slice(slots), &first, 8192 as u64, 8 as usize, 30 as u64, &report) != nqRaceOk() { throw 3 }
+    nqRaceClockTick(&second)
+    nqRaceClockTick(&second)
+    if nqRaceRead(slice(slots), &second, 8192 as u64, 8 as usize, 40 as u64, &report) != nqRaceDetected() { throw 4 }
+    if report.firstTask != 1 as u64 || report.secondTask != 2 as u64 { throw 5 }
 
-// Synchronisation creates happens-before.
-nqRaceSlotsClear(slice(slots))
-nqRaceClockInit(&first, 1 as u64)
-nqRaceClockInit(&second, 2 as u64)
-if nqRaceWrite(slice(slots), &first, 12288 as u64, 4 as usize, 50 as u64, &report) != nqRaceOk() { throw 6 }
-nqRaceSynchronize(&first, &second)
-if nqRaceRead(slice(slots), &second, 12288 as u64, 4 as usize, 60 as u64, &report) != nqRaceOk() { throw 7 }
+    // Synchronisation creates happens-before.
+    nqRaceSlotsClear(slice(slots))
+    nqRaceClockInit(&first, 1 as u64)
+    nqRaceClockInit(&second, 2 as u64)
+    if nqRaceWrite(slice(slots), &first, 12288 as u64, 4 as usize, 50 as u64, &report) != nqRaceOk() { throw 6 }
+    nqRaceSynchronize(&first, &second)
+    if nqRaceRead(slice(slots), &second, 12288 as u64, 4 as usize, 60 as u64, &report) != nqRaceOk() { throw 7 }
 
-// Atomic/atomic is safe, but mixing atomic and non-atomic is still a race.
-nqRaceSlotsClear(slice(slots))
-nqRaceClockInit(&first, 1 as u64)
-nqRaceClockInit(&second, 2 as u64)
-if nqRaceAtomicWrite(slice(slots), &first, 16384 as u64, 8 as usize, 70 as u64, &report) != nqRaceOk() { throw 8 }
-if nqRaceAtomicRead(slice(slots), &second, 16384 as u64, 8 as usize, 80 as u64, &report) != nqRaceOk() { throw 9 }
-nqRaceSlotsClear(slice(slots))
-if nqRaceAtomicWrite(slice(slots), &first, 20480 as u64, 8 as usize, 90 as u64, &report) != nqRaceOk() { throw 10 }
-if nqRaceRead(slice(slots), &second, 20480 as u64, 8 as usize, 100 as u64, &report) != nqRaceDetected() { throw 11 }
+    // Atomic/atomic is safe, but mixing atomic and non-atomic is still a race.
+    nqRaceSlotsClear(slice(slots))
+    nqRaceClockInit(&first, 1 as u64)
+    nqRaceClockInit(&second, 2 as u64)
+    if nqRaceAtomicWrite(slice(slots), &first, 16384 as u64, 8 as usize, 70 as u64, &report) != nqRaceOk() { throw 8 }
+    if nqRaceAtomicRead(slice(slots), &second, 16384 as u64, 8 as usize, 80 as u64, &report) != nqRaceOk() { throw 9 }
+    nqRaceSlotsClear(slice(slots))
+    if nqRaceAtomicWrite(slice(slots), &first, 20480 as u64, 8 as usize, 90 as u64, &report) != nqRaceOk() { throw 10 }
+    if nqRaceRead(slice(slots), &second, 20480 as u64, 8 as usize, 100 as u64, &report) != nqRaceDetected() { throw 11 }
 
-// Partial overlap must be detected.
-nqRaceSlotsClear(slice(slots))
-nqRaceClockInit(&first, 1 as u64)
-nqRaceClockInit(&second, 2 as u64)
-if nqRaceWrite(slice(slots), &first, 30000 as u64, 16 as usize, 110 as u64, &report) != nqRaceOk() { throw 12 }
-if nqRaceRead(slice(slots), &second, 30008 as u64, 8 as usize, 120 as u64, &report) != nqRaceDetected() { throw 13 }
+    // Partial overlap must be detected.
+    nqRaceSlotsClear(slice(slots))
+    nqRaceClockInit(&first, 1 as u64)
+    nqRaceClockInit(&second, 2 as u64)
+    if nqRaceWrite(slice(slots), &first, 30000 as u64, 16 as usize, 110 as u64, &report) != nqRaceOk() { throw 12 }
+    if nqRaceRead(slice(slots), &second, 30008 as u64, 8 as usize, 120 as u64, &report) != nqRaceDetected() { throw 13 }
 
-print(0)
+    print(0)
+    return 0
+}

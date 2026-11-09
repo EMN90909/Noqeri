@@ -71,14 +71,14 @@ int main(int argc,char** argv) {
     if(unsignedAsm.empty()||
        !std::regex_search(unsignedAsm,
            std::regex(R"(cmp [^\n]+\n\s+jae )"))||
-       unsignedAsm.find("    js ")!=std::string::npos){
+       unsignedAsm.find("    js .L___entry_")!=std::string::npos){
         std::cerr<<"dynamic unsigned bounds must use one unsigned CMP/JAE guard\n";
         return 1;
     }
     const auto signedAsm=dynamicAsm(noe::TypeKind::I64);
     if(signedAsm.empty()||
-       signedAsm.find("    js ")==std::string::npos||
-       signedAsm.find("    jae ")==std::string::npos){
+       signedAsm.find("    js .L___entry_")==std::string::npos||
+       signedAsm.find("    jae .L___entry_")==std::string::npos){
         std::cerr<<"dynamic signed bounds lost the negative-index trap\n";
         return 1;
     }

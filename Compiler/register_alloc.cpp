@@ -123,13 +123,13 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
     for(std::size_t pc=0;pc<n;++pc){
         currentDepth+=depthDiff[pc];
         const auto weight=static_cast<std::uint64_t>(1+
-            4*std::min(std::max(currentDepth,0),4));
+            10*std::min(std::max(currentDepth,0),4));
         for(const auto reg:fn.code[pc].args)
             if(reg<hotUses.size())hotUses[reg]+=weight;
-        // A definition still has a cost to spill; a use inside a loop has
-        // far greater impact than a single definition outside it.
+        // Weight definitions inside loops as well so loop-carried Phi/induction
+        // updates are not evicted in favor of outer single-use values.
         if(fn.code[pc].dest&&*fn.code[pc].dest<hotUses.size())
-            ++hotUses[*fn.code[pc].dest];
+            hotUses[*fn.code[pc].dest]+=weight;
     }
     struct Active{std::size_t interval;std::string reg;};
     std::vector<Active> active;

@@ -4,15 +4,32 @@ export function dbPageMagic(): u32 { return 1312900162 as u32 }
 export function dbPageFormatVersion(): u32 { return 1 as u32 }
 export function dbPageHeaderBytes(): usize { return 32 as usize }
 
+function dbPageXorLowByte(hash: u64, byte: u8): u64 {
+    let high: u64 = (hash / 256 as u64) * 256 as u64
+    let a: u64 = hash % 256 as u64
+    let b: u64 = byte as u64
+    let place: u64 = 1 as u64
+    let low: u64 = 0 as u64
+    let bit: int = 0
+    while bit < 8 {
+        if a % 2 as u64 != b % 2 as u64 { low = low + place }
+        a = a / 2 as u64
+        b = b / 2 as u64
+        if bit < 7 { place = place * 2 as u64 }
+        bit = bit + 1
+    }
+    return high + low
+}
+
 export function dbPageChecksum(bytes: []u8): u32 {
-    let hash: u32 = 2166136261 as u32
+    let hash: u64 = 2166136261 as u64
     let index: usize = 0 as usize
     while index < len(bytes) {
-        hash = hash ^ bytes[index] as u32
-        hash = hash * 16777619 as u32
+        hash = dbPageXorLowByte(hash, bytes[index])
+        hash = (hash * 16777619 as u64) % 4294967296 as u64
         index = index + 1 as usize
     }
-    return hash
+    return hash as u32
 }
 
 export function dbPageHeaderValid(magic: u32, version: u32, pageId: u64, payloadBytes: usize, pageSize: usize): bool {

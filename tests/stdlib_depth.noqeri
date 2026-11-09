@@ -60,7 +60,7 @@ function main(): int {
     let hexOut: [u8; 16] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]
     if debug_write_hex_u64(255 as u64, slice(hexOut)) != 16 as usize || hexOut[14 as usize] != 70 as u8 || hexOut[15 as usize] != 70 as u8 { return 15 }
 
-    let infoStorage: [u8; 64] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]
+    let infoStorage: [u8; 64]
     let info: *TypeInfo = (&infoStorage[0 as usize]) as *TypeInfo
     reflect_type_info(info, "Pair", 16 as usize, 8 as usize, 2 as usize, 2 as usize)
     if !reflect_is_aggregate(info) || !reflect_is_generic(info) || !reflect_alignment_valid(info) || reflect_storage_size(info, 3 as usize) != 48 as usize { return 16 }
@@ -68,7 +68,7 @@ function main(): int {
     let query: [u8; 25] = [83 as u8,69 as u8,76 as u8,69 as u8,67 as u8,84 as u8,32 as u8,63 as u8,32 as u8,70 as u8,82 as u8,79 as u8,77 as u8,32 as u8,116 as u8,32 as u8,87 as u8,72 as u8,69 as u8,82 as u8,69 as u8,32 as u8,120 as u8,61 as u8,63 as u8]
     if sql_count_placeholders(slice(query)) != 2 as usize || sql_has_unterminated_quote(slice(query)) { return 17 }
 
-    let pageStorage: [u8; 32] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]
+    let pageStorage: [u8; 32]
     let page: *DatabasePage = (&pageStorage[0 as usize]) as *DatabasePage
     if !database_page_init(page, 2 as usize, 50 as usize) || page.offset != 100 as usize { return 18 }
     database_page_next(page)

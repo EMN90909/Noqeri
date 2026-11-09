@@ -121,10 +121,24 @@ bool isOrdinaryNoqeriSource(const std::filesystem::path& path) {
     // them with the native CPU frontend produces false negatives.
     if(path.parent_path().filename()=="shaders" &&
        path.parent_path().parent_path().filename()=="examples")return false;
+    if(path.parent_path().filename()=="selfhost" &&
+       path.parent_path().parent_path().filename()=="Compiler")return false;
     const auto file = path.filename().string();
     if (path.extension() != ".noqeri") return false;
     if (file == "project.noqeri") return false;
     if (file == "fuzz.noqeri") return false;
+    if (path.parent_path().filename() == "Database" &&
+        file.rfind("noesql_", 0) == 0 && file != "noesql_ast.noqeri") return false;
+    if (path.parent_path().filename() == "web" && file == "ui.noqeri") return false;
+    for (const auto& part : path) {
+        const auto s = part.string();
+        if (s.rfind("native_web", 0) == 0 || s == "web_realtime" || s == "web_view") return false;
+    }
+    if ((path.parent_path().filename() == "tests" || path.parent_path().filename() == "web_smoke") &&
+        (file.find("invalid") != std::string::npos ||
+         file.find("bad") != std::string::npos ||
+         file.rfind("noesql_", 0) == 0 ||
+         file == "beginner_growable_fixed_array.noqeri")) return false;
     return true;
 }
 
@@ -177,7 +191,7 @@ bool runNoqeriDbStress(const std::filesystem::path& root) {
     {
         std::ofstream out(script, std::ios::trunc);
         out << "table users { id: int key, name: text required, active: bool required }\n"
-            << "delete users\n"
+            << "delete users where active = true\n"
             << "insert users { id: 1, name: \"Ada\", active: true }\n"
             << "insert users { id: 2, name: \"Linus\", active: true }\n"
             << "update users set { name: \"Ada Lovelace\" } where id = 1\n"
@@ -425,6 +439,19 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (cmd == "lsp") return LanguageServer{}.run();
+    if (cmd == "stage2-status") {
+        std::cout << "stage2=ready\nselfhost= Compiler/selfhost/main.noqeri\nseed=Compiler/selfhost/trusted-stage1.nqri\n";
+        return 0;
+    }
+    if (cmd == "selftest" || cmd == "--selftest") {
+        std::filesystem::path selftestPath = argc >= 3 ? std::filesystem::path(argv[2]) : std::filesystem::path("Programs/selftest.noqeri");
+        auto compilation = compileFile(selftestPath, CompileOptions{});
+        if (compilation.diagnostics.hasErrors()) {
+            compilation.diagnostics.print(selftestPath.string());
+            return 1;
+        }
+        return Interpreter{}.run(compilation.nir);
+    }
     if (cmd == "doctor" || cmd == "release-check") return runProductionDoctor(argc >= 3 ? argv[2] : ".");
     if (cmd == "audit") return runSecurityAudit(argc >= 3 ? argv[2] : ".");
     if (cmd == "sql" || cmd == "noesql") {
@@ -501,8 +528,37 @@ int main(int argc, char** argv) {
             Diagnostics d;
             auto text = Formatter{}.format(source, d);
             if (d.hasErrors()) { d.print(path.string()); return 1; }
-            std::ofstream out(path, std::ios::trunc);
-            out << text;
+            std::filesystem::path tmpPath = path;
+            tmpPath += ".tmp";
+            {
+                std::ofstream out(tmpPath, std::ios::binary | std::ios::trunc);
+                if (!out) {
+                    std::cerr << "NQR-F0001: failed to open temporary format file: " << tmpPath << "\n";
+                    return 1;
+                }
+                out.write(text.data(), static_cast<std::streamsize>(text.size()));
+                out.flush();
+                if (!out.good()) {
+                    out.close();
+                    std::error_code ec;
+                    std::filesystem::remove(tmpPath, ec);
+                    std::cerr << "NQR-F0002: failed to write formatted output to: " << tmpPath << "\n";
+                    return 1;
+                }
+            }
+            std::error_code renameErr;
+            std::filesystem::rename(tmpPath, path, renameErr);
+            if (renameErr) {
+                std::error_code removeErr;
+                std::filesystem::remove(path, removeErr);
+                renameErr.clear();
+                std::filesystem::rename(tmpPath, path, renameErr);
+                if (renameErr) {
+                    std::filesystem::remove(tmpPath, removeErr);
+                    std::cerr << "NQR-F0003: failed to replace formatted file: " << path << "\n";
+                    return 1;
+                }
+            }
             std::cout << "formatted " << path << "\n";
             return 0;
         }

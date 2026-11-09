@@ -5,6 +5,16 @@ import "noesql_ir.noqeri"
 // Native precedence parser for expressions in the shared .noe language.
 // The reference host handles complete statements until Stage-2 can execute
 // these Noqeri-owned parser functions and preserve the same AST contract.
+record NoeExprNode {
+    tag: int
+    operator: int
+    start: usize
+    end: usize
+    left: isize
+    right: isize
+    next: isize
+    typeCode: int
+}
 export function noeExprLiteral(): int { return 1 }
 export function noeExprName(): int { return 2 }
 export function noeExprParameter(): int { return 3 }

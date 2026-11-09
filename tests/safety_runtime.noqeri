@@ -20,7 +20,10 @@ function raw_pointer_inside_unsafe(): u32 {
     }
 }
 
-let safety_runtime_sum: int = checked_dynamic_index() + checked_slice_index() as int + raw_pointer_inside_unsafe() as int
-if safety_runtime_sum != 37 {
-    throw 1
+function main(): int {
+    let safety_runtime_sum: int = checked_dynamic_index() + checked_slice_index() as int + raw_pointer_inside_unsafe() as int
+    if safety_runtime_sum != 47 {
+        throw 1
+    }
+    return 0
 }

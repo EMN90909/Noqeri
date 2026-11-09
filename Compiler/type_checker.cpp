@@ -265,6 +265,7 @@ bool TypeChecker::check(const Program&program){
             else if(existing->second.isForward&&!next.isForward)functions_[fn->name]=next;
             else if(!existing->second.isForward&&next.isForward){}
             else if(existing->second.isForward&&next.isForward){}
+            else if(existing->second.isExtern&&next.isExtern){}
             else diagnostics_.error("NOE-T3021",fn->span,"function '"+fn->name+"' is already declared");
         }
         activeGenericParams_.clear();
@@ -703,46 +704,49 @@ Type TypeChecker::checkExpr(const ExprPtr&expr){
             return l;case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return simple(TypeKind::Bool);default:return simple(TypeKind::Unknown);}
     }
     if(auto e=std::dynamic_pointer_cast<CallExpr>(expr)){
-        if(auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee)){
-            Type receiver=checkExpr(member->object);
-            if(receiver.kind==TypeKind::List){
-                if(member->member=="append"){
-                    if(e->args.size()!=1){
-                        diagnostics_.error("NQR-T3073",e->span,"list.append accepts exactly one element",
-                                           "write numbers.append(15)");
-                    }else{
-                        Type value=checkExpr(e->args.front());
-                        const Type expected=receiver.element?*receiver.element:simple(TypeKind::Int);
-                        if(value!=expected)
-                            diagnostics_.error("NQR-T3074",e->args.front()->span,
-                                receiver.name()+".append expects "+expected.name()+", found "+value.name(),
-                                "append an exactly matching element type; no implicit ownership or numeric reinterpretation");
+        std::string name=calleeName(e->callee);
+        if(name.rfind("atomic.",0)!=0){
+            if(auto member=std::dynamic_pointer_cast<MemberExpr>(e->callee)){
+                Type receiver=checkExpr(member->object);
+                if(receiver.kind==TypeKind::List){
+                    if(member->member=="append"){
+                        if(e->args.size()!=1){
+                            diagnostics_.error("NQR-T3073",e->span,"list.append accepts exactly one element",
+                                               "write numbers.append(15)");
+                        }else{
+                            Type value=checkExpr(e->args.front());
+                            const Type expected=receiver.element?*receiver.element:simple(TypeKind::Int);
+                            if(value!=expected)
+                                diagnostics_.error("NQR-T3074",e->args.front()->span,
+                                    receiver.name()+".append expects "+expected.name()+", found "+value.name(),
+                                    "append an exactly matching element type; no implicit ownership or numeric reinterpretation");
+                        }
+                        e->growableListMethod=true;
+                        e->builtinText="append";
+                        return simple(TypeKind::Void);
                     }
-                    e->growableListMethod=true;
-                    e->builtinText="append";
-                    return simple(TypeKind::Void);
+                    if(member->member=="length" && e->args.empty()){
+                        e->growableListMethod=true;
+                        e->builtinText="length";
+                        return simple(TypeKind::Usize);
+                    }
+                    if(member->member=="pop" && e->args.empty()){
+                        e->growableListMethod=true;e->builtinText="pop";
+                        e->builtinResultType=receiver.element?*receiver.element:simple(TypeKind::Int);
+                        return e->builtinResultType;
+                    }
+                    if(member->member=="clear" && e->args.empty()){
+                        e->growableListMethod=true;e->builtinText="clear";
+                        return simple(TypeKind::Void);
+                    }
+                    diagnostics_.error("NQR-T3075",e->span,
+                        "unknown growable list method '"+member->member+"'",
+                        "use .append(value), .length(), .pop() or .clear()");
+                    return simple(TypeKind::Unknown);
                 }
-                if(member->member=="length" && e->args.empty()){
-                    e->growableListMethod=true;
-                    e->builtinText="length";
-                    return simple(TypeKind::Usize);
-                }
-                if(member->member=="pop" && e->args.empty()){
-                    e->growableListMethod=true;e->builtinText="pop";
-                    e->builtinResultType=receiver.element?*receiver.element:simple(TypeKind::Int);
-                    return e->builtinResultType;
-                }
-                if(member->member=="clear" && e->args.empty()){
-                    e->growableListMethod=true;e->builtinText="clear";
-                    return simple(TypeKind::Void);
-                }
-                diagnostics_.error("NQR-T3075",e->span,
-                    "unknown growable list method '"+member->member+"'",
-                    "use .append(value), .length(), .pop() or .clear()");
-                return simple(TypeKind::Unknown);
             }
         }
-        std::string name=calleeName(e->callee);if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
+        if(name.empty()){diagnostics_.error("NOE-T3010",e->span,"only named functions and simple namespaces are callable");return simple(TypeKind::Unknown);}
         if(name=="map_into"||name=="filter_into"){
             const auto lambda=e->args.size()==3?
                 std::dynamic_pointer_cast<LambdaExpr>(e->args[2]):nullptr;

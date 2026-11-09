@@ -257,7 +257,7 @@ export function lexer_count_tokens(lexer: *Lexer): usize {
     let saved_column: usize = lexer.column
     let saved_error: bool = lexer.has_error
     let saved_error_offset: usize = lexer.error_offset
-    let token_bytes: [u8; 64] = [0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8,0 as u8]
+    let token_bytes: [u8; 64]
     let token: *LexToken = (&token_bytes[0 as usize]) as *LexToken
     let count: usize = 0 as usize
     let finished: bool = false

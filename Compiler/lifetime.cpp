@@ -121,7 +121,21 @@ private:
         // element count is not a permanent bounds limit.
         if(index->growableListRead)return;
         auto literal=literalInteger(index->index);if(!literal)return;std::optional<std::size_t> count;if(auto name=std::dynamic_pointer_cast<NameExpr>(index->object)){auto it=arraySizes_.find(name->name);if(it!=arraySizes_.end())count=it->second;}else if(auto array=std::dynamic_pointer_cast<ArrayExpr>(index->object))count=array->elements.size();if(count&&(*literal<0||static_cast<std::uint64_t>(*literal)>=static_cast<std::uint64_t>(*count)))diagnostics_.error("NQR-L4104",index->span,"fixed-array index is out of bounds","ordinary fixed-array accesses are checked statically when the index is known");}
-    void checkEscapingCall(const std::shared_ptr<CallExpr>&call){auto it=summaries_.find(calleeName(call->callee));if(it==summaries_.end())return;for(auto index:it->second.escapeParams)if(index<call->args.size()){auto source=borrowOf(call->args[index]);if(!source)source=sourceOf(call->args[index]);if(source&&!source->parameter)diagnostics_.error("NQR-L4106",call->span,"call may store a borrow of local storage ('"+source->source+"') beyond its safe lifetime","pass caller-owned storage or copy owned data instead");}}
+    void checkEscapingCall(const std::shared_ptr<CallExpr>&call){
+        auto it=summaries_.find(calleeName(call->callee));if(it==summaries_.end())return;
+        std::optional<BorrowInfo> receiver;
+        if(!call->args.empty()){receiver=borrowOf(call->args[0]);if(!receiver)receiver=sourceOf(call->args[0]);}
+        for(auto index:it->second.escapeParams)if(index<call->args.size()){
+            auto source=borrowOf(call->args[index]);if(!source)source=sourceOf(call->args[index]);
+            if(source&&!source->parameter){
+                if(receiver&&!receiver->parameter&&receiver->sourceDepth>=source->sourceDepth){
+                    aggregateBorrows_[receiver->source+".__call_"+std::to_string(index)]=*source;
+                }else{
+                    diagnostics_.error("NQR-L4106",call->span,"call may store a borrow of local storage ('"+source->source+"') beyond its safe lifetime","pass caller-owned storage or copy owned data instead");
+                }
+            }
+        }
+    }
     void expression(const ExprPtr&expr){
         if(!expr)return;
         if(auto name=std::dynamic_pointer_cast<NameExpr>(expr)){if(dangling_.count(name->name))diagnostics_.error("NQR-L4102",name->span,"use of reference whose borrowed storage has left scope","rebind the reference to caller-owned or longer-lived storage before using it");return;}

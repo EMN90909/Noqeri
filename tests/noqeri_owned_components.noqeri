@@ -45,7 +45,7 @@ let keysPtr: *i64 = &keys[0]
 let valuesPtr: *i64 = &values[0]
 failIf(nqAssertStatus(dbInsertInt(keysPtr, valuesPtr, 0 as usize, 4 as usize, 7 as i64, 70 as i64), 0))
 failIf(nqAssertStatus(dbInsertInt(keysPtr, valuesPtr, 1 as usize, 4 as usize, 8 as i64, 80 as i64), 1))
-failIf(nqAssertStatus(dbInsertInt(keysPtr, valuesPtr, 2 as usize, 4 as usize, 7 as i64, 700 as i64), -2))
+failIf(nqAssertStatus(dbInsertInt(keysPtr, valuesPtr, 2 as usize, 4 as usize, 7 as i64, 700 as i64), dbStatusConflict()))
 failIf(nqAssertTrue(dbContainsIntKey(keysPtr, 2 as usize, 8 as i64)))
 failIf(nqAssertStatus(dbUpdateInt(keysPtr, valuesPtr, 2 as usize, 7 as i64, 77 as i64), 0))
 failIf(nqAssertTrue(dbReadInt(valuesPtr, 2 as usize, 0 as usize) == 77 as i64))

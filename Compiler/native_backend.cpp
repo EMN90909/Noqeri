@@ -127,10 +127,6 @@ FunctionLayout layoutFor(const NirFunction&fn,const std::unordered_map<std::stri
     return l;
 }
 ValueKind inferReturn(const NirFunction&fn,const std::unordered_map<std::string,ValueKind>&returns){auto l=layoutFor(fn,returns);ValueKind result=ValueKind::Null;for(const auto&i:fn.code)if(i.op==NirOp::Return&&!i.args.empty()&&i.args[0]<l.regKinds.size()){auto k=l.regKinds[i.args[0]];if(result==ValueKind::Null||result==ValueKind::Unknown)result=k;else if(k!=ValueKind::Unknown&&result!=k)result=ValueKind::Unknown;}return result;}
-std::string regSlot(Reg r){return"QWORD PTR [rbp-"+std::to_string((static_cast<std::size_t>(r)+1)*8)+"]";}
-std::size_t varOffset(const NirFunction&fn,const FunctionLayout&l,const std::string&name){auto it=l.variableIndex.find(name);auto index=static_cast<std::size_t>(fn.nextReg)+(it==l.variableIndex.end()?0:it->second)+1;return index*8;}
-std::string varSlot(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"QWORD PTR [rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
-std::string varAddress(const NirFunction&fn,const FunctionLayout&l,const std::string&name){return"[rbp-"+std::to_string(varOffset(fn,l,name))+"]";}
 std::string symbolForCall(const std::unordered_map<std::string,std::string>& symbols,const std::string& name){
     const auto it=symbols.find(name);
     return it==symbols.end()?safe(name):it->second;
@@ -435,19 +431,21 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         }
     }
     if(!hasInlineAsm){
-        std::vector<std::string> pool = {"r12","r13","r14","r15"};
-        for(const auto& entry:variablePhysical)
-            pool.erase(std::remove(pool.begin(),pool.end(),entry.second),
-                       pool.end());
-        if(std::none_of(variablePhysical.begin(),variablePhysical.end(),
-                [](const auto& entry){return entry.second=="rbx";}))
-            pool.push_back("rbx");
+        std::vector<std::string> pool;
         const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
         if(!hasCalls){
-            pool.push_back("rsi");
-            pool.push_back("rdi");
             pool.push_back("r9");
+            pool.push_back("rdi");
+            pool.push_back("rsi");
+        }
+        if(std::none_of(variablePhysical.begin(),variablePhysical.end(),
+                [](const auto& entry){return entry.second=="rbx";}))
+            pool.push_back("rbx");
+        for(const char* reg:{"r12","r13","r14","r15"}){
+            if(std::none_of(variablePhysical.begin(),variablePhysical.end(),
+                    [&](const auto& entry){return entry.second==reg;}))
+                pool.push_back(reg);
         }
         const auto plan=LinearScanRegisterAllocator{}.allocate(fn,pool);
         for(const auto& loc:plan.locations)
@@ -459,8 +457,40 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     if(fn.params.size()>6){diagnostics.error("NQR-N5004",{},"Noqeri x86-64 calling convention currently supports at most 6 parameters");return false;}
     std::string symbol=fn.isExport?safe(fn.name):internalSymbol(fn.name);
     if(fn.isExport)out<<"\n.global "<<symbol<<"\n";
+    std::vector<std::size_t> spillOffsets(fn.nextReg,0);
+    std::size_t frameSlots=0;
+    auto assignSpillSlot=[&](Reg r)->std::size_t{
+        if(r>=spillOffsets.size())spillOffsets.resize(static_cast<std::size_t>(r)+1,0);
+        if(spillOffsets[r]==0)spillOffsets[r]=(++frameSlots)*8;
+        return spillOffsets[r];
+    };
+    for(const auto& in:fn.code){
+        if(in.dest&&!physical.count(*in.dest))assignSpillSlot(*in.dest);
+        for(Reg arg:in.args)if(!physical.count(arg))assignSpillSlot(arg);
+    }
+    std::unordered_map<std::string,std::size_t> varOffsets;
+    varOffsets.reserve(l.variables.size());
+    for(const auto& name:l.variables){
+        if(!variablePhysical.count(name))
+            varOffsets.emplace(name,(++frameSlots)*8);
+    }
+    const auto regSlot=[&](Reg r){
+        const std::size_t off=(r<spillOffsets.size()&&spillOffsets[r]!=0)?
+            spillOffsets[r]:(frameSlots+1)*8;
+        return "QWORD PTR [rbp-"+std::to_string(off)+"]";
+    };
+    const auto varOffset=[&](const std::string& name)->std::size_t{
+        const auto it=varOffsets.find(name);
+        return it!=varOffsets.end()?it->second:(frameSlots+1)*8;
+    };
+    const auto varSlot=[&](const std::string& name){
+        return "QWORD PTR [rbp-"+std::to_string(varOffset(name))+"]";
+    };
+    const auto varAddress=[&](const std::string& name){
+        return "[rbp-"+std::to_string(varOffset(name))+"]";
+    };
     std::vector<std::size_t> fixedStorage(fn.code.size(),0);
-    std::size_t frameBytes=(static_cast<std::size_t>(fn.nextReg)+l.variables.size())*8;
+    std::size_t frameBytes=frameSlots*8;
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         const auto&i=fn.code[pc];
         if(i.op==NirOp::StackAlloc){
@@ -486,7 +516,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     };
     const auto variableOperand=[&](const std::string& name){
         const auto it=variablePhysical.find(name);
-        return it!=variablePhysical.end()?it->second:varSlot(fn,l,name);
+        return it!=variablePhysical.end()?it->second:varSlot(name);
     };
     for(std::size_t i=0;i<fn.params.size();++i)
         out<<"    mov "<<variableOperand(fn.params[i])<<", "<<args[i]<<"\n";
@@ -1045,7 +1075,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         case NirOp::Store:if(!i.args.empty()){
             copyWord(variableOperand(i.text),registerOperand(i.args[0]));
         }break;
-        case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(fn,l,i.text)<<"\n";store(*i.dest,"rax");}break;
+        case NirOp::AddressOf:if(i.dest){out<<"    lea rax, "<<varAddress(i.text)<<"\n";store(*i.dest,"rax");}break;
         case NirOp::LoadMemory:if(i.dest&&!i.args.empty()){
             const bool sign=*i.dest<fn.registerTypes.size()&&
                 signedNarrow(fn.registerTypes[*i.dest].kind);

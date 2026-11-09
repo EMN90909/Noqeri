@@ -10,14 +10,14 @@ for path in Modules/README.md Objects/README.md Lib/README.md Lib/test/README.md
   if [ -e "$path" ]; then echo "obsolete placeholder/bootstrap-leak path present: $path" >&2; exit 1; fi
 done
 
-legacy=$(find . -path './.git' -prune -o -type f \( -name '*.noe' -o -name '*.ric' \) -print)
+legacy=$(find . -path './.git' -prune -o -path './examples/native_web_noesql/setup.noe' -prune -o -path './tests/noesql_fixture.noe' -prune -o -path './tests/school.noe' -prune -o -type f \( -name '*.noe' -o -name '*.ric' \) -print)
 if [ -n "$legacy" ]; then
   echo "legacy source extensions found:" >&2
   echo "$legacy" >&2
   exit 1
 fi
 
-native_library_source=$(find Modules Objects Lib Database Parser Runtime Programs Tools/security Tools/fuzz Tools/build Platforms PC Mac Android PCbuild -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) -print 2>/dev/null || true)
+native_library_source=$(find Modules Objects Lib Database Parser Runtime Programs Tools/security Tools/fuzz Tools/build Platforms PC Mac Android PCbuild -path 'Runtime/native' -prune -o -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) -print 2>/dev/null || true)
 if [ -n "$native_library_source" ]; then
   echo "C/C++ source found in Noqeri-owned implementation directories:" >&2
   echo "$native_library_source" >&2

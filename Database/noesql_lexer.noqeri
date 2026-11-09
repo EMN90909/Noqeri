@@ -16,7 +16,9 @@ record NoeToken {
 }
 export function noeTokenEof(): int { return 0 }
 export function noeTokenIdentifier(): int { return 1 }
+export function noeTokenName(): int { return 1 }
 export function noeTokenInteger(): int { return 2 }
+export function noeTokenNumber(): int { return 2 }
 export function noeTokenString(): int { return 3 }
 export function noeTokenOperator(): int { return 4 }
 export function noeTokenSeparator(): int { return 5 }

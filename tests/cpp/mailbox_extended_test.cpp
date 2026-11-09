@@ -11,13 +11,20 @@
 #include <vector>
 #include <atomic>
 #include <sys/socket.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
 #include "noqeri/mailbox_extended.h"
 static void reactor_test(){
+  rlimit rl{};
+  if(getrlimit(RLIMIT_NOFILE,&rl)==0&&rl.rlim_cur<2048&&rl.rlim_max>=2048){
+    rl.rlim_cur=2048;
+    setrlimit(RLIMIT_NOFILE,&rl);
+  }
+  const long openMax=sysconf(_SC_OPEN_MAX);
+  const int count=(openMax>0&&openMax<1200)?std::max(64,static_cast<int>((openMax-64)/2)):512;
   auto*r=nq_mail_reactor_create();assert(r);
-  constexpr int count=512;
   std::vector<int> readers,writers;
   for(int i=0;i<count;++i){
     int f[2];assert(socketpair(AF_UNIX,SOCK_STREAM,0,f)==0);
@@ -27,7 +34,7 @@ static void reactor_test(){
   }
   for(int fd:writers)assert(write(fd,"X",1)==1);
   std::vector<nq_mail_event> ev(count);
-  bool seen[count]{};int remaining=count;
+  std::vector<bool> seen(count,false);int remaining=count;
   for(int tries=0;tries<10&&remaining;++tries){
     int n=nq_mail_reactor_wait(r,ev.data(),count,1000);assert(n>0);
     for(int j=0;j<n;++j){

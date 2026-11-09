@@ -140,14 +140,27 @@ StmtPtr cloneStmt(const StmtPtr& s){
     return s;
 }
 
-void substituteStmt(const StmtPtr&s,const std::unordered_map<std::string,std::string>&b){if(!s)return;if(auto x=std::dynamic_pointer_cast<LetStmt>(s)){if(x->annotation)x->annotation=substitute(*x->annotation,b);}else if(auto x=std::dynamic_pointer_cast<BlockStmt>(s)){for(auto&i:x->statements)substituteStmt(i,b);}else if(auto x=std::dynamic_pointer_cast<IfStmt>(s)){substituteStmt(x->thenBranch,b);substituteStmt(x->elseBranch,b);}else if(auto x=std::dynamic_pointer_cast<WhileStmt>(s))substituteStmt(x->body,b);}
+void substituteExpr(const ExprPtr&e,const std::unordered_map<std::string,std::string>&b){
+    if(!e)return;
+    if(auto x=std::dynamic_pointer_cast<UnaryExpr>(e))substituteExpr(x->operand,b);
+    else if(auto x=std::dynamic_pointer_cast<BinaryExpr>(e)){substituteExpr(x->left,b);substituteExpr(x->right,b);}
+    else if(auto x=std::dynamic_pointer_cast<CallExpr>(e)){substituteExpr(x->callee,b);for(auto&a:x->args)substituteExpr(a,b);}
+    else if(auto x=std::dynamic_pointer_cast<CastExpr>(e)){x->typeName=substitute(x->typeName,b);substituteExpr(x->value,b);}
+    else if(auto x=std::dynamic_pointer_cast<IndexExpr>(e)){substituteExpr(x->object,b);substituteExpr(x->index,b);}
+    else if(auto x=std::dynamic_pointer_cast<MemberExpr>(e))substituteExpr(x->object,b);
+    else if(auto x=std::dynamic_pointer_cast<ArrayExpr>(e)){for(auto&a:x->elements)substituteExpr(a,b);}
+    else if(auto x=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){for(auto&f:x->fields)substituteExpr(f.initializer,b);}
+    else if(auto x=std::dynamic_pointer_cast<InterpolatedStringExpr>(e)){for(auto&p:x->parts)substituteExpr(p,b);}
+    else if(auto x=std::dynamic_pointer_cast<LambdaExpr>(e))substituteExpr(x->body,b);
+}
+void substituteStmt(const StmtPtr&s,const std::unordered_map<std::string,std::string>&b){if(!s)return;if(auto x=std::dynamic_pointer_cast<ExprStmt>(s))substituteExpr(x->expr,b);else if(auto x=std::dynamic_pointer_cast<LetStmt>(s)){if(x->annotation)x->annotation=substitute(*x->annotation,b);substituteExpr(x->initializer,b);}else if(auto x=std::dynamic_pointer_cast<BlockStmt>(s)){for(auto&i:x->statements)substituteStmt(i,b);}else if(auto x=std::dynamic_pointer_cast<IfStmt>(s)){substituteExpr(x->condition,b);substituteStmt(x->thenBranch,b);substituteStmt(x->elseBranch,b);}else if(auto x=std::dynamic_pointer_cast<WhileStmt>(s)){substituteExpr(x->condition,b);substituteStmt(x->body,b);}else if(auto x=std::dynamic_pointer_cast<ReturnStmt>(s))substituteExpr(x->value,b);else if(auto x=std::dynamic_pointer_cast<ThrowStmt>(s))substituteExpr(x->value,b);}
 std::string elementType(const std::string&t){if(t.rfind("[]",0)==0)return t.substr(2);if(t.rfind("*volatile ",0)==0)return t.substr(10);if(t.rfind("*",0)==0)return t.substr(1);if(t.size()>3&&t.front()=='['){auto semi=t.rfind(';');if(semi!=std::string::npos)return t.substr(1,semi-1);}return"unknown";}
 bool capability(const std::string&type,const std::string&c){const Type t=typeFromName(type);if(c=="Eq")return t.kind!=TypeKind::Void&&t.kind!=TypeKind::Unknown;if(c=="Ord")return t.isNumeric()||t.kind==TypeKind::String||t.kind==TypeKind::Bool;if(c=="Numeric")return t.isNumeric();if(c=="Integer")return t.isInteger();if(c=="Copy")return !t.isAggregate()&&t.kind!=TypeKind::Void&&t.kind!=TypeKind::Unknown;return false;}
 
 class Monomorphizer {
 public:
     Monomorphizer(Program&program,Diagnostics&diagnostics):program_(program),diagnostics_(diagnostics){
-        for(const auto&s:program.statements){if(auto f=std::dynamic_pointer_cast<FunctionStmt>(s))functions_[f->name]=f;else if(auto r=std::dynamic_pointer_cast<RecordStmt>(s);r&&!r->genericParams.empty())recordTemplates_[r->name]=r;}
+        for(const auto&s:program.statements){if(auto f=std::dynamic_pointer_cast<FunctionStmt>(s))functions_[f->name]=f;else if(auto r=std::dynamic_pointer_cast<RecordStmt>(s)){if(!r->genericParams.empty())recordTemplates_[r->name]=r;else records_[r->name]=r;}}
     }
 
     bool run(){
@@ -183,17 +196,24 @@ private:
     }
 
     std::string memberType(const std::string&raw,const std::string&member){
-        auto type=raw;if(type.rfind("*volatile ",0)==0)type=type.substr(10);else if(type.rfind("*",0)==0)type=type.substr(1);auto app=parseMangledGeneric(type);if(!app)return"unknown";auto templ=recordTemplates_.find(app->base);if(templ==recordTemplates_.end()||templ->second->genericParams.size()!=app->args.size())return"unknown";std::unordered_map<std::string,std::string> bindings;for(std::size_t i=0;i<app->args.size();++i)bindings[templ->second->genericParams[i]]=app->args[i];for(const auto&field:templ->second->fields)if(field.name==member)return substitute(field.typeName,bindings);return"unknown";
+        auto type=raw;if(type.rfind("*volatile ",0)==0)type=type.substr(10);else if(type.rfind("*",0)==0)type=type.substr(1);
+        auto app=parseMangledGeneric(type);
+        if(!app){
+            auto rit=records_.find(type);
+            if(rit!=records_.end())for(const auto&field:rit->second->fields)if(field.name==member)return field.typeName;
+            return"unknown";
+        }
+        auto templ=recordTemplates_.find(app->base);if(templ==recordTemplates_.end()||templ->second->genericParams.size()!=app->args.size())return"unknown";std::unordered_map<std::string,std::string> bindings;for(std::size_t i=0;i<app->args.size();++i)bindings[templ->second->genericParams[i]]=app->args[i];for(const auto&field:templ->second->fields)if(field.name==member)return substitute(field.typeName,bindings);return"unknown";
     }
 
     std::string infer(const ExprPtr&e,Env&env){
         if(!e)return"void";
         if(auto x=std::dynamic_pointer_cast<LiteralExpr>(e)){if(std::holds_alternative<std::int64_t>(x->value))return"int";if(std::holds_alternative<double>(x->value))return"float";if(std::holds_alternative<bool>(x->value))return"bool";if(std::holds_alternative<std::string>(x->value))return"string";return"null";}
         if(auto x=std::dynamic_pointer_cast<NameExpr>(e)){auto i=env.find(x->name);return i==env.end()?"unknown":i->second;}
-        if(auto x=std::dynamic_pointer_cast<CastExpr>(e)){ensureType(x->typeName);return x->typeName;}
+        if(auto x=std::dynamic_pointer_cast<CastExpr>(e)){infer(x->value,env);ensureType(x->typeName);return x->typeName;}
         if(auto x=std::dynamic_pointer_cast<UnaryExpr>(e)){auto t=infer(x->operand,env);if(x->op==TokenKind::Bang)return"bool";if(x->op==TokenKind::Ampersand)return"*"+t;if(x->op==TokenKind::Star)return elementType(t);return t;}
         if(auto x=std::dynamic_pointer_cast<BinaryExpr>(e)){auto l=infer(x->left,env);infer(x->right,env);switch(x->op){case TokenKind::EqualEqual:case TokenKind::BangEqual:case TokenKind::Less:case TokenKind::LessEqual:case TokenKind::Greater:case TokenKind::GreaterEqual:case TokenKind::AndAnd:case TokenKind::OrOr:return"bool";default:return l;}}
-        if(auto x=std::dynamic_pointer_cast<ArrayExpr>(e)){auto t=x->elements.empty()?"unknown":infer(x->elements.front(),env);return"["+t+";"+std::to_string(x->elements.size())+"]";}
+        if(auto x=std::dynamic_pointer_cast<ArrayExpr>(e)){std::string t="unknown";for(std::size_t i=0;i<x->elements.size();++i){auto et=infer(x->elements[i],env);if(i==0)t=et;}return"["+t+";"+std::to_string(x->elements.size())+"]";}
         if(auto x=std::dynamic_pointer_cast<AnonymousRecordExpr>(e)){
             for(const auto&field:x->fields)infer(field.initializer,env);
             return"unknown";
@@ -206,7 +226,7 @@ private:
             // The consuming collection supplies the lambda parameter type.
             return"unknown";
         }
-        if(auto x=std::dynamic_pointer_cast<IndexExpr>(e))return elementType(infer(x->object,env));
+        if(auto x=std::dynamic_pointer_cast<IndexExpr>(e)){infer(x->index,env);return elementType(infer(x->object,env));}
         if(auto x=std::dynamic_pointer_cast<MemberExpr>(e))return memberType(infer(x->object,env),x->member);
         if(auto x=std::dynamic_pointer_cast<CallExpr>(e))return processCall(x,env);
         return"unknown";
@@ -259,6 +279,7 @@ private:
     Program&program_;Diagnostics&diagnostics_;
     std::unordered_map<std::string,std::shared_ptr<FunctionStmt>> functions_;
     std::unordered_map<std::string,std::shared_ptr<RecordStmt>> recordTemplates_;
+    std::unordered_map<std::string,std::shared_ptr<RecordStmt>> records_;
     std::unordered_map<std::string,std::string> cache_;
     std::unordered_set<std::string> recordCache_;
     std::vector<StmtPtr> recordInstances_;

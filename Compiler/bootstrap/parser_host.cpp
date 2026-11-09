@@ -418,7 +418,35 @@ ExprPtr Parser::logicalAnd(){auto e=equality();while(match({TokenKind::AndAnd}))
 ExprPtr Parser::equality(){auto e=comparison();while(match({TokenKind::EqualEqual,TokenKind::BangEqual})){auto o=previous();e=makeBinary(e,o.kind,comparison(),o.span);}return e;}
 ExprPtr Parser::comparison(){auto e=term();while(match({TokenKind::Less,TokenKind::LessEqual,TokenKind::Greater,TokenKind::GreaterEqual})){auto o=previous();e=makeBinary(e,o.kind,term(),o.span);}return e;}
 ExprPtr Parser::term(){auto e=factor();while(match({TokenKind::Plus,TokenKind::Minus})){auto o=previous();e=makeBinary(e,o.kind,factor(),o.span);}return e;}
-ExprPtr Parser::factor(){auto e=unary();while(match({TokenKind::Star,TokenKind::Slash,TokenKind::Percent})){auto o=previous();e=makeBinary(e,o.kind,unary(),o.span);}return e;}
+ExprPtr Parser::factor(){
+    auto e=unary();
+    for(;;){
+        if(check(TokenKind::Star)&&peek().span.line>previous().span.line){
+            std::size_t scan=current_+1;
+            while(scan<tokens_.size()&&tokens_[scan].kind==TokenKind::Star)++scan;
+            if(scan<tokens_.size()&&isNameKind(tokens_[scan].kind)){
+                ++scan;
+                while(scan<tokens_.size()){
+                    if(tokens_[scan].kind==TokenKind::Dot&&scan+1<tokens_.size()&&isNameKind(tokens_[scan+1].kind)){scan+=2;continue;}
+                    if(tokens_[scan].kind==TokenKind::LBracket){
+                        int depth=1;++scan;
+                        while(scan<tokens_.size()&&depth>0){
+                            if(tokens_[scan].kind==TokenKind::LBracket)++depth;
+                            else if(tokens_[scan].kind==TokenKind::RBracket)--depth;
+                            ++scan;
+                        }
+                        continue;
+                    }
+                    break;
+                }
+                if(scan<tokens_.size()&&tokens_[scan].kind==TokenKind::Equal)break;
+            }
+        }
+        if(!match({TokenKind::Star,TokenKind::Slash,TokenKind::Percent}))break;
+        auto o=previous();e=makeBinary(e,o.kind,unary(),o.span);
+    }
+    return e;
+}
 ExprPtr Parser::unary(){if(match({TokenKind::Bang,TokenKind::Minus,TokenKind::Plus,TokenKind::Star,TokenKind::Ampersand,TokenKind::Try})){auto op=previous();auto u=std::make_shared<UnaryExpr>();u->op=op.kind;u->operand=unary();u->span=op.span;return u;}return cast();}
 ExprPtr Parser::cast(){auto e=call();while(match({TokenKind::As})){auto c=std::make_shared<CastExpr>();c->span=previous().span;c->value=e;c->typeName=parseTypeName();e=c;}return e;}
 ExprPtr Parser::call(){

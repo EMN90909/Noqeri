@@ -12,17 +12,18 @@
 namespace {
 constexpr std::size_t maxElements=1'000'000;
 struct Collection {
-    int64_t kind;
+    bool active=false;
+    int64_t kind=0;
     std::vector<std::int64_t> list;
     std::unordered_map<std::int64_t,std::int64_t> map;
     std::unordered_set<std::int64_t> set;
 };
 std::mutex mu;
-std::unordered_map<std::int64_t,Collection> objects;
-std::int64_t nextId=1;
+std::vector<Collection> objects;
 Collection* lookup(std::int64_t id) {
-    const auto found=objects.find(id);
-    return found==objects.end()?nullptr:&found->second;
+    if(id<=0||static_cast<std::size_t>(id)>objects.size())return nullptr;
+    auto& slot=objects[static_cast<std::size_t>(id-1)];
+    return slot.active?&slot:nullptr;
 }
 std::size_t sizeOf(const Collection& c) {
     switch(c.kind){case 1:return c.list.size();case 2:return c.map.size();default:return c.set.size();}
@@ -31,11 +32,10 @@ std::size_t sizeOf(const Collection& c) {
 extern "C" int64_t nq_collection_new(int64_t kind) {
     if(kind<1||kind>3)return -1;
     std::lock_guard<std::mutex> guard(mu);
-    if(nextId==std::numeric_limits<std::int64_t>::max())return -2;
+    if(objects.size()>=static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max()-1))return -2;
     try {
-        const auto id=nextId++;
-        objects.emplace(id,Collection{kind,{},{},{}});
-        return id;
+        objects.push_back(Collection{true,kind,{},{},{}});
+        return static_cast<std::int64_t>(objects.size());
     } catch(const std::bad_alloc&){return -2;}
 }
 extern "C" int64_t nq_collection_add(int64_t id,int64_t key,int64_t value) {
@@ -118,7 +118,13 @@ extern "C" int64_t nq_collection_clear(int64_t id) {
 }
 extern "C" int64_t nq_collection_close(int64_t id) {
     std::lock_guard<std::mutex> guard(mu);
-    return objects.erase(id)?0:-1;
+    auto* c=lookup(id);
+    if(!c)return -1;
+    c->active=false;
+    std::vector<std::int64_t>().swap(c->list);
+    c->map.clear();
+    c->set.clear();
+    return 0;
 }
 
 // Beginner List<int> runtime. Errors are explicit fatal run-time errors,

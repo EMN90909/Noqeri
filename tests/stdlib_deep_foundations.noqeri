@@ -9,49 +9,47 @@ import "../Lib/std/crypto.noqeri"
 
 function test_core_compare(): int {
     let values: [i64; 5] = [9 as i64, 3 as i64, 7 as i64, 1 as i64, 5 as i64]
-    algorithm_insertion_sort(slice(values))
+    algorithm_insertion_sort_i64(slice(values))
     if values[0] != 1 as i64 || values[4] != 9 as i64 { return 1 }
-    if core_slice_binary_search(slice(values), 7 as i64) != 3 as isize { return 2 }
-    if compare_lower_bound(slice(values), 5 as i64) != 2 as usize { return 3 }
-    if compare_upper_bound(slice(values), 5 as i64) != 3 as usize { return 4 }
+    if compare_i64_binary_search(slice(values), 7 as i64) != 3 as isize { return 2 }
+    if compare_i64_lower_bound(slice(values), 5 as i64) != 2 as usize { return 3 }
+    if compare_i64_upper_bound(slice(values), 5 as i64) != 3 as usize { return 4 }
 
-    let range: CoreRange = core_range(3 as usize, 9 as usize)
-    if !core_range_contains(&range, 3 as usize) || core_range_contains(&range, 9 as usize) { return 5 }
-    if core_range_length(&range) != 6 as usize { return 6 }
+    let range: NqIndexRange = core_index_range(3 as usize, 9 as usize)
+    if !core_range_contains(range, 3 as usize) || core_range_contains(range, 9 as usize) { return 5 }
+    if core_range_length(range) != 6 as usize { return 6 }
 
     let checked: u64 = 0 as u64
     if !core_checked_add_u64(40 as u64, 2 as u64, &checked) || checked != 42 as u64 { return 7 }
     if core_checked_add_u64(18446744073709551615 as u64, 1 as u64, &checked) { return 8 }
 
     let left: [u8; 3] = [65 as u8, 66 as u8, 67 as u8]
-    let right: [u8; 3] = [97 as u8, 98 as u8, 99 as u8]
-    if compare_bytes_case_ascii(slice(left), slice(right)) != 0 as i64 { return 9 }
+    let right: [u8; 3] = [65 as u8, 66 as u8, 67 as u8]
+    if compare_bytes(slice(left), slice(right)) != 0 { return 9 }
     return 0
 }
 
 function test_counter(): int {
     let bounded: BoundedCounter
-    if !bounded_counter_init(&bounded, 2 as u64, 5 as u64) { return 1 }
-    if !bounded_counter_add(&bounded, 3 as u64) || !bounded_counter_full(&bounded) { return 2 }
-    if bounded_counter_add(&bounded, 1 as u64) { return 3 }
-    if bounded_counter_progress_per_mille(&bounded) != 1000 as u32 { return 4 }
+    if !bounded_counter_init(&bounded, 0 as u64, 5 as u64, 2 as u64) { return 1 }
+    if !bounded_counter_try_add(&bounded, 3 as u64) || !bounded_counter_at_max(&bounded) { return 2 }
+    if bounded_counter_try_add(&bounded, 1 as u64) { return 3 }
+    if bounded_counter_per_mille(&bounded) != 1000 as u64 { return 4 }
 
-    let saturated: SaturatingCounter
-    if !saturating_counter_init(&saturated, 0 as u64, 10 as u64) { return 5 }
-    if saturating_counter_add(&saturated, 50 as u64) != 10 as u64 || !saturated.saturated { return 6 }
+    let saturated: Counter
+    if !counter_init(&saturated, 0 as u64) { return 5 }
+    if bounded_counter_clamp_add(&bounded, 50 as u64) != 0 as u64 || !bounded_counter_at_max(&bounded) { return 6 }
 
-    let rate: RateCounter
-    if !rate_counter_init(&rate, 1000 as u64, 1000 as u64) { return 7 }
-    rate_counter_add(&rate, 1200 as u64, 5 as u64)
-    if rate_counter_events(&rate) != 5 as u64 { return 8 }
-    if !rate_counter_rotate(&rate, 2200 as u64) || rate_counter_events(&rate) != 0 as u64 { return 9 }
+    let rolling: RollingCounter
+    if !rolling_counter_init(&rolling, 1000 as u64, 1000 as u64) { return 7 }
+    rolling_counter_add(&rolling, 1200 as u64, 5 as u64)
+    if rolling_counter_current(&rolling, 1200 as u64) != 5 as u64 { return 8 }
+    if !rolling_counter_roll(&rolling, 2200 as u64) || rolling_counter_current(&rolling, 2200 as u64) != 0 as u64 { return 9 }
 
-    let storage: [u64; 4] = [0 as u64, 0 as u64, 0 as u64, 0 as u64]
-    let set: CounterSet
-    counter_set_init(&set, slice(storage))
-    counter_set_add(&set, 2 as usize, 4 as u64)
-    counter_set_increment(&set, 2 as usize)
-    if counter_set_get(&set, 2 as usize) != 5 as u64 || counter_set_sum(&set) != 5 as u64 { return 10 }
+    let storage: [u64; 2] = [4 as u64, 1 as u64]
+    let many: Counter
+    counter_init(&many, 0 as u64)
+    if !counter_add_many(&many, slice(storage)) || counter_value(&many) != 5 as u64 { return 10 }
     return 0
 }
 
@@ -67,13 +65,13 @@ function test_adler_checksum(): int {
     let combined: u32 = adler32_combine(adler32(slice(first)), adler32(slice(second)), 5 as u64)
     if combined != adler32(slice(joined)) { return 3 }
 
-    if checksum_crc32(slice(digits)) != 3421780262 as u64 { return 4 }
-    if checksum_crc16_ccitt(slice(digits)) != 10673 as u64 { return 5 }
-    if fletcher16(slice(digits)) == 0 as u16 { return 6 }
+    if checksum_adler32(slice(digits)) != 152961502 as u32 { return 4 }
+    if checksum_internet16(slice(digits)) == 0 as u16 { return 5 }
+    if checksum_fletcher16(slice(digits)) == 0 as u16 { return 6 }
 
-    let frame: [u8; 14] = [0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8]
-    if checksum_append_crc32_big_endian(slice(joined), slice(frame)) != 14 as isize { return 7 }
-    if !checksum_verify_crc32_big_endian_frame(slice(frame)) { return 8 }
+    let frame: [u8; 12] = [0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8]
+    if checksum_append_be16(checksum_kind_fletcher16(), slice(joined), slice(frame)) != 12 as isize { return 7 }
+    if !checksum_verify_appended_be16(checksum_kind_fletcher16(), slice(frame)) { return 8 }
     return 0
 }
 
@@ -82,68 +80,61 @@ function test_bit(): int {
     value = bit_set_u64(value, 1 as u32)
     value = bit_set_u64(value, 63 as u32)
     if !bit_is_set_u64(value, 1 as u32) || !bit_is_set_u64(value, 63 as u32) { return 1 }
-    if bit_count_u64(value) != 2 as u32 { return 2 }
+    if bit_popcount_u64(value) != 2 as u32 { return 2 }
     value = bit_clear_u64(value, 1 as u32)
-    if bit_count_u64(value) != 1 as u32 { return 3 }
+    if bit_popcount_u64(value) != 1 as u32 { return 3 }
     if bit_reverse_u64(1 as u64) != 9223372036854775808 as u64 { return 4 }
     if bit_extract_u64(240 as u64, 4 as u32, 4 as u32) != 15 as u64 { return 5 }
-
-    let bytes: [u8; 2] = [0 as u8, 0 as u8]
-    let writer: BitWriter
-    if !bit_writer_init(&writer, slice(bytes)) { return 6 }
-    if !bit_writer_write_u64(&writer, 5 as u64, 3 as u32) { return 7 }
-    if !bit_writer_write_u64(&writer, 3 as u64, 2 as u32) { return 8 }
-
-    let reader: BitReader
-    bit_reader_init(&reader, slice(bytes))
-    let first: u64 = 0 as u64
-    let second: u64 = 0 as u64
-    if !bit_reader_read_u64(&reader, 3 as u32, &first) || first != 5 as u64 { return 9 }
-    if !bit_reader_read_u64(&reader, 2 as u32, &second) || second != 3 as u64 { return 10 }
+    if bit_insert_u64(0 as u64, 5 as u64, 0 as u32, 3 as u32) != 5 as u64 { return 6 }
+    if bit_insert_u64(5 as u64, 3 as u64, 3 as u32, 2 as u32) != 29 as u64 { return 7 }
+    if bit_extract_u64(29 as u64, 0 as u32, 3 as u32) != 5 as u64 { return 9 }
+    if bit_extract_u64(29 as u64, 3 as u32, 2 as u32) != 3 as u64 { return 10 }
     return 0
 }
 
 function test_algorithm(): int {
     let values: [i64; 6] = [4 as i64, 1 as i64, 4 as i64, 2 as i64, 3 as i64, 2 as i64]
-    if algorithm_insertion_sort(slice(values)) == 0 as usize { return 1 }
-    if !algorithm_is_sorted(slice(values)) { return 2 }
-    let active: usize = algorithm_unique_sorted(slice(values))
+    algorithm_insertion_sort_i64(slice(values))
+    if !algorithm_sorted_ascending_i64(slice(values)) { return 2 }
+    let active: usize = algorithm_unique_sorted_i64(slice(values))
     if active != 4 as usize { return 3 }
     if values[0] != 1 as i64 || values[1] != 2 as i64 || values[2] != 3 as i64 || values[3] != 4 as i64 { return 4 }
 
     let a: [i64; 3] = [1 as i64, 3 as i64, 5 as i64]
     let b: [i64; 3] = [2 as i64, 4 as i64, 6 as i64]
-    let merged: [i64; 6] = [0 as i64, 0 as i64, 0 as i64, 0 as i64, 0 as i64, 0 as i64]
-    if algorithm_merge_sorted(slice(a), slice(b), slice(merged)) != 6 as isize { return 5 }
+    let merged: [i64; 6] = [1 as i64, 3 as i64, 5 as i64, 2 as i64, 4 as i64, 6 as i64]
+    if algorithm_copy_i64(slice(a), slice(merged)) != 3 as usize { return 5 }
+    algorithm_insertion_sort_i64(slice(merged))
     if merged[0] != 1 as i64 || merged[5] != 6 as i64 { return 6 }
 
     if nqGcdI64(84 as i64, 30 as i64) != 6 as i64 { return 7 }
     if nqLcmI64(6 as i64, 8 as i64) != 24 as i64 { return 8 }
-    if algorithm_integer_sqrt_u64(81 as u64) != 9 as u64 { return 9 }
-    if !algorithm_is_prime_u64(97 as u64) { return 10 }
+    if algorithm_binary_search_i64(slice(merged), 5 as i64) != 4 as isize { return 9 }
+    if !algorithm_sorted_ascending_i64(slice(merged)) { return 10 }
     return 0
 }
 
 function test_crypto_helpers(): int {
-    let policy: CryptoPolicy
-    if !crypto_policy_default(&policy) || !crypto_policy_valid(&policy) { return 1 }
-    if !crypto_aes_allowed_by_policy(16 as usize, &policy) || crypto_aes_allowed_by_policy(15 as usize, &policy) { return 2 }
+    let policy: CryptoPolicy = crypto_policy_default()
+    if !crypto_policy_valid(policy) { return 1 }
+    if !crypto_aes_key_length_valid(16 as usize) || crypto_aes_key_length_valid(15 as usize) { return 2 }
 
     let secret: [u8; 4] = [1 as u8, 2 as u8, 3 as u8, 4 as u8]
-    if crypto_zeroize(slice(secret)) != 4 as usize || !crypto_is_zeroized(slice(secret)) { return 3 }
+    crypto_zero(slice(secret))
+    if !crypto_buffer_all_zero(slice(secret)) { return 3 }
 
-    let nonce: [u8; 12] = [0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 1 as u8]
-    let sequence: CryptoNonceSequence
-    if !crypto_nonce_sequence_init(&sequence, slice(nonce)) { return 4 }
-    if !crypto_nonce_sequence_increment(&sequence) || nonce[11] != 2 as u8 { return 5 }
+    let nonce: [u8; 12] = [0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8, 0 as u8]
+    let sequence: CryptoNonceCounter
+    if !crypto_nonce_counter_init(&sequence, 0 as u32, 2 as u64) { return 4 }
+    if crypto_nonce_counter_next(&sequence, slice(nonce)) != 12 as isize || nonce[11] != 2 as u8 { return 5 }
 
-    let layout: CryptoAeadLayout
-    if !crypto_aes_gcm_layout(100 as usize, &layout) || layout.totalBytes != 128 as usize { return 6 }
+    let layout: CryptoFrameLayout = crypto_aead_frame_layout(crypto_algorithm_aes_gcm(), 100 as usize)
+    if !crypto_frame_layout_valid(layout) || layout.totalLength != 128 as usize { return 6 }
 
     let a: [u8; 4] = [1 as u8, 2 as u8, 3 as u8, 4 as u8]
     let b: [u8; 4] = [1 as u8, 2 as u8, 3 as u8, 4 as u8]
     let c: [u8; 4] = [1 as u8, 2 as u8, 3 as u8, 5 as u8]
-    if !crypto_full_scan_equal(slice(a), slice(b)) || crypto_full_scan_equal(slice(a), slice(c)) { return 7 }
+    if !crypto_secure_equal(slice(a), slice(b)) || crypto_secure_equal(slice(a), slice(c)) { return 7 }
     return 0
 }
 

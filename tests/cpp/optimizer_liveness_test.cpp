@@ -1185,6 +1185,35 @@ int main() {
         if (!check(p.entry.code[0].op == noe::NirOp::Call, "external call kept")) return 1;
     }
     {
+        // Small pure leaf functions with arguments inline and fold at O2+.
+        noe::NirFunction addMul;
+        addMul.name = "add_mul";
+        addMul.params = {"a", "b"};
+        addMul.resultType.kind = noe::TypeKind::Int;
+        auto loadA = withArgs(noe::NirOp::Load, {}); loadA.dest = 1; loadA.text = "a";
+        auto loadB = withArgs(noe::NirOp::Load, {}); loadB.dest = 2; loadB.text = "b";
+        auto sum = withArgs(noe::NirOp::Binary, {1, 2}); sum.dest = 3; sum.text = "+";
+        sum.type.kind = noe::TypeKind::Int;
+        addMul.code = {loadA, loadB, sum, withArgs(noe::NirOp::Return, {3})};
+        noe::NirProgram p;
+        p.functions.push_back(addMul);
+        auto call = withArgs(noe::NirOp::Call, {1, 2});
+        call.text = "add_mul";
+        call.dest = 3;
+        call.type.kind = noe::TypeKind::Int;
+        p.entry.code = {constant(1, 19), constant(2, 23), call, withArgs(noe::NirOp::Return, {3})};
+        p.entry.nextReg = 4;
+        noe::Optimizer{}.optimize(p, noe::OptimizationLevel::O2);
+        bool hasCall = false, folded42 = false;
+        for (const auto& in : p.entry.code) {
+            if (in.op == noe::NirOp::Call) hasCall = true;
+            if (in.op == noe::NirOp::Const && std::holds_alternative<std::int64_t>(in.literal) &&
+                std::get<std::int64_t>(in.literal) == 42) folded42 = true;
+        }
+        if (!check(!hasCall && folded42, "small pure leaf function inlining and constant folding"))
+            return 1;
+    }
+    {
         // SSA-typed local load is already represented by a Store operand.
         noe::NirProgram p;
         auto assign=withArgs(noe::NirOp::Store,{1});assign.text="count";

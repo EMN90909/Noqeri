@@ -78,18 +78,22 @@ int main(int argc,char** argv) {
     if(!file)return 1;
     const std::string assembly((std::istreambuf_iterator<char>(file)),
                                std::istreambuf_iterator<char>());
-    for(const auto* expected:{"add rax, 3","sub rax, -1",
-                               "imul rax, rax, 7","cmp rax, 4",
-                               "shl rax, 4","xor eax, eax"}) {
-        if(assembly.find(expected)==std::string::npos) {
-            std::cerr<<"missing immediate/fallback assembly: "<<expected<<"\n";
+    for(const auto* pattern:{
+            R"(add (rax|r1[2-5]|rbx|rsi|rdi|r9), 3)",
+            R"(sub (rax|r1[2-5]|rbx|rsi|rdi|r9), -1)",
+            R"(imul (rax|r1[2-5]|rbx|rsi|rdi|r9), \1, 7)",
+            R"(cmp (rax|r1[2-5]|rbx|rsi|rdi|r9), 4)",
+            R"(shl (rax|r1[2-5]|rbx|rsi|rdi|r9), 4)",
+            R"(xor (eax|rax|r1[2-5]|rbx|rsi|rdi|r9), \1)"}) {
+        if(!std::regex_search(assembly,std::regex(pattern))) {
+            std::cerr<<"missing immediate/fallback assembly: "<<pattern<<"\n";
             return 1;
         }
     }
     // Non-imm32 operands now use the allocated register or spill slot
     // directly. Do not force an unnecessary R10 staging copy.
     if(!std::regex_search(assembly,
-        std::regex(R"(add rax, (r1[2-5]|QWORD PTR \[rbp-[0-9]+\]))"))){
+        std::regex(R"(add (rax|r1[2-5]|rbx|rsi|rdi|r9), (r1[2-5]|rbx|rsi|rdi|r9|QWORD PTR \[rbp-[0-9]+\]))"))){
         std::cerr<<"missing direct register/memory ALU fallback\n";
         return 1;
     }

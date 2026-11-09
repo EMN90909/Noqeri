@@ -20,9 +20,12 @@ static double f64bits(std::uint64_t bits) { double out; std::memcpy(&out,&bits,s
 
 struct Function {
     std::uint64_t symbol=0; std::uint32_t nameStart=0,nameEnd=0,firstInstruction=0,instructionCount=0,parameterCount=0,flags=0; std::string name;
+    std::size_t registerSlotCount=0, maxCallArity=0;
 };
 struct Instruction {
     std::uint32_t opcode=0,typeCode=0,flags=0; std::int64_t dest=-1,left=-1,right=-1,immediate=0; std::uint64_t symbol=0,width=0,sourceStart=0,sourceEnd=0; double floatImmediate=0;
+    std::ptrdiff_t resolvedFunction=-1;
+    SlicePtr cachedLiteral;
 };
 struct Module {
     std::vector<std::uint8_t> bytes, source; std::string sourceText; std::vector<Function> functions; std::vector<Instruction> instructions;
@@ -32,6 +35,7 @@ static std::string spanText(const Module& module, const Instruction& ins) {
     if (ins.sourceEnd <= ins.sourceStart || ins.sourceEnd > module.source.size()) return {};
     return std::string(reinterpret_cast<const char*>(module.source.data()+ins.sourceStart), static_cast<std::size_t>(ins.sourceEnd-ins.sourceStart));
 }
+static std::vector<std::uint8_t> decodeStringLiteral(const std::vector<std::uint8_t>& source,std::size_t start,std::size_t end){if(end<=start||end>source.size())throw RuntimeError("invalid string source span");std::string s(reinterpret_cast<const char*>(source.data()+start),end-start);if(s.size()>=2&&s.front()=='"'&&s.back()=='"')s=s.substr(1,s.size()-2);std::vector<std::uint8_t> out;out.reserve(s.size());for(std::size_t i=0;i<s.size();++i){char c=s[i];if(c=='\\'&&i+1<s.size()){char n=s[++i];switch(n){case'n':c='\n';break;case'r':c='\r';break;case't':c='\t';break;case'"':c='"';break;case'\\':c='\\';break;default:out.push_back('\\');c=n;break;}}out.push_back(static_cast<std::uint8_t>(c));}return out;}
 static Module loadNqri2(const std::vector<std::uint8_t>& bytes) {
     if (bytes.size()<32 || bytes[0]!='N'||bytes[1]!='Q'||bytes[2]!='R'||bytes[3]!='I') throw RuntimeError("not an NQRI module");
     const auto version=u32(bytes,4); if(version!=2)throw RuntimeError("unsupported NQRI version "+std::to_string(version));
@@ -41,8 +45,11 @@ static Module loadNqri2(const std::vector<std::uint8_t>& bytes) {
     if(required!=bytes.size())throw RuntimeError("invalid NQRI length");
     Module m; m.bytes=bytes; m.source.assign(bytes.begin()+32,bytes.begin()+32+sourceBytes); m.sourceText.assign(reinterpret_cast<const char*>(m.source.data()),m.source.size());
     std::size_t off=32+sourceBytes;
+    m.functions.reserve(functionCount);
     for(std::uint32_t n=0;n<functionCount;++n,off+=40){Function f;f.symbol=u64(bytes,off);f.nameStart=u32(bytes,off+8);f.nameEnd=u32(bytes,off+12);f.firstInstruction=u32(bytes,off+16);f.instructionCount=u32(bytes,off+20);f.parameterCount=u32(bytes,off+24);f.flags=u32(bytes,off+28);if(f.symbol==0||f.nameEnd<=f.nameStart||f.nameEnd>m.source.size()||static_cast<std::uint64_t>(f.firstInstruction)+f.instructionCount>instructionCount)throw RuntimeError("invalid function record");f.name.assign(reinterpret_cast<const char*>(m.source.data()+f.nameStart),f.nameEnd-f.nameStart);m.bySymbol[f.symbol]=m.functions.size();m.byName[f.name]=m.functions.size();m.functions.push_back(std::move(f));}
-    for(std::uint32_t n=0;n<instructionCount;++n,off+=96){Instruction x;x.opcode=u32(bytes,off);x.typeCode=u32(bytes,off+4);x.flags=u32(bytes,off+8);x.dest=i64(bytes,off+16);x.left=i64(bytes,off+24);x.right=i64(bytes,off+32);x.immediate=i64(bytes,off+40);x.symbol=u64(bytes,off+48);x.width=u64(bytes,off+56);x.sourceStart=u64(bytes,off+64);x.sourceEnd=u64(bytes,off+72);x.floatImmediate=f64bits(u64(bytes,off+80));if(x.opcode>47||x.sourceEnd<x.sourceStart||x.sourceEnd>m.source.size())throw RuntimeError("invalid instruction record");m.instructions.push_back(x);}
+    m.instructions.reserve(instructionCount);
+    for(std::uint32_t n=0;n<instructionCount;++n,off+=96){Instruction x;x.opcode=u32(bytes,off);x.typeCode=u32(bytes,off+4);x.flags=u32(bytes,off+8);x.dest=i64(bytes,off+16);x.left=i64(bytes,off+24);x.right=i64(bytes,off+32);x.immediate=i64(bytes,off+40);x.symbol=u64(bytes,off+48);x.width=u64(bytes,off+56);x.sourceStart=u64(bytes,off+64);x.sourceEnd=u64(bytes,off+72);x.floatImmediate=f64bits(u64(bytes,off+80));if(x.opcode>47||x.sourceEnd<x.sourceStart||x.sourceEnd>m.source.size())throw RuntimeError("invalid instruction record");if(x.opcode==21){auto it=m.bySymbol.find(x.symbol);if(it!=m.bySymbol.end())x.resolvedFunction=static_cast<std::ptrdiff_t>(it->second);}else if(x.opcode==45&&x.sourceEnd>x.sourceStart){auto literal=decodeStringLiteral(m.source,static_cast<std::size_t>(x.sourceStart),static_cast<std::size_t>(x.sourceEnd));auto block=std::make_shared<MemoryBlock>(literal.size(),literal.size());block->buffer=std::move(literal);x.cachedLiteral=sliceValue(blockPtr(block),block->buffer.size());}m.instructions.push_back(std::move(x));}
+    for(auto& f:m.functions){std::int64_t maxReg=-1;std::size_t maxArity=0;const std::size_t end=static_cast<std::size_t>(f.firstInstruction)+f.instructionCount;for(std::size_t i=f.firstInstruction;i<end;++i){const auto& ins=m.instructions[i];maxReg=std::max(maxReg,std::max(ins.dest,std::max(ins.left,ins.right)));if(ins.opcode==21&&ins.width<=4096)maxArity=std::max(maxArity,static_cast<std::size_t>(ins.width));else if(ins.opcode==46&&ins.immediate>=0&&ins.immediate<4096)maxArity=std::max(maxArity,static_cast<std::size_t>(ins.immediate+1));}if(maxReg>=0&&maxReg<1048576)f.registerSlotCount=static_cast<std::size_t>(maxReg+1);f.maxCallArity=maxArity;}
     const std::regex rec(R"(\brecord\s+([A-Za-z_][A-Za-z0-9_]*))"); for(std::sregex_iterator it(m.sourceText.begin(),m.sourceText.end(),rec),end;it!=end;++it)m.recordTypes.insert((*it)[1].str());
     return m;
 }
@@ -110,7 +117,6 @@ static std::vector<std::uint8_t> bundleManifest(const std::string& rootPath, con
 
 static std::vector<std::uint8_t> readFile(const std::string& path) { std::ifstream in(path,std::ios::binary); if(!in)throw RuntimeError("cannot open "+path); return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in),{}); }
 static void writeFile(const std::string& path,const std::vector<std::uint8_t>& bytes,std::size_t count){if(count>bytes.size())throw RuntimeError("write size exceeds buffer");std::ofstream out(path,std::ios::binary|std::ios::trunc);if(!out)throw RuntimeError("cannot write "+path);out.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(count));if(!out)throw RuntimeError("failed writing "+path);}
-static std::vector<std::uint8_t> decodeStringLiteral(const std::vector<std::uint8_t>& source,std::size_t start,std::size_t end){if(end<=start||end>source.size())throw RuntimeError("invalid string source span");std::string s(reinterpret_cast<const char*>(source.data()+start),end-start);if(s.size()>=2&&s.front()=='"'&&s.back()=='"')s=s.substr(1,s.size()-2);std::vector<std::uint8_t> out;for(std::size_t i=0;i<s.size();++i){char c=s[i];if(c=='\\'&&i+1<s.size()){char n=s[++i];switch(n){case'n':c='\n';break;case'r':c='\r';break;case't':c='\t';break;case'"':c='"';break;case'\\':c='\\';break;default:out.push_back('\\');c=n;break;}}out.push_back(static_cast<std::uint8_t>(c));}return out;}
 
 class Vm {
 public:

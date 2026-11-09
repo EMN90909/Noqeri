@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <atomic>
 #include <cerrno>
+#include <csignal>
 #include <fcntl.h>
 #include <cstring>
 #include <memory>
@@ -78,6 +79,9 @@ static int ssl_write_full(SSL *s,const unsigned char *p,size_t len) {
   }return 0;
 }
 static SSL_CTX *make_context(bool server,const char *ca,const char *cert,const char *key) {
+#ifdef SIGPIPE
+  std::signal(SIGPIPE, SIG_IGN);
+#endif
   SSL_CTX *ctx=SSL_CTX_new(server?TLS_server_method():TLS_client_method());
   if(!ctx)return nullptr;
   if(SSL_CTX_set_min_proto_version(ctx,TLS1_3_VERSION)!=1 ||

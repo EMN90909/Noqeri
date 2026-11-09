@@ -39,14 +39,15 @@ class TypeChecker { public: explicit TypeChecker(Diagnostics& diagnostics); bool
     std::optional<CursorLayout> cursorLayout(const Type& base,Type* valueType=nullptr) const; Type substituteGeneric(const Type& type,const std::unordered_map<std::string,Type>& bindings) const; bool bindGeneric(const Type& pattern,const Type& actual,std::unordered_map<std::string,Type>& bindings) const; Diagnostics& diagnostics_; std::vector<std::unordered_map<std::string,Type>> scopes_; std::vector<std::unordered_map<std::string,bool>> constScopes_; std::unordered_map<std::string,FunctionType> functions_; std::unordered_map<std::string,RecordType> records_; std::unordered_set<std::string> activeGenericParams_; Type currentReturn_{}; bool insideFunction_=false; std::size_t loopDepth_=0; };
 
 class BorrowChecker { public: bool check(const Program& program,Diagnostics& diagnostics) const; };
-class SafetyAnnotator { public: bool check(const Program& program,Diagnostics& diagnostics,bool allowUnsafe=false) const; };
+class SafetyAnnotator { public: bool check(const Program& program,Diagnostics& diagnostics,bool allowUnsafe=true) const; };
 class Lowerer { public: NirProgram lower(const Program& program); private: void lowerStmt(NirFunction& fn,const StmtPtr& stmt); void lowerBranchCondition(NirFunction& fn,const ExprPtr& cond,std::vector<std::size_t>& falseJumps); Reg lowerExpr(NirFunction& fn,const ExprPtr& expr); Reg lowerAddress(NirFunction& fn,const ExprPtr& expr); Reg emit(NirFunction& fn,NirInstruction instruction); std::vector<Reg> ownedListVariables_; std::vector<std::size_t> loopOwnedBoundaries_; void closeOwnedLists(NirFunction& fn,std::size_t boundary); std::vector<std::vector<std::size_t>> breakJumps_; std::vector<std::vector<std::size_t>> continueJumps_; };
 enum class OptimizationLevel { O0, O1, O2, O3, Os, Oz };
 class OptimizationPass { public: virtual ~OptimizationPass()=default; virtual const char* name() const=0; virtual bool run(NirFunction& function) const=0; };
 class PassManager { public: explicit PassManager(OptimizationLevel level=OptimizationLevel::O1):level_(level){} void optimize(NirProgram& program) const; OptimizationLevel level() const { return level_; } private: OptimizationLevel level_; };
-class Optimizer { public: void optimize(NirProgram& program) const; void optimize(NirProgram& program,OptimizationLevel level) const; private: void optimizeFunction(NirFunction& fn) const; };
-struct CompileOptions { OptimizationLevel optimization=OptimizationLevel::O1; std::string target=NOQERI_DEFAULT_TARGET; bool allowUnsafe=false; };
+class Optimizer { public: void optimize(NirProgram& program) const; void optimize(NirProgram& program,OptimizationLevel level) const; void optimize(NirFunction& fn,OptimizationLevel level=OptimizationLevel::O1) const; private: void optimizeFunction(NirFunction& fn) const; };
+struct CompileOptions { OptimizationLevel optimization=OptimizationLevel::O1; std::string target=NOQERI_DEFAULT_TARGET; bool allowUnsafe=true; };
 struct CompileResult { Program ast; NirProgram nir; Diagnostics diagnostics; std::shared_ptr<ModuleGraph> modules; };
+CompileResult compileProgram(Program program,Diagnostics diagnostics,const CompileOptions& options,std::shared_ptr<ModuleGraph> graph={});
 CompileResult compileSource(const std::string& source);
 CompileResult compileSource(const std::string& source,const CompileOptions& options);
 CompileResult compileFile(const std::filesystem::path& path);

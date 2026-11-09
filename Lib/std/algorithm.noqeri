@@ -102,3 +102,7 @@ export function nqGcd(a:i64,b:i64):i64{return algorithm_gcd_i64(a,b)}
 export function nqLcm(a:i64,b:i64):i64{return algorithm_lcm_i64(a,b)}
 export function nqPowInt(base:i64,exponent:u32):i64{return algorithm_pow_i64(base,exponent)}
 export function nqFactorial(value:u32):u64{return algorithm_factorial_u64(value)}
+export function nqGcdI64(a:i64,b:i64):i64{return algorithm_gcd_i64(a,b)}
+export function nqLcmI64(a:i64,b:i64):i64{return algorithm_lcm_i64(a,b)}
+export function nqPowI64(base:i64,exponent:u32):i64{return algorithm_pow_i64(base,exponent)}
+export function nqFactorialU64(value:u32):u64{return algorithm_factorial_u64(value)}

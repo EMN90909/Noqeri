@@ -256,3 +256,9 @@ export function nqRmsFloat(values: *float, count: usize): float { if count == 0 
 // Compatibility aliases retained for existing programs.
 export function abs_int(value: int): int { return nqAbsInt(value) }
 export function min_int(a: int, b: int): int { return nqMinInt(a, b) }
+export function max_int(a: int, b: int): int { return nqMaxInt(a, b) }
+export function clamp_int(value: int, low: int, high: int): int { return nqClampInt(value, low, high) }
+export function gcd_int(a: int, b: int): int { return nqGcdI64(a as i64, b as i64) as int }
+export function lcm_int(a: int, b: int): int { return nqLcmI64(a as i64, b as i64) as int }
+export function pow_int(base: int, exponent: u32): int { return nqPowI64(base as i64, exponent) as int }
+export function sqrt_int(value: int): int { if value <= 0 { return 0 } return nqIntegerSqrtU64(value as u64) as int }

@@ -368,7 +368,7 @@ node scripts/qualify-release.mjs
 
 ## Project status
 
-**Development version: `0.1.3`.** The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
+**Development version: `0.1.4`.** Version on `main`: 0.1.4. The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
 
 Current priorities include native Stage-2 compiler parity, broader conformance and portability evidence, qualified GPU/graphics execution, secure distributed recovery and completed Registry/NoeSQL integration. The repository contains working components and meaningful tests, but that is **not equivalent to a production-certified toolchain**.
 

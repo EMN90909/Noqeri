@@ -19,6 +19,7 @@ function run(executable, args, cwd, input = '') {
     child.stderr.on('data', chunk => { stderr += chunk.toString() })
     child.on('error', reject)
     child.on('close', code => done({ code, stdout, stderr }))
+    child.stdin.on('error', () => {})
     child.stdin.end(input)
   })
 }

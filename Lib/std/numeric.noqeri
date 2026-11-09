@@ -121,3 +121,50 @@ export function map_add(values: []int, offset: int, output: []int): bool {
     }
     return true
 }
+export function numeric_sum_i64(values: []i64): i64 {
+    let total: i64 = 0 as i64
+    let i: usize = 0 as usize
+    while i < len(values) { total = total + values[i]; i = i + 1 as usize }
+    return total
+}
+export function numeric_mean_i64(values: []i64): i64 {
+    if len(values) == 0 as usize { return 0 as i64 }
+    return numeric_sum_i64(values) / (len(values) as i64)
+}
+export function numeric_gcd_i64(a: i64, b: i64): i64 {
+    let x: i64 = a
+    let y: i64 = b
+    if x < 0 as i64 { x = -x }
+    if y < 0 as i64 { y = -y }
+    while y != 0 as i64 { let r: i64 = x % y; x = y; y = r }
+    return x
+}
+export function numeric_lcm_i64(a: i64, b: i64): i64 {
+    if a == 0 as i64 || b == 0 as i64 { return 0 as i64 }
+    let g: i64 = numeric_gcd_i64(a, b)
+    let q: i64 = (a / g) * b
+    if q < 0 as i64 { return -q }
+    return q
+}
+export function numeric_pow_i64(base: i64, exp: usize): i64 {
+    let result: i64 = 1 as i64
+    let factor: i64 = base
+    let e: usize = exp
+    while e > 0 as usize {
+        if e % 2 as usize == 1 as usize { result = result * factor }
+        e = e / 2 as usize
+        if e > 0 as usize { factor = factor * factor }
+    }
+    return result
+}
+export function numeric_binary_search_i64(values: []i64, target: i64): isize {
+    let low: usize = 0 as usize
+    let high: usize = len(values)
+    while low < high {
+        let mid: usize = low + (high - low) / 2 as usize
+        let v: i64 = values[mid]
+        if v == target { return mid as isize }
+        if v < target { low = mid + 1 as usize } else { high = mid }
+    }
+    return -1 as isize
+}

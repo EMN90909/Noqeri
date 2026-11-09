@@ -2,29 +2,37 @@
 private:
     std::unordered_map<std::int64_t,std::vector<Value>> growingIntLists_;
     std::int64_t nextGrowingIntList_=1;
-    struct Frame{std::unordered_map<std::int64_t,Value> regs;std::unordered_map<std::uint64_t,std::shared_ptr<Cell>> cells;std::map<std::size_t,Value> pendingArgs;std::vector<Value> args;std::size_t pc=0;};
-    const Value& getReg(Frame& frame,std::int64_t id,const Instruction&){if(id<0)throw RuntimeError("read of negative register");auto it=frame.regs.find(id);if(it==frame.regs.end())throw RuntimeError("read of undefined register "+std::to_string(id));return it->second;}
-    void setReg(Frame& frame,std::int64_t id,Value value){if(id>=0)frame.regs[id]=std::move(value);}
+    struct Frame{std::vector<Value> regs;std::vector<std::uint8_t> regInit;std::unordered_map<std::uint64_t,std::shared_ptr<Cell>> cells;std::vector<Value> pendingArgs;std::vector<std::uint8_t> pendingArgInit;std::vector<Value> args;std::size_t pc=0;};
+    const Value& getReg(Frame& frame,std::int64_t id,const Instruction&){if(id<0)throw RuntimeError("read of negative register");const auto idx=static_cast<std::size_t>(id);if(idx>=frame.regInit.size()||!frame.regInit[idx])throw RuntimeError("read of undefined register "+std::to_string(id));return frame.regs[idx];}
+    void setReg(Frame& frame,std::int64_t id,Value value){if(id<0)return;const auto idx=static_cast<std::size_t>(id);if(idx>=frame.regs.size()){if(idx>=1048576u)throw RuntimeError("register index out of range");frame.regs.resize(idx+1);frame.regInit.resize(idx+1,0);}frame.regs[idx]=std::move(value);frame.regInit[idx]=1;}
     std::shared_ptr<Cell> cell(Frame& frame,std::uint64_t symbol){auto& c=frame.cells[symbol];if(!c)c=std::make_shared<Cell>();return c;}
     bool valueEqual(const Value&a,const Value&b){if(a.index()!=b.index())return false;if(std::holds_alternative<std::monostate>(a))return true;if(auto x=std::get_if<std::int64_t>(&a))return *x==std::get<std::int64_t>(b);if(auto x=std::get_if<double>(&a))return *x==std::get<double>(b);if(auto x=std::get_if<PointerPtr>(&a))return *x==std::get<PointerPtr>(b);return std::get<SlicePtr>(a)==std::get<SlicePtr>(b);}
     int compare(const Value&a,const Value&b){if((std::holds_alternative<std::int64_t>(a)||std::holds_alternative<double>(a))&&(std::holds_alternative<std::int64_t>(b)||std::holds_alternative<double>(b))){double x=asDouble(a),y=asDouble(b);return x<y?-1:x>y?1:0;}throw RuntimeError("ordered comparison requires numbers");}
     Value zeroValueForType(std::string text){text.erase(text.begin(),std::find_if(text.begin(),text.end(),[](unsigned char c){return!std::isspace(c);}));text.erase(std::find_if(text.rbegin(),text.rend(),[](unsigned char c){return!std::isspace(c);}).base(),text.end());if(text.empty())throw RuntimeError("zero-init marker has no type");if(text.rfind("[]",0)==0)return sliceValue(nullptr,0);if(text[0]=='*')return std::monostate{};if(text[0]=='['){auto sem=text.rfind(';'), close=text.rfind(']');if(sem==std::string::npos||close==std::string::npos||sem>close)throw RuntimeError("invalid zero-init array type "+text);auto length=static_cast<std::size_t>(std::stoull(text.substr(sem+1,close-sem-1)));auto block=std::make_shared<MemoryBlock>(std::min<std::size_t>(length>std::numeric_limits<std::size_t>::max()/8?std::numeric_limits<std::size_t>::max():length*8,1024),length);return blockPtr(block);}auto generic=text.substr(0,text.find('<'));if(module_.recordTypes.count(generic))return blockPtr(std::make_shared<MemoryBlock>(128));if(text=="float")return 0.0;if(text=="string")return sliceValue(blockPtr(std::make_shared<MemoryBlock>(0,0)),0);static const std::unordered_set<std::string> scalars={"bool","int","i8","u8","i16","u16","i32","u32","i64","u64","isize","usize"};if(scalars.count(text))return std::int64_t{0};if(std::isupper(static_cast<unsigned char>(text[0])))return std::int64_t{0};throw RuntimeError("unsupported zero-init type "+text);}
     Value hostCall(const std::string& name,const std::vector<Value>& args,const Instruction& ins,std::size_t depth){
-        auto builtinListSymbol=[](const char* word)->std::uint64_t {
+        static const auto builtinListSymbol=[](const char* word)->std::uint64_t {
             std::uint64_t hash=2166136261ull;
             for(const unsigned char* p=reinterpret_cast<const unsigned char*>(word);*p;++p)
                 hash=(hash*16777619ull+static_cast<std::uint64_t>(*p)+1ull)%4294967291ull;
             return hash+1ull;
         };
+        static const std::uint64_t kSymListNew = builtinListSymbol("nq_list_new");
+        static const std::uint64_t kSymListAppend = builtinListSymbol("nq_list_append");
+        static const std::uint64_t kSymListLength = builtinListSymbol("nq_list_length");
+        static const std::uint64_t kSymListClose = builtinListSymbol("nq_list_close");
+        static const std::uint64_t kSymListAt = builtinListSymbol("nq_list_at");
+        static const std::uint64_t kSymListSet = builtinListSymbol("nq_list_set");
+        static const std::uint64_t kSymListPop = builtinListSymbol("nq_list_pop");
+        static const std::uint64_t kSymListClear = builtinListSymbol("nq_list_clear");
         std::string dispatch=name;
-        if(ins.symbol==builtinListSymbol("nq_list_new"))dispatch="nq_list_new";
-        else if(ins.symbol==builtinListSymbol("nq_list_append"))dispatch="nq_list_append";
-        else if(ins.symbol==builtinListSymbol("nq_list_length"))dispatch="nq_list_length";
-        else if(ins.symbol==builtinListSymbol("nq_list_close"))dispatch="nq_list_close";
-        else if(ins.symbol==builtinListSymbol("nq_list_at"))dispatch="nq_list_at";
-        else if(ins.symbol==builtinListSymbol("nq_list_set"))dispatch="nq_list_set";
-        else if(ins.symbol==builtinListSymbol("nq_list_pop"))dispatch="nq_list_pop";
-        else if(ins.symbol==builtinListSymbol("nq_list_clear"))dispatch="nq_list_clear";
+        if(ins.symbol==kSymListNew)dispatch="nq_list_new";
+        else if(ins.symbol==kSymListAppend)dispatch="nq_list_append";
+        else if(ins.symbol==kSymListLength)dispatch="nq_list_length";
+        else if(ins.symbol==kSymListClose)dispatch="nq_list_close";
+        else if(ins.symbol==kSymListAt)dispatch="nq_list_at";
+        else if(ins.symbol==kSymListSet)dispatch="nq_list_set";
+        else if(ins.symbol==kSymListPop)dispatch="nq_list_pop";
+        else if(ins.symbol==kSymListClear)dispatch="nq_list_clear";
         if(dispatch=="nq_list_new"){
             if(nextGrowingIntList_==std::numeric_limits<std::int64_t>::max())
                 throw RuntimeError("growable list ID space exhausted");

@@ -143,3 +143,6 @@ export function bit_deinterleave16_y(value:u32):u16{let result:u16=0 as u16 let 
 export function nqBitIsSet(value:u64,index:u8):bool{return bit_is_set_u64(value,index as usize)}
 export function nqBitPopcount(value:u64):u8{return bit_popcount_u64(value) as u8}
 export function nqBitIsPowerOfTwo(value:u64):bool{return bit_is_power_of_two_u64(value)}
+export function nqBitCountU64(value:u64):u32{return bit_popcount_u64(value) as u32}
+export function nqPowerOfTwoU64(value:u64):bool{return bit_is_power_of_two_u64(value)}
+export function nqBitIsSetU64(value:u64,index:u32):bool{return bit_is_set_u64(value,index as usize)}

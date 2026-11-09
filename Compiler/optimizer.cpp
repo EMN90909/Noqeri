@@ -86,30 +86,12 @@ bool constants(NirFunction&fn){
         if(index!=0&&leaders.count(index))known.clear();
         auto&i=fn.code[index];
         if(i.op==NirOp::Const&&i.dest){known[*i.dest]=i.literal;continue;}
-        if(i.op==NirOp::Cast&&i.dest&&i.args.size()==1){
+        if(i.op==NirOp::Cast&&i.dest&&i.args.size()==1&&i.type.kind!=TypeKind::Unknown){
             auto a=known.find(i.args[0]);
             if(a!=known.end()){
                 if(auto val=std::get_if<std::int64_t>(&a->second)){
                     auto res=typedArithmetic(static_cast<std::uint64_t>(*val), i.type.kind);
                     i.op=NirOp::Const;i.literal=res;i.text.clear();i.args.clear();known[*i.dest]=res;changed=true;continue;
-                }
-            }
-        }
-        if(i.op==NirOp::Unary&&i.dest&&i.args.size()==1){
-            auto a=known.find(i.args[0]);
-            if(a!=known.end()){
-                if(auto val=std::get_if<std::int64_t>(&a->second)){
-                    if(i.text=="-"){
-                        auto res=typedArithmetic(std::uint64_t{0}-static_cast<std::uint64_t>(*val), operandType(fn,i.args[0]));
-                        i.op=NirOp::Const;i.literal=res;i.text.clear();i.args.clear();known[*i.dest]=res;changed=true;continue;
-                    }else if(i.text=="~"){
-                        auto res=typedArithmetic(~static_cast<std::uint64_t>(*val), operandType(fn,i.args[0]));
-                        i.op=NirOp::Const;i.literal=res;i.text.clear();i.args.clear();known[*i.dest]=res;changed=true;continue;
-                    }
-                }else if(auto b=std::get_if<bool>(&a->second)){
-                    if(i.text=="!"){
-                        i.op=NirOp::Const;i.literal=!*b;i.text.clear();i.args.clear();known[*i.dest]=!*b;changed=true;continue;
-                    }
                 }
             }
         }
@@ -1056,7 +1038,7 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
     // defining Load and each candidate CheckBounds, potentially quadratic
     // or worse when several guards protect large array-heavy loops.
     const auto barrier=[](NirOp op){
-        return op==NirOp::Call||op==NirOp::InlineAsm||
+        return op==NirOp::StoreMemory||op==NirOp::Call||op==NirOp::InlineAsm||
                op==NirOp::AtomicStore||
                op==NirOp::AtomicExchange||
                op==NirOp::AtomicCompareExchange;
@@ -1848,25 +1830,52 @@ bool promoteImmutableLocalPointers(NirFunction& fn) {
     std::unordered_map<std::string, std::size_t> storeCounts;
     std::unordered_map<std::string, Reg> singleStoreReg;
     std::unordered_set<std::string> addressTaken;
-    std::unordered_set<std::string> storeAfterBranch;
+    std::unordered_set<std::string> invalidCandidate;
+    std::unordered_set<std::string> seenLoads;
     bool branched = false;
     for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
         const auto& in = fn.code[pc];
         if (in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse ||
-            in.op == NirOp::Return || in.op == NirOp::Throw) {
+            in.op == NirOp::Return || in.op == NirOp::Throw ||
+            in.op == NirOp::Try || in.op == NirOp::InlineAsm) {
             branched = true;
         }
         if (in.op == NirOp::AddressOf) {
             addressTaken.insert(in.text);
+        } else if (in.op == NirOp::Load) {
+            seenLoads.insert(in.text);
+            if (in.isVolatile) invalidCandidate.insert(in.text);
         } else if (in.op == NirOp::Store) {
             ++storeCounts[in.text];
-            if (branched) storeAfterBranch.insert(in.text);
-            if (in.args.size() == 1) singleStoreReg[in.text] = in.args[0];
+            if (branched || in.isVolatile || seenLoads.count(in.text))
+                invalidCandidate.insert(in.text);
+            if (in.args.size() == 1) {
+                const Reg src = in.args[0];
+                const auto kind = operandType(fn, src);
+                bool isPointerProducing = (kind == TypeKind::Pointer);
+                if (!isPointerProducing) {
+                    for (std::size_t defPc = 0; defPc < pc; ++defPc) {
+                        const auto& defIn = fn.code[defPc];
+                        if (defIn.dest && *defIn.dest == src &&
+                            (defIn.op == NirOp::StackAlloc ||
+                             defIn.op == NirOp::PtrOffset ||
+                             defIn.op == NirOp::SliceData ||
+                             defIn.op == NirOp::AddressOf)) {
+                            isPointerProducing = true;
+                            break;
+                        }
+                    }
+                }
+                if (isPointerProducing) singleStoreReg[in.text] = src;
+                else invalidCandidate.insert(in.text);
+            } else {
+                invalidCandidate.insert(in.text);
+            }
         }
     }
     std::unordered_map<std::string, Reg> candidatePointers;
     for (const auto& [name, count] : storeCounts) {
-        if (count == 1 && !addressTaken.count(name) && !storeAfterBranch.count(name)) {
+        if (count == 1 && !addressTaken.count(name) && !invalidCandidate.count(name)) {
             const auto it = singleStoreReg.find(name);
             if (it != singleStoreReg.end()) candidatePointers.emplace(name, it->second);
         }
@@ -2052,7 +2061,9 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
            g.definitions.count(phi.dest)||
            !destinations.insert(phi.dest).second)return false;
         const auto& preds=g.preds[phi.block];
-        if(preds.empty()||phi.incoming.size()!=preds.size())return false;
+        std::size_t reachablePreds=0;
+        for(const auto p:preds)if(g.reachable[p])++reachablePreds;
+        if(reachablePreds==0||phi.incoming.size()!=reachablePreds)return false;
         std::unordered_set<std::size_t> seen;
         for(const auto& [predecessor,value]:phi.incoming){
             if(predecessor>=blocks||!g.reachable[predecessor]||
@@ -2115,22 +2126,17 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
         }
     }
     remap[n]=rebuilt.size();
-    for(auto& [key,edge]:edges){
-        edge.stub=rebuilt.size();
-        // Parallel copies need staging only if a destination is also
-        // the source of ANOTHER copy on this edge. With independent
-        // destinations there is no cycle or overwrite hazard, so emit
-        // direct register-to-register copies without allocating or
-        // moving through a temporary virtual register.
-        std::unordered_set<Reg> destinationsOnEdge;
-        for(const auto& copy:edge.copies)
-            destinationsOnEdge.insert(copy.dest);
-        bool requiresStaging=false;
+    bool requiresStaging=false;
+    for(const auto& [key,edge]:edges){
         for(const auto& copy:edge.copies)
             if(copy.source!=copy.dest &&
-               destinationsOnEdge.count(copy.source)){
+               destinations.count(copy.source)){
                 requiresStaging=true;break;
             }
+        if(requiresStaging)break;
+    }
+    for(auto& [key,edge]:edges){
+        edge.stub=rebuilt.size();
         std::vector<Reg> staged;
         if(requiresStaging){
             // Read all original sources before writing ANY destination,
@@ -2531,28 +2537,136 @@ OptimizationCapabilities inspectOptimizations(const NirFunction& fn) {
     }
     return out;
 }
-// This deliberately narrow inliner substitutes *only* a side-effect-free,
-// zero-argument function consisting of one constant and its return.
-// It must never convert a potentially throwing or effectful call.
+// Safe inliner for zero-argument constant functions and small, pure,
+// single-block leaf functions. Never inlines potentially throwing, trapping
+// or effectful operations.
 void PassManager::optimize(NirProgram& p) const {
     if (level_ == OptimizationLevel::O2 || level_ == OptimizationLevel::O3 ||
         level_ == OptimizationLevel::Oz) {
         std::unordered_map<std::string, NirValue> candidates;
         std::unordered_set<std::string> ambiguous;
+        std::unordered_map<std::string, std::size_t> nameCounts;
+        for (const auto& fn : p.functions) {
+            if (!fn.name.empty()) ++nameCounts[fn.name];
+        }
+        for (const auto& [name, count] : nameCounts) {
+            if (count > 1) ambiguous.insert(name);
+        }
         for (const auto& fn : p.functions) {
             if (fn.name.empty() || fn.isExtern || !fn.params.empty() ||
-                !fn.paramTypes.empty() || fn.code.size() != 2) continue;
+                !fn.paramTypes.empty() || fn.code.size() != 2 ||
+                ambiguous.count(fn.name)) continue;
             const auto& a = fn.code[0];
             const auto& b = fn.code[1];
             if (a.op != NirOp::Const || !a.dest ||
                 std::holds_alternative<std::monostate>(a.literal) ||
                 b.op != NirOp::Return || b.args.size() != 1 ||
                 b.args.front() != *a.dest) continue;
-            if (!candidates.emplace(fn.name, a.literal).second)
-                ambiguous.insert(fn.name);
+            candidates.emplace(fn.name, a.literal);
         }
-        for (const auto& name : ambiguous) candidates.erase(name);
-        auto inlineConstants = [&](NirFunction& fn) {
+        std::unordered_map<std::string, const NirFunction*> leafCandidates;
+        for (const auto& fn : p.functions) {
+            if (fn.name.empty() || fn.isExtern || !fn.genericParams.empty() ||
+                !fn.partitions.empty() || fn.params.size() > 6 ||
+                fn.code.size() < 2 || fn.code.size() > 16 ||
+                candidates.count(fn.name) || ambiguous.count(fn.name))
+                continue;
+            std::unordered_set<std::string> knownVars(
+                fn.params.begin(), fn.params.end());
+            if (knownVars.size() != fn.params.size()) continue;
+            std::unordered_set<Reg> definedRegs;
+            bool eligible = true;
+            bool sawReturn = false;
+            for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+                const auto& in = fn.code[pc];
+                if (sawReturn) {
+                    if (in.op != NirOp::Nop &&
+                        !(in.op == NirOp::Return && in.args.empty())) {
+                        eligible = false;
+                        break;
+                    }
+                    continue;
+                }
+                if (in.isVolatile) { eligible = false; break; }
+                for (Reg arg : in.args) {
+                    if (!definedRegs.count(arg)) {
+                        eligible = false;
+                        break;
+                    }
+                }
+                if (!eligible) break;
+                if (in.dest) {
+                    if (!definedRegs.insert(*in.dest).second) {
+                        eligible = false;
+                        break;
+                    }
+                }
+                switch (in.op) {
+                case NirOp::Nop:
+                    break;
+                case NirOp::Const:
+                    if (!in.dest ||
+                        std::holds_alternative<std::monostate>(in.literal))
+                        eligible = false;
+                    break;
+                case NirOp::Load:
+                    if (!in.dest || !knownVars.count(in.text))
+                        eligible = false;
+                    break;
+                case NirOp::Store:
+                    if (in.args.size() != 1 || in.text.empty())
+                        eligible = false;
+                    else
+                        knownVars.insert(in.text);
+                    break;
+                case NirOp::Unary:
+                    if (!in.dest || in.args.size() != 1)
+                        eligible = false;
+                    break;
+                case NirOp::Binary:
+                    if (!in.dest || in.args.size() != 2 ||
+                        in.text == "/" || in.text == "%" ||
+                        in.type.kind == TypeKind::String)
+                        eligible = false;
+                    break;
+                case NirOp::Cast:
+                    if (!in.dest || in.args.size() != 1 ||
+                        in.type.kind == TypeKind::Float ||
+                        (in.args[0] < fn.registerTypes.size() &&
+                         fn.registerTypes[in.args[0]].kind == TypeKind::Float))
+                        eligible = false;
+                    break;
+                case NirOp::Return:
+                    if (in.args.size() != 1) eligible = false;
+                    sawReturn = true;
+                    break;
+                default:
+                    eligible = false;
+                    break;
+                }
+                if (!eligible) break;
+            }
+            if (eligible && sawReturn)
+                leafCandidates.emplace(fn.name, &fn);
+        }
+        auto scalarCastName = [](TypeKind kind) -> const char* {
+            switch (kind) {
+            case TypeKind::Int: return "int";
+            case TypeKind::I8: return "i8";
+            case TypeKind::I16: return "i16";
+            case TypeKind::I32: return "i32";
+            case TypeKind::I64: return "i64";
+            case TypeKind::U8: return "u8";
+            case TypeKind::U16: return "u16";
+            case TypeKind::U32: return "u32";
+            case TypeKind::U64: return "u64";
+            case TypeKind::Usize: return "usize";
+            case TypeKind::Isize: return "isize";
+            case TypeKind::Bool: return "bool";
+            default: return nullptr;
+            }
+        };
+        auto inlineFunctions = [&](NirFunction& fn) {
             for (auto& in : fn.code) {
                 if (in.op != NirOp::Call || !in.dest || !in.args.empty()) continue;
                 auto found = candidates.find(in.text);
@@ -2561,11 +2675,165 @@ void PassManager::optimize(NirProgram& p) const {
                 in.literal = found->second;
                 in.text.clear();
             }
+            if (leafCandidates.empty() || fn.code.size() > 8192) return;
+            bool hasCandidateCall = false;
+            for (const auto& in : fn.code) {
+                if (in.op == NirOp::Call && in.dest && in.text != fn.name &&
+                    leafCandidates.count(in.text)) {
+                    hasCandidateCall = true;
+                    break;
+                }
+            }
+            if (!hasCandidateCall) return;
+            Reg nextReg = std::max(
+                fn.nextReg, static_cast<Reg>(fn.registerTypes.size()));
+            for (const auto& in : fn.code) {
+                if (in.dest)
+                    nextReg = std::max(nextReg, static_cast<Reg>(*in.dest + 1));
+            }
+            const std::size_t n = fn.code.size();
+            std::vector<NirInstruction> rebuilt;
+            rebuilt.reserve(n + 32);
+            std::vector<std::size_t> remap(n + 1, 0);
+            std::vector<std::pair<Reg, Type>> addedTypes;
+            bool modified = false;
+            for (std::size_t pc = 0; pc < n; ++pc) {
+                remap[pc] = rebuilt.size();
+                const auto& callIn = fn.code[pc];
+                if (callIn.op != NirOp::Call || !callIn.dest ||
+                    callIn.text == fn.name) {
+                    rebuilt.push_back(callIn);
+                    continue;
+                }
+                const auto it = leafCandidates.find(callIn.text);
+                if (it == leafCandidates.end() ||
+                    it->second->params.size() != callIn.args.size()) {
+                    rebuilt.push_back(callIn);
+                    continue;
+                }
+                const NirFunction& callee = *it->second;
+                std::unordered_map<std::string, Reg> env;
+                for (std::size_t k = 0; k < callee.params.size(); ++k)
+                    env[callee.params[k]] = callIn.args[k];
+                std::unordered_map<Reg, Reg> regMap;
+                std::vector<NirInstruction> emitted;
+                std::vector<std::pair<Reg, Type>> siteTypes;
+                Reg siteNext = nextReg;
+                std::optional<Reg> retSource;
+                bool ok = true;
+                for (const auto& cin : callee.code) {
+                    if (cin.op == NirOp::Return) {
+                        if (cin.args.size() == 1 && regMap.count(cin.args[0]))
+                            retSource = regMap.at(cin.args[0]);
+                        else
+                            ok = false;
+                        break;
+                    }
+                    if (cin.op == NirOp::Nop) continue;
+                    if (cin.op == NirOp::Load) {
+                        auto envIt = env.find(cin.text);
+                        if (envIt == env.end() || !cin.dest) {
+                            ok = false;
+                            break;
+                        }
+                        regMap[*cin.dest] = envIt->second;
+                        continue;
+                    }
+                    if (cin.op == NirOp::Store) {
+                        if (cin.args.size() != 1 || !regMap.count(cin.args[0])) {
+                            ok = false;
+                            break;
+                        }
+                        env[cin.text] = regMap.at(cin.args[0]);
+                        continue;
+                    }
+                    if (!cin.dest || siteNext == std::numeric_limits<Reg>::max()) {
+                        ok = false;
+                        break;
+                    }
+                    const Reg fresh = siteNext++;
+                    Type rType = (*cin.dest < callee.registerTypes.size() &&
+                                  callee.registerTypes[*cin.dest].kind != TypeKind::Unknown)
+                        ? callee.registerTypes[*cin.dest]
+                        : cin.type;
+                    siteTypes.emplace_back(fresh, rType);
+                    regMap[*cin.dest] = fresh;
+                    NirInstruction clone = cin;
+                    clone.dest = fresh;
+                    for (auto& arg : clone.args) {
+                        auto mIt = regMap.find(arg);
+                        if (mIt == regMap.end()) { ok = false; break; }
+                        arg = mIt->second;
+                    }
+                    if (!ok) break;
+                    emitted.push_back(std::move(clone));
+                }
+                if (!ok || !retSource) {
+                    rebuilt.push_back(callIn);
+                    continue;
+                }
+                bool boundDest = false;
+                for (std::size_t idx = emitted.size(); idx-- > 0;) {
+                    if (emitted[idx].dest && *emitted[idx].dest == *retSource) {
+                        bool usedLater = false;
+                        for (std::size_t after = idx + 1; after < emitted.size(); ++after) {
+                            if (std::find(emitted[after].args.begin(),
+                                          emitted[after].args.end(),
+                                          *retSource) != emitted[after].args.end()) {
+                                usedLater = true;
+                                break;
+                            }
+                        }
+                        if (!usedLater) {
+                            emitted[idx].dest = *callIn.dest;
+                            boundDest = true;
+                        }
+                        break;
+                    }
+                }
+                if (!boundDest) {
+                    Type resType = callIn.type.kind != TypeKind::Unknown
+                        ? callIn.type
+                        : callee.resultType;
+                    const char* castStr = scalarCastName(resType.kind);
+                    if (!castStr) {
+                        rebuilt.push_back(callIn);
+                        continue;
+                    }
+                    NirInstruction copy;
+                    copy.op = NirOp::Cast;
+                    copy.dest = *callIn.dest;
+                    copy.args = {*retSource};
+                    copy.type = resType;
+                    copy.text = castStr;
+                    emitted.push_back(std::move(copy));
+                }
+                nextReg = siteNext;
+                for (const auto& entry : siteTypes)
+                    addedTypes.push_back(entry);
+                for (auto& ins : emitted)
+                    rebuilt.push_back(std::move(ins));
+                modified = true;
+            }
+            if (!modified) return;
+            remap[n] = rebuilt.size();
+            for (auto& in : rebuilt) {
+                if (in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse)
+                    in.target = remap[std::min(in.target, n)];
+            }
+            if (fn.registerTypes.size() < nextReg)
+                fn.registerTypes.resize(static_cast<std::size_t>(nextReg));
+            for (const auto& [r, t] : addedTypes) {
+                if (r < fn.registerTypes.size())
+                    fn.registerTypes[r] = t;
+            }
+            fn.nextReg = std::max(fn.nextReg, nextReg);
+            fn.code = std::move(rebuilt);
         };
-        inlineConstants(p.entry);
-        for (auto& fn : p.functions) inlineConstants(fn);
+        inlineFunctions(p.entry);
+        for (auto& fn : p.functions) inlineFunctions(fn);
     }
     pipeline(p.entry, level_);
     for (auto& fn : p.functions) pipeline(fn, level_);
 }
-void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
+void Optimizer::optimize(NirProgram&p)const{optimize(p,OptimizationLevel::O1);}void Optimizer::optimize(NirProgram&p,OptimizationLevel level)const{PassManager(level).optimize(p);}void Optimizer::optimize(NirFunction&fn,OptimizationLevel level)const{pipeline(fn,level);}void Optimizer::optimizeFunction(NirFunction&fn)const{pipeline(fn,OptimizationLevel::O1);} } // namespace noe
