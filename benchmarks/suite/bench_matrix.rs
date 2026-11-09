@@ -24,7 +24,11 @@ fn bench_matrix() -> i64 {
             }
         }
     }
-    c[N * N - 1]
+    let mut total: i64 = 0;
+    for idx in 0..N * N {
+        total += c[idx];
+    }
+    total
 }
 
 fn main() {

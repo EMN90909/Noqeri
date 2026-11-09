@@ -23,7 +23,14 @@ func benchSort() int64 {
 		}
 		arr[k+1] = key
 	}
-	return arr[N-1]
+	var checksum int64 = 0
+	for i := 0; i < N; i++ {
+		if i < N-1 && arr[i] > arr[i+1] {
+			panic("Sorting verification failed")
+		}
+		checksum += arr[i] * int64(i+1)
+	}
+	return checksum
 }
 
 func main() {

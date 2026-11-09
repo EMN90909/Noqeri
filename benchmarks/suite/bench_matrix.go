@@ -28,7 +28,11 @@ func benchMatrix() int64 {
 			}
 		}
 	}
-	return C[N*N-1]
+	var total int64 = 0
+	for idx := 0; idx < N*N; idx++ {
+		total += C[idx]
+	}
+	return total
 }
 
 func main() {

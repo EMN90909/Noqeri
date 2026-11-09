@@ -17,7 +17,14 @@ fn bench_sort() i64 {
         }
         arr[@as(usize, @intCast(k + 1))] = key;
     }
-    return arr[N - 1];
+    var checksum: i64 = 0;
+    for (0..N) |i| {
+        if (i < N - 1 and arr[i] > arr[i + 1]) {
+            @panic("Sorting verification failed");
+        }
+        checksum += arr[i] * @as(i64, @intCast(i + 1));
+    }
+    return checksum;
 }
 
 pub fn main() !void {

@@ -736,36 +736,41 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (cmd == "build") {
-            bool useLlvm = false;
+            std::string backendMode = "native";
             for (int i = 2; i < argc; ++i) {
                 const std::string arg = argv[i];
-                if (arg == "--backend=llvm" || arg == "--backend=c") useLlvm = true;
+                if (arg == "--backend=llvm") backendMode = "llvm";
+                else if (arg == "--backend=c") backendMode = "c";
+                else if (arg == "--backend=native") backendMode = "native";
             }
             std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".s");
-            if (useLlvm) {
+            if (backendMode == "llvm" || backendMode == "c") {
                 if (output.extension().empty()) output += ".s";
-                const auto tempC = output.parent_path() / ("." + output.stem().string() + ".llvm-tmp.c");
+                const auto tempC = output.parent_path() / ("." + output.stem().string() + "." + backendMode + "-tmp.c");
                 Diagnostics d;
                 if (!PortableCBackend{}.emitSource(compilation.nir, tempC, d)) {
                     d.print(path.string()); return 1;
                 }
+                const std::string compilerTool = backendMode == "llvm" ? "clang" : "gcc";
                 const std::string optLevel = options.optimization == OptimizationLevel::O0 ? "-O0" : "-O3";
                 std::string cmdline;
                 if (output.extension() == ".s") {
-                    cmdline = "clang " + optLevel + " -march=native -fno-math-errno -fno-addrsig -DNOQERI_NO_MAIN -S \"" + tempC.string() + "\" -o \"" + output.string() + "\" 2>&1";
+                    cmdline = compilerTool + " " + optLevel + " -march=native -fno-strict-aliasing -fwrapv -fno-math-errno " +
+                              (backendMode == "llvm" ? "-fno-addrsig " : "") +
+                              "-DNOQERI_NO_MAIN -S \"" + tempC.string() + "\" -o \"" + output.string() + "\" 2>&1";
                 } else if (output.extension() == ".o") {
-                    cmdline = "clang " + optLevel + " -march=native -fno-math-errno -DNOQERI_NO_MAIN -c \"" + tempC.string() + "\" -o \"" + output.string() + "\" 2>&1";
+                    cmdline = compilerTool + " " + optLevel + " -march=native -fno-strict-aliasing -fwrapv -fno-math-errno -DNOQERI_NO_MAIN -c \"" + tempC.string() + "\" -o \"" + output.string() + "\" 2>&1";
                 } else {
-                    cmdline = "clang " + optLevel + " -march=native -fno-math-errno \"" + tempC.string() + "\" -o \"" + output.string() + "\" 2>&1";
+                    cmdline = compilerTool + " " + optLevel + " -march=native -fno-strict-aliasing -fwrapv -fno-math-errno \"" + tempC.string() + "\" -o \"" + output.string() + "\" 2>&1";
                 }
                 const int ret = std::system(cmdline.c_str());
                 std::error_code ec;
                 std::filesystem::remove(tempC, ec);
                 if (ret != 0) {
-                    std::cerr << "NQR-K5121: LLVM backend compilation failed with exit code " << ret << "\n";
+                    std::cerr << "NQR-K5121: " << backendMode << " backend compilation failed with exit code " << ret << "\n";
                     return 1;
                 }
-                std::cout << "emitted Noqeri LLVM native assembly: " << output << "\nbackend=llvm\nopt=" << optLevel << "\nentry=noqeri_entry(noqeri_abi*)\n";
+                std::cout << "emitted Noqeri " << (backendMode == "llvm" ? "LLVM" : "C") << " native assembly: " << output << "\nbackend=" << backendMode << "\nopt=" << optLevel << "\nentry=noqeri_entry(noqeri_abi*)\n";
                 return 0;
             }
             const auto target = TargetRegistry::resolve(options.target);

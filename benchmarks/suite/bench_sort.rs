@@ -19,7 +19,14 @@ fn bench_sort() -> i64 {
         }
         arr[(k + 1) as usize] = key;
     }
-    arr[N - 1]
+    let mut checksum: i64 = 0;
+    for i in 0..N {
+        if i < N - 1 && arr[i] > arr[i + 1] {
+            panic!("Sorting verification failed at index {}", i);
+        }
+        checksum += arr[i] * (i as i64 + 1);
+    }
+    checksum
 }
 
 fn main() {

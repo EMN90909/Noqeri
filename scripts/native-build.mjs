@@ -94,6 +94,7 @@ const runnerSource = resolve(root, 'Runtime/native/aot_runner.cpp')
 try {
   const buildArgs = ['build', source, assembly, optimization]
   if (backend === 'llvm') buildArgs.push('--backend=llvm')
+  else if (backend === 'c') buildArgs.push('--backend=c')
   run(compilerPath, buildArgs)
   if (!existsSync(assembly) || statSync(assembly).size === 0) fail('Noqeri compiler did not emit assembly')
 

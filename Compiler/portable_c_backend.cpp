@@ -48,17 +48,17 @@ const char* runtime=R"C(
 static void* nq_abi_ctx = NULL;
 static int32_t (*nq_abi_write)(void*, const char*, size_t) = NULL;
 
-static uint64_t nq_bits(double x){uint64_t b=0;memcpy(&b,&x,sizeof b);return b;}
-static double nq_double(uint64_t b){double x=0;memcpy(&x,&b,sizeof x);return x;}
-static void nq_trap(void){abort();}
-static uint64_t nq_narrow(uint64_t n,unsigned width,int is_signed){
+static inline uint64_t nq_bits(double x){uint64_t b=0;memcpy(&b,&x,sizeof b);return b;}
+static inline double nq_double(uint64_t b){double x=0;memcpy(&x,&b,sizeof x);return x;}
+static inline void nq_trap(void){abort();}
+static inline uint64_t nq_narrow(uint64_t n,unsigned width,int is_signed){
     if(width>=64)return n;
     uint64_t mask=(UINT64_C(1)<<width)-UINT64_C(1);
     n &= mask;
     if(is_signed&&(n&(UINT64_C(1)<<(width-1))))n|=~mask;
     return n;
 }
-static uint64_t nq_from_float(uint64_t bits,unsigned width,int is_unsigned){
+static inline uint64_t nq_from_float(uint64_t bits,unsigned width,int is_unsigned){
     double d=nq_double(bits);
     if(!isfinite(d))nq_trap();
     double value=trunc(d);
@@ -68,7 +68,7 @@ static uint64_t nq_from_float(uint64_t bits,unsigned width,int is_unsigned){
     if(is_unsigned)return nq_narrow((uint64_t)value,width,0);
     return nq_narrow((uint64_t)(int64_t)value,width,1);
 }
-static uint64_t nq_div(uint64_t a,uint64_t b,int is_unsigned,int remainder){
+static inline uint64_t nq_div(uint64_t a,uint64_t b,int is_unsigned,int remainder){
     if(b==0)nq_trap();
     if(is_unsigned)return remainder?a%b:a/b;
     int64_t x=(int64_t)a,y=(int64_t)b;
@@ -211,7 +211,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         const auto& in=fn.code[pc];
         if(in.op==NirOp::StackAlloc){
-            out<<" _Alignas(64) uint8_t m_"<<pc<<"["<<std::max<std::size_t>(in.width,1)<<"]={0};\n";
+            out<<" _Alignas(64) uint64_t m_"<<pc<<"["<<std::max<std::size_t>((in.width+7)/8,1)<<"]={0};\n";
         }else if(in.op==NirOp::MakeSlice){
             out<<" uint64_t s_"<<pc<<"[2]={0};\n";
         }
@@ -313,7 +313,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
             out<<" "<<dst<<"=(uint64_t)(uintptr_t)m_"<<pc<<";\n";
             break;
         case NirOp::PtrOffset:
-            out<<" "<<dst<<"="<<lhs<<"+((uint64_t)(int64_t)"<<rhs<<"*"<<in.width<<");\n";
+            out<<" "<<dst<<"=(uint64_t)(uintptr_t)((char*)(uintptr_t)"<<lhs<<"+((int64_t)"<<rhs<<"*"<<in.width<<"));\n";
             break;
         case NirOp::LoadMemory:
             if(in.width==1)out<<" "<<dst<<"=*(const uint8_t*)(uintptr_t)"<<lhs<<";\n";
@@ -328,7 +328,7 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
             else out<<" *(uint64_t*)(uintptr_t)"<<lhs<<"="<<rhs<<";\n";
             break;
         case NirOp::CheckBounds:
-            out<<" if((int64_t)"<<lhs<<"<0||(uint64_t)"<<lhs<<">="<<rhs<<")nq_trap();\n";
+            out<<" if((uint64_t)"<<lhs<<">=(uint64_t)"<<rhs<<")nq_trap();\n";
             break;
         case NirOp::CheckNonNull:
             out<<" if(!"<<lhs<<")nq_trap();\n";

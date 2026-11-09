@@ -21,7 +21,11 @@ fn bench_matrix() i64 {
             }
         }
     }
-    return C[N * N - 1];
+    var total: i64 = 0;
+    for (0..N * N) |idx| {
+        total += C[idx];
+    }
+    return total;
 }
 
 pub fn main() !void {

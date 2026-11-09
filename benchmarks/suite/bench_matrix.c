@@ -29,8 +29,12 @@ int main(void) {
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     bench_matrix();
+    int64_t total = 0;
+    for (int idx = 0; idx < N * N; ++idx) {
+        total += C[idx];
+    }
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) * 1e-9;
-    printf("C\tmatrix\t%lld\t%.6f\n", (long long)C[N*N-1], elapsed);
+    printf("C\tmatrix\t%lld\t%.6f\n", (long long)total, elapsed);
     return 0;
 }

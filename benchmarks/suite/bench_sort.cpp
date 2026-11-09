@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdint>
 #include <chrono>
+#include <cstdlib>
 
 constexpr int N = 2000;
 static int64_t arr[N];
@@ -25,8 +26,16 @@ void bench_sort() {
 int main() {
     auto start = std::chrono::high_resolution_clock::now();
     bench_sort();
+    int64_t checksum = 0;
+    for (int i = 0; i < N; ++i) {
+        if (i < N - 1 && arr[i] > arr[i + 1]) {
+            std::cerr << "Sorting verification failed at index " << i << "\n";
+            std::abort();
+        }
+        checksum += arr[i] * (i + 1);
+    }
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "C++\tsorting\t" << arr[N-1] << "\t" << elapsed.count() << "\n";
+    std::cout << "C++\tsorting\t" << checksum << "\t" << elapsed.count() << "\n";
     return 0;
 }

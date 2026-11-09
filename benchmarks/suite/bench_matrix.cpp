@@ -1,6 +1,5 @@
 #include <iostream>
 #include <cstdint>
-#include <vector>
 #include <chrono>
 
 constexpr int N = 256;
@@ -29,8 +28,12 @@ void bench_matrix() {
 int main() {
     auto start = std::chrono::high_resolution_clock::now();
     bench_matrix();
+    int64_t total = 0;
+    for (int idx = 0; idx < N * N; ++idx) {
+        total += C[idx];
+    }
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "C++\tmatrix\t" << C[N*N-1] << "\t" << elapsed.count() << "\n";
+    std::cout << "C++\tmatrix\t" << total << "\t" << elapsed.count() << "\n";
     return 0;
 }

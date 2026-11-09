@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <time.h>
 
 #define N 2000
@@ -26,8 +27,16 @@ int main(void) {
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     bench_sort();
+    int64_t checksum = 0;
+    for (int i = 0; i < N; ++i) {
+        if (i < N - 1 && arr[i] > arr[i + 1]) {
+            fprintf(stderr, "Sorting verification failed at index %d\n", i);
+            abort();
+        }
+        checksum += arr[i] * (i + 1);
+    }
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) * 1e-9;
-    printf("C\tsorting\t%lld\t%.6f\n", (long long)arr[N-1], elapsed);
+    printf("C\tsorting\t%lld\t%.6f\n", (long long)checksum, elapsed);
     return 0;
 }
