@@ -90,6 +90,7 @@ def extract_sdk(archive, target, dest):
     exe="noqeri.exe" if target.startswith("windows-") else "noqeri"
     compiler=stage/"bin"/exe
     vm=stage/"bin"/("noqeri-nqri.exe" if target.startswith("windows-") else "noqeri-nqri")
+    pkg=stage/"bin"/("noqeri-pkg.exe" if target.startswith("windows-") else "noqeri-pkg")
     if not compiler.is_file() or not vm.is_file():
         fail("SDK archive missing real compiler or NQRI virtual machine")
     if not (stage/"share/noqeri/Lib").is_dir():
@@ -102,12 +103,6 @@ def extract_sdk(archive, target, dest):
                 "share/noqeri/Lib/std/string.noqeri",
                 "share/noqeri/Lib/std/file.noqeri",
                 "share/noqeri/Lib/std/http.noqeri",
-                "share/noqeri/runtime/sdk-package-cli.mjs",
-                "share/noqeri/runtime/package-manager.mjs",
-                "share/noqeri/runtime/package-manager-v1.mjs",
-                "share/noqeri/runtime/ecosystem-tools.mjs",
-                "share/noqeri/runtime/nqon.mjs",
-                "share/noqeri/runtime/registry-client.mjs",
                 "share/noqeri/SDK.md")
     for name in required:
         file = stage/name
