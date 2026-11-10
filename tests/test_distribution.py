@@ -34,7 +34,7 @@ class DistributionTests(unittest.TestCase):
         (self.sdk / "bin/noqeri-web").write_bytes(b"web tool")
         for name in ("string", "file", "http"):
             (self.sdk / ("share/noqeri/Lib/std/" + name + ".noqeri")).write_text("module test")
-        for name in ("sdk-package-cli", "package-manager", "nqon", "registry-client"):
+        for name in ("sdk-package-cli", "package-manager", "package-manager-v1", "ecosystem-tools", "nqon", "registry-client"):
             (self.sdk / ("share/noqeri/runtime/" + name + ".mjs")).write_text("export default true")
         (self.sdk / "share/noqeri/SDK.md").write_text("SDK guide")
         (self.sdk / "include/noqeri/abi.h").write_text("/* C API */")
