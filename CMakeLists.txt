@@ -22,6 +22,20 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
+# Noqeri registry runs as a native SDK tool, without Node.js or JavaScript.
+# Bootstrap transport uses libcurl TLS and OpenSSL SHA-256 when available.
+# Offline/help commands still compile on restricted cross-build toolchains.
+add_executable(noqeri-pkg Runtime/native/sdk_registry.cpp)
+target_compile_features(noqeri-pkg PRIVATE cxx_std_17)
+find_package(OpenSSL QUIET)
+find_package(CURL QUIET)
+if(OpenSSL_FOUND AND CURL_FOUND)
+ target_link_libraries(noqeri-pkg PRIVATE CURL::libcurl OpenSSL::Crypto)
+ target_compile_definitions(noqeri-pkg PRIVATE NOQERI_REGISTRY_NETWORK=1)
+else()
+ message(WARNING "Noqeri native registry HTTPS unavailable (requires libcurl and OpenSSL); online package commands will fail explicitly")
+endif()
+
 # Hosted, heap-backed int list/map/set ABI for ordinary Noqeri native AOT.
 # Opaque handles are validated; allocation is bounded and explicit close
 # releases ownership. Does not change freestanding bootstrap semantics.
@@ -165,6 +179,7 @@ function(noqeri_apply_warnings target)
 endfunction()
 noqeri_apply_warnings(noqeri)
 noqeri_apply_warnings(noqeri-nqri)
+noqeri_apply_warnings(noqeri-pkg)
 noqeri_apply_warnings(noqeri_ai)
 noqeri_apply_warnings(noqeri-ai)
 noqeri_apply_warnings(noqeri_owned_collections)
@@ -301,12 +316,8 @@ endif()
 
 # Supply the project's GPL license within both archives and native installers.
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
-# Every SDK archive/installer includes package-management host tools.
-# The registry adapter needs Node 20+ only for registry operations; the
-# compiler and bytecode VM remain self-contained native executables.
-install(FILES Runtime/sdk-package-cli.mjs Runtime/package-manager.mjs
- Runtime/package-manager-v1.mjs Runtime/registry-client.mjs Runtime/nqon.mjs
- Runtime/ecosystem-tools.mjs DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/runtime)
+# Native registry manager is installed alongside the compiler.
+# Legacy Node-based JavaScript managers are NOT SDK runtime requirements.
 install(FILES Doc/SDK.md DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
 
 # This opt-in mode isolates portable shader generation and native framebuffer
