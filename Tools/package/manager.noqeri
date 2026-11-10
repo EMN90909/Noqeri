@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Noqeri-authored registry command policy. The native bootstrap ABI adapter
+// supplies bounded HTTPS, verified .nqpkg extraction, filesystem operations,
+// hashing and caching until those host capabilities are self-hosted in Noqeri.
+extern function sdkPkgArg(index: int): string
+extern function sdkPkgRun(action: string): void
+
+let command: string = sdkPkgArg(0)
+if command == "" || command == "help" || command == "--help" {
+    sdkPkgRun("help")
+} else {
+    if command == "add" {
+        sdkPkgRun("add")
+    } else {
+        if command == "install" {
+            sdkPkgRun("install")
+        } else {
+            if command == "resolve" {
+                sdkPkgRun("resolve")
+            } else {
+                if command == "vendor" {
+                    sdkPkgRun("vendor")
+                } else {
+                    if command == "audit" {
+                        sdkPkgRun("audit")
+                    } else {
+                        sdkPkgRun("invalid")
+                    }
+                }
+            }
+        }
+    }
+}
