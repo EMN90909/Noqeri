@@ -297,6 +297,13 @@ install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Supply the project's GPL license within both archives and native installers.
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
+# Every SDK archive/installer includes package-management host tools.
+# The registry adapter needs Node 20+ only for registry operations; the
+# compiler and bytecode VM remain self-contained native executables.
+install(FILES Runtime/sdk-package-cli.mjs Runtime/package-manager.mjs
+ Runtime/package-manager-v1.mjs Runtime/registry-client.mjs Runtime/nqon.mjs
+ Runtime/ecosystem-tools.mjs DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/runtime)
+install(FILES Doc/SDK.md DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
 
 # This opt-in mode isolates portable shader generation and native framebuffer
 # runtime even on BSD/Android, where networking services differ. A full native
