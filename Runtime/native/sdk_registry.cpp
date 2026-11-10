@@ -76,7 +76,7 @@ std::string get(const std::string& url,size_t limit=2097152){
    fail("registry URLs require HTTPS (localhost permitted for tests)");
  CURL* curl=curl_easy_init();if(!curl)fail("libcurl initialization failed");
  std::string data;curl_easy_setopt(curl,CURLOPT_URL,url.c_str());curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
- curl_easy_setopt(curl,CURLOPT_PROTOCOLS_STR,"https,http");curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
+ curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS|CURLPROTO_HTTP);curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
  curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,5L);
  curl_easy_setopt(curl,CURLOPT_TIMEOUT,12L);curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive);
  curl_easy_setopt(curl,CURLOPT_WRITEDATA,&data);curl_easy_setopt(curl,CURLOPT_USERAGENT,"noqeri-native-registry/1");
@@ -103,19 +103,20 @@ std::string alias(const std::string& coordinate){auto a=coordinate.substr(coordi
 std::string versionKey(const std::string& v){std::ostringstream o;std::istringstream in(v);std::string n;for(int i=0;i<3;++i){std::getline(in,n,'.');o<<std::setw(12)<<std::setfill('0')<<std::stoull(n);}return o.str()+((v.find('-')==std::string::npos)?"z":"a"+v);}
 std::string indexUrl(){return env("NOQERI_REGISTRY_INDEX","https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json");}
 std::string contentBase(){return env("NOQERI_REGISTRY_CONTENTS","https://api.github.com/repos/EMN90909/noqeri-registry/contents/");}
-std::pair<std::string,std::string> release(const std::string& coordinate,const std::string& requested){
+struct Release{std::string version,path,integrity;};
+Release release(const std::string& coordinate,const std::string& requested){
  const auto [ns,name]=splitSpec(coordinate);(void)ns;(void)name;
- auto index=Parser(get(indexUrl())).parse();std::string best,base;
+ auto index=Parser(get(indexUrl())).parse();std::string best,base,integrity;
  for(auto& pkg:index.at("packages").array){
   if(pkg.at("namespace").str()+"/"+pkg.at("name").str()!=coordinate)continue;
   for(auto& ver:pkg.at("versions").array){
    std::string v=ver.at("version").str();if(!valid(v,versionRx)||(!requested.empty()&&v!=requested))continue;
    auto yank=ver.object.find("yanked");if(requested.empty()&&yank!=ver.object.end()&&yank->second.boolean())continue;
-   if(best.empty()||versionKey(v)>versionKey(best)){best=v;base=ver.at("path").str();}
+   if(best.empty()||versionKey(v)>versionKey(best)){best=v;base=ver.at("path").str();auto it=ver.object.find("integrity");integrity=it==ver.object.end()?"":it->second.str();}
   }
  }
  if(best.empty())fail("registry package/version not found: "+coordinate+"@"+requested);
- safePath(base);return {best,base};
+ safePath(base);if(!integrity.empty()&&!valid(integrity,"sha256:[0-9a-f]{64}"))fail("invalid published package SHA256");return {best,base,integrity};
 }
 fs::path packagePath(const std::string& coord,const std::string& version){return home()/"cache/registry-v1"/coord/version;}
 std::map<std::string,std::string> localFiles(const fs::path& dir){
@@ -151,21 +152,20 @@ void listFiles(const std::string& base,const std::string& path,std::map<std::str
 Package fetch(const std::string& coord,std::string requested){
  if(!requested.empty()){try{return verify(coord,requested);}catch(const std::exception&){if(offline())throw;}}
  if(offline()){
-  auto root=packagePath(coord,"").parent_path(); // corrected below: packagePath(coord,"") is versions root
-  root=packagePath(coord,"");std::string best;
+  auto root=packagePath(coord,"");std::string best;
   if(!fs::exists(root))fail("package not cached: "+coord);
   for(auto& e:fs::directory_iterator(root)){auto v=e.path().filename().string();
    if(e.is_directory()&&valid(v,versionRx)&&(best.empty()||versionKey(v)>versionKey(best)))best=v;}
   if(best.empty())fail("package not cached: "+coord);return verify(coord,best);
  }
- auto [version,base]=release(coord,requested);
+ auto [version,base,expectedHash]=release(coord,requested);
  try{return verify(coord,version);}catch(const std::exception&){}
  std::map<std::string,std::string> files;size_t bytes=0;listFiles(base,base,files,bytes,0);
  if(!files.count("package.noqeri"))fail("registry package manifest missing");
  auto entry=std::regex(R"re(\bentry\s*:\s*"([^"]+)")re");
  std::smatch match;if(!std::regex_search(files.at("package.noqeri"),match,entry))fail("package entry missing");
  auto relative=match[1].str();safePath(relative);if(!files.count(relative))fail("package entry file missing");
- auto digest=hashFiles(files);auto target=packagePath(coord,version);
+ auto digest=hashFiles(files);if(!expectedHash.empty()&&digest!=expectedHash)fail("published registry SHA256 mismatch");auto target=packagePath(coord,version);
  // Only accept immutable registry hashes when declared; never execute package code.
  auto staging=fs::path(target.string()+".native-temp");fs::remove_all(staging);fs::create_directories(staging);
  try{
@@ -182,7 +182,7 @@ fs::path findProject(fs::path dir=fs::current_path()){
  for(;;){for(auto name:{"project.nqon","project.noqeri"})if(fs::is_regular_file(dir/name))return dir/name;
  auto p=dir.parent_path();if(p==dir)fail("cannot find project.nqon or project.noqeri");dir=p;}
 }
-struct Dep{std::string alias,coordinate,version;};
+struct Dep{std::string alias,coordinate,version,integrity;};
 std::vector<Dep> dependencies(const std::string& source,const std::string& project){
  std::vector<Dep> out;
  auto block=source.find(project=="project.nqon"?"packages":"dependencies");
@@ -217,7 +217,7 @@ std::vector<Dep> lockDeps(const fs::path& file){
  while(std::getline(in,line)){std::istringstream row(line);std::string tag,a,c,v,integrity,entry;
  if(!(row>>tag>>a>>c>>v>>integrity>>entry)||tag!="package")fail("invalid lock entry");
  splitSpec(c+"@"+v);safePath(entry);if(!valid(integrity,"sha256:[0-9a-f]{64}"))fail("invalid lock SHA256");
- deps.push_back({a,c,v});}return deps;
+ deps.push_back({a,c,v,integrity});}return deps;
 }
 void add(const std::string& spec){
  auto [coord,version]=splitSpec(spec);auto pkg=fetch(coord,version);
@@ -244,7 +244,7 @@ void resolve(const fs::path& source){
 void vendor(){
  auto root=findProject().parent_path();auto list=lockDeps(root/"noqeri.lock");
  auto dest=root/".noqeri/vendor-home/cache/registry-v1";fs::remove_all(root/".noqeri/vendor-home");
- for(auto& dep:list){auto pkg=fetch(dep.coordinate,dep.version);auto target=dest/dep.coordinate/dep.version;fs::create_directories(target.parent_path());
+ for(auto& dep:list){auto pkg=fetch(dep.coordinate,dep.version);if(pkg.integrity!=dep.integrity)fail("lock integrity mismatch: "+dep.coordinate);auto target=dest/dep.coordinate/dep.version;fs::create_directories(target.parent_path());
  fs::copy(pkg.path,target,fs::copy_options::recursive);std::cout<<"vendored "<<dep.coordinate<<"@"<<dep.version<<"\n";}
 }
 int audit(){
@@ -258,7 +258,7 @@ int audit(){
  bool vulnerable=false;
  for(auto& dep:list)for(auto& item:doc.at("advisories").array){
   if(item.at("package").str()!=dep.coordinate)continue;
-  auto found=item.object.find("affected_versions");if(found==item.object.end())continue;
+  auto found=item.object.find("affected_versions");if(found==item.object.end()){std::cout<<"{\"status\":\"unknown\",\"error\":\"unsupported advisory range; cannot assert clean\"}\n";return 2;}
   for(auto& v:found->second.array)if(v.str()==dep.version){vulnerable=true;std::cout<<item.at("id").str()<<": "<<dep.coordinate<<"@"<<dep.version<<"\n";}
  }
  if(!vulnerable)std::cout<<"{\"status\":\"clean\",\"packages_checked\":"<<list.size()<<"}\n";
