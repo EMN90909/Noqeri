@@ -2,6 +2,9 @@
 // Native bootstrap adapter for the Noqeri registry. No Node.js or JavaScript
 // runtime: HTTPS and SHA-256 are provided by platform-native libraries.
 #include <algorithm>
+#include <array>
+#include <cstdint>
+#include <string_view>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -18,7 +21,6 @@
 #include <vector>
 #if defined(NOQERI_REGISTRY_NETWORK)
 #include <curl/curl.h>
-#include <openssl/sha.h>
 #endif
 namespace fs=std::filesystem;
 namespace {
@@ -84,16 +86,30 @@ std::string get(const std::string& url,size_t limit=2097152){
  curl_easy_cleanup(curl);if(result!=CURLE_OK||code!=200||data.size()>limit)fail("registry request failed: "+url);
  return data;
 }
+class Sha256 {
+public:
+    Sha256(){reset();}
+    void update(const unsigned char*data,std::size_t len){for(std::size_t i=0;i<len;++i){buffer_[bufferLength_++]=data[i];if(bufferLength_==64){transform();bitLength_+=512;bufferLength_=0;}}}
+    void update(std::string_view value){update(reinterpret_cast<const unsigned char*>(value.data()),value.size());}
+    std::string finish(){std::size_t i=bufferLength_;buffer_[i++]=0x80;if(i>56){while(i<64)buffer_[i++]=0;transform();i=0;}while(i<56)buffer_[i++]=0;bitLength_+=static_cast<std::uint64_t>(bufferLength_)*8;for(int j=7;j>=0;--j)buffer_[i++]=static_cast<unsigned char>((bitLength_>>(j*8))&0xff);transform();std::ostringstream out;out<<std::hex<<std::setfill('0');for(auto word:state_)out<<std::setw(8)<<word;reset();return out.str();}
+private:
+    static std::uint32_t rotr(std::uint32_t x,std::uint32_t n){return(x>>n)|(x<<(32-n));}
+    void reset(){state_={0x6a09e667u,0xbb67ae85u,0x3c6ef372u,0xa54ff53au,0x510e527fu,0x9b05688cu,0x1f83d9abu,0x5be0cd19u};bufferLength_=0;bitLength_=0;}
+    void transform(){static constexpr std::array<std::uint32_t,64>k={0x428a2f98u,0x71374491u,0xb5c0fbcfu,0xe9b5dba5u,0x3956c25bu,0x59f111f1u,0x923f82a4u,0xab1c5ed5u,0xd807aa98u,0x12835b01u,0x243185beu,0x550c7dc3u,0x72be5d74u,0x80deb1feu,0x9bdc06a7u,0xc19bf174u,0xe49b69c1u,0xefbe4786u,0x0fc19dc6u,0x240ca1ccu,0x2de92c6fu,0x4a7484aau,0x5cb0a9dcu,0x76f988dau,0x983e5152u,0xa831c66du,0xb00327c8u,0xbf597fc7u,0xc6e00bf3u,0xd5a79147u,0x06ca6351u,0x14292967u,0x27b70a85u,0x2e1b2138u,0x4d2c6dfcu,0x53380d13u,0x650a7354u,0x766a0abbu,0x81c2c92eu,0x92722c85u,0xa2bfe8a1u,0xa81a664bu,0xc24b8b70u,0xc76c51a3u,0xd192e819u,0xd6990624u,0xf40e3585u,0x106aa070u,0x19a4c116u,0x1e376c08u,0x2748774cu,0x34b0bcb5u,0x391c0cb3u,0x4ed8aa4au,0x5b9cca4fu,0x682e6ff3u,0x748f82eeu,0x78a5636fu,0x84c87814u,0x8cc70208u,0x90befffau,0xa4506cebu,0xbef9a3f7u,0xc67178f2u};std::uint32_t w[64]{};for(std::size_t i=0;i<16;++i)w[i]=(static_cast<std::uint32_t>(buffer_[i*4])<<24)|(static_cast<std::uint32_t>(buffer_[i*4+1])<<16)|(static_cast<std::uint32_t>(buffer_[i*4+2])<<8)|buffer_[i*4+3];for(std::size_t i=16;i<64;++i){auto s0=rotr(w[i-15],7)^rotr(w[i-15],18)^(w[i-15]>>3);auto s1=rotr(w[i-2],17)^rotr(w[i-2],19)^(w[i-2]>>10);w[i]=w[i-16]+s0+w[i-7]+s1;}auto a=state_[0],b=state_[1],c=state_[2],d=state_[3],e=state_[4],f=state_[5],g=state_[6],h=state_[7];for(std::size_t i=0;i<64;++i){auto s1=rotr(e,6)^rotr(e,11)^rotr(e,25);auto ch=(e&f)^((~e)&g);auto t1=h+s1+ch+k[i]+w[i];auto s0=rotr(a,2)^rotr(a,13)^rotr(a,22);auto maj=(a&b)^(a&c)^(b&c);auto t2=s0+maj;h=g;g=f;f=e;e=d+t1;d=c;c=b;b=a;a=t1+t2;}state_[0]+=a;state_[1]+=b;state_[2]+=c;state_[3]+=d;state_[4]+=e;state_[5]+=f;state_[6]+=g;state_[7]+=h;}
+    std::array<std::uint32_t,8>state_{};std::array<unsigned char,64>buffer_{};std::size_t bufferLength_=0;std::uint64_t bitLength_=0;
+};
 std::string hashFiles(const std::map<std::string,std::string>& files){
- SHA256_CTX c;SHA256_Init(&c);for(const auto& f:files){SHA256_Update(&c,f.first.data(),f.first.size());
- const char nul=0;SHA256_Update(&c,&nul,1);SHA256_Update(&c,f.second.data(),f.second.size());SHA256_Update(&c,&nul,1);}
- unsigned char hash[SHA256_DIGEST_LENGTH];SHA256_Final(hash,&c);
- std::ostringstream out;out<<"sha256:"<<std::hex<<std::setfill('0');
- for(unsigned char b:hash)out<<std::setw(2)<<static_cast<unsigned int>(b);return out.str();
+ Sha256 sha;const unsigned char zero=0;
+ for(const auto& file:files){
+  sha.update(file.first);sha.update(&zero,1);sha.update(file.second);sha.update(&zero,1);
+ }
+ return "sha256:"+sha.finish();
 }
+
+
 #else
 std::string get(const std::string&,size_t=2097152){fail("native HTTPS/SHA support unavailable: rebuild SDK with libcurl and OpenSSL");return {};}
-std::string hashFiles(const std::map<std::string,std::string>&){fail("native SHA-256 unavailable: rebuild with OpenSSL");return {};}
+
 #endif
 const std::string coordinateRx="[A-Za-z0-9_-]+/[A-Za-z0-9_-]+";
 const std::string versionRx="[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.+-]+)?";
