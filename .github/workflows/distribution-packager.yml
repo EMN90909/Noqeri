@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF
-          cmake --build build-release --config Release --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_owned_collections noqeri_graphics_fastpath --parallel 2
+          cmake --build build-release --config Release --target noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi noqeri_owned_collections noqeri_graphics_fastpath --parallel 2
           cmake --install build-release --config Release --prefix stage
       - name: Smoke test real CLI and shader compiler
         shell: bash
@@ -60,7 +60,7 @@ jobs:
           if [[ "${{ matrix.os }}" == windows ]]; then vm=stage/bin/noqeri-nqri.exe; fi
           "$vm" --selftest >> compiler-smoke.log 2>&1
           test -d stage/include/noqeri
-          test -s stage/share/noqeri/runtime/sdk-package-cli.mjs
+          test -s stage/bin/noqeri-pkg || test -s stage/bin/noqeri-pkg.exe
           test -s stage/share/noqeri/SDK.md
           test -s stage/share/noqeri/Lib/std/render2d.noqeri
       - name: Package complete SDK as tar.gz and zip (SHA-256)
