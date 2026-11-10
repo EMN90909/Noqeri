@@ -1,6 +1,7 @@
 #include "noe.hpp"
 #include "abi.h"
 #include <chrono>
+#include <thread>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -184,12 +185,12 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         int fd = static_cast<int>(getI64(args[0]));
         bool exclusive = (getI64(args[1]) != 0);
 #if !defined(_WIN32)
-        int op = (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB;
+        int op = (exclusive ? LOCK_EX : LOCK_SH);
         return NirValue(static_cast<std::int64_t>(flock(fd, op) < 0 ? -errno : 0));
 #else
         HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
         if (h == INVALID_HANDLE_VALUE) return NirValue(static_cast<std::int64_t>(-1));
-        DWORD flags = (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0) | LOCKFILE_FAIL_IMMEDIATELY;
+        DWORD flags = (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0);
         OVERLAPPED ov{};
         BOOL res = LockFileEx(h, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
         return NirValue(static_cast<std::int64_t>(res ? 0 : -static_cast<std::int64_t>(GetLastError())));
@@ -207,6 +208,14 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         BOOL res = UnlockFileEx(h, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
         return NirValue(static_cast<std::int64_t>(res ? 0 : -static_cast<std::int64_t>(GetLastError())));
 #endif
+    }
+    if (name == "threadSleepMillis") {
+        if (args.empty()) return std::nullopt;
+        std::int64_t ms = getI64(args[0]);
+        if (ms > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+        }
+        return NirValue(static_cast<std::int64_t>(0));
     }
     if (name == "fsDirectorySync") {
         if (args.empty()) return std::nullopt;
