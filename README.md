@@ -122,7 +122,7 @@ Local values can infer their types, semicolons are optional, and `if` / `while` 
 
 New distribution releases package a **complete Noqeri SDK** rather than standalone compiler downloads. Each host-specific SDK includes the native `noqeri` compiler/CLI, NQRI VM/runtime, Noqeri standard library sources, package manager, and project build tools. See [Noqeri SDK installation and usage](Doc/SDK.md).
 
-The SDK includes native `noqeri-pkg` for registry operations without Node.js. Online HTTPS and SHA-256 require an SDK build with libcurl and OpenSSL; unsupported builds fail explicitly. `noqeri build-exe` compiles supported code using the portable C backend and a separately installed GCC or Clang toolchain.
+The SDK includes native `noqeri-pkg` for registry operations without Node.js. Online HTTPS requires an SDK build with libcurl; unsupported builds fail explicitly. `noqeri build-exe` compiles supported code using the portable C backend and a separately installed GCC or Clang toolchain.
 
 The distribution matrix targets 16 configurations across Linux, Windows, macOS, Android/Termux, FreeBSD and OpenBSD. Build availability is not proof of successful execution on every target. The companion Android debug editor APK is separate from the CLI SDK. Past v0.1.4 assets retain their original names and contents; the new naming applies to newly built previews.
 
