@@ -152,6 +152,7 @@ set_target_properties(noqeri_abi PROPERTIES OUTPUT_NAME noqeri-abi WINDOWS_EXPOR
 # Native owned collections always exercise the actual auto-growing C ABI.
 include(CTest)
 if(BUILD_TESTING)
+ add_test(NAME noqeri-native-registry COMMAND $<TARGET_FILE:noqeri-pkg> --selftest)
  add_executable(noqeri-owned-collections-test tests/cpp/owned_collections_test.cpp)
  target_link_libraries(noqeri-owned-collections-test PRIVATE noqeri_owned_collections Threads::Threads)
  add_test(NAME noqeri-owned-collections COMMAND noqeri-owned-collections-test)
