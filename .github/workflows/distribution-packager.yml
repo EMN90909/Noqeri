@@ -34,24 +34,24 @@ jobs:
           - {runner: windows-2022, os: windows, cpu: x86_64}
           - {runner: macos-15, os: macos, cpu: arm64}
           - {runner: macos-15-intel, os: macos, cpu: x86_64}
-    runs-on: ${ matrix.runner }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Compile actual Noqeri Stage-0 binary
+      - name: Build native SDK compiler, runtime and tools
         shell: bash
         run: |
           cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF
-          cmake --build build-release --config Release --target noqeri noqeri-nqri --parallel 2
+          cmake --build build-release --config Release --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_owned_collections noqeri_graphics_fastpath --parallel 2
           cmake --install build-release --config Release --prefix stage
       - name: Smoke test real CLI and shader compiler
         shell: bash
         run: |
           set -euo pipefail
           bin=stage/bin/noqeri
-          if [[ "${ matrix.os }" == windows ]]; then bin=stage/bin/noqeri.exe; fi
+          if [[ "${{ matrix.os }}" == windows ]]; then bin=stage/bin/noqeri.exe; fi
           "$bin" --version > compiler-smoke.log
           "$bin" check examples/hello.noqeri >> compiler-smoke.log 2>&1
           "$bin" shader examples/shaders/vector_fragment.noqeri build-release/vector.wgsl --stage=fragment >> compiler-smoke.log 2>&1
@@ -59,23 +59,23 @@ jobs:
           vm=stage/bin/noqeri-nqri
           if [[ "${{ matrix.os }}" == windows ]]; then vm=stage/bin/noqeri-nqri.exe; fi
           "$vm" --selftest >> compiler-smoke.log 2>&1
-          test -d stage/include/noqeri
+          test -d stage/include/noqeri\n          test -s stage/share/noqeri/runtime/sdk-package-cli.mjs\n          test -s stage/share/noqeri/SDK.md
           test -s stage/share/noqeri/Lib/std/render2d.noqeri
-      - name: Make binary, gz, tar, tar.gz and zip (SHA-256)
+      - name: Package complete SDK as tar.gz and zip (SHA-256)
         shell: bash
         run: |
           set -euo pipefail
           bin=stage/bin/noqeri
-          if [[ "${ matrix.os }" == windows ]]; then bin=stage/bin/noqeri.exe; fi
+          if [[ "${{ matrix.os }}" == windows ]]; then bin=stage/bin/noqeri.exe; fi
           version="$(python3 -c "import re;print(re.search(r'project\(noqeri VERSION ([0-9.]+)',open('CMakeLists.txt').read()).group(1))")"
           python3 scripts/distribution.py bundle --binary "$bin" --version "$version" \
-            --os "${ matrix.os }" --cpu "${ matrix.cpu }" \
+            --os "${{ matrix.os }}" --cpu "${{ matrix.cpu }}" \
             --source-commit "$GITHUB_SHA" --qualification executed --smoke-evidence compiler-smoke.log \
             --gpu-backend wgsl-emitter --sdk-root stage --license LICENSE --output dist
       - uses: actions/upload-artifact@v7
         with:
-          name: ${ matrix.os }-${ matrix.cpu }
-          path: dist/${ matrix.os }-${ matrix.cpu }/
+          name: ${{ matrix.os }}-${{ matrix.cpu }}
+          path: dist/${{ matrix.os }}-${{ matrix.cpu }}/
           if-no-files-found: error
           retention-days: 20
 
