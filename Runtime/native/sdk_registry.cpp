@@ -281,6 +281,17 @@ int audit(){
 }
 int main(int argc,char** argv){
  try{
+  if(argc==2&&std::string(argv[1])=="--selftest"){
+   std::map<std::string,std::string> fixture{{"a","abc"}};
+   if(hashFiles(fixture)!="sha256:a4b3e7388c761f8f3d7cbda0fd664dae0a82bac365a7c349f591aee846b1bfd3")
+     fail("SHA256 regression");
+   if(Parser("{\"packages\":[{\"namespace\":\"noqeri\",\"name\":\"core\"}]}").parse().at("packages").array[0].at("name").str()!="core")
+     fail("JSON regression");
+   bool rejected=false;try{safePath("../escape");}catch(const std::exception&){rejected=true;}
+   if(!rejected)fail("path traversal regression");
+   if(splitSpec("noqeri/core@0.4.0").second!="0.4.0")fail("coordinate parsing regression");
+   std::cout<<"native registry selftest: OK\n";return 0;
+  }
   if(argc<2||std::string(argv[1])=="help"||std::string(argv[1])=="--help"){
    std::cout<<"Noqeri native registry (Node.js-free)\n"
    <<"  noqeri pkg add namespace/name[@version]\n  noqeri pkg install\n  noqeri pkg resolve file.noqeri\n"
