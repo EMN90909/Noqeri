@@ -130,6 +130,10 @@ target_compile_features(noqeri-nqri PRIVATE cxx_std_17)
 target_include_directories(noqeri PRIVATE Include/noqeri Compiler/bootstrap)
 target_compile_features(noqeri PRIVATE cxx_std_17)
 target_compile_definitions(noqeri PRIVATE NOQERI_BOOTSTRAP=1)
+# Source-tree compiler builds locate the Noqeri registry frontend.
+# Installed SDKs use relocatable NOQERI_STDLIB_ROOT / NOQERI_SDK_ROOT first.
+target_compile_definitions(noqeri PRIVATE
+ NOQERI_PACKAGE_FRONTEND_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/Tools/package/manager.noqeri\")
 # Registry v1 is executed from a Noqeri source frontend through native ABI
 # services. C++ host adapters use native libcurl and zlib where available.
 find_package(CURL QUIET)
