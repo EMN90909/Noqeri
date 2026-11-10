@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: Apache-2.0
+// Registry policy and validation implemented in Noqeri.
+// The native SDK bootstrap host handles HTTPS, filesystem, JSON and SHA-256
+// until the self-hosted package manager can execute those APIs reliably.
+module noqeri.std.registry
+
+export function registry_max_files(): usize { return 256 as usize }
+export function registry_max_package_bytes(): usize { return 8388608 as usize }
+export function registry_max_dependency_depth(): usize { return 32 as usize }
+export function registry_max_directory_depth(): usize { return 16 as usize }
+
+export function registry_ascii_letter(c: u8): bool {
+    return (c >= 65 as u8 && c <= 90 as u8) || (c >= 97 as u8 && c <= 122 as u8)
+}
+export function registry_ascii_digit(c: u8): bool { return c >= 48 as u8 && c <= 57 as u8 }
+export function registry_name_character(c: u8): bool {
+    return registry_ascii_letter(c) || registry_ascii_digit(c) || c == 45 as u8 || c == 95 as u8
+}
+export function registry_coordinate_valid(value: []u8): bool {
+    if len(value) < 3 as usize { return false }
+    let slash: usize = len(value)
+    let i: usize = 0 as usize
+    while i < len(value) {
+        if value[i] == 47 as u8 {
+            if slash != len(value) { return false }
+            slash = i
+        } else if !registry_name_character(value[i]) { return false }
+        i = i + 1 as usize
+    }
+    return slash > 0 as usize && slash + 1 as usize < len(value)
+}
+export function registry_hex_lower(c: u8): bool {
+    return registry_ascii_digit(c) || (c >= 97 as u8 && c <= 102 as u8)
+}
+export function registry_sha256_valid(value: []u8): bool {
+    // sha256: plus exactly 64 lowercase hex characters.
+    if len(value) != 71 as usize { return false }
+    let prefix: [u8; 7] = [115 as u8, 104 as u8, 97 as u8, 50 as u8, 53 as u8, 54 as u8, 58 as u8]
+    let i: usize = 0 as usize
+    while i < 7 as usize {
+        if value[i] != prefix[i] { return false }
+        i = i + 1 as usize
+    }
+    while i < len(value) {
+        if !registry_hex_lower(value[i]) { return false }
+        i = i + 1 as usize
+    }
+    return true
+}
+export function registry_path_valid(value: []u8): bool {
+    // Only relative slash-separated paths; reject empty, '.', '..', \, NUL and ':'.
+    if len(value) == 0 as usize { return false }
+    let segment: usize = 0 as usize
+    let i: usize = 0 as usize
+    while i < len(value) {
+        let c: u8 = value[i]
+        if c == 0 as u8 || c == 92 as u8 || c == 58 as u8 { return false }
+        if c == 47 as u8 {
+            if i == segment { return false }
+            if i == segment + 1 as usize && value[segment] == 46 as u8 { return false }
+            if i == segment + 2 as usize && value[segment] == 46 as u8 && value[segment + 1 as usize] == 46 as u8 { return false }
+            segment = i + 1 as usize
+        }
+        i = i + 1 as usize
+    }
+    if segment == len(value) { return false }
+    if len(value) == segment + 1 as usize && value[segment] == 46 as u8 { return false }
+    if len(value) == segment + 2 as usize && value[segment] == 46 as u8 && value[segment + 1 as usize] == 46 as u8 { return false }
+    return true
+}
+export function registry_package_limits_valid(files: usize, bytes: usize): bool {
+    return files > 0 as usize && files <= registry_max_files() &&
+           bytes > 0 as usize && bytes <= registry_max_package_bytes()
+}
+export function registry_dependency_depth_valid(depth: usize): bool { return depth <= registry_max_dependency_depth() }
