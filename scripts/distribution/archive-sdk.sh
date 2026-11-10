@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates a portable SDK archive and directly downloadable native executables.
+# Creates the complete portable Noqeri SDK archive (no compiler-only assets).
 # Native installer generation is separate, and always uses the SAME build tree.
 set -euo pipefail
 NOQERI_RELEASE_TARGET="${NOQERI_RELEASE_TARGET:-${RELEASE_TARGET:-}}"
@@ -14,27 +14,36 @@ version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' 
 test -n "$version" || { echo "Noqeri CMake project version missing" >&2; exit 1; }
 ref="v$version"
 target="${NOQERI_RELEASE_TARGET}"
-name="noqeri-${ref}-${target}"
+name="noqeri-sdk-${ref}-${target}"
 mkdir -p "${NOQERI_ARTIFACT_DIR}"
 test -d "${NOQERI_STAGE_DIR}/share/noqeri/Lib"
 test -d "${NOQERI_STAGE_DIR}/include/noqeri"
+# All five SDK pieces must be installed, not merely the compiler.
+for component in \
+  "share/noqeri/Lib/std/string.noqeri" \
+  "share/noqeri/Lib/std/file.noqeri" \
+  "share/noqeri/Lib/std/http.noqeri" \
+  "share/noqeri/runtime/sdk-package-cli.mjs" \
+  "share/noqeri/runtime/package-manager.mjs" \
+  "share/noqeri/runtime/nqon.mjs" \
+  "share/noqeri/runtime/registry-client.mjs" \
+  "share/noqeri/SDK.md"; do
+  test -s "${NOQERI_STAGE_DIR}/${component}" || {
+    echo "Missing SDK component: ${component}" >&2; exit 1;
+  }
+done
 case "${target}" in
   windows-*)
+    test -s "${NOQERI_STAGE_DIR}/bin/noqeri-web.exe"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri.exe"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri-nqri.exe"
     cmake -E tar cf "${NOQERI_ARTIFACT_DIR}/${name}.zip" --format=zip -- "${NOQERI_STAGE_DIR}"
-    cp "${NOQERI_STAGE_DIR}/bin/noqeri.exe" "${NOQERI_ARTIFACT_DIR}/${name}.exe"
-    cp "${NOQERI_STAGE_DIR}/bin/noqeri-nqri.exe" "${NOQERI_ARTIFACT_DIR}/noqeri-nqri-${ref}-${target}.exe"
     ;;
   *)
+    test -s "${NOQERI_STAGE_DIR}/bin/noqeri-web"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri-nqri"
     cmake -E tar czf "${NOQERI_ARTIFACT_DIR}/${name}.tar.gz" -- "${NOQERI_STAGE_DIR}"
-    # The suffix .bin distinguishes these direct native executable downloads
-    # from installers and archives. They are host OS/ABI specific, not universal.
-    cp "${NOQERI_STAGE_DIR}/bin/noqeri" "${NOQERI_ARTIFACT_DIR}/${name}.bin"
-    cp "${NOQERI_STAGE_DIR}/bin/noqeri-nqri" "${NOQERI_ARTIFACT_DIR}/noqeri-nqri-${ref}-${target}.bin"
-    chmod 0755 "${NOQERI_ARTIFACT_DIR}/${name}.bin" "${NOQERI_ARTIFACT_DIR}/noqeri-nqri-${ref}-${target}.bin"
     ;;
 esac
-echo "Packaged portable SDK and direct native executable assets for ${target}"
+echo "Packaged complete Noqeri SDK archive for ${target}"
