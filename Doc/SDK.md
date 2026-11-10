@@ -9,7 +9,7 @@ The Noqeri SDK is the installable distribution of the Noqeri language. Select an
 | Compiler and CLI | bin/noqeri (.exe on Windows) | Source checking, interpretation, compilation, assembly, linking and project scaffolding |
 | Runtime | bin/noqeri-nqri plus share/noqeri/Runtime | NQRI bytecode execution and native runtime sources |
 | Standard library | share/noqeri/Lib/std | Sources for strings, collections, files, HTTP and networking |
-| Package manager | share/noqeri/runtime/sdk-package-cli.mjs | Registry package addition, installation, resolution, vendoring and auditing |
+| Package manager | bin/noqeri-pkg (.exe on Windows) | Registry package addition, installation, resolution, vendoring and auditing |
 | Build tools | bin/noqeri-web, CLI build and build-exe, include/noqeri | Native build tooling and experimental web compiler |
 
 CMake installs all five components into the portable archives and system packages. The SDK does not claim that every standard-library module or native code-generation backend is production-complete.
@@ -35,7 +35,7 @@ Run the generated executable (on Windows, use build/hello.exe). The build-exe co
     noqeri pkg vendor
     noqeri pkg audit
 
-The manager is shipped inside the SDK, but the current registry client needs **Node.js 20+** on the host. The native Noqeri compiler, NQRI VM and native program executables do not depend on Node. The client uses the package index at https://github.com/EMN90909/noqeri-registry and verifies cached package integrity. NOQERI_OFFLINE=1 disables network access; install or vendor verified packages first. Configure NOQERI_REGISTRY_INDEX for an alternative index and NOQERI_NODE_BIN for a custom Node executable.
+The package manager is a **native executable; Node.js is not required**. Online registry access requires an SDK build with libcurl (HTTPS) and OpenSSL (SHA-256); these providers are optional for constrained cross-target builds, where online commands fail explicitly. Cached packages use the existing registry-v1 SHA-256 digest and `noqeri-lock 3` format. Set `NOQERI_OFFLINE=1` to disable networking; configure `NOQERI_REGISTRY_INDEX`, `NOQERI_REGISTRY_CONTENTS`, and `NOQERI_HOME` as needed. The native client is a bootstrap host adapter pending full self-hosting in Noqeri.
 
 Noqeri-UI supplies the noqeri/components library through the registry. Noqeriweb is the documentation/website repository, not a bundled language runtime. Package import resolution does not yet automatically link arbitrary third-party packages into every native backend.
 
