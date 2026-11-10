@@ -323,9 +323,69 @@ int runStress(int argc, char** argv) {
     std::cout << "result=failed\n";
     return 1;
 }
+// Allow a relocated SDK archive and a system-installed SDK to find their
+// own Noqeri stdlib without requiring users to set NOQERI_STDLIB_ROOT.
+// Explicit user configuration always wins.
+void configureInstalledStdlib(const char* invokedAs) {
+    const char* explicitRoot = std::getenv("NOQERI_STDLIB_ROOT");
+    if (explicitRoot && *explicitRoot) return;
+
+    std::vector<std::filesystem::path> roots;
+    if (const char* sdk = std::getenv("NOQERI_SDK_ROOT"); sdk && *sdk)
+        roots.emplace_back(std::filesystem::path(sdk) / "share/noqeri/Lib");
+    std::filesystem::path executable(invokedAs);
+#if defined(__linux__)
+    std::error_code ec;
+    auto actual = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec) executable = actual;
+#endif
+    if (!executable.has_parent_path()) {
+        const char* searchPath = std::getenv("PATH");
+        if (searchPath && *searchPath) {
+            std::stringstream paths(searchPath);
+            std::string directory;
+#if defined(_WIN32)
+            constexpr char separator = ';';
+            const auto executableName = executable.extension() == ".exe"
+                ? executable : std::filesystem::path(executable.string() + ".exe");
+#else
+            constexpr char separator = ':';
+            const auto executableName = executable;
+#endif
+            while (std::getline(paths, directory, separator)) {
+                const auto candidate = std::filesystem::path(directory) / executableName;
+                if (std::filesystem::is_regular_file(candidate)) {
+                    executable = candidate;
+                    break;
+                }
+            }
+        }
+    }
+    const auto exeDir = std::filesystem::absolute(executable).parent_path();
+    roots.emplace_back(exeDir / "../share/noqeri/Lib");
+    roots.emplace_back(exeDir / "../Lib");
+#if !defined(_WIN32)
+    roots.emplace_back("/usr/local/share/noqeri/Lib");
+    roots.emplace_back("/usr/share/noqeri/Lib");
+#endif
+    for (const auto& root : roots) {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(root / "std/string.noqeri", ec)) continue;
+        const std::string path = std::filesystem::weakly_canonical(root, ec).string();
+        if (ec || path.empty()) continue;
+#if defined(_WIN32)
+        (void)_putenv_s("NOQERI_STDLIB_ROOT", path.c_str());
+#else
+        (void)::setenv("NOQERI_STDLIB_ROOT", path.c_str(), 0);
+#endif
+        return;
+    }
+}
+
 }
 
 int main(int argc, char** argv) {
+    configureInstalledStdlib(argv[0]);
     if (argc < 2) { usage(); return 0; }
     const std::string cmd = argv[1];
     const bool jsonCheck = cmd == "check" && std::any_of(argv + 2, argv + argc,
