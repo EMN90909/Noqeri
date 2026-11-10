@@ -499,6 +499,11 @@ int main(int argc, char** argv) {
         if (overrideTool && *overrideTool) packageTool = overrideTool;
         else {
             std::vector<std::filesystem::path> candidates;
+            // Reuse the resolved installed library root, including on Windows
+            // where invokedAs may lack an explicit ".exe" suffix.
+            if (const char* stdlibRoot = std::getenv("NOQERI_STDLIB_ROOT"); stdlibRoot && *stdlibRoot)
+                candidates.emplace_back(std::filesystem::path(stdlibRoot).parent_path() /
+                                        "runtime/sdk-package-cli.mjs");
             const char* sdkRoot = std::getenv("NOQERI_SDK_ROOT");
             if (sdkRoot && *sdkRoot)
                 candidates.emplace_back(std::filesystem::path(sdkRoot) / "share/noqeri/runtime/sdk-package-cli.mjs");
