@@ -31,11 +31,10 @@ class DistributionTests(unittest.TestCase):
             (self.sdk / dirname).mkdir(parents=True, exist_ok=True)
         (self.sdk / "bin/noqeri").write_bytes(self.exe.read_bytes())
         (self.sdk / "bin/noqeri-nqri").write_bytes(b"nqri vm")
+        (self.sdk / "bin/noqeri-pkg").write_bytes(b"native pkg manager")
         (self.sdk / "bin/noqeri-web").write_bytes(b"web tool")
         for name in ("string", "file", "http"):
             (self.sdk / ("share/noqeri/Lib/std/" + name + ".noqeri")).write_text("module test")
-        for name in ("sdk-package-cli", "package-manager", "package-manager-v1", "ecosystem-tools", "nqon", "registry-client"):
-            (self.sdk / ("share/noqeri/runtime/" + name + ".mjs")).write_text("export default true")
         (self.sdk / "share/noqeri/SDK.md").write_text("SDK guide")
         (self.sdk / "include/noqeri/abi.h").write_text("/* C API */")
 
@@ -115,6 +114,7 @@ class DistributionTests(unittest.TestCase):
         with tarfile.open(archive) as tar:
             names=tar.getnames()
             self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri-nqri",names)
+            self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri-pkg",names)
             self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/share/noqeri/Lib/std/hello.noqeri",names)
 
     def test_reproducible_bytes(self):
@@ -127,7 +127,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_missing_package_manager_fails_closed(self):
-        (self.sdk / "share/noqeri/runtime/sdk-package-cli.mjs").unlink()
+        (self.sdk / "bin/noqeri-pkg").unlink()
         self.call("bundle", "--binary", self.exe, "--sdk-root", self.sdk,
                   "--version", "0.1.3", "--os", "linux", "--cpu", "x86_64",
                   "--source-commit", COMMIT, "--output", self.out, ok=False)
