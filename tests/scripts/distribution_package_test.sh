@@ -13,6 +13,7 @@ test -n "$version"
 mkdir -p "$tmp/stage/bin" "$tmp/stage/include/noqeri" "$tmp/stage/share/noqeri/Lib/std" "$tmp/stage/share/noqeri/runtime" "$tmp/artifacts"
 printf '#!/bin/sh\necho noqeri-fixture\n' > "$tmp/stage/bin/noqeri"
 cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-nqri"
+cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-pkg"
 cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-web"
 for name in string file http; do
   printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/$name.noqeri"
@@ -21,7 +22,7 @@ for name in sdk-package-cli package-manager package-manager-v1 ecosystem-tools n
   printf 'fixture\n' > "$tmp/stage/share/noqeri/runtime/$name.mjs"
 done
 printf 'SDK guide\n' > "$tmp/stage/share/noqeri/SDK.md"
-chmod 755 "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-nqri"
+chmod 755 "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-nqri" "$tmp/stage/bin/noqeri-pkg"
 printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/render2d.noqeri"
 printf '// fixture\n' > "$tmp/stage/include/noqeri/abi.h"
 (
@@ -36,6 +37,7 @@ printf '// fixture\n' > "$tmp/stage/include/noqeri/abi.h"
     grep -F 'data/data/com.termux/files/usr/bin/noqeri'
   cp stage/bin/noqeri stage/bin/noqeri.exe
   cp stage/bin/noqeri-nqri stage/bin/noqeri-nqri.exe
+  cp stage/bin/noqeri-pkg stage/bin/noqeri-pkg.exe
   cp stage/bin/noqeri-web stage/bin/noqeri-web.exe
   export NOQERI_RELEASE_TARGET=windows-x86
   bash "$root/scripts/distribution/archive-sdk.sh"
