@@ -41,6 +41,7 @@ class ReleaseRepackingTest(unittest.TestCase):
                 "stage/share/noqeri/SDK.md":b"SDK guide",
             }
             if not no_vm: files["stage/bin/noqeri-nqri"]=b"bytecode VM"
+            files["stage/bin/noqeri-pkg"]=b"native package manager"
             for name,data in files.items():
                 info=tarfile.TarInfo(name)
                 info.size=len(data)
@@ -69,6 +70,7 @@ class ReleaseRepackingTest(unittest.TestCase):
         z=next((self.root/"dist/linux-x86_64").glob("*.zip"))
         with zipfile.ZipFile(z) as contents:
             self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri-nqri",contents.namelist())
+            self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri-pkg",contents.namelist())
             self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/include/noqeri/abi.h",contents.namelist())
 
     def test_native_installers_are_checksums_not_fake_links(self):
