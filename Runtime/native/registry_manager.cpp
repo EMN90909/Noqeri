@@ -48,7 +48,8 @@ struct Json {
         return it->second;
     }
     const Json* find(const std::string& field) const {
-        if(kind!=Object) return nullptr; auto it=obj.find(field);return it==obj.end()?nullptr:&it->second;
+        if(kind!=Object) return nullptr;
+        auto it=obj.find(field);return it==obj.end()?nullptr:&it->second;
     }
     std::string string()const{if(kind!=String)fail("expected JSON string");return str;}
     bool boolean()const{if(kind!=Bool)fail("expected JSON bool");return truth;}
@@ -78,7 +79,8 @@ struct Parser {
       else if(data.substr(pos,5)=="false"){pos+=5;v.kind=Json::Bool;}
       else if(data.substr(pos,4)=="null"){pos+=4;v.kind=Json::Null;}
       else if(c=='-'||(c>='0'&&c<='9')){v.kind=Json::Number;size_t start=pos;while(pos<data.size()&&std::string_view("0123456789.-+eE").find(data[pos])!=std::string_view::npos)++pos;v.str=std::string(data.substr(start,pos-start));if(v.str.empty()||v.str.size()>32)fail("invalid JSON number");}
-      else fail("unexpected JSON value");--depth;return v;
+      else fail("unexpected JSON value");
+      --depth;return v;
     }
     Json all(){auto v=parse();ws();if(pos!=data.size())fail("JSON trailing characters");return v;}
 };
@@ -110,7 +112,8 @@ void atomicText(const fs::path&p,std::string_view data){
     if(had)fs::remove(backup,ec);
 }
 std::string getenvText(const char*name){const char*v=std::getenv(name);return v&&*v?v:"";}
-bool offline(){return getenvText("NOQERI_OFFLINE")=="1";}
+thread_local bool commandOffline=false;
+bool offline(){return commandOffline||getenvText("NOQERI_OFFLINE")=="1";}
 fs::path home(){auto value=getenvText("NOQERI_HOME");if(value.empty()){auto h=getenvText("HOME");if(h.empty())h=getenvText("USERPROFILE");if(h.empty())fail("NOQERI_HOME or HOME required");return fs::path(h)/".noqeri";}return fs::path(value);}
 bool identity(const std::string&value){static const std::regex re("^[a-z0-9][a-z0-9-]*$");return value.size()<=64&&std::regex_match(value,re);}
 bool version(const std::string&value){static const std::regex re("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$");return value.size()<=100&&std::regex_match(value,re);}
@@ -148,7 +151,8 @@ std::string request(const std::string&path,size_t limit){if(offline())fail("offl
     curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTP|CURLPROTO_HTTPS);
 #endif
     auto result=curl_easy_perform(curl);long status=0;curl_easy_getinfo(curl,CURLINFO_RESPONSE_CODE,&status);curl_easy_cleanup(curl);
-    if(result!=CURLE_OK||status!=200)fail("Registry request failed: "+path+" (HTTP "+std::to_string(status)+", curl "+std::to_string(result)+")");return body;
+    if(result!=CURLE_OK||status!=200)fail("Registry request failed: "+path+" (HTTP "+std::to_string(status)+", curl "+std::to_string(result)+")");
+    return body;
 #else
     (void)path;(void)limit;fail("Noqeri SDK built without native HTTPS transport (libcurl); registry network operations unavailable");
 #endif
@@ -163,7 +167,8 @@ std::map<std::string,std::string> extract(std::string_view archive,const std::st
 #ifdef NOQERI_PKG_WITH_ZLIB
     z_stream z{};if(inflateInit2(&z,MAX_WBITS+16)!=Z_OK)fail("zlib inflate initialization failed");std::string expanded;std::array<char,32768> buffer{};z.next_in=reinterpret_cast<Bytef*>(const_cast<char*>(archive.data()));z.avail_in=static_cast<uInt>(archive.size());int code=Z_OK;while(code==Z_OK){z.next_out=reinterpret_cast<Bytef*>(buffer.data());z.avail_out=static_cast<uInt>(buffer.size());code=inflate(&z,Z_NO_FLUSH);const size_t produced=buffer.size()-z.avail_out;if(expanded.size()+produced>maxExpand){inflateEnd(&z);fail("decompressed package exceeds limit");}expanded.append(buffer.data(),produced);}const bool good=code==Z_STREAM_END&&z.avail_in==0;inflateEnd(&z);if(!good)fail("invalid gzip archive or trailing data");
     std::map<std::string,std::string> files;size_t offset=0,total=0;bool ended=false;while(offset<expanded.size()){if(expanded.size()-offset<512)fail("truncated tar header");const auto*head=reinterpret_cast<const unsigned char*>(expanded.data()+offset);offset+=512;bool zero=true;for(size_t i=0;i<512;++i)if(head[i]){zero=false;break;}if(zero){ended=true;break;}if(std::memcmp(head+257,"ustar\0",6)!=0)fail("unsupported tar format");for(size_t i=345;i<500;++i)if(head[i])fail("tar prefix paths are not supported");if(head[156]!=0&&head[156]!='0')fail("tar archive contains links or special files");auto name=safePath(untarString(head,100));auto size=octal(head+124,12);auto sum=octal(head+148,8);size_t checksum=0;for(size_t i=0;i<512;++i)checksum+=(i>=148&&i<156)?32:head[i];if(checksum!=sum)fail("invalid tar checksum");if(size>maxPackage-total||files.size()>=maxFiles)fail("package size/file limit exceeded");total+=size;size_t padded=(size+511)/512*512;if(padded>expanded.size()-offset)fail("truncated tar member");if(!files.emplace(name,expanded.substr(offset,size)).second)fail("duplicate tar member");offset+=padded;}
-    if(!ended||expanded.size()%512!=0||!std::all_of(expanded.begin()+static_cast<std::ptrdiff_t>(offset),expanded.end(),[](char c){return c==0;}))fail("invalid tar terminator");return files;
+    if(!ended||expanded.size()%512!=0||!std::all_of(expanded.begin()+static_cast<std::ptrdiff_t>(offset),expanded.end(),[](char c){return c==0;}))fail("invalid tar terminator");
+    return files;
 #else
     (void)archive;fail("Noqeri SDK built without native gzip (zlib); registry archives unavailable");
 #endif
@@ -176,7 +181,8 @@ Package fromCache(const Coordinate&c){Package p;p.id=c;p.path=cachePath(c);std::
     if(!fileCount||!byteCount||fileCount->kind!=Json::Number||byteCount->kind!=Json::Number||
        fileCount->str!=std::to_string(p.files.size())||byteCount->str!=std::to_string(bytes))
        fail("cached package metadata file-count/byte mismatch");
-    if(manifestEntry(p.files.at("package.noqeri"))!=p.entry)fail("cached package manifest entry mismatch");p.dependencies=manifestDeps(p.files.at("package.noqeri"));return p;}
+    if(manifestEntry(p.files.at("package.noqeri"))!=p.entry)fail("cached package manifest entry mismatch");
+    p.dependencies=manifestDeps(p.files.at("package.noqeri"));return p;}
 void saveCache(Package&p){const auto target=cachePath(p.id);auto dir=target;dir+=".tmp";if(fs::exists(dir)||fs::is_symlink(dir))fail("unsafe temporary registry cache path");fs::create_directories(dir);try{for(const auto&[name,data]:p.files)write(dir/safePath(name),data);write(dir/".noqeri-integrity.json",meta(p));fs::create_directories(target.parent_path());if(fs::exists(target)||fs::is_symlink(target))fail("existing corrupt package cache; remove it before retrying: "+target.string());fs::rename(dir,target);p.path=target;}catch(...){std::error_code ec;fs::remove_all(dir,ec);throw;}}
 std::string selectVersion(const Json&index,const Coordinate&c){const auto&list=index.at("packages");if(list.kind!=Json::Array)fail("registry index packages must be array");std::string best;for(const auto&entry:list.arr){if(entry.at("namespace").string()!=c.ns||entry.at("name").string()!=c.name)continue;const auto&vs=entry.at("versions");if(vs.kind!=Json::Array)fail("invalid index versions");for(const auto&v:vs.arr){const auto x=v.at("version").string();if(!version(x)||v.at("yanked").boolean()||(!c.ver.empty()&&x!=c.ver))continue;if(best.empty()||compareVersions(x,best)>0)best=x;}break;}if(best.empty())fail("no usable release for "+c.full()+(c.ver.empty()?"":"@"+c.ver));return best;}
 Package download(Coordinate c){if(offline())fail("package not cached (offline): "+c.full());const auto idx=Parser(request("/v1/index",maxJson)).all();if(idx.at("protocol").string()!="v1"||idx.at("packageFormat").string()!="nqpkg-1")fail("unsupported Registry protocol/format");c.ver=selectVersion(idx,c);try{return fromCache(c);}catch(const std::exception&){if(fs::exists(cachePath(c)))throw;}
@@ -191,6 +197,7 @@ void install(const fs::path&project,std::string src){auto deps=projectDeps(proje
 } // namespace
 
 void operation(const std::string&cmd,const std::vector<std::string>&args){
+  commandOffline=(cmd=="vendor"||cmd=="audit")&&args.size()==1&&args[0]=="--offline";
   if(cmd=="help"||cmd.empty()){
     std::cout<<"Noqeri native Registry v1 package manager (no Node.js)\n"
              <<"  noqeri pkg add namespace/name[@version]\n  noqeri pkg install\n"
@@ -200,19 +207,24 @@ void operation(const std::string&cmd,const std::vector<std::string>&args){
     return;
   }
   if(cmd=="add"){
-    if(args.size()!=1)fail("add requires namespace/name[@version]");auto p=get(parseCoordinate(args[0]));auto project=projectFile();auto src=read(project,maxJson);auto next=modifyProject(project,src,p.id);auto deps=projectDeps(project,next);Graph graph;for(const auto&[alias,c]:deps){(void)alias;graph.visit(c);}atomicText(project,next);atomicText(project.parent_path()/"noqeri.lock",lock(graph));std::cout<<"added "<<p.id.full()<<"@"<<p.id.ver<<"\n";return;
+    if(args.size()!=1)fail("add requires namespace/name[@version]");
+    auto p=get(parseCoordinate(args[0]));auto project=projectFile();auto src=read(project,maxJson);auto next=modifyProject(project,src,p.id);auto deps=projectDeps(project,next);Graph graph;for(const auto&[alias,c]:deps){(void)alias;graph.visit(c);}atomicText(project,next);atomicText(project.parent_path()/"noqeri.lock",lock(graph));std::cout<<"added "<<p.id.full()<<"@"<<p.id.ver<<"\n";return;
   }
   if(cmd=="install"){
-    if(!args.empty())fail("install takes no arguments");auto project=projectFile();install(project,read(project,maxJson));return;
+    if(!args.empty())fail("install takes no arguments");
+    auto project=projectFile();install(project,read(project,maxJson));return;
   }
   if(cmd=="resolve"){
-    if(args.size()!=1)fail("resolve requires source.noqeri");auto source=fs::absolute(args[0]);auto project=projectFile(source.parent_path());auto deps=projectDeps(project,read(project,maxJson));auto code=read(source,maxJson);std::regex import("import[[:space:]]+package[[:space:]]+\"([a-z0-9-]+/[a-z0-9-]+)\"");std::set<std::string> visited;for(auto it=std::sregex_iterator(code.begin(),code.end(),import);it!=std::sregex_iterator();++it){auto name=(*it)[1].str();if(!visited.insert(name).second)continue;bool found=false;for(const auto&[alias,c]:deps){(void)alias;if(c.full()!=name)continue;auto pkg=get(c);std::cout<<name<<"@"<<pkg.id.ver<<" -> "<<(pkg.path/pkg.entry)<<" ("<<pkg.integrityDigest<<")\n";found=true;break;}if(!found)fail("undeclared package import: "+name);}return;
+    if(args.size()!=1)fail("resolve requires source.noqeri");
+    auto source=fs::absolute(args[0]);auto project=projectFile(source.parent_path());auto deps=projectDeps(project,read(project,maxJson));auto code=read(source,maxJson);std::regex import("import[[:space:]]+package[[:space:]]+\"([a-z0-9-]+/[a-z0-9-]+)\"");std::set<std::string> visited;for(auto it=std::sregex_iterator(code.begin(),code.end(),import);it!=std::sregex_iterator();++it){auto name=(*it)[1].str();if(!visited.insert(name).second)continue;bool found=false;for(const auto&[alias,c]:deps){(void)alias;if(c.full()!=name)continue;auto pkg=get(c);std::cout<<name<<"@"<<pkg.id.ver<<" -> "<<(pkg.path/pkg.entry)<<" ("<<pkg.integrityDigest<<")\n";found=true;break;}if(!found)fail("undeclared package import: "+name);}return;
   }
   if(cmd=="vendor"){
-    if(!args.empty()&&!(args.size()==1&&args[0]=="--offline"))fail("vendor accepts only --offline");auto project=projectFile();auto deps=projectDeps(project,read(project,maxJson));Graph g;for(const auto&[alias,c]:deps){(void)alias;g.visit(c);}auto root=project.parent_path()/".noqeri/vendor-home/cache/registry-v1";for(const auto&[key,p]:g.items){(void)key;auto dest=root/p.id.ns/p.id.name/p.id.ver;if(fs::exists(dest)||fs::is_symlink(dest))fail("vendor target already exists: "+dest.string());fs::create_directories(dest.parent_path());fs::copy(p.path,dest,fs::copy_options::recursive);}std::cout<<"vendored "<<g.items.size()<<" packages to .noqeri/vendor-home\n";return;
+    if(!args.empty()&&!(args.size()==1&&args[0]=="--offline"))fail("vendor accepts only --offline");
+    auto project=projectFile();auto deps=projectDeps(project,read(project,maxJson));Graph g;for(const auto&[alias,c]:deps){(void)alias;g.visit(c);}auto root=project.parent_path()/".noqeri/vendor-home/cache/registry-v1";for(const auto&[key,p]:g.items){(void)key;auto dest=root/p.id.ns/p.id.name/p.id.ver;if(fs::exists(dest)||fs::is_symlink(dest))fail("vendor target already exists: "+dest.string());fs::create_directories(dest.parent_path());fs::copy(p.path,dest,fs::copy_options::recursive);}std::cout<<"vendored "<<g.items.size()<<" packages to .noqeri/vendor-home\n";return;
   }
   if(cmd=="audit"){
-    if(!args.empty()&&!(args.size()==1&&args[0]=="--offline"))fail("audit accepts only --offline");auto project=projectFile();auto deps=projectDeps(project,read(project,maxJson));Graph g;for(const auto&[alias,c]:deps){(void)alias;g.visit(c);}if(offline()||(!args.empty()&&args[0]=="--offline"))fail("advisory catalog is unavailable offline; refusing to claim success");auto advisories=Parser(request("/v1/advisories",maxJson)).all();const auto&arr=advisories.at("advisories");if(arr.kind!=Json::Array)fail("invalid registry advisory catalog");if(!arr.arr.empty())fail("advisories present; manual review required (fail closed)");std::cout<<"audit passed: "<<g.items.size()<<" verified packages; registry advisory catalog empty\n";return;
+    if(!args.empty()&&!(args.size()==1&&args[0]=="--offline"))fail("audit accepts only --offline");
+    auto project=projectFile();auto deps=projectDeps(project,read(project,maxJson));Graph g;for(const auto&[alias,c]:deps){(void)alias;g.visit(c);}if(offline()||(!args.empty()&&args[0]=="--offline"))fail("advisory catalog is unavailable offline; refusing to claim success");auto advisories=Parser(request("/v1/advisories",maxJson)).all();const auto&arr=advisories.at("advisories");if(arr.kind!=Json::Array)fail("invalid registry advisory catalog");if(!arr.arr.empty())fail("advisories present; manual review required (fail closed)");std::cout<<"audit passed: "<<g.items.size()<<" verified packages; registry advisory catalog empty\n";return;
   }
   fail("unknown package command: "+cmd);
 }
