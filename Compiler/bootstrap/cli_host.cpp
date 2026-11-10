@@ -882,6 +882,10 @@ int main(int argc, char** argv) {
                 std::cerr << "NQR-K5122: build-exe requires --backend=c or --backend=llvm\n";
                 return 2;
             }
+            if (cmd == "build-exe" && (output.extension() == ".s" || output.extension() == ".o")) {
+                std::cerr << "NQR-K5123: build-exe output must name an executable, not assembly or object code\n";
+                return 2;
+            }
             if (backendMode == "llvm" || backendMode == "c") {
                 if (output.extension().empty() && cmd != "build-exe") output += ".s";
                 if (!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
@@ -909,7 +913,8 @@ int main(int argc, char** argv) {
                     std::cerr << "NQR-K5121: " << backendMode << " backend compilation failed with exit code " << ret << "\n";
                     return 1;
                 }
-                std::cout << "emitted Noqeri " << (backendMode == "llvm" ? "LLVM" : "C") << " native assembly: " << output << "\nbackend=" << backendMode << "\nopt=" << optLevel << "\nentry=noqeri_entry(noqeri_abi*)\n";
+                std::cout << (cmd == "build-exe" ? "built native executable: " : "emitted Noqeri portable C backend artifact: ")
+                          << output << "\nbackend=" << backendMode << "\nopt=" << optLevel << "\nentry=noqeri_entry(noqeri_abi*)\n";
                 return 0;
             }
             const auto target = TargetRegistry::resolve(options.target);
