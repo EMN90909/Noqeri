@@ -142,7 +142,7 @@ jobs:
             'windows-aarch64' { 0xaa64 }
           }
           if ($machine -ne $expected) { throw "Incorrect Windows PE machine type: $machine (expected $expected)" }
-      - name: Export portable archives and native executables
+      - name: Export verified complete portable SDK archives
         shell: bash
         run: bash scripts/distribution/archive-sdk.sh
       - name: Generate Linux DEB / RPM installers
@@ -173,7 +173,7 @@ jobs:
         run: |
           $match = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(noqeri VERSION ([0-9.]+)')
           if (!$match.Success) { throw 'Noqeri project version not found' }
-          $base = "noqeri-$($match.Groups[1].Value)-$($env:RELEASE_TARGET)"
+          $base = "noqeri-sdk-$($match.Groups[1].Value)-$($env:RELEASE_TARGET)"
           cpack --config build/CPackConfig.cmake -G NSIS -B artifacts -D "CPACK_PACKAGE_FILE_NAME=$base-setup"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path "artifacts/$base-setup.exe")) { throw 'NSIS setup installer missing' }
@@ -248,7 +248,7 @@ jobs:
           test -d stage/include/noqeri
           # Cross-built Android executables are not runnable on the Linux host.
           # Device/emulator execution remains a separate qualification gate.
-      - name: Export native Android SDK binaries and archive
+      - name: Export complete native Android SDK archive
         shell: bash
         run: bash scripts/distribution/archive-sdk.sh
       - name: Build installable Termux DEB
@@ -470,22 +470,20 @@ jobs:
                         android-armv7 android-aarch64 android-x86 android-x86_64; do
             case "$target" in
               windows-*)
-                require "noqeri-v$version-$target.zip"
-                require "noqeri-v$version-$target.exe"
-                require "noqeri-$version-$target-setup.exe"
+                require "noqeri-sdk-v$version-$target.zip"
+                require "noqeri-sdk-$version-$target-setup.exe"
                 case "$target" in
-                  windows-x86|windows-x86_64) require "noqeri-$version-$target.msi" ;;
+                  windows-x86|windows-x86_64) require "noqeri-sdk-$version-$target.msi" ;;
                 esac
                 ;;
               *)
-                require "noqeri-v$version-$target.tar.gz"
-                require "noqeri-v$version-$target.bin"
+                require "noqeri-sdk-v$version-$target.tar.gz"
                 ;;
             esac
             case "$target" in
-              linux-*) require "noqeri-$version-$target.deb"; require "noqeri-$version-$target.rpm" ;;
-              macos-*) require "noqeri-$version-$target.pkg" ;;
-              android-*) require "noqeri-$version-$target-termux.deb" ;;
+              linux-*) require "noqeri-sdk-$version-$target.deb"; require "noqeri-sdk-$version-$target.rpm" ;;
+              macos-*) require "noqeri-sdk-$version-$target.pkg" ;;
+              android-*) require "noqeri-sdk-$version-$target-termux.deb" ;;
             esac
           done
           require "noqeri-$version-android-universal-debug.apk"
@@ -501,11 +499,11 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
-            Experimental Noqeri Stage-0 toolchain prerelease, with
+            Experimental complete Noqeri SDK prerelease, with
             verified CI-built Windows, Linux, macOS and Android targets.
             Android APK is debug signed; installers are not production signed.
             FreeBSD and OpenBSD assets may be added once their VM builds pass.
-            Binary downloads require the matching host OS and CPU architecture.
+            SDK archives and installers require the matching host OS and CPU architecture.
           files: artifacts/*
       - name: Verify published early download assets
         shell: bash
@@ -550,11 +548,9 @@ jobs:
           version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)"
           test -n "$version"
           for arch in x86_64 aarch64; do
-            prefix="noqeri-v$version-openbsd-$arch"
+            prefix="noqeri-sdk-v$version-openbsd-$arch"
             test -s "bsd-assets/$prefix.tar.gz"
-            test -s "bsd-assets/$prefix.bin"
-            test -s "bsd-assets/noqeri-nqri-v$version-openbsd-$arch.bin"
-            test -s "bsd-assets/noqeri-$version-openbsd-$arch.pkg.tgz"
+            test -s "bsd-assets/noqeri-sdk-$version-openbsd-$arch.pkg.tgz"
           done
           (cd bsd-assets && sha256sum noqeri-* > SHA256SUMS-openbsd && sha256sum -c SHA256SUMS-openbsd)
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"; fi
@@ -605,11 +601,9 @@ jobs:
           version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)"
           test -n "$version"
           for arch in x86_64 aarch64; do
-            prefix="noqeri-v$version-freebsd-$arch"
+            prefix="noqeri-sdk-v$version-freebsd-$arch"
             test -s "bsd-assets/$prefix.tar.gz"
-            test -s "bsd-assets/$prefix.bin"
-            test -s "bsd-assets/noqeri-nqri-v$version-freebsd-$arch.bin"
-            test -s "bsd-assets/noqeri-$version-freebsd-$arch.pkg"
+            test -s "bsd-assets/noqeri-sdk-$version-freebsd-$arch.pkg"
           done
           (cd bsd-assets && sha256sum noqeri-* > SHA256SUMS-freebsd && sha256sum -c SHA256SUMS-freebsd)
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"; fi
@@ -636,7 +630,7 @@ jobs:
           done
 
   publish:
-    name: Publish OS installers, binaries, APK and checksums
+    name: Publish SDK installers, SDK archives, companion APK and checksums
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -694,32 +688,28 @@ jobs:
                         openbsd-x86_64 openbsd-aarch64; do
             case "$target" in
               windows-*)
-                require "noqeri-v$version-$target.zip"
-                require "noqeri-v$version-$target.exe"
-                require "noqeri-nqri-v$version-$target.exe"
-                require "noqeri-$version-$target-setup.exe"
+                require "noqeri-sdk-v$version-$target.zip"
+                require "noqeri-sdk-$version-$target-setup.exe"
                 case "$target" in
-                  windows-x86|windows-x86_64) require "noqeri-$version-$target.msi" ;;
+                  windows-x86|windows-x86_64) require "noqeri-sdk-$version-$target.msi" ;;
                 esac
                 ;;
               *)
-                require "noqeri-v$version-$target.tar.gz"
-                require "noqeri-v$version-$target.bin"
-                require "noqeri-nqri-v$version-$target.bin"
+                require "noqeri-sdk-v$version-$target.tar.gz"
                 ;;
             esac
             case "$target" in
-              linux-*) require "noqeri-$version-$target.deb"; require "noqeri-$version-$target.rpm" ;;
-              macos-*) require "noqeri-$version-$target.pkg" ;;
-              android-*) require "noqeri-$version-$target-termux.deb" ;;
-              freebsd-*) require "noqeri-$version-$target.pkg" ;;
-              openbsd-*) require "noqeri-$version-$target.pkg.tgz" ;;
+              linux-*) require "noqeri-sdk-$version-$target.deb"; require "noqeri-sdk-$version-$target.rpm" ;;
+              macos-*) require "noqeri-sdk-$version-$target.pkg" ;;
+              android-*) require "noqeri-sdk-$version-$target-termux.deb" ;;
+              freebsd-*) require "noqeri-sdk-$version-$target.pkg" ;;
+              openbsd-*) require "noqeri-sdk-$version-$target.pkg.tgz" ;;
             esac
           done
           require "noqeri-$version-android-universal-debug.apk"
           sha256sum noqeri-* > SHA256SUMS
           sha256sum -c SHA256SUMS
-      - name: Repackage all real SDKs as verified binary, gz, tar, tar.gz and zip
+      - name: Repackage all real SDKs into verified portable tar.gz and zip
         shell: bash
         run: |
           set -euo pipefail
@@ -748,10 +738,10 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Noqeri ${{ steps.verify.outputs.tag }} (platform preview)
           body: |
-            Experimental Stage-0 compiler and NQRI runtime downloads.
-            Includes x86/ARM64 Linux, Windows, macOS, FreeBSD and OpenBSD;
+            Experimental Noqeri SDK with native compiler, NQRI runtime,
+            standard library, registry package manager and build tools.\n            Includes x86/ARM64 Linux, Windows, macOS, FreeBSD and OpenBSD;
             four Android CLI ABIs, a debug-signed Android APK, installers,
-            standalone host binaries, portable SDK archives and SHA256SUMS.
+            portable SDK archives and SHA256SUMS; no compiler-only downloads.
             Match your operating system AND CPU architecture when downloading.
             These are unsigned preview installers, not production-qualified.
             Android APK is debug signed; device testing and GPU driver
