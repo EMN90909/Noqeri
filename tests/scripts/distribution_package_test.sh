@@ -17,7 +17,7 @@ cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-web"
 for name in string file http; do
   printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/$name.noqeri"
 done
-for name in sdk-package-cli package-manager nqon registry-client; do
+for name in sdk-package-cli package-manager package-manager-v1 ecosystem-tools nqon registry-client; do
   printf 'fixture\n' > "$tmp/stage/share/noqeri/runtime/$name.mjs"
 done
 printf 'SDK guide\n' > "$tmp/stage/share/noqeri/SDK.md"
