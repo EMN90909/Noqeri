@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproducible Noqeri compiler archives and a release manifest, using only Python stdlib.
+"""Reproducible complete Noqeri SDK archives and a release manifest, using only Python stdlib.
 
 Inputs are REAL compiled binaries. A cross-compiled binary is never marked tested
 without an executed smoke-test evidence file. GPU vendor/ISA qualification is
@@ -25,7 +25,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 OS = {"linux", "windows", "macos", "android", "freebsd", "openbsd"}
 CPU = {"x86_64", "arm64", "armv7", "x86", "riscv64", "ppc64le", "s390x"}
-FORMATS = ("binary", "gz", "tar", "tar.gz", "zip")
+FORMATS = ("tar", "tar.gz", "zip")
 INSTALLERS = ("deb", "rpm", "msi", "setup.exe", "pkg", "pkg.tgz", "termux.deb", "apk")
 MAX_BYTES = 1024 * 1024 * 1024
 
@@ -75,13 +75,13 @@ def bundle(args):
     if output.exists() and any(output.iterdir()):
         fail("refusing to overwrite an existing target bundle")
     output.mkdir(parents=True, exist_ok=True)
-    base = f"noqeri-v{args.version}-{target}"
+    base = f"noqeri-sdk-v{args.version}-{target}"
     exe = "noqeri.exe" if args.os == "windows" else "noqeri"
     payload = binary.read_bytes()
     note = (f"Noqeri v{args.version}\nTarget: {target}\nQualification: {args.qualification}\n"
             "Stage-0 bootstrap compiler. Not native Stage-2 self-hosted.\n"
             "GPU driver qualification is separate from WGSL shader emission.\n"
-            "Extract and run bin/noqeri (Windows: bin/noqeri.exe).\n").encode()
+            "Extract, add bin/ to PATH, and run noqeri --version.\n").encode()
     members = [(f"{base}/bin/{exe}", payload, True), (f"{base}/README.txt", note, False)]
     if args.license:
         license_path = Path(args.license)
@@ -91,6 +91,26 @@ def bundle(args):
     if args.sdk_root:
         sdk=Path(args.sdk_root).resolve()
         if not sdk.is_dir(): fail("installed SDK root does not exist")
+        vm = "noqeri-nqri.exe" if args.os == "windows" else "noqeri-nqri"
+        web = "noqeri-web.exe" if args.os == "windows" else "noqeri-web"
+        required = ("bin/" + exe, "bin/" + vm, "bin/" + web,
+                    "share/noqeri/Lib/std/string.noqeri",
+                    "share/noqeri/Lib/std/file.noqeri",
+                    "share/noqeri/Lib/std/http.noqeri",
+                    "share/noqeri/runtime/sdk-package-cli.mjs",
+                    "share/noqeri/runtime/package-manager.mjs",
+                    "share/noqeri/runtime/nqon.mjs",
+                    "share/noqeri/runtime/registry-client.mjs",
+                    "share/noqeri/SDK.md")
+        for relative in required:
+            file = sdk / relative
+            if not file.is_file() or file.is_symlink() or file.stat().st_size == 0:
+                fail("installed SDK missing required component: " + relative)
+        headers = sdk / "include/noqeri"
+        if not headers.is_dir() or not any(headers.rglob("*.h")):
+            fail("SDK missing public ABI headers")
+        if file_hash(sdk / "bin" / exe) != file_hash(binary):
+            fail("compiler binary differs from installed SDK")
         copied=sum(len(data) for _,data,_ in members)
         for item in sorted(sdk.rglob("*")):
             if item.is_symlink(): fail("installed SDK symlinks are not supported in portable archives")
@@ -104,21 +124,20 @@ def bundle(args):
             copied+=len(data)
             if copied>MAX_BYTES: fail("SDK archive uncompressed limit exceeded")
             members.append((f"{base}/{relative}",data,relative.startswith("bin/")))
+    members.append((f"{base}/sdk-components.json", canonical_json({
+        "schema": 1, "product": "noqeri-sdk", "version": args.version,
+        "target": target, "components": [
+            "compiler-cli", "nqri-runtime", "standard-library",
+            "registry-package-manager", "native-build-tools"
+        ]
+    }).encode(), False))
     members.sort(key=lambda item: item[0])
     timestamp = epoch_value()
     entries = []
     for fmt in args.formats.split(","):
         if fmt not in FORMATS or any(item["format"] == fmt for item in entries):
-            fail("invalid/duplicate format; choose binary,gz,tar,tar.gz,zip")
-        if fmt == "binary":
-            name, content = base + (".exe" if args.os == "windows" else "-bin"), payload
-        elif fmt == "gz":
-            name = base + (".exe.gz" if args.os == "windows" else "-bin.gz")
-            sink = io.BytesIO()
-            with gzip.GzipFile(filename="", fileobj=sink, mode="wb", compresslevel=9, mtime=0) as stream:
-                stream.write(payload)
-            content = sink.getvalue()
-        elif fmt == "zip":
+            fail("invalid/duplicate SDK format; choose tar,tar.gz,zip")
+        if fmt == "zip":
             name = base + ".zip"
             sink = io.BytesIO()
             with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as stream:
@@ -150,8 +169,6 @@ def bundle(args):
                 content = sink.getvalue()
         path = output / name
         path.write_bytes(content)
-        if fmt == "binary" and args.os != "windows":
-            path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         entries.append({"filename": name, "format": fmt, "bytes": path.stat().st_size, "sha256": file_hash(path)})
     result = {
         "schema": 1, "version": args.version, "source_commit": args.source_commit,
@@ -230,7 +247,7 @@ def combine(args):
     if args.stable and any(t["qualification"] != "executed" for t in targets):
         fail("stable release cannot include cross-build-only targets")
     output = {
-        "schema": 1, "product": "noqeri-compiler", "version": args.version,
+        "schema": 1, "product": "noqeri-sdk", "version": args.version,
         "source_commit": targets[0]["source_commit"],
         "channel": "stable" if args.stable else "preview",
         "targets": sorted(targets, key=lambda t: (t["os"], t["cpu"])),
@@ -246,8 +263,8 @@ def main():
     for name in ("binary", "version", "os", "cpu", "source-commit", "output"):
         pack.add_argument("--" + name, required=True)
     pack.add_argument("--license")
-    pack.add_argument("--sdk-root", help="CMake-installed SDK directory included in tar/zip bundles")
-    pack.add_argument("--formats", default="binary,gz,tar,tar.gz,zip")
+    pack.add_argument("--sdk-root", required=True, help="CMake-installed SDK directory required in all archives")
+    pack.add_argument("--formats", default="tar.gz,zip")
     pack.add_argument("--qualification", choices=("executed", "build-only"), default="build-only")
     pack.add_argument("--smoke-evidence")
     pack.add_argument("--gpu-backend", choices=("cpu-fallback", "wgsl-emitter", "vulkan", "metal", "cuda", "hip", "direct3d12", "webgpu", "opencl"), default="cpu-fallback")
