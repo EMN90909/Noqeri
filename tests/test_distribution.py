@@ -25,6 +25,19 @@ class DistributionTests(unittest.TestCase):
         self.smoke = self.root / "smoke.log"
         self.smoke.write_text("Simulated unit-test fixture (never publish this as real smoke evidence)\n")
         self.out = self.root / "dist"
+        self.sdk = self.root / "stage"
+        for dirname in ("bin", "share/noqeri/Lib/std",
+                        "share/noqeri/runtime", "include/noqeri"):
+            (self.sdk / dirname).mkdir(parents=True, exist_ok=True)
+        (self.sdk / "bin/noqeri").write_bytes(self.exe.read_bytes())
+        (self.sdk / "bin/noqeri-nqri").write_bytes(b"nqri vm")
+        (self.sdk / "bin/noqeri-web").write_bytes(b"web tool")
+        for name in ("string", "file", "http"):
+            (self.sdk / ("share/noqeri/Lib/std/" + name + ".noqeri")).write_text("module test")
+        for name in ("sdk-package-cli", "package-manager", "nqon", "registry-client"):
+            (self.sdk / ("share/noqeri/runtime/" + name + ".mjs")).write_text("export default true")
+        (self.sdk / "share/noqeri/SDK.md").write_text("SDK guide")
+        (self.sdk / "include/noqeri/abi.h").write_text("/* C API */")
 
     def call(self, *args, ok=True):
         proc = subprocess.run([sys.executable, str(TOOL), *map(str,args)],
@@ -39,7 +52,7 @@ class DistributionTests(unittest.TestCase):
     def bundle(self, target="linux", cpu="x86_64", qualification="build-only", smoke=None):
         return self.call("bundle", "--binary", self.exe, "--version", "0.1.3",
                          "--os", target, "--cpu", cpu, "--source-commit", COMMIT,
-                         "--output", self.out, "--license", self.license,
+                         "--output", self.out, "--license", self.license, "--sdk-root", self.sdk,
                          "--qualification", qualification,
                          *(["--smoke-evidence", smoke] if smoke else []))
 
@@ -48,18 +61,18 @@ class DistributionTests(unittest.TestCase):
         target = self.out / "linux-x86_64"
         frag = json.loads((target / "fragment.json").read_text())
         self.assertEqual({a["format"] for a in frag["assets"]},
-                         {"binary","gz","tar","tar.gz","zip"})
+                         {"tar.gz","zip"})
         self.assertEqual(frag["qualification"], "build-only")
         for info in frag["assets"]:
             file = target / info["filename"]
             self.assertEqual(hashlib.sha256(file.read_bytes()).hexdigest(), info["sha256"])
             if info["format"] == "zip":
                 with zipfile.ZipFile(file) as z:
-                    self.assertIn("noqeri-v0.1.3-linux-x86_64/bin/noqeri", z.namelist())
-                    self.assertEqual(z.read("noqeri-v0.1.3-linux-x86_64/bin/noqeri"), self.exe.read_bytes())
+                    self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri", z.namelist())
+                    self.assertEqual(z.read("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri"), self.exe.read_bytes())
             if info["format"] == "tar.gz":
                 with tarfile.open(file) as t:
-                    member = t.extractfile("noqeri-v0.1.3-linux-x86_64/bin/noqeri")
+                    member = t.extractfile("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri")
                     self.assertEqual(member.read(), self.exe.read_bytes())
         self.call("combine", "--input", self.out, "--version", "0.1.3",
                   "--source-commit", COMMIT, "--require", "linux-x86_64")
@@ -78,7 +91,7 @@ class DistributionTests(unittest.TestCase):
         self.call("combine", "--input", self.out, "--version", "0.1.3", ok=False)
 
     def test_do_not_fake_run_or_gpu_capability(self):
-        self.call("bundle", "--binary", self.exe, "--os", "linux", "--cpu", "x86_64",
+        self.call("bundle", "--binary", self.exe, "--sdk-root", self.sdk, "--os", "linux", "--cpu", "x86_64",
                   "--version", "0.1.3", "--source-commit", COMMIT,
                   "--output", self.out, "--qualification", "executed", ok=False)
         self.call("bundle", "--binary", self.exe, "--os", "linux", "--cpu", "x86_64",
@@ -93,11 +106,7 @@ class DistributionTests(unittest.TestCase):
         self.assertTrue(result["targets"][0]["smoke_evidence"])
 
     def test_installed_sdk_modules_vm_and_symlinks(self):
-        sdk=self.root/"stage"
-        (sdk/"bin").mkdir(parents=True)
-        (sdk/"share/noqeri/Lib/std").mkdir(parents=True)
-        (sdk/"bin/noqeri").write_bytes(self.exe.read_bytes())
-        (sdk/"bin/noqeri-nqri").write_bytes(b"real vm fixture")
+        sdk=self.sdk
         (sdk/"share/noqeri/Lib/std/hello.noqeri").write_text("module smoke\\n")
         self.call("bundle", "--binary", self.exe, "--sdk-root", sdk,
                   "--version", "0.1.3", "--os", "linux", "--cpu", "x86_64",
@@ -105,8 +114,8 @@ class DistributionTests(unittest.TestCase):
         archive=next((self.out/"linux-x86_64").glob("*.tar.gz"))
         with tarfile.open(archive) as tar:
             names=tar.getnames()
-            self.assertIn("noqeri-v0.1.3-linux-x86_64/bin/noqeri-nqri",names)
-            self.assertIn("noqeri-v0.1.3-linux-x86_64/share/noqeri/Lib/std/hello.noqeri",names)
+            self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri-nqri",names)
+            self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/share/noqeri/Lib/std/hello.noqeri",names)
 
     def test_reproducible_bytes(self):
         self.bundle()
@@ -116,6 +125,18 @@ class DistributionTests(unittest.TestCase):
         self.bundle()
         second = {(p.name, p.read_bytes()) for p in (self.out / "linux-x86_64").glob("*")}
         self.assertEqual(first, second)
+
+    def test_missing_package_manager_fails_closed(self):
+        (self.sdk / "share/noqeri/runtime/sdk-package-cli.mjs").unlink()
+        self.call("bundle", "--binary", self.exe, "--sdk-root", self.sdk,
+                  "--version", "0.1.3", "--os", "linux", "--cpu", "x86_64",
+                  "--source-commit", COMMIT, "--output", self.out, ok=False)
+
+    def test_wrong_compiler_is_rejected(self):
+        (self.sdk / "bin/noqeri").write_bytes(b"wrong binary")
+        self.call("bundle", "--binary", self.exe, "--sdk-root", self.sdk,
+                  "--version", "0.1.3", "--os", "linux", "--cpu", "x86_64",
+                  "--source-commit", COMMIT, "--output", self.out, ok=False)
 
 if __name__ == "__main__":
     unittest.main()
