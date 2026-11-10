@@ -17,7 +17,7 @@ cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-web"
 for name in string file http; do
   printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/$name.noqeri"
 done
-printf 'fixture\\n' > "$tmp/stage/share/noqeri/Tools/package/manager.noqeri"
+printf 'fixture\n' > "$tmp/stage/share/noqeri/Tools/package/manager.noqeri"
 printf 'SDK guide\n' > "$tmp/stage/share/noqeri/SDK.md"
 chmod 755 "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-nqri"
 printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/render2d.noqeri"
