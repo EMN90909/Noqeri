@@ -30,7 +30,7 @@ std::string read(const fs::path& p){std::ifstream f(p,std::ios::binary);if(!f)fa
 void write(const fs::path& p,const std::string& value){fs::create_directories(p.parent_path());std::ofstream f(p,std::ios::binary|std::ios::trunc);if(!f)fail("cannot write "+p.string());f.write(value.data(),static_cast<std::streamsize>(value.size()));if(!f)fail("write failed "+p.string());}
 bool valid(const std::string& s,const std::string& pattern){return std::regex_match(s,std::regex(pattern));}
 void safePath(const std::string& s){
- if(s.empty()||s[0]=='/'||s.find('\\')!=std::string::npos||s.find('\0')!=std::string::npos)fail("unsafe package path");
+ if(s.empty()||s[0]=='/'||s.find('\\')!=std::string::npos||s.find('\0')!=std::string::npos||s.find(':')!=std::string::npos||fs::path(s).is_absolute()||fs::path(s).has_root_name())fail("unsafe package path");
  for(const auto& part:fs::path(s))if(part=="."||part==".."||part.empty())fail("unsafe package path");
 }
 std::string escaped(const std::string& value){std::string out="\"";for(char c:value){if(c=='\"'||c=='\\')out+='\\';if(c=='\n'){out+="\\n";continue;}out+=c;}return out+"\"";}
@@ -173,7 +173,7 @@ Package fetch(const std::string& coord,std::string requested){
   if(best.empty())fail("package not cached: "+coord);return verify(coord,best);
  }
  auto [version,base,expectedHash]=release(coord,requested);
- try{return verify(coord,version);}catch(const std::exception&){}
+ try{auto pkg=verify(coord,version);if(!expectedHash.empty()&&pkg.integrity!=expectedHash)fail("published registry SHA256 mismatch");return pkg;}catch(const std::exception&){}
  std::map<std::string,std::string> files;size_t bytes=0;listFiles(base,base,files,bytes,0);
  if(!files.count("package.noqeri"))fail("registry package manifest missing");
  auto entry=std::regex(R"re(\bentry\s*:\s*"([^"]+)")re");
