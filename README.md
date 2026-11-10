@@ -118,27 +118,17 @@ if language == "Noqeri" {
 
 Local values can infer their types, semicolons are optional, and `if` / `while` conditions do not require parentheses. Functions, fixed-size arrays, slices, records, generics and imports are part of the language surface. See the [language reference](Doc/LANGUAGE_REFERENCE.md) and the checked-in [hello-world example](examples/hello.noqeri).
 
-## Native installers and cross-platform binaries
+## Noqeri SDK downloads
 
-Noqeri defines **16 host builds** for Android, Linux, Windows, macOS,
-FreeBSD and OpenBSD, with **32-bit x86 builds for Linux/Windows**
-and **32-bit ARMv7/x86 builds for Android**. Modern macOS does not run
-32-bit programs; BSD i386 is not in the qualified release matrix.
+New distribution releases package a **complete Noqeri SDK** rather than standalone compiler downloads. Each host-specific SDK includes the native `noqeri` compiler/CLI, NQRI VM/runtime, Noqeri standard library sources, package manager, and project build tools. See [Noqeri SDK installation and usage](Doc/SDK.md).
 
-Distribution artifacts include installable **DEB/RPM**, **Windows
-NSIS setup EXE and x86/x64 MSI**, **macOS PKG**, **FreeBSD pkg**,
-**OpenBSD pkg_add package**, **Termux DEB** and a **debug-signed Android
-APK** containing a basic editor and native reference interpreter.
-Portable `.tar.gz`/`.zip` toolchains and directly downloadable
-OS-specific compiler executables (`.bin`/`.exe`) are also configured.
+The package client is bundled, but requires **Node.js 20+ for registry operations**; native compilation and VM execution do not use Node. `noqeri build-exe` compiles supported code using the portable C backend and a separately installed GCC or Clang toolchain.
 
-[Build workflow](https://github.com/EMN90909/Noqeri/actions/workflows/distribution.yml) ·
-[Published release assets](https://github.com/EMN90909/Noqeri/releases) ·
-[Install and platform qualification guide](Doc/DISTRIBUTION.md)
+The distribution matrix targets 16 configurations across Linux, Windows, macOS, Android/Termux, FreeBSD and OpenBSD. Build availability is not proof of successful execution on every target. The companion Android debug editor APK is separate from the CLI SDK. Past v0.1.4 assets retain their original names and contents; the new naming applies to newly built previews.
 
-These installer and binary outputs must pass real CI before they can be
-treated as available downloads. Installing a 32-bit **host** compiler
-does not mean Noqeri's native code generator can emit 32-bit programs.
+[Release packaging workflow](https://github.com/EMN90909/Noqeri/actions/workflows/distribution.yml) ·
+[GitHub releases](https://github.com/EMN90909/Noqeri/releases) ·
+[SDK and platform guide](Doc/DISTRIBUTION.md)
 
 ## Quick start
 
