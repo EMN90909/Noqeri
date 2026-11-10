@@ -20,6 +20,8 @@
 
 using namespace noe;
 
+int runNativeRegistryNoqeri(int argc, char** argv);
+
 namespace {
 void usage() {
     std::cout << "noqeri " << NOQERI_COMPILER_VERSION << "\nusage: noqeri <command> [options]\n\n"
@@ -30,7 +32,7 @@ void usage() {
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
               << "  build-exe [file] [output] [-O...] compile a host executable via C\n"
-              << "  pkg add|install|resolve|vendor|audit ...  registry package tools (Node 20+)\n"
+              << "  pkg add|install|resolve|vendor|audit ...  Noqeri-native registry tools\n"
               << "  emit-c [file] [out.c] [-O...]     emit checked portable C11 for native compilation\n"
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
@@ -491,76 +493,12 @@ int main(int argc, char** argv) {
         std::cerr<<"NQR-AI1000: native AI runner unavailable; install noqeri-ai or set NOQERI_AI_BIN\n";
         return 1;
     }
-    // Registry access uses the SDK's shipped package manager only when needed.
-    // It does not affect the native compiler or NQRI virtual machine.
-    if (cmd == "pkg" || cmd == "add" || cmd == "install" || cmd == "vendor") {
-        std::filesystem::path packageTool;
-        const char* overrideTool = std::getenv("NOQERI_PACKAGE_CLI");
-        if (overrideTool && *overrideTool) packageTool = overrideTool;
-        else {
-            std::vector<std::filesystem::path> candidates;
-            // Reuse the resolved installed library root, including on Windows
-            // where invokedAs may lack an explicit ".exe" suffix.
-            if (const char* stdlibRoot = std::getenv("NOQERI_STDLIB_ROOT"); stdlibRoot && *stdlibRoot)
-                candidates.emplace_back(std::filesystem::path(stdlibRoot).parent_path() /
-                                        "runtime/sdk-package-cli.mjs");
-            const char* sdkRoot = std::getenv("NOQERI_SDK_ROOT");
-            if (sdkRoot && *sdkRoot)
-                candidates.emplace_back(std::filesystem::path(sdkRoot) / "share/noqeri/runtime/sdk-package-cli.mjs");
-            std::filesystem::path executable = argv[0];
-#if defined(__linux__)
-            std::error_code ec;
-            const auto actual = std::filesystem::read_symlink("/proc/self/exe", ec);
-            if (!ec) executable = actual;
-#endif
-            if (!executable.has_parent_path()) {
-                const char* pathEnv = std::getenv("PATH");
-                if (pathEnv && *pathEnv) {
-                    std::stringstream search(pathEnv);
-                    std::string segment;
-#if defined(_WIN32)
-                    constexpr char separator = ';';
-#else
-                    constexpr char separator = ':';
-#endif
-                    while (std::getline(search, segment, separator)) {
-                        const auto found = std::filesystem::path(segment) / executable;
-                        if (std::filesystem::is_regular_file(found)) { executable = found; break; }
-                    }
-                }
-            }
-            candidates.emplace_back(std::filesystem::absolute(executable).parent_path() /
-                                    "../share/noqeri/runtime/sdk-package-cli.mjs");
-#if !defined(_WIN32)
-            candidates.emplace_back("/usr/local/share/noqeri/runtime/sdk-package-cli.mjs");
-            candidates.emplace_back("/usr/share/noqeri/runtime/sdk-package-cli.mjs");
-#endif
-            for (const auto& candidate : candidates) {
-                if (std::filesystem::is_regular_file(candidate)) { packageTool = candidate; break; }
-            }
-        }
-        if (packageTool.empty() || !std::filesystem::is_regular_file(packageTool)) {
-            std::cerr << "NQR-PKG7001: SDK package manager not installed; reinstall SDK or set NOQERI_PACKAGE_CLI\n";
-            return 2;
-        }
-        const char* configured = std::getenv("NOQERI_NODE_BIN");
-        const std::string node = configured && *configured ? configured : "node";
-        const std::string toolPath = packageTool.string();
-        const std::string operation = cmd == "pkg" ? "" : cmd;
-        std::vector<char*> forwarded{const_cast<char*>(node.c_str()), const_cast<char*>(toolPath.c_str())};
-        if (cmd != "pkg") forwarded.push_back(const_cast<char*>(operation.c_str()));
-        for (int i = 2; i < argc; ++i) forwarded.push_back(argv[i]);
-        forwarded.push_back(nullptr);
-#if defined(_WIN32)
-        const intptr_t code = _spawnvp(_P_WAIT, node.c_str(), forwarded.data());
-        if (code >= 0)
-            return code > std::numeric_limits<int>::max() ? 1 : static_cast<int>(code);
-#else
-        ::execvp(node.c_str(), forwarded.data());
-#endif
-        std::cerr << "NQR-PKG7002: package operations require Node.js 20+; install it or set NOQERI_NODE_BIN\n";
-        return 2;
-    }
+    // Noqeri source governs CLI dispatch. Native Stage-0 ABI services provide
+    // bounded Registry v1 HTTPS, verified downloads and safe cache operations.
+    // No Node.js or shell subprocess is launched.
+    if (cmd == "pkg") return runNativeRegistryNoqeri(argc-2, argv+2);
+    if (cmd == "add" || cmd == "install" || cmd == "vendor")
+        return runNativeRegistryNoqeri(argc-1, argv+1);
     if (cmd == "stress" || cmd == "--stress") return runStress(argc, argv);
     if (cmd == "targets") {
         for (const auto& target : TargetRegistry::supported()) {
