@@ -18,6 +18,7 @@ spec.loader.exec_module(module)
 CONTENT = {
     "stage/bin/noqeri": b"compiler",
     "stage/bin/noqeri-nqri": b"nqri-vm",
+    "stage/bin/noqeri-pkg": b"native-pkg",
     "stage/share/noqeri/Lib/std/example.noqeri": b"print(1)",
     "stage/include/noqeri/example.hpp": b"#pragma once",
     "stage/bin/noqeri-web": b"web",
