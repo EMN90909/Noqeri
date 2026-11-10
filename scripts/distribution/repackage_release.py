@@ -104,6 +104,8 @@ def extract_sdk(archive, target, dest):
                 "share/noqeri/Lib/std/http.noqeri",
                 "share/noqeri/runtime/sdk-package-cli.mjs",
                 "share/noqeri/runtime/package-manager.mjs",
+                "share/noqeri/runtime/package-manager-v1.mjs",
+                "share/noqeri/runtime/ecosystem-tools.mjs",
                 "share/noqeri/runtime/nqon.mjs",
                 "share/noqeri/runtime/registry-client.mjs",
                 "share/noqeri/SDK.md")
