@@ -1,10 +1,10 @@
 # Portable Noqeri SDK -> native installable packages with CPack.
 # Used by BOTH full builds and NOQERI_GRAPHICS_PORTABLE_BUILD.
 # Each release asset names its host ABI, not the compiler's codegen targets.
-set(CPACK_PACKAGE_NAME "noqeri")
+set(CPACK_PACKAGE_NAME "noqeri-sdk")
 set(CPACK_PACKAGE_VENDOR "Noethric")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Noqeri compiler, NQRI virtual machine and source SDK")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Noqeri SDK compiler, runtime, stdlib, registry manager and build tools")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/EMN90909/Noqeri")
 set(CPACK_PACKAGE_CONTACT "Noethric contributors")
 # Apple productbuild requires license resources to have a recognized suffix
@@ -12,7 +12,7 @@ set(CPACK_PACKAGE_CONTACT "Noethric contributors")
 configure_file("${CMAKE_SOURCE_DIR}/LICENSE"
  "${CMAKE_CURRENT_BINARY_DIR}/NoqeriLicense.txt" COPYONLY)
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_BINARY_DIR}/NoqeriLicense.txt")
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "Noqeri")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Noqeri SDK")
 set(CPACK_VERBATIM_VARIABLES ON)
 
 if(NOT NOQERI_PACKAGE_TARGET)
@@ -24,7 +24,7 @@ endif()
 if(NOT NOQERI_PACKAGE_TARGET MATCHES "^[a-zA-Z0-9_-]+$")
   message(FATAL_ERROR "Invalid NOQERI_PACKAGE_TARGET (must be an OS-CPU identifier)")
 endif()
-set(CPACK_PACKAGE_FILE_NAME "noqeri-${PROJECT_VERSION}-${NOQERI_PACKAGE_TARGET}")
+set(CPACK_PACKAGE_FILE_NAME "noqeri-sdk-${PROJECT_VERSION}-${NOQERI_PACKAGE_TARGET}")
 
 # Native Unix installs must go to system-managed locations. Using a relative
 # install() DESTINATION allows --prefix / custom staging and CPack packaging.
@@ -59,8 +59,8 @@ elseif(APPLE)
 elseif(WIN32)
   # ZIP and NSIS can package x86/x64/ARM64 CLI payloads. WiX supports
   # x86/x64 natively and ARM64 with a new enough toolset.
-  set(CPACK_NSIS_DISPLAY_NAME "Noqeri ${PROJECT_VERSION}")
-  set(CPACK_NSIS_PACKAGE_NAME "Noqeri")
+  set(CPACK_NSIS_DISPLAY_NAME "Noqeri SDK ${PROJECT_VERSION}")
+  set(CPACK_NSIS_PACKAGE_NAME "Noqeri SDK")
   set(CPACK_NSIS_MODIFY_PATH ON)
   set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
   set(CPACK_WIX_VERSION "3")
