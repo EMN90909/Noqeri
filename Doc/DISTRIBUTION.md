@@ -19,7 +19,7 @@ published or qualified.
 | Package manager | bin/noqeri-pkg and native HTTPS/SHA-256 registry support |
 | Build tools | bin/noqeri-web, compiler build/assemble/link tools, include/noqeri headers and native ABI libraries |
 
-Package management uses the SDK's **native noqeri-pkg** executable. No Node.js installation is required. Online access needs a build with libcurl and OpenSSL; builds missing either dependency support offline-only mode.
+Package management uses the SDK's **native noqeri-pkg** executable. No Node.js installation is required. Online access needs a build with libcurl; builds missing either dependency support offline-only mode.
 
 ## Build a complete SDK locally
 
