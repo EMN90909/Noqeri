@@ -72,10 +72,27 @@ fs::path home(){
 }
 #if defined(NOQERI_REGISTRY_NETWORK)
 size_t receive(char* p,size_t a,size_t b,void* data){auto* out=static_cast<std::string*>(data);size_t n=a*b;if(n>8*1024*1024-out->size())return 0;out->append(p,n);return n;}
+bool allowedRegistryUrl(const std::string& url){
+ if(url.rfind("https://",0)==0)return true;
+ // HTTP is only permitted for loopback test servers, including explicit ports.
+ for(const auto& host:{"http://127.0.0.1","http://localhost"}){
+  const std::string prefix(host);
+  if(url.rfind(prefix,0)!=0)continue;
+  const auto end=prefix.size();
+  if(url.size()==end||url[end]=='/')return true;
+  if(url[end]!=':')continue;
+  auto p=end+1;
+  if(p==url.size())return false;
+  while(p<url.size()&&std::isdigit(static_cast<unsigned char>(url[p])))++p;
+  if(p==end+1||(p<url.size()&&url[p]!='/'))return false;
+  return true;
+ }
+ return false;
+}
 std::string get(const std::string& url,size_t limit=2097152){
  if(offline())fail("offline mode forbids network access");
- if(url.rfind("https://",0)!=0&&url.rfind("http://127.0.0.1/",0)!=0&&url.rfind("http://localhost/",0)!=0)
-   fail("registry URLs require HTTPS (localhost permitted for tests)");
+ if(!allowedRegistryUrl(url))
+   fail("registry URLs require HTTPS (loopback HTTP permitted for tests)");
  CURL* curl=curl_easy_init();if(!curl)fail("libcurl initialization failed");
  std::string data;curl_easy_setopt(curl,CURLOPT_URL,url.c_str());curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
  curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS|CURLPROTO_HTTP);curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
@@ -290,6 +307,16 @@ int main(int argc,char** argv){
    bool rejected=false;try{safePath("../escape");}catch(const std::exception&){rejected=true;}
    if(!rejected)fail("path traversal regression");
    if(splitSpec("noqeri/core@0.4.0").second!="0.4.0")fail("coordinate parsing regression");
+   // Align transport policy with the Noqeri registry source policy.
+#if defined(NOQERI_REGISTRY_NETWORK)
+   if(!allowedRegistryUrl("https://raw.githubusercontent.com/example/registry.json")||
+      !allowedRegistryUrl("http://127.0.0.1:8080/registry/index.json")||
+      !allowedRegistryUrl("http://localhost:8080/")||
+      allowedRegistryUrl("http://example.com/index.json")||
+      allowedRegistryUrl("http://localhost.evil.com/")||
+      allowedRegistryUrl("http://127.0.0.1.evil.com:8080/"))
+     fail("registry transport policy regression");
+#endif
    std::cout<<"native registry selftest: OK\n";return 0;
   }
   if(argc<2||std::string(argv[1])=="help"||std::string(argv[1])=="--help"){
