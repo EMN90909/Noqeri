@@ -24,12 +24,7 @@ CONTENT = {
     "stage/share/noqeri/Lib/std/string.noqeri": b"str",
     "stage/share/noqeri/Lib/std/file.noqeri": b"file",
     "stage/share/noqeri/Lib/std/http.noqeri": b"http",
-    "stage/share/noqeri/runtime/sdk-package-cli.mjs": b"pkg",
-    "stage/share/noqeri/runtime/package-manager.mjs": b"manager",
-    "stage/share/noqeri/runtime/package-manager-v1.mjs": b"v1manager",
-    "stage/share/noqeri/runtime/ecosystem-tools.mjs": b"ecosystem",
-    "stage/share/noqeri/runtime/nqon.mjs": b"nqon",
-    "stage/share/noqeri/runtime/registry-client.mjs": b"registry",
+    "stage/share/noqeri/Tools/package/manager.noqeri": b"pkg",
     "stage/share/noqeri/SDK.md": b"SDK",
 }
 
