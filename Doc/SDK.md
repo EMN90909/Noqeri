@@ -35,7 +35,7 @@ Run the generated executable (on Windows, use build/hello.exe). The build-exe co
     noqeri pkg vendor
     noqeri pkg audit
 
-The package manager is a **native executable; Node.js is not required**. Online registry access requires an SDK build with libcurl (HTTPS) and OpenSSL (SHA-256); these providers are optional for constrained cross-target builds, where online commands fail explicitly. Cached packages use the existing registry-v1 SHA-256 digest and `noqeri-lock 3` format. Set `NOQERI_OFFLINE=1` to disable networking; configure `NOQERI_REGISTRY_INDEX`, `NOQERI_REGISTRY_CONTENTS`, and `NOQERI_HOME` as needed. The native client is a bootstrap host adapter pending full self-hosting in Noqeri.
+The package manager is a **native executable; Node.js is not required**. Online registry access requires an SDK build with libcurl for HTTPS (SHA-256 is built into the native tool); these providers are optional for constrained cross-target builds, where online commands fail explicitly. Cached packages use the existing registry-v1 SHA-256 digest and `noqeri-lock 3` format. Set `NOQERI_OFFLINE=1` to disable networking; configure `NOQERI_REGISTRY_INDEX`, `NOQERI_REGISTRY_CONTENTS`, and `NOQERI_HOME` as needed. The native client is a bootstrap host adapter pending full self-hosting in Noqeri.
 
 Noqeri-UI supplies the noqeri/components library through the registry. Noqeriweb is the documentation/website repository, not a bundled language runtime. Package import resolution does not yet automatically link arbitrary third-party packages into every native backend.
 
@@ -44,3 +44,5 @@ Noqeri-UI supplies the noqeri/components library through the registry. Noqeriweb
 Each SDK archive must contain the compiler, VM, stdlib sources, package CLI and dependencies, web build tool, public headers and this guide. Release packaging rejects unsafe archive members, missing components, and inconsistent source commits. Checksums identify download contents but do not replace publisher signatures. Cross-built targets should be described as build-only until executed on their target machine. Android APK is a separate debug-signed editor app, not an SDK archive.
 
 Read Doc/DISTRIBUTION.md for the platform matrix, installer commands and security limitations.
+
+**Implementation note:** The package commands run through an SDK-native C++ bootstrap host, not Node.js; they are not yet fully implemented in self-hosted `.noqeri` code. Native runtime parity and cross-platform verification remain future work.
