@@ -16,11 +16,13 @@ published or qualified.
 | Compiler/CLI | bin/noqeri (Windows: noqeri.exe) |
 | Execution runtime | bin/noqeri-nqri, share/noqeri/Runtime and lib/runtime libraries |
 | Standard library | share/noqeri/Lib/std string, file, http and other .noqeri modules |
-| Package manager | share/noqeri/runtime/sdk-package-cli.mjs and bundled registry support |
+| Package manager | share/noqeri/Tools/package/manager.noqeri and native compiler ABI |
 | Build tools | bin/noqeri-web, compiler build/assemble/link tools, include/noqeri headers and native ABI libraries |
 
-Package management needs an external **Node.js 20+** runtime; core native
-execution does not. Native executable creation via `noqeri build-exe` currently
+The registry uses a Noqeri-authored frontend and native libcurl/zlib
+bootstrap services, with no Node.js runtime. Online package installation
+requires a deployed Registry v1 endpoint and native transport providers.
+Native executable creation via `noqeri build-exe` currently
 uses GCC/Clang and the supported portable-C subset. Host architecture support
 must not be confused with target code-generator support.
 
@@ -87,7 +89,7 @@ On Termux, use the SDK package for the device ABI:
 
 On Windows, run the appropriate **SDK** setup .exe or MSI. For portable
 archives, extract and add the resulting SDK bin directory to PATH; install
-Node.js 20+ separately if you need registry package operations.
+no Node.js runtime is necessary for registry package operations.
 
 ## Build a complete SDK locally
 
