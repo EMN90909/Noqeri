@@ -6,7 +6,10 @@ extern function fileRead(handle: usize, data: *u8, count: usize): isize
 extern function fileWrite(handle: usize, data: *u8, count: usize): isize
 extern function fileSeek(handle: usize, offset: i64, origin: int): isize
 extern function fileFlush(handle: usize): isize
+extern function fileSync(handle: usize): isize
 extern function fileTruncate(handle: usize, length: u64): isize
+extern function fileLock(handle: usize, exclusive: bool): isize
+extern function fileUnlock(handle: usize): isize
 
 export function file_flag_read(): u32 { return 1 as u32 }
 export function file_flag_write(): u32 { return 2 as u32 }
@@ -24,7 +27,10 @@ export function file_open_replace(path: string): isize { return fileOpen(path, f
 export function file_open_append(path: string): isize { return fileOpen(path, file_flag_write() + file_flag_create() + file_flag_append()) }
 export function file_close(handle: usize): isize { return fileClose(handle) }
 export function file_flush(handle: usize): isize { return fileFlush(handle) }
+export function file_sync(handle: usize): isize { return fileSync(handle) }
 export function file_truncate(handle: usize, length: u64): isize { return fileTruncate(handle, length) }
+export function file_lock(handle: usize, exclusive: bool): isize { return fileLock(handle, exclusive) }
+export function file_unlock(handle: usize): isize { return fileUnlock(handle) }
 export function file_handle_valid(handle: isize): bool { return handle >= 0 as isize }
 
 export function file_read_into(handle: usize, buffer: []u8): isize {
