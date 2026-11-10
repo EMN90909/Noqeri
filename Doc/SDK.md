@@ -35,7 +35,7 @@ Run the generated executable (on Windows, use build/hello.exe). The build-exe co
     noqeri pkg vendor
     noqeri pkg audit
 
-The package manager is a **native executable; Node.js is not required**. Online registry access requires an SDK build with libcurl for HTTPS (SHA-256 is built into the native tool); these providers are optional for constrained cross-target builds, where online commands fail explicitly. Cached packages use the existing registry-v1 SHA-256 digest and `noqeri-lock 3` format. Set `NOQERI_OFFLINE=1` to disable networking; configure `NOQERI_REGISTRY_INDEX`, `NOQERI_REGISTRY_CONTENTS`, and `NOQERI_HOME` as needed. The native client is a bootstrap host adapter pending full self-hosting in Noqeri.
+The package manager is a **native executable; Node.js is not required to install, resolve, vendor or audit registry packages**. Online registry access requires an SDK build with libcurl for HTTPS (SHA-256 is built into the native tool); libcurl is optional for constrained cross-target builds, where online commands fail explicitly. Cached packages use the existing registry-v1 SHA-256 digest and `noqeri-lock 3` format. Set `NOQERI_OFFLINE=1` to disable networking; configure `NOQERI_REGISTRY_INDEX`, `NOQERI_REGISTRY_CONTENTS`, and `NOQERI_HOME` as needed. The native client is a bootstrap host adapter pending full self-hosting in Noqeri.
 
 Noqeri-UI supplies the noqeri/components library through the registry. Noqeriweb is the documentation/website repository, not a bundled language runtime. Package import resolution does not yet automatically link arbitrary third-party packages into every native backend.
 
@@ -45,4 +45,4 @@ Each SDK archive must contain the compiler, VM, stdlib sources, package CLI and 
 
 Read Doc/DISTRIBUTION.md for the platform matrix, installer commands and security limitations.
 
-**Implementation note:** The package commands run through an SDK-native C++ bootstrap host, not Node.js; they are not yet fully implemented in self-hosted `.noqeri` code. Native runtime parity and cross-platform verification remain future work.
+**Implementation note:** The registry validation and bounds policy is now also expressed as Noqeri source in `Lib/std/registry.noqeri` for self-hosting. The current executable still uses a native C++ bootstrap adapter for the network, filesystem, manifest and SHA-256 operations, without JavaScript or Node.js. A completely self-hosted `.noqeri` implementation is not yet available; native runtime parity and cross-platform verification remain future work. An optional libcurl build dependency is distinct from a Node.js runtime dependency.
