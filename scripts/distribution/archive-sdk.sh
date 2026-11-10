@@ -23,12 +23,6 @@ for component in \
   "share/noqeri/Lib/std/string.noqeri" \
   "share/noqeri/Lib/std/file.noqeri" \
   "share/noqeri/Lib/std/http.noqeri" \
-  "share/noqeri/runtime/sdk-package-cli.mjs" \
-  "share/noqeri/runtime/package-manager.mjs" \
-  "share/noqeri/runtime/package-manager-v1.mjs" \
-  "share/noqeri/runtime/ecosystem-tools.mjs" \
-  "share/noqeri/runtime/nqon.mjs" \
-  "share/noqeri/runtime/registry-client.mjs" \
   "share/noqeri/SDK.md"; do
   test -s "${NOQERI_STAGE_DIR}/${component}" || {
     echo "Missing SDK component: ${component}" >&2; exit 1;
@@ -39,12 +33,14 @@ case "${target}" in
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri-web.exe"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri.exe"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri-nqri.exe"
+    test -s "${NOQERI_STAGE_DIR}/bin/noqeri-pkg.exe"
     cmake -E tar cf "${NOQERI_ARTIFACT_DIR}/${name}.zip" --format=zip -- "${NOQERI_STAGE_DIR}"
     ;;
   *)
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri-web"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri"
     test -s "${NOQERI_STAGE_DIR}/bin/noqeri-nqri"
+    test -s "${NOQERI_STAGE_DIR}/bin/noqeri-pkg"
     cmake -E tar czf "${NOQERI_ARTIFACT_DIR}/${name}.tar.gz" -- "${NOQERI_STAGE_DIR}"
     ;;
 esac
