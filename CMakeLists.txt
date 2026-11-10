@@ -17,7 +17,8 @@ set(NOQERI_FRONTEND_SOURCES
  Compiler/bootstrap/noqeridb_host.cpp)
 set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/native_backend.cpp Compiler/portable_c_backend.cpp Compiler/web_backend.cpp Compiler/nqri_backend.cpp Compiler/shader_backend.cpp Compiler/linker.cpp
- Compiler/bootstrap/cli_host.cpp Compiler/bootstrap/formatter_host.cpp Compiler/bootstrap/package_host.cpp Compiler/bootstrap/lsp_host.cpp
+ Compiler/bootstrap/cli_host.cpp Compiler/bootstrap/registry_bridge.cpp Runtime/native/registry_manager.cpp
+ Compiler/bootstrap/formatter_host.cpp Compiler/bootstrap/package_host.cpp Compiler/bootstrap/lsp_host.cpp
  Compiler/bootstrap/test_runner_host.cpp Compiler/bootstrap/production_doctor_host.cpp
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
@@ -129,6 +130,23 @@ target_compile_features(noqeri-nqri PRIVATE cxx_std_17)
 target_include_directories(noqeri PRIVATE Include/noqeri Compiler/bootstrap)
 target_compile_features(noqeri PRIVATE cxx_std_17)
 target_compile_definitions(noqeri PRIVATE NOQERI_BOOTSTRAP=1)
+# Registry v1 is executed from a Noqeri source frontend through native ABI
+# services. C++ host adapters use native libcurl and zlib where available.
+find_package(CURL QUIET)
+if(CURL_FOUND)
+ target_link_libraries(noqeri PRIVATE CURL::libcurl)
+ target_compile_definitions(noqeri PRIVATE NOQERI_PKG_WITH_CURL=1)
+else()
+ message(STATUS "Noqeri registry: HTTPS unavailable without libcurl")
+endif()
+find_package(ZLIB QUIET)
+if(ZLIB_FOUND)
+ target_link_libraries(noqeri PRIVATE ZLIB::ZLIB)
+ target_compile_definitions(noqeri PRIVATE NOQERI_PKG_WITH_ZLIB=1)
+else()
+ message(STATUS "Noqeri registry: compressed archives unavailable without zlib")
+endif()
+
 add_library(noqeri_abi SHARED ${NOQERI_FRONTEND_SOURCES})
 target_include_directories(noqeri_abi PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include/noqeri> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/noqeri> PRIVATE Compiler/bootstrap)
 target_compile_features(noqeri_abi PUBLIC cxx_std_17)
@@ -137,6 +155,14 @@ set_source_files_properties(Compiler/bootstrap/noqeridb_host.cpp PROPERTIES COMP
 set_target_properties(noqeri_abi PROPERTIES OUTPUT_NAME noqeri-abi WINDOWS_EXPORT_ALL_SYMBOLS ON)
 # Native owned collections always exercise the actual auto-growing C ABI.
 include(CTest)
+if(BUILD_TESTING AND CURL_FOUND AND ZLIB_FOUND)
+ find_package(Python3 COMPONENTS Interpreter QUIET)
+ if(Python3_Interpreter_FOUND)
+  add_test(NAME noqeri-native-registry
+   COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/native_registry.py $<TARGET_FILE:noqeri>)
+  set_tests_properties(noqeri-native-registry PROPERTIES TIMEOUT 90)
+ endif()
+endif()
 if(BUILD_TESTING)
  add_executable(noqeri-owned-collections-test tests/cpp/owned_collections_test.cpp)
  target_link_libraries(noqeri-owned-collections-test PRIVATE noqeri_owned_collections Threads::Threads)
@@ -301,12 +327,10 @@ endif()
 
 # Supply the project's GPL license within both archives and native installers.
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
-# Every SDK archive/installer includes package-management host tools.
-# The registry adapter needs Node 20+ only for registry operations; the
-# compiler and bytecode VM remain self-contained native executables.
-install(FILES Runtime/sdk-package-cli.mjs Runtime/package-manager.mjs
- Runtime/package-manager-v1.mjs Runtime/registry-client.mjs Runtime/nqon.mjs
- Runtime/ecosystem-tools.mjs DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/runtime)
+# Install the Noqeri-authored registry frontend with the native compiler.
+# Legacy Node-based registry scripts are not part of SDK downloads.
+install(FILES Tools/package/manager.noqeri
+ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Tools/package)
 install(FILES Doc/SDK.md DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
 
 # This opt-in mode isolates portable shader generation and native framebuffer
