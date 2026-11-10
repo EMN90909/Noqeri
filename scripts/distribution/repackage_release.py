@@ -97,13 +97,28 @@ def extract_sdk(archive, target, dest):
         fail("SDK archive missing Noqeri standard library")
     if not (stage/"include/noqeri").is_dir():
         fail("SDK archive missing public C/C++ ABI headers")
+    # Reject partial archives: releases must install all five SDK components.
+    web = "noqeri-web.exe" if target.startswith("windows-") else "noqeri-web"
+    required = ("bin/" + web,
+                "share/noqeri/Lib/std/string.noqeri",
+                "share/noqeri/Lib/std/file.noqeri",
+                "share/noqeri/Lib/std/http.noqeri",
+                "share/noqeri/runtime/sdk-package-cli.mjs",
+                "share/noqeri/runtime/package-manager.mjs",
+                "share/noqeri/runtime/nqon.mjs",
+                "share/noqeri/runtime/registry-client.mjs",
+                "share/noqeri/SDK.md")
+    for name in required:
+        file = stage/name
+        if not file.is_file() or file.stat().st_size == 0:
+            fail("SDK archive missing required component: " + name)
     return stage,compiler
 
 def include_native_installers(source_dir, release_dir, version, target):
     """Only accept the exact installer names qualified by the native matrix."""
     os_name,_=target.split("-",1)
     assets=[]
-    base=f"noqeri-{version}-{target}"
+    base=f"noqeri-sdk-{version}-{target}"
     if os_name=="linux":
         assets=[(base+".deb","deb"),(base+".rpm","rpm")]
     elif os_name=="windows":
@@ -158,7 +173,7 @@ def main():
         work=Path(scratch)
         for target in expected:
             os_name,cpu=target.split("-",1)
-            source=root/("noqeri-v"+args.version+"-"+target+(".zip" if os_name=="windows" else ".tar.gz"))
+            source=root/("noqeri-sdk-v"+args.version+"-"+target+(".zip" if os_name=="windows" else ".tar.gz"))
             if not source.is_file() or source.is_symlink() or not 0<source.stat().st_size<=MAX_FILE:
                 fail("missing or invalid native SDK archive: "+str(source))
             stage,compiler=extract_sdk(source,target,work/target)
@@ -167,12 +182,13 @@ def main():
                 "--version",args.version,"--os",os_name,"--cpu",ARCH.get(cpu,cpu),
                 "--source-commit",args.source_commit,"--output",str(output),
                 "--sdk-root",str(stage),"--license",args.license,
+                "--formats","zip" if os_name=="windows" else "tar.gz,zip",
                 "--qualification","build-only","--gpu-backend","cpu-fallback",
             ]
             subprocess.run(cmd,check=True)
             if args.include_installers:
                 include_native_installers(root,output/(os_name+"-"+ARCH.get(cpu,cpu)),args.version,target)
-    print("Repackaged real native SDKs, in 5 formats each: "+", ".join(expected))
+    print("Repackaged real complete native SDKs: "+", ".join(expected))
 
 if __name__=="__main__":
     try: main()
