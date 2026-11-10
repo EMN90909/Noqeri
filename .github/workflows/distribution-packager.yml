@@ -60,7 +60,7 @@ jobs:
           if [[ "${{ matrix.os }}" == windows ]]; then vm=stage/bin/noqeri-nqri.exe; fi
           "$vm" --selftest >> compiler-smoke.log 2>&1
           test -d stage/include/noqeri
-          test -s stage/share/noqeri/runtime/sdk-package-cli.mjs
+          test -s stage/share/noqeri/Tools/package/manager.noqeri
           test -s stage/share/noqeri/SDK.md
           test -s stage/share/noqeri/Lib/std/render2d.noqeri
       - name: Package complete SDK as tar.gz and zip (SHA-256)
