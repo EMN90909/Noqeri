@@ -10,8 +10,9 @@ import tarfile
 import tempfile
 import threading
 import unittest
+import sys
 
-BIN=Path(__file__).parent/'noqeri-pkg'
+BIN=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else Path(os.environ.get('NOQERI_BIN','noqeri'))
 MANIFEST=b'package {\n name: "noqeri/widgets"\n version: "0.1.0"\n entry: "src/main.noqeri"\n}\n'
 FILES={'package.noqeri':MANIFEST,'src/main.noqeri':b'module noqeri.widgets\n'}
 def digest(files):
@@ -51,7 +52,7 @@ class NativeTests(unittest.TestCase):
         self.env={**os.environ,'NOQERI_HOME':str(self.home),'NOQERI_REGISTRY_API_URL':f'http://127.0.0.1:{self.server.server_port}'}
     def cmd(self,*args,okay=True,offline=False):
         env={**self.env,**({'NOQERI_OFFLINE':'1'} if offline else {})}
-        p=subprocess.run([str(BIN),*args],cwd=self.project,env=env,text=True,capture_output=True,timeout=15)
+        p=subprocess.run([str(BIN),'pkg',*args],cwd=self.project,env=env,text=True,capture_output=True,timeout=15)
         if okay:self.assertEqual(p.returncode,0,p.stdout+p.stderr)
         else:self.assertNotEqual(p.returncode,0,p.stdout+p.stderr)
         return p
@@ -81,4 +82,4 @@ class NativeTests(unittest.TestCase):
         self.env['NOQERI_REGISTRY_API_URL']='http://example.net'
         p=self.cmd('add','noqeri/widgets',okay=False)
         self.assertIn('HTTPS',p.stderr)
-if __name__=='__main__':unittest.main()
+if __name__=='__main__':unittest.main(argv=[sys.argv[0]])
