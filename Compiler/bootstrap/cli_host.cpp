@@ -29,6 +29,8 @@ void usage() {
               << "  nir [file] [-O...]                lower module graph to typed NIR\n"
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
+              << "  build-exe [file] [output] [-O...] compile a host executable via C\n"
+              << "  pkg add|install|resolve|vendor|audit ...  registry package tools (Node 20+)\n"
               << "  emit-c [file] [out.c] [-O...]     emit checked portable C11 for native compilation\n"
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
@@ -429,6 +431,71 @@ int main(int argc, char** argv) {
         std::cerr<<"NQR-AI1000: native AI runner unavailable; install noqeri-ai or set NOQERI_AI_BIN\n";
         return 1;
     }
+    // Registry access uses the SDK's shipped package manager only when needed.
+    // It does not affect the native compiler or NQRI virtual machine.
+    if (cmd == "pkg" || cmd == "add" || cmd == "install" || cmd == "vendor") {
+        std::filesystem::path packageTool;
+        const char* overrideTool = std::getenv("NOQERI_PACKAGE_CLI");
+        if (overrideTool && *overrideTool) packageTool = overrideTool;
+        else {
+            std::vector<std::filesystem::path> candidates;
+            const char* sdkRoot = std::getenv("NOQERI_SDK_ROOT");
+            if (sdkRoot && *sdkRoot)
+                candidates.emplace_back(std::filesystem::path(sdkRoot) / "share/noqeri/runtime/sdk-package-cli.mjs");
+            std::filesystem::path executable = argv[0];
+#if defined(__linux__)
+            std::error_code ec;
+            const auto actual = std::filesystem::read_symlink("/proc/self/exe", ec);
+            if (!ec) executable = actual;
+#endif
+            if (!executable.has_parent_path()) {
+                const char* pathEnv = std::getenv("PATH");
+                if (pathEnv && *pathEnv) {
+                    std::stringstream search(pathEnv);
+                    std::string segment;
+#if defined(_WIN32)
+                    constexpr char separator = ';';
+#else
+                    constexpr char separator = ':';
+#endif
+                    while (std::getline(search, segment, separator)) {
+                        const auto found = std::filesystem::path(segment) / executable;
+                        if (std::filesystem::is_regular_file(found)) { executable = found; break; }
+                    }
+                }
+            }
+            candidates.emplace_back(std::filesystem::absolute(executable).parent_path() /
+                                    "../share/noqeri/runtime/sdk-package-cli.mjs");
+#if !defined(_WIN32)
+            candidates.emplace_back("/usr/local/share/noqeri/runtime/sdk-package-cli.mjs");
+            candidates.emplace_back("/usr/share/noqeri/runtime/sdk-package-cli.mjs");
+#endif
+            for (const auto& candidate : candidates) {
+                if (std::filesystem::is_regular_file(candidate)) { packageTool = candidate; break; }
+            }
+        }
+        if (packageTool.empty() || !std::filesystem::is_regular_file(packageTool)) {
+            std::cerr << "NQR-PKG7001: SDK package manager not installed; reinstall SDK or set NOQERI_PACKAGE_CLI\n";
+            return 2;
+        }
+        const char* configured = std::getenv("NOQERI_NODE_BIN");
+        const std::string node = configured && *configured ? configured : "node";
+        const std::string toolPath = packageTool.string();
+        const std::string operation = cmd == "pkg" ? "" : cmd;
+        std::vector<char*> forwarded{const_cast<char*>(node.c_str()), const_cast<char*>(toolPath.c_str())};
+        if (cmd != "pkg") forwarded.push_back(const_cast<char*>(operation.c_str()));
+        for (int i = 2; i < argc; ++i) forwarded.push_back(argv[i]);
+        forwarded.push_back(nullptr);
+#if defined(_WIN32)
+        const intptr_t code = _spawnvp(_P_WAIT, node.c_str(), forwarded.data());
+        if (code >= 0)
+            return code > std::numeric_limits<int>::max() ? 1 : static_cast<int>(code);
+#else
+        ::execvp(node.c_str(), forwarded.data());
+#endif
+        std::cerr << "NQR-PKG7002: package operations require Node.js 20+; install it or set NOQERI_NODE_BIN\n";
+        return 2;
+    }
     if (cmd == "stress" || cmd == "--stress") return runStress(argc, argv);
     if (cmd == "targets") {
         for (const auto& target : TargetRegistry::supported()) {
@@ -735,17 +802,29 @@ int main(int argc, char** argv) {
                       << "\ncoverage=scalar-functions-arithmetic-branches-casts-print\n";
             return 0;
         }
-        if (cmd == "build") {
-            std::string backendMode = "native";
+        if (cmd == "build" || cmd == "build-exe") {
+            std::string backendMode = cmd == "build-exe" ? "c" : "native";
             for (int i = 2; i < argc; ++i) {
                 const std::string arg = argv[i];
                 if (arg == "--backend=llvm") backendMode = "llvm";
                 else if (arg == "--backend=c") backendMode = "c";
                 else if (arg == "--backend=native") backendMode = "native";
             }
-            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) : std::filesystem::path("build") / (selected->projectName + ".s");
+            std::filesystem::path output = argc >= 4 && argv[3][0] != '-' ? std::filesystem::path(argv[3]) :
+                std::filesystem::path("build") / (selected->projectName +
+#if defined(_WIN32)
+                    (cmd == "build-exe" ? ".exe" : ".s")
+#else
+                    (cmd == "build-exe" ? "" : ".s")
+#endif
+                );
+            if (cmd == "build-exe" && backendMode == "native") {
+                std::cerr << "NQR-K5122: build-exe requires --backend=c or --backend=llvm\n";
+                return 2;
+            }
             if (backendMode == "llvm" || backendMode == "c") {
-                if (output.extension().empty()) output += ".s";
+                if (output.extension().empty() && cmd != "build-exe") output += ".s";
+                if (!output.parent_path().empty()) std::filesystem::create_directories(output.parent_path());
                 const auto tempC = output.parent_path() / ("." + output.stem().string() + "." + backendMode + "-tmp.c");
                 Diagnostics d;
                 if (!PortableCBackend{}.emitSource(compilation.nir, tempC, d)) {
