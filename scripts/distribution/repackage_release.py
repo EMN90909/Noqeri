@@ -29,7 +29,6 @@ TARGETS = (
     "freebsd-x86_64", "freebsd-aarch64",
     "openbsd-x86_64", "openbsd-aarch64",
 )
-ARCH = {"aarch64": "arm64"}
 MAX_FILE = 1024 * 1024 * 1024
 MAX_TOTAL = 1536 * 1024 * 1024
 MAX_FILES = 8192
@@ -179,7 +178,7 @@ def main():
             stage,compiler=extract_sdk(source,target,work/target)
             cmd=[
                 sys.executable,str(TOOLS),"bundle", "--binary",str(compiler),
-                "--version",args.version,"--os",os_name,"--cpu",ARCH.get(cpu,cpu),
+                "--version",args.version,"--os",os_name,"--cpu",cpu,
                 "--source-commit",args.source_commit,"--output",str(output),
                 "--sdk-root",str(stage),"--license",args.license,
                 "--formats","zip" if os_name=="windows" else "tar.gz,zip",
@@ -187,7 +186,7 @@ def main():
             ]
             subprocess.run(cmd,check=True)
             if args.include_installers:
-                include_native_installers(root,output/(os_name+"-"+ARCH.get(cpu,cpu)),args.version,target)
+                include_native_installers(root,output/(os_name+"-"+cpu),args.version,target)
     print("Repackaged real complete native SDKs: "+", ".join(expected))
 
 if __name__=="__main__":
