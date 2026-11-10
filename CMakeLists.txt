@@ -17,7 +17,8 @@ set(NOQERI_FRONTEND_SOURCES
  Compiler/bootstrap/noqeridb_host.cpp)
 set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
  Compiler/native_backend.cpp Compiler/portable_c_backend.cpp Compiler/web_backend.cpp Compiler/nqri_backend.cpp Compiler/shader_backend.cpp Compiler/linker.cpp
- Compiler/bootstrap/cli_host.cpp Compiler/bootstrap/formatter_host.cpp Compiler/bootstrap/package_host.cpp Compiler/bootstrap/lsp_host.cpp
+ Compiler/bootstrap/cli_host.cpp Compiler/bootstrap/formatter_host.cpp Compiler/bootstrap/package_host.cpp
+ Compiler/bootstrap/registry_bridge.cpp Runtime/native/registry_manager.cpp Compiler/bootstrap/lsp_host.cpp
  Compiler/bootstrap/test_runner_host.cpp Compiler/bootstrap/production_doctor_host.cpp
  Compiler/bootstrap/security_audit_host.cpp)
 add_executable(noqeri ${NOQERI_SOURCES})
@@ -128,6 +129,19 @@ endif()
 target_compile_features(noqeri-nqri PRIVATE cxx_std_17)
 target_include_directories(noqeri PRIVATE Include/noqeri Compiler/bootstrap)
 target_compile_features(noqeri PRIVATE cxx_std_17)
+# Native package manager replaces the Node.js Registry v1 client.
+# Both dependencies are optional so freestanding/Android builds still install;
+# unavailable HTTPS or gzip operations fail explicitly rather than falling back.
+find_package(ZLIB QUIET)
+find_package(CURL QUIET)
+if(ZLIB_FOUND)
+ target_compile_definitions(noqeri PRIVATE NOQERI_PKG_WITH_ZLIB=1)
+ target_link_libraries(noqeri PRIVATE ZLIB::ZLIB)
+endif()
+if(CURL_FOUND)
+ target_compile_definitions(noqeri PRIVATE NOQERI_PKG_WITH_CURL=1)
+ target_link_libraries(noqeri PRIVATE CURL::libcurl)
+endif()
 target_compile_definitions(noqeri PRIVATE NOQERI_BOOTSTRAP=1)
 add_library(noqeri_abi SHARED ${NOQERI_FRONTEND_SOURCES})
 target_include_directories(noqeri_abi PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include/noqeri> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/noqeri> PRIVATE Compiler/bootstrap)
@@ -301,12 +315,10 @@ endif()
 
 # Supply the project's GPL license within both archives and native installers.
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
-# Every SDK archive/installer includes package-management host tools.
-# The registry adapter needs Node 20+ only for registry operations; the
-# compiler and bytecode VM remain self-contained native executables.
-install(FILES Runtime/sdk-package-cli.mjs Runtime/package-manager.mjs
- Runtime/package-manager-v1.mjs Runtime/registry-client.mjs Runtime/nqon.mjs
- Runtime/ecosystem-tools.mjs DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/runtime)
+# The registry command dispatcher is Noqeri source; native Stage-0 ABI
+# services live in the compiler and need no Node.js/JavaScript runtime.
+install(FILES Tools/package/manager.noqeri
+ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Tools/package)
 install(FILES Doc/SDK.md DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
 
 # This opt-in mode isolates portable shader generation and native framebuffer
