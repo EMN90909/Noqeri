@@ -78,6 +78,23 @@ class NativeTests(unittest.TestCase):
     def test_offline_missing_registry(self):
         p=self.cmd('add','noqeri/widgets',offline=True,okay=False)
         self.assertIn('offline',p.stderr)
+    def test_offline_flags_fail_closed(self):
+        # Even with online registry configuration, explicit --offline must
+        # never download a missing package or claim a fresh advisory audit.
+        (self.project/'project.nqon').write_text(
+            'name = "demo"\\nversion = "0.1.0"\\n'
+            'packages {\\n  widgets = "noqeri/widgets@0.1.0"\\n}\\n'
+        )
+        failed=self.cmd('vendor','--offline',okay=False)
+        self.assertIn('offline',failed.stderr)
+        self.assertFalse((self.home/'cache/registry-v1/noqeri/widgets').exists())
+        failed=self.cmd('audit','--offline',okay=False)
+        self.assertIn('offline',failed.stderr)
+
+    def test_without_node_bin(self):
+        self.env['NOQERI_NODE_BIN']='/no/such/node'
+        self.cmd('add','noqeri/widgets@0.1.0')
+
     def test_disallow_external_http(self):
         self.env['NOQERI_REGISTRY_API_URL']='http://example.net'
         p=self.cmd('add','noqeri/widgets',okay=False)
