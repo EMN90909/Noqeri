@@ -30,7 +30,7 @@ void usage() {
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
               << "  build-exe [file] [output] [-O...] compile a host executable via C\n"
-              << "  pkg add|install|resolve|vendor|audit ...  registry package tools (Node 20+)\n"
+              << "  pkg add|install|resolve|vendor|audit ...  native registry package tools\n"
               << "  emit-c [file] [out.c] [-O...]     emit checked portable C11 for native compilation\n"
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"
@@ -491,74 +491,69 @@ int main(int argc, char** argv) {
         std::cerr<<"NQR-AI1000: native AI runner unavailable; install noqeri-ai or set NOQERI_AI_BIN\n";
         return 1;
     }
-    // Registry access uses the SDK's shipped package manager only when needed.
-    // It does not affect the native compiler or NQRI virtual machine.
+    // Dispatch package commands to the SDK's native registry executable.
+    // The executable uses Noqeri's native bootstrap transport; no Node/JS.
     if (cmd == "pkg" || cmd == "add" || cmd == "install" || cmd == "vendor") {
         std::filesystem::path packageTool;
-        const char* overrideTool = std::getenv("NOQERI_PACKAGE_CLI");
-        if (overrideTool && *overrideTool) packageTool = overrideTool;
-        else {
-            std::vector<std::filesystem::path> candidates;
-            // Reuse the resolved installed library root, including on Windows
-            // where invokedAs may lack an explicit ".exe" suffix.
-            if (const char* stdlibRoot = std::getenv("NOQERI_STDLIB_ROOT"); stdlibRoot && *stdlibRoot)
-                candidates.emplace_back(std::filesystem::path(stdlibRoot).parent_path() /
-                                        "runtime/sdk-package-cli.mjs");
-            const char* sdkRoot = std::getenv("NOQERI_SDK_ROOT");
-            if (sdkRoot && *sdkRoot)
-                candidates.emplace_back(std::filesystem::path(sdkRoot) / "share/noqeri/runtime/sdk-package-cli.mjs");
-            std::filesystem::path executable = argv[0];
+        if (const char* explicitTool = std::getenv("NOQERI_PACKAGE_CLI"); explicitTool && *explicitTool)
+            packageTool = explicitTool;
+        std::filesystem::path executable = argv[0];
 #if defined(__linux__)
-            std::error_code ec;
-            const auto actual = std::filesystem::read_symlink("/proc/self/exe", ec);
-            if (!ec) executable = actual;
+        std::error_code exeError;
+        auto actual = std::filesystem::read_symlink("/proc/self/exe", exeError);
+        if (!exeError) executable = actual;
 #endif
-            if (!executable.has_parent_path()) {
-                const char* pathEnv = std::getenv("PATH");
-                if (pathEnv && *pathEnv) {
-                    std::stringstream search(pathEnv);
-                    std::string segment;
+        if (!executable.has_parent_path()) {
+            if (const char* paths = std::getenv("PATH"); paths && *paths) {
+                std::stringstream search(paths);
+                std::string directory;
 #if defined(_WIN32)
-                    constexpr char separator = ';';
+                constexpr char separator = ';';
+                const std::string exeName = executable.extension() == ".exe" ? executable.string() : executable.string() + ".exe";
 #else
-                    constexpr char separator = ':';
+                constexpr char separator = ':';
+                const std::string exeName = executable.string();
 #endif
-                    while (std::getline(search, segment, separator)) {
-                        const auto found = std::filesystem::path(segment) / executable;
-                        if (std::filesystem::is_regular_file(found)) { executable = found; break; }
+                while (std::getline(search, directory, separator)) {
+                    if (std::filesystem::is_regular_file(std::filesystem::path(directory) / exeName)) {
+                        executable = std::filesystem::path(directory) / exeName;
+                        break;
                     }
                 }
             }
-            candidates.emplace_back(std::filesystem::absolute(executable).parent_path() /
-                                    "../share/noqeri/runtime/sdk-package-cli.mjs");
-#if !defined(_WIN32)
-            candidates.emplace_back("/usr/local/share/noqeri/runtime/sdk-package-cli.mjs");
-            candidates.emplace_back("/usr/share/noqeri/runtime/sdk-package-cli.mjs");
+        }
+#if defined(_WIN32)
+        constexpr const char* packageName = "noqeri-pkg.exe";
+#else
+        constexpr const char* packageName = "noqeri-pkg";
 #endif
+        if (packageTool.empty()) {
+            std::vector<std::filesystem::path> candidates{
+                std::filesystem::absolute(executable).parent_path() / packageName
+            };
+            if (const char* sdk = std::getenv("NOQERI_SDK_ROOT"); sdk && *sdk)
+                candidates.emplace_back(std::filesystem::path(sdk) / "bin" / packageName);
             for (const auto& candidate : candidates) {
                 if (std::filesystem::is_regular_file(candidate)) { packageTool = candidate; break; }
             }
         }
         if (packageTool.empty() || !std::filesystem::is_regular_file(packageTool)) {
-            std::cerr << "NQR-PKG7001: SDK package manager not installed; reinstall SDK or set NOQERI_PACKAGE_CLI\n";
+            std::cerr << "NQR-PKG7001: native registry executable missing: reinstall Noqeri SDK (no Node.js required)\n";
             return 2;
         }
-        const char* configured = std::getenv("NOQERI_NODE_BIN");
-        const std::string node = configured && *configured ? configured : "node";
-        const std::string toolPath = packageTool.string();
+        const std::string program = packageTool.string();
         const std::string operation = cmd == "pkg" ? "" : cmd;
-        std::vector<char*> forwarded{const_cast<char*>(node.c_str()), const_cast<char*>(toolPath.c_str())};
+        std::vector<char*> forwarded{const_cast<char*>(program.c_str())};
         if (cmd != "pkg") forwarded.push_back(const_cast<char*>(operation.c_str()));
         for (int i = 2; i < argc; ++i) forwarded.push_back(argv[i]);
         forwarded.push_back(nullptr);
 #if defined(_WIN32)
-        const intptr_t code = _spawnvp(_P_WAIT, node.c_str(), forwarded.data());
-        if (code >= 0)
-            return code > std::numeric_limits<int>::max() ? 1 : static_cast<int>(code);
+        const intptr_t code = _spawnv(_P_WAIT, program.c_str(), forwarded.data());
+        if (code != -1) return static_cast<int>(code);
 #else
-        ::execvp(node.c_str(), forwarded.data());
+        ::execv(program.c_str(), forwarded.data());
 #endif
-        std::cerr << "NQR-PKG7002: package operations require Node.js 20+; install it or set NOQERI_NODE_BIN\n";
+        std::cerr << "NQR-PKG7002: could not execute native package manager: " << program << "\n";
         return 2;
     }
     if (cmd == "stress" || cmd == "--stress") return runStress(argc, argv);
