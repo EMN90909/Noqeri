@@ -20,6 +20,15 @@ CONTENT = {
     "stage/bin/noqeri-nqri": b"nqri-vm",
     "stage/share/noqeri/Lib/std/example.noqeri": b"print(1)",
     "stage/include/noqeri/example.hpp": b"#pragma once",
+    "stage/bin/noqeri-web": b"web",
+    "stage/share/noqeri/Lib/std/string.noqeri": b"str",
+    "stage/share/noqeri/Lib/std/file.noqeri": b"file",
+    "stage/share/noqeri/Lib/std/http.noqeri": b"http",
+    "stage/share/noqeri/runtime/sdk-package-cli.mjs": b"pkg",
+    "stage/share/noqeri/runtime/package-manager.mjs": b"manager",
+    "stage/share/noqeri/runtime/nqon.mjs": b"nqon",
+    "stage/share/noqeri/runtime/registry-client.mjs": b"registry",
+    "stage/share/noqeri/SDK.md": b"SDK",
 }
 
 
@@ -27,7 +36,7 @@ class RepackArchiveTests(unittest.TestCase):
     def test_root_entry_is_allowed_only_as_directory(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            path = root / "noqeri-v0.1.3-linux-x86_64.tar.gz"
+            path = root / "noqeri-sdk-v0.1.3-linux-x86_64.tar.gz"
             with tarfile.open(path, "w:gz") as tar:
                 directory = tarfile.TarInfo("stage/")
                 directory.type = tarfile.DIRTYPE
@@ -43,7 +52,7 @@ class RepackArchiveTests(unittest.TestCase):
     def test_top_level_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            path = root / "noqeri-v0.1.3-linux-x86_64.tar.gz"
+            path = root / "noqeri-sdk-v0.1.3-linux-x86_64.tar.gz"
             with tarfile.open(path, "w:gz") as tar:
                 entry = tarfile.TarInfo("stage")
                 entry.size = 3
@@ -54,7 +63,7 @@ class RepackArchiveTests(unittest.TestCase):
     def test_zip_root_directory_allowed(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            path = root / "noqeri-v0.1.3-windows-x86.zip"
+            path = root / "noqeri-sdk-v0.1.3-windows-x86.zip"
             with zipfile.ZipFile(path, "w") as archive:
                 archive.writestr("stage/", "")
                 for name, value in CONTENT.items():
