@@ -99,7 +99,7 @@ def extract_sdk(archive, target, dest):
         fail("SDK archive missing public C/C++ ABI headers")
     # Reject partial archives: releases must install all five SDK components.
     web = "noqeri-web.exe" if target.startswith("windows-") else "noqeri-web"
-    required = ("bin/" + web,
+    required = ("bin/" + web, "bin/" + pkg,
                 "share/noqeri/Lib/std/string.noqeri",
                 "share/noqeri/Lib/std/file.noqeri",
                 "share/noqeri/Lib/std/http.noqeri",
