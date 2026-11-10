@@ -23,17 +23,17 @@ set(NOQERI_SOURCES ${NOQERI_FRONTEND_SOURCES}
 add_executable(noqeri ${NOQERI_SOURCES})
 add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # Noqeri registry runs as a native SDK tool, without Node.js or JavaScript.
-# Bootstrap transport uses libcurl TLS and OpenSSL SHA-256 when available.
+# Bootstrap transport uses libcurl TLS when available; SHA-256 is bundled
+# from the compiler implementation and works without extra libraries.
 # Offline/help commands still compile on restricted cross-build toolchains.
 add_executable(noqeri-pkg Runtime/native/sdk_registry.cpp)
 target_compile_features(noqeri-pkg PRIVATE cxx_std_17)
-find_package(OpenSSL QUIET)
 find_package(CURL QUIET)
-if(OpenSSL_FOUND AND CURL_FOUND)
- target_link_libraries(noqeri-pkg PRIVATE CURL::libcurl OpenSSL::Crypto)
+if(CURL_FOUND)
+ target_link_libraries(noqeri-pkg PRIVATE CURL::libcurl)
  target_compile_definitions(noqeri-pkg PRIVATE NOQERI_REGISTRY_NETWORK=1)
 else()
- message(WARNING "Noqeri native registry HTTPS unavailable (requires libcurl and OpenSSL); online package commands will fail explicitly")
+ message(WARNING "Noqeri native registry HTTPS unavailable (requires libcurl); online package commands will fail explicitly")
 endif()
 
 # Hosted, heap-backed int list/map/set ABI for ordinary Noqeri native AOT.
