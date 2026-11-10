@@ -20,7 +20,7 @@ class ReleaseRepackingTest(unittest.TestCase):
         (self.root/"artifacts").mkdir()
         self.license=self.root/"LICENSE"
         self.license.write_text("GPL-3.0-only\n")
-        self.archive=self.root/"artifacts/noqeri-v0.1.3-linux-x86_64.tar.gz"
+        self.archive=self.root/"artifacts/noqeri-sdk-v0.1.3-linux-x86_64.tar.gz"
 
     def make_tar(self, malicious=False, no_vm=False):
         with tarfile.open(self.archive,"w:gz") as tar:
@@ -28,6 +28,15 @@ class ReleaseRepackingTest(unittest.TestCase):
                 "stage/bin/noqeri":b"compiler-fixture",
                 "stage/share/noqeri/Lib/std/hello.noqeri":b"module hello",
                 "stage/include/noqeri/abi.h":b"/* header */",
+                "stage/bin/noqeri-web":b"web compiler",
+                "stage/share/noqeri/Lib/std/string.noqeri":b"str",
+                "stage/share/noqeri/Lib/std/file.noqeri":b"file",
+                "stage/share/noqeri/Lib/std/http.noqeri":b"http",
+                "stage/share/noqeri/runtime/sdk-package-cli.mjs":b"pkg",
+                "stage/share/noqeri/runtime/package-manager.mjs":b"manager",
+                "stage/share/noqeri/runtime/nqon.mjs":b"nqon",
+                "stage/share/noqeri/runtime/registry-client.mjs":b"registry",
+                "stage/share/noqeri/SDK.md":b"SDK guide",
             }
             if not no_vm: files["stage/bin/noqeri-nqri"]=b"bytecode VM"
             for name,data in files.items():
@@ -52,17 +61,17 @@ class ReleaseRepackingTest(unittest.TestCase):
         self.make_tar()
         self.run_script()
         fragment=json.loads((self.root/"dist/linux-x86_64/fragment.json").read_text())
-        self.assertEqual(len(fragment["assets"]),5)
+        self.assertEqual(len(fragment["assets"]),2)
         self.assertEqual(fragment["qualification"],"build-only")
         import zipfile
         z=next((self.root/"dist/linux-x86_64").glob("*.zip"))
         with zipfile.ZipFile(z) as contents:
-            self.assertIn("noqeri-v0.1.3-linux-x86_64/bin/noqeri-nqri",contents.namelist())
-            self.assertIn("noqeri-v0.1.3-linux-x86_64/include/noqeri/abi.h",contents.namelist())
+            self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/bin/noqeri-nqri",contents.namelist())
+            self.assertIn("noqeri-sdk-v0.1.3-linux-x86_64/include/noqeri/abi.h",contents.namelist())
 
     def test_native_installers_are_checksums_not_fake_links(self):
         self.make_tar()
-        target="noqeri-0.1.3-linux-x86_64"
+        target="noqeri-sdk-0.1.3-linux-x86_64"
         (self.root/"artifacts"/(target+".deb")).write_bytes(b"test deb bytes")
         (self.root/"artifacts"/(target+".rpm")).write_bytes(b"test rpm bytes")
         result=subprocess.run([sys.executable,str(SCRIPT),
@@ -72,7 +81,7 @@ class ReleaseRepackingTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         fragment=json.loads((self.root/"dist/linux-x86_64/fragment.json").read_text())
         types={a["format"] for a in fragment["assets"]}
-        self.assertEqual(types,{"binary","gz","tar","tar.gz","zip","deb","rpm"})
+        self.assertEqual(types,{"tar.gz","zip","deb","rpm"})
 
     def test_missing_installers_fail_release(self):
         self.make_tar()
