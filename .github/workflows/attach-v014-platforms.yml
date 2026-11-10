@@ -13,6 +13,9 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
+      # Historical v0.1.4 patching is pinned to the original tag commit.
+      # Never attach new SDK-format artifacts to the immutable 0.1.4 release.
+      && github.event.workflow_run.head_sha == '50606b6c491dfde2c8a9f4db624a82f8839621b3'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
