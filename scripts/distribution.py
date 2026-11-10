@@ -93,16 +93,11 @@ def bundle(args):
         if not sdk.is_dir(): fail("installed SDK root does not exist")
         vm = "noqeri-nqri.exe" if args.os == "windows" else "noqeri-nqri"
         web = "noqeri-web.exe" if args.os == "windows" else "noqeri-web"
-        required = ("bin/" + exe, "bin/" + vm, "bin/" + web,
+        pkg = "noqeri-pkg.exe" if args.os == "windows" else "noqeri-pkg"
+        required = ("bin/" + exe, "bin/" + vm, "bin/" + web, "bin/" + pkg,
                     "share/noqeri/Lib/std/string.noqeri",
                     "share/noqeri/Lib/std/file.noqeri",
                     "share/noqeri/Lib/std/http.noqeri",
-                    "share/noqeri/runtime/sdk-package-cli.mjs",
-                    "share/noqeri/runtime/package-manager.mjs",
-                    "share/noqeri/runtime/package-manager-v1.mjs",
-                    "share/noqeri/runtime/ecosystem-tools.mjs",
-                    "share/noqeri/runtime/nqon.mjs",
-                    "share/noqeri/runtime/registry-client.mjs",
                     "share/noqeri/SDK.md")
         for relative in required:
             file = sdk / relative
