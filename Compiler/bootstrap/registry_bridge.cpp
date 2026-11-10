@@ -51,6 +51,9 @@ int runNativeRegistryNoqeri(int argc,char**argv){
     if(const char*root=std::getenv("NOQERI_SDK_ROOT"))
         paths.emplace_back(fs::path(root)/"share/noqeri/Tools/package/manager.noqeri");
     paths.emplace_back("Tools/package/manager.noqeri");
+#ifdef NOQERI_PACKAGE_FRONTEND_PATH
+    paths.emplace_back(NOQERI_PACKAGE_FRONTEND_PATH);
+#endif
     paths.emplace_back("/usr/share/noqeri/Tools/package/manager.noqeri");
     paths.emplace_back("/usr/local/share/noqeri/Tools/package/manager.noqeri");
     fs::path source;
