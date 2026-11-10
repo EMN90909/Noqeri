@@ -18,7 +18,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 mkdir -p "$work/root/usr/local"
 cp -R "$stage/." "$work/root/usr/local/"
-printf '%s\n' "Noqeri Stage-0 compiler, portable NQRI runtime and source SDK." > "$work/DESCR"
+printf '%s\n' "Noqeri SDK: compiler, NQRI VM, standard library, registry manager and build tools." > "$work/DESCR"
 {
   # pkg_create supplies @name from the package output filename.
   # Writing it again in PLIST causes "Duplicate name in plist".
@@ -28,12 +28,12 @@ printf '%s\n' "Noqeri Stage-0 compiler, portable NQRI runtime and source SDK." >
 # -B prefixes staged paths, -p records the actual installation prefix.
 # pkg_create uses the OpenBSD native packaging format (not an ordinary tarball).
 pkg_create -B "$work/root" -p /usr/local -f "$work/PLIST" \
-  -D 'COMMENT=Noqeri compiler and runtime' \
+  -D 'COMMENT=Noqeri SDK compiler and runtime' \
   -D 'FULLPKGPATH=devel/noqeri' \
   -D 'MAINTAINER=Noethric contributors' \
-  -d "$work/DESCR" "$work/noqeri-$version.tgz"
-dest="$artifacts/noqeri-$version-$target.pkg.tgz"
-mv "$work/noqeri-$version.tgz" "$dest"
+  -d "$work/DESCR" "$work/noqeri-sdk-$version.tgz"
+dest="$artifacts/noqeri-sdk-$version-$target.pkg.tgz"
+mv "$work/noqeri-sdk-$version.tgz" "$dest"
 # Validate the real unsigned pkg_add archive without treating it as an
 # installed package name, which pkg_info does not do reliably.
 test -s "$dest"
