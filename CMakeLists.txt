@@ -292,8 +292,12 @@ if(NOQERI_ENABLE_SDL2)
  endif()
 endif()
 
-install(TARGETS noqeri-ai RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# Optional AI CLI/library are not required for the lightweight portable SDK.
+# Avoid installing unbuilt AI binaries in the release matrix.
+if(NOT NOQERI_GRAPHICS_PORTABLE_BUILD)
+ install(TARGETS noqeri-ai RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif()
 
 # Supply the project's GPL license within both archives and native installers.
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri)
@@ -313,6 +317,9 @@ if(NOQERI_GRAPHICS_PORTABLE_BUILD)
  # but its installed SDK must still contain the bytecode VM, public headers,
  # and Noqeri-owned standard/runtime source modules.
  install(TARGETS noqeri noqeri-nqri noqeri-web RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ install(TARGETS noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+ install(TARGETS noqeri_owned_collections ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
  install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri
   FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
  foreach(component IN ITEMS Lib Modules Objects Database Runtime Parser)
