@@ -86,6 +86,9 @@ std::string get(const std::string& url,size_t limit=2097152){
  curl_easy_cleanup(curl);if(result!=CURLE_OK||code!=200||data.size()>limit)fail("registry request failed: "+url);
  return data;
 }
+#else
+std::string get(const std::string&,size_t=2097152){fail("native HTTPS unavailable: rebuild Noqeri SDK with libcurl");return {};}
+#endif
 class Sha256 {
 public:
     Sha256(){reset();}
@@ -106,11 +109,6 @@ std::string hashFiles(const std::map<std::string,std::string>& files){
  return "sha256:"+sha.finish();
 }
 
-
-#else
-std::string get(const std::string&,size_t=2097152){fail("native HTTPS/SHA support unavailable: rebuild SDK with libcurl and OpenSSL");return {};}
-
-#endif
 const std::string coordinateRx="[A-Za-z0-9_-]+/[A-Za-z0-9_-]+";
 const std::string versionRx="[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.+-]+)?";
 std::pair<std::string,std::string> splitSpec(std::string s){auto a=s.rfind('@');std::string version=a==std::string::npos?"":s.substr(a+1);if(a!=std::string::npos)s.resize(a);
