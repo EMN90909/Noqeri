@@ -10,16 +10,14 @@ bash -n "$root/scripts/distribution/termux-deb.sh"
 sh -n "$root/scripts/distribution/openbsd-package.sh"
 version="$(sed -nE 's/^project\(noqeri VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' "$root/CMakeLists.txt")"
 test -n "$version"
-mkdir -p "$tmp/stage/bin" "$tmp/stage/include/noqeri" "$tmp/stage/share/noqeri/Lib/std" "$tmp/stage/share/noqeri/runtime" "$tmp/artifacts"
+mkdir -p "$tmp/stage/bin" "$tmp/stage/include/noqeri" "$tmp/stage/share/noqeri/Lib/std" "$tmp/stage/share/noqeri/Tools/package" "$tmp/artifacts"
 printf '#!/bin/sh\necho noqeri-fixture\n' > "$tmp/stage/bin/noqeri"
 cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-nqri"
 cp "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-web"
 for name in string file http; do
   printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/$name.noqeri"
 done
-for name in sdk-package-cli package-manager package-manager-v1 ecosystem-tools nqon registry-client; do
-  printf 'fixture\n' > "$tmp/stage/share/noqeri/runtime/$name.mjs"
-done
+printf 'fixture\\n' > "$tmp/stage/share/noqeri/Tools/package/manager.noqeri"
 printf 'SDK guide\n' > "$tmp/stage/share/noqeri/SDK.md"
 chmod 755 "$tmp/stage/bin/noqeri" "$tmp/stage/bin/noqeri-nqri"
 printf 'fixture\n' > "$tmp/stage/share/noqeri/Lib/std/render2d.noqeri"
