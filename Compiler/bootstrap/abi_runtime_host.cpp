@@ -7,11 +7,16 @@
 #include <vector>
 #include <filesystem>
 #include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
 #if !defined(_WIN32)
+#include <unistd.h>
 #include <sys/file.h>
+#else
+#include <io.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
+#include <sys/stat.h>
+#include <cstring>
 #include <array>
 #include <iomanip>
 #include <sstream>
@@ -156,13 +161,23 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
     if (name == "fileSync") {
         if (args.empty()) return std::nullopt;
         int fd = static_cast<int>(getI64(args[0]));
+#if !defined(_WIN32)
         return NirValue(static_cast<std::int64_t>(fsync(fd) < 0 ? -errno : 0));
+#else
+        HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+        if (h == INVALID_HANDLE_VALUE) return NirValue(static_cast<std::int64_t>(-1));
+        return NirValue(static_cast<std::int64_t>(FlushFileBuffers(h) ? 0 : -static_cast<std::int64_t>(GetLastError())));
+#endif
     }
     if (name == "fileTruncate") {
         if (args.size() < 2) return std::nullopt;
         int fd = static_cast<int>(getI64(args[0]));
         off_t length = static_cast<off_t>(getI64(args[1]));
+#if !defined(_WIN32)
         return NirValue(static_cast<std::int64_t>(ftruncate(fd, length) < 0 ? -errno : 0));
+#else
+        return NirValue(static_cast<std::int64_t>(_chsize_s(fd, length) != 0 ? -errno : 0));
+#endif
     }
     if (name == "fileLock") {
         if (args.size() < 2) return std::nullopt;
@@ -172,7 +187,12 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         int op = (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB;
         return NirValue(static_cast<std::int64_t>(flock(fd, op) < 0 ? -errno : 0));
 #else
-        return NirValue(static_cast<std::int64_t>(0));
+        HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+        if (h == INVALID_HANDLE_VALUE) return NirValue(static_cast<std::int64_t>(-1));
+        DWORD flags = (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0) | LOCKFILE_FAIL_IMMEDIATELY;
+        OVERLAPPED ov{};
+        BOOL res = LockFileEx(h, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+        return NirValue(static_cast<std::int64_t>(res ? 0 : -static_cast<std::int64_t>(GetLastError())));
 #endif
     }
     if (name == "fileUnlock") {
@@ -181,7 +201,11 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
 #if !defined(_WIN32)
         return NirValue(static_cast<std::int64_t>(flock(fd, LOCK_UN) < 0 ? -errno : 0));
 #else
-        return NirValue(static_cast<std::int64_t>(0));
+        HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+        if (h == INVALID_HANDLE_VALUE) return NirValue(static_cast<std::int64_t>(-1));
+        OVERLAPPED ov{};
+        BOOL res = UnlockFileEx(h, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+        return NirValue(static_cast<std::int64_t>(res ? 0 : -static_cast<std::int64_t>(GetLastError())));
 #endif
     }
     if (name == "fsDirectorySync") {
@@ -190,13 +214,22 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
 #if !defined(_WIN32)
         int dfd = open(path.c_str(), O_RDONLY | O_DIRECTORY);
         if (dfd >= 0) {
-            fsync(dfd);
+            int r = fsync(dfd);
+            int err = errno;
             close(dfd);
-            return NirValue(static_cast<std::int64_t>(0));
+            return NirValue(static_cast<std::int64_t>(r < 0 ? -err : 0));
         }
         return NirValue(static_cast<std::int64_t>(-errno));
 #else
-        return NirValue(static_cast<std::int64_t>(0));
+        HANDLE hDir = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                  NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+        if (hDir != INVALID_HANDLE_VALUE) {
+            BOOL res = FlushFileBuffers(hDir);
+            DWORD err = GetLastError();
+            CloseHandle(hDir);
+            return NirValue(static_cast<std::int64_t>(res ? 0 : -static_cast<std::int64_t>(err)));
+        }
+        return NirValue(static_cast<std::int64_t>(-static_cast<std::int64_t>(GetLastError())));
 #endif
     }
     if (name == "fsExists") {
@@ -237,9 +270,15 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
     }
     if (name == "fsRename") {
         if (args.size() < 2) return std::nullopt;
-        std::error_code ec;
-        std::filesystem::rename(getStr(args[0]), getStr(args[1]), ec);
-        return NirValue(static_cast<std::int64_t>(ec ? -ec.value() : 0));
+        std::string from = getStr(args[0]);
+        std::string to = getStr(args[1]);
+#if !defined(_WIN32)
+        int r = rename(from.c_str(), to.c_str());
+        return NirValue(static_cast<std::int64_t>(r < 0 ? -errno : 0));
+#else
+        BOOL ok = MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        return NirValue(static_cast<std::int64_t>(ok ? 0 : -static_cast<std::int64_t>(GetLastError())));
+#endif
     }
     if (name == "fsCopyFile") {
         if (args.size() < 2) return std::nullopt;
@@ -291,6 +330,27 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         if (len > 0) sha.update(reinterpret_cast<const unsigned char*>(src), len);
         sha.finishRaw(reinterpret_cast<unsigned char*>(dst));
         return NirValue(static_cast<std::int64_t>(0));
+    }
+    if (name == "stringToBytes") {
+        if (args.size() < 3) return std::nullopt;
+        std::string s = getStr(args[0]);
+        uintptr_t dst = static_cast<uintptr_t>(getI64(args[1]));
+        size_t maxLen = static_cast<size_t>(getI64(args[2]));
+        if (!dst) return NirValue(static_cast<std::int64_t>(-1));
+        size_t copyLen = std::min(s.size(), maxLen);
+        if (copyLen > 0) std::memcpy(reinterpret_cast<void*>(dst), s.data(), copyLen);
+        return NirValue(static_cast<std::int64_t>(copyLen));
+    }
+    if (name == "bytesToString") {
+        if (args.size() < 2) return std::nullopt;
+        uintptr_t src = static_cast<uintptr_t>(getI64(args[0]));
+        size_t len = static_cast<size_t>(getI64(args[1]));
+        if (!src && len > 0) return NirValue(std::string{});
+        return NirValue(std::string(reinterpret_cast<const char*>(src), len));
+    }
+    if (name == "intToString") {
+        if (args.empty()) return std::nullopt;
+        return NirValue(std::to_string(getI64(args[0])));
     }
 
     for(size_t i=0;i<abi->service_count;++i){const auto& service=abi->services[i];if(service.name&&service.invoke&&name==service.name){std::vector<noqeri_abi_value> converted;converted.reserve(args.size());for(const auto& value:args)converted.push_back(toAbi(value));noqeri_abi_value result{};noqeri_abi_error abiError{};int32_t status=service.invoke(service.context?service.context:abi->context,converted.data(),converted.size(),&result,&abiError);if(status!=0){error=abiError.message?abiError.message:"Noqeri ABI service failed";return std::nullopt;}return fromAbi(result);}}

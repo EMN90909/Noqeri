@@ -47,10 +47,6 @@ export function fs_ensure_directory(path: string): isize {
 
 export function fs_move_replace(from: string, to: string): isize {
     if !fsExists(from) { return -3 as isize }
-    if fsExists(to) {
-        let removed: isize = fsRemove(to)
-        if removed < 0 as isize { return removed }
-    }
     return fsRename(from, to)
 }
 
