@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Noqeri-authored registry command dispatcher. Stage-0 host ABI services
+// supply bounded native HTTPS, SHA-256, archive decoding and filesystem I/O.
+// The Noqeri compiler runs this frontend directly, without Node.js.
+extern function sdkPkgArg(index: int): string
+extern function sdkPkgRun(action: string): void
+
+let command: string = sdkPkgArg(0)
+if command == "" || command == "help" || command == "--help" {
+    sdkPkgRun("help")
+} else {
+    if command == "add" {
+        sdkPkgRun("add")
+    } else {
+        if command == "install" {
+            sdkPkgRun("install")
+        } else {
+            if command == "resolve" {
+                sdkPkgRun("resolve")
+            } else {
+                if command == "vendor" {
+                    sdkPkgRun("vendor")
+                } else {
+                    if command == "audit" {
+                        sdkPkgRun("audit")
+                    } else {
+                        sdkPkgRun("invalid")
+                    }
+                }
+            }
+        }
+    }
+}
