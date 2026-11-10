@@ -26,16 +26,16 @@ mkdir -p "$prefix" "$root/DEBIAN" "$artifacts"
 cp -R "$stage/." "$prefix/"
 chmod 755 "$prefix/bin/noqeri" "$prefix/bin/noqeri-nqri"
 cat > "$root/DEBIAN/control" <<EOF
-Package: noqeri
+Package: noqeri-sdk
 Version: $version
 Architecture: $arch
 Maintainer: Noethric contributors
 Section: devel
 Priority: optional
 Homepage: https://github.com/EMN90909/Noqeri
-Description: Noqeri compiler, NQRI VM and source SDK for Termux
+Description: Complete Noqeri SDK for Termux
  Native Android command-line development toolchain, built against Bionic.
 EOF
-dpkg-deb --build --root-owner-group "$root" "$artifacts/noqeri-$version-$target-termux.deb"
-dpkg-deb --info "$artifacts/noqeri-$version-$target-termux.deb" | grep -F "Architecture: $arch"
+dpkg-deb --build --root-owner-group "$root" "$artifacts/noqeri-sdk-$version-$target-termux.deb"
+dpkg-deb --info "$artifacts/noqeri-sdk-$version-$target-termux.deb" | grep -F "Architecture: $arch"
 echo "Created Termux installer for $target"
