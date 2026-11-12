@@ -33,6 +33,7 @@ export function file_truncate(handle: usize, length: u64): isize { return fileTr
 export function file_lock(handle: usize, exclusive: bool): isize { return fileLock(handle, exclusive) }
 export function file_unlock(handle: usize): isize { return fileUnlock(handle) }
 export function file_inode(handle: usize): i64 { return fileInode(handle) }
+export function file_dev(handle: usize): i64 { return fileDev(handle) }
 export function file_handle_valid(handle: isize): bool { return handle >= 0 as isize }
 
 export function file_read_into(handle: usize, buffer: []u8): isize {

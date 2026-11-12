@@ -229,6 +229,25 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         return NirValue(static_cast<std::int64_t>(-1));
 #endif
     }
+    if (name == "fileDev") {
+        if (args.empty()) return std::nullopt;
+        int fd = static_cast<int>(getI64(args[0]));
+#if !defined(_WIN32)
+        struct stat st{};
+        if (fstat(fd, &st) == 0) {
+            return NirValue(static_cast<std::int64_t>(st.st_dev));
+        }
+        return NirValue(static_cast<std::int64_t>(-errno));
+#else
+        HANDLE h = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+        if (h == INVALID_HANDLE_VALUE) return NirValue(static_cast<std::int64_t>(-1));
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (GetFileInformationByHandle(h, &info)) {
+            return NirValue(static_cast<std::int64_t>(info.dwVolumeSerialNumber));
+        }
+        return NirValue(static_cast<std::int64_t>(-1));
+#endif
+    }
     if (name == "threadSleepMillis") {
         if (args.empty()) return std::nullopt;
         std::int64_t ms = getI64(args[0]);
@@ -367,6 +386,28 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         if (ok) {
             std::uint64_t id = (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
             return NirValue(static_cast<std::int64_t>(id));
+        }
+        return NirValue(static_cast<std::int64_t>(-1));
+#endif
+    }
+    if (name == "fsDev") {
+        if (args.empty()) return std::nullopt;
+        std::string path = getStr(args[0]);
+#if !defined(_WIN32)
+        struct stat st{};
+        if (stat(path.c_str(), &st) == 0) {
+            return NirValue(static_cast<std::int64_t>(st.st_dev));
+        }
+        return NirValue(static_cast<std::int64_t>(-errno));
+#else
+        HANDLE h = CreateFileA(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+        if (h == INVALID_HANDLE_VALUE) return NirValue(static_cast<std::int64_t>(-1));
+        BY_HANDLE_FILE_INFORMATION info{};
+        BOOL ok = GetFileInformationByHandle(h, &info);
+        CloseHandle(h);
+        if (ok) {
+            return NirValue(static_cast<std::int64_t>(info.dwVolumeSerialNumber));
         }
         return NirValue(static_cast<std::int64_t>(-1));
 #endif
