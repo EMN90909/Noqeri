@@ -16,6 +16,7 @@ extern function fsCurrentDirectory(): string
 extern function fsSetCurrentDirectory(path: string): isize
 extern function fsDirectorySync(path: string): isize
 extern function fsInode(path: string): i64
+extern function fsDev(path: string): i64
 
 export function fs_exists(path: string): bool { return fsExists(path) }
 export function fs_is_directory(path: string): bool { return fsIsDirectory(path) }
