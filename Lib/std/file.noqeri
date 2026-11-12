@@ -10,6 +10,7 @@ extern function fileSync(handle: usize): isize
 extern function fileTruncate(handle: usize, length: u64): isize
 extern function fileLock(handle: usize, exclusive: bool): isize
 extern function fileUnlock(handle: usize): isize
+extern function fileInode(handle: usize): i64
 
 export function file_flag_read(): u32 { return 1 as u32 }
 export function file_flag_write(): u32 { return 2 as u32 }
@@ -31,6 +32,7 @@ export function file_sync(handle: usize): isize { return fileSync(handle) }
 export function file_truncate(handle: usize, length: u64): isize { return fileTruncate(handle, length) }
 export function file_lock(handle: usize, exclusive: bool): isize { return fileLock(handle, exclusive) }
 export function file_unlock(handle: usize): isize { return fileUnlock(handle) }
+export function file_inode(handle: usize): i64 { return fileInode(handle) }
 export function file_handle_valid(handle: isize): bool { return handle >= 0 as isize }
 
 export function file_read_into(handle: usize, buffer: []u8): isize {

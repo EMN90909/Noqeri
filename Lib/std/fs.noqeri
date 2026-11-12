@@ -15,6 +15,7 @@ extern function fsCanonical(path: string): string
 extern function fsCurrentDirectory(): string
 extern function fsSetCurrentDirectory(path: string): isize
 extern function fsDirectorySync(path: string): isize
+extern function fsInode(path: string): i64
 
 export function fs_exists(path: string): bool { return fsExists(path) }
 export function fs_is_directory(path: string): bool { return fsIsDirectory(path) }
@@ -32,6 +33,7 @@ export function fs_canonical(path: string): string { return fsCanonical(path) }
 export function fs_current_directory(): string { return fsCurrentDirectory() }
 export function fs_set_current_directory(path: string): isize { return fsSetCurrentDirectory(path) }
 export function fs_directory_sync(path: string): isize { return fsDirectorySync(path) }
+export function fs_inode(path: string): i64 { return fsInode(path) }
 
 export function fs_status_ok(status: isize): bool { return status >= 0 as isize }
 export function fs_status_error(status: isize): bool { return status < 0 as isize }
