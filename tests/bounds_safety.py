@@ -6,8 +6,8 @@ import sys
 import tempfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
-noqeri = root / "build" / "noqeri"
-assert noqeri.is_file(), "noqeri binary not found"
+noqeri = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / "build" / "noqeri"
+assert noqeri.is_file(), f"noqeri binary not found at {noqeri}"
 
 source = root / "tests" / "bounds_dynamic_trap.noqeri"
 assert source.is_file(), "test fixture not found"

@@ -59,6 +59,21 @@ namespace {
 struct Token { std::string value; bool quoted = false; std::size_t line = 1; };
 struct Atom { std::string value; bool variable = false; };
 struct Expr { std::vector<Atom> atoms; };
+enum class JsonType {
+    String,
+    Number,
+    Boolean,
+    Null,
+    Array,
+    Object,
+    Variable
+};
+struct JsonValue {
+    JsonType type = JsonType::Null;
+    std::string text;
+    std::vector<JsonValue> arrayItems;
+    std::vector<std::pair<std::string, JsonValue>> objectItems;
+};
 struct DbConfiguration {
     std::string engine="noesql", path, dsnEnvironment, binaryEnvironment="NOESQL_BIN", keyEnvironment;
 };
@@ -76,11 +91,18 @@ struct Mutation {
 struct Node {
     std::string actionId, eventName;
     std::vector<Mutation> mutations;
-    std::string tag, kind; // "text", "element", "component"
+    std::string tag, kind; // "text", "element", "component", "json"
     Expr text;
     std::vector<std::pair<std::string,Expr>> attrs;
     std::vector<Expr> args;
     std::vector<Node> children;
+    JsonValue jsonVal;
+};
+struct ApiRoute {
+    std::string method = "GET";
+    std::string path;
+    std::string authSecretEnv;
+    std::vector<Node> nodes;
 };
 struct Component { std::vector<std::string> params; std::vector<Node> children; };
 struct Project {
@@ -103,6 +125,7 @@ struct Project {
     std::map<std::string,std::map<std::string,std::string>> clientMotions;
     std::map<std::string,std::vector<std::string>> clientTimelines;
     std::map<std::string,Component> components;
+    std::vector<ApiRoute> apiRoutes;
     std::map<std::string,std::vector<Node>> routes;
     std::vector<Node> fallback;
     std::vector<Node> layout;
@@ -173,6 +196,29 @@ std::vector<Token> lex(const std::string& source) {
                         case 't': value+='\t'; break;
                         case '"': value+='"'; break;
                         case '\\': value+='\\'; break;
+                        case 'u': {
+                            if (i + 4 > source.size()) throw std::runtime_error("incomplete unicode escape");
+                            uint32_t cp = 0;
+                            for (int k = 0; k < 4; ++k) {
+                                char ch = source[i++];
+                                cp <<= 4;
+                                if (ch >= '0' && ch <= '9') cp |= (ch - '0');
+                                else if (ch >= 'a' && ch <= 'f') cp |= (ch - 'a' + 10);
+                                else if (ch >= 'A' && ch <= 'F') cp |= (ch - 'A' + 10);
+                                else throw std::runtime_error("invalid hex in unicode escape");
+                            }
+                            if (cp <= 0x7F) {
+                                value += static_cast<char>(cp);
+                            } else if (cp <= 0x7FF) {
+                                value += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
+                                value += static_cast<char>(0x80 | (cp & 0x3F));
+                            } else {
+                                value += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+                                value += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                                value += static_cast<char>(0x80 | (cp & 0x3F));
+                            }
+                            break;
+                        }
                         default: throw std::runtime_error("unsupported string escape");
                     }
                 } else value+=next;
@@ -190,7 +236,7 @@ std::vector<Token> lex(const std::string& source) {
             while (i<source.size() && std::isdigit(static_cast<unsigned char>(source[i]))) ++i;
             add(source.substr(start,i-start)); continue;
         }
-        if (std::string("{}().,:;=+/-").find(c)!=std::string::npos) { add(std::string(1,c)); ++i; continue; }
+        if (std::string("{}().,:;=+/-[]").find(c)!=std::string::npos) { add(std::string(1,c)); ++i; continue; }
         throw std::runtime_error("unsupported web-native token at line "+std::to_string(line));
     }
     out.push_back({"<eof>",false,line});
@@ -256,6 +302,91 @@ class Parser {
             else fail("expected a static literal or variable");
         } while (take("+"));
         return result;
+    }
+
+    JsonValue parseJsonValue() {
+        JsonValue result;
+        if (peek().value == "{") {
+            result.type = JsonType::Object;
+            expect("{");
+            while (!take("}")) {
+                if (peek().value == "<eof>") fail("unterminated JSON object");
+                std::string key = peek().quoted ? literalString() : identifier();
+                expect(":");
+                JsonValue val = parseJsonValue();
+                result.objectItems.push_back({std::move(key), std::move(val)});
+                take(","); take(";");
+            }
+            return result;
+        }
+        if (peek().value == "[") {
+            result.type = JsonType::Array;
+            expect("[");
+            while (!take("]")) {
+                if (peek().value == "<eof>") fail("unterminated JSON array");
+                JsonValue val = parseJsonValue();
+                result.arrayItems.push_back(std::move(val));
+                take(","); take(";");
+            }
+            return result;
+        }
+        if (peek().quoted) {
+            result.type = JsonType::String;
+            result.text = literalString();
+            return result;
+        }
+        if (take("-")) {
+            if (peek().quoted || peek().value.empty() ||
+                !std::all_of(peek().value.begin(), peek().value.end(), [](char c){ return c >= '0' && c <= '9'; })) {
+                fail("expected number after '-' in JSON");
+            }
+            std::string num = "-" + tokens.at(pos++).value;
+            if (take(".")) {
+                if (peek().quoted || peek().value.empty() ||
+                    !std::all_of(peek().value.begin(), peek().value.end(), [](char c){ return c >= '0' && c <= '9'; })) {
+                    fail("expected fractional digits after '.' in JSON number");
+                }
+                num += "." + tokens.at(pos++).value;
+            }
+            result.type = JsonType::Number;
+            result.text = num;
+            return result;
+        }
+        if (!peek().quoted && !peek().value.empty() &&
+            std::all_of(peek().value.begin(), peek().value.end(), [](char c){ return c >= '0' && c <= '9'; })) {
+            std::string num = tokens.at(pos++).value;
+            if (take(".")) {
+                if (peek().quoted || peek().value.empty() ||
+                    !std::all_of(peek().value.begin(), peek().value.end(), [](char c){ return c >= '0' && c <= '9'; })) {
+                    fail("expected fractional digits after '.' in JSON number");
+                }
+                num += "." + tokens.at(pos++).value;
+            }
+            result.type = JsonType::Number;
+            result.text = num;
+            return result;
+        }
+        if (!peek().quoted && (peek().value == "true" || peek().value == "false")) {
+            result.type = JsonType::Boolean;
+            result.text = tokens.at(pos++).value;
+            return result;
+        }
+        if (!peek().quoted && peek().value == "null") {
+            result.type = JsonType::Null;
+            result.text = "null";
+            ++pos;
+            return result;
+        }
+        if (validName(peek().value)) {
+            std::string name = identifier();
+            while (take(".")) {
+                name += "." + identifier();
+            }
+            result.type = JsonType::Variable;
+            result.text = name;
+            return result;
+        }
+        fail("unexpected token in JSON value: " + peek().value);
     }
 
     std::vector<Mutation> mutations() {
@@ -346,12 +477,15 @@ class Parser {
                     n.kind="slot";expect("{");expect("}");
                 } else if (name=="json"&&peek().value=="{") {
                     n.kind="json"; n.tag="json";
-                    expect("{");
-                    while (!take("}")) {
-                        const auto key=identifier();
-                        expect(":");
-                        n.attrs.push_back({key,expression()});
-                        take(","); take(";");
+                    n.jsonVal = parseJsonValue();
+                    for (const auto& item : n.jsonVal.objectItems) {
+                        Expr e;
+                        if (item.second.type == JsonType::Variable) {
+                            e.atoms.push_back({item.second.text, true});
+                        } else {
+                            e.atoms.push_back({item.second.text, false});
+                        }
+                        n.attrs.push_back({item.first, std::move(e)});
                     }
                     result.push_back(std::move(n));
                     continue;
@@ -599,9 +733,32 @@ public:
             } else if (!library && take("layout")) {
                 if(p.hasLayout)fail("duplicate layout");
                 p.hasLayout=true;p.layout=children();
-            } else if (!library && (take("route") || take("api"))) {
+            } else if (!library && take("route")) {
                 const auto path=literalString();
                 if (!p.routes.emplace(path,children()).second) fail("duplicate route");
+            } else if (!library && take("api")) {
+                std::string method = "GET";
+                if (!peek().quoted && (peek().value == "get" || peek().value == "post" ||
+                                       peek().value == "put" || peek().value == "delete" ||
+                                       peek().value == "patch" || peek().value == "head")) {
+                    method = tokens.at(pos++).value;
+                    std::transform(method.begin(), method.end(), method.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+                }
+                const auto path = literalString();
+                std::string authEnv;
+                if (take("auth") || take("authorize")) {
+                    authEnv = peek().quoted ? literalString() : identifier();
+                }
+                auto bodyNodes = children();
+                ApiRoute apiRoute;
+                apiRoute.method = method;
+                apiRoute.path = path;
+                apiRoute.authSecretEnv = authEnv;
+                apiRoute.nodes = bodyNodes;
+                p.apiRoutes.push_back(std::move(apiRoute));
+                if (p.routes.find(path) == p.routes.end()) {
+                    p.routes.emplace(path, bodyNodes);
+                }
             } else if (!library && take("view")) {
                 if (p.hasFallback) fail("duplicate fallback view");
                 p.fallback=children(); p.hasFallback=true;

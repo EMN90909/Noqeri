@@ -15,4 +15,22 @@ dist/
 *.s
 *.tmp
 *.log
+*.nqdb
 .dyad/
+
+# Benchmark compiled binaries
+benchmarks/suite/c_*
+benchmarks/suite/cpp_*
+benchmarks/suite/go_*
+benchmarks/suite/noqeri_*
+benchmarks/suite/rust_*
+benchmarks/suite/zig_*
+!benchmarks/suite/*.c
+!benchmarks/suite/*.cpp
+!benchmarks/suite/*.go
+!benchmarks/suite/*.noqeri
+!benchmarks/suite/*.rs
+!benchmarks/suite/*.zig
+!benchmarks/suite/*.js
+!benchmarks/suite/*.py
+!benchmarks/suite/*.sh

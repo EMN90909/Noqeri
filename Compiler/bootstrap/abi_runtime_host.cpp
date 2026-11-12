@@ -11,10 +11,35 @@
 #if !defined(_WIN32)
 #include <unistd.h>
 #include <sys/file.h>
+#define host_open(path, flags, mode) open(path, flags, mode)
+#define host_read read
+#define host_write write
+#define host_close close
+#define host_lseek lseek
 #else
-#include <io.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <io.h>
+#include <BaseTsd.h>
+using ssize_t = SSIZE_T;
+inline int host_open(const char* path, int flags, int mode) {
+    return _open(path, flags | _O_BINARY, mode);
+}
+inline ssize_t host_read(int fd, void* buffer, size_t count) {
+    constexpr size_t maxChunk = 0x7FFFFFFF;
+    size_t toRead = count > maxChunk ? maxChunk : count;
+    return _read(fd, buffer, static_cast<unsigned int>(toRead));
+}
+inline ssize_t host_write(int fd, const void* buffer, size_t count) {
+    constexpr size_t maxChunk = 0x7FFFFFFF;
+    size_t toWrite = count > maxChunk ? maxChunk : count;
+    return _write(fd, buffer, static_cast<unsigned int>(toWrite));
+}
+#define host_close _close
+#define host_lseek _lseeki64
 #endif
 #include <sys/stat.h>
 #include <cstring>
@@ -121,13 +146,13 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         if (flags & 4) openFlags |= O_CREAT;
         if (flags & 8) openFlags |= O_TRUNC;
         if (flags & 16) openFlags |= O_APPEND;
-        int fd = open(path.c_str(), openFlags, 0600);
+        int fd = host_open(path.c_str(), openFlags, 0600);
         return NirValue(static_cast<std::int64_t>(fd < 0 ? -errno : fd));
     }
     if (name == "fileClose") {
         if (args.empty()) return std::nullopt;
         int fd = static_cast<int>(getI64(args[0]));
-        return NirValue(static_cast<std::int64_t>(close(fd) < 0 ? -errno : 0));
+        return NirValue(static_cast<std::int64_t>(host_close(fd) < 0 ? -errno : 0));
     }
     if (name == "fileRead") {
         if (args.size() < 3) return std::nullopt;
@@ -135,7 +160,7 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         uintptr_t ptr = static_cast<uintptr_t>(getI64(args[1]));
         size_t count = static_cast<size_t>(getI64(args[2]));
         if (!ptr && count > 0) return NirValue(static_cast<std::int64_t>(-1));
-        ssize_t n = read(fd, reinterpret_cast<void*>(ptr), count);
+        ssize_t n = host_read(fd, reinterpret_cast<void*>(ptr), count);
         return NirValue(static_cast<std::int64_t>(n < 0 ? -errno : n));
     }
     if (name == "fileWrite") {
@@ -144,16 +169,16 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         uintptr_t ptr = static_cast<uintptr_t>(getI64(args[1]));
         size_t count = static_cast<size_t>(getI64(args[2]));
         if (!ptr && count > 0) return NirValue(static_cast<std::int64_t>(-1));
-        ssize_t n = write(fd, reinterpret_cast<const void*>(ptr), count);
+        ssize_t n = host_write(fd, reinterpret_cast<const void*>(ptr), count);
         return NirValue(static_cast<std::int64_t>(n < 0 ? -errno : n));
     }
     if (name == "fileSeek") {
         if (args.size() < 3) return std::nullopt;
         int fd = static_cast<int>(getI64(args[0]));
-        off_t offset = static_cast<off_t>(getI64(args[1]));
+        std::int64_t offset = getI64(args[1]);
         int origin = static_cast<int>(getI64(args[2]));
         int whence = (origin == 0) ? SEEK_SET : ((origin == 1) ? SEEK_CUR : SEEK_END);
-        off_t res = lseek(fd, offset, whence);
+        std::int64_t res = static_cast<std::int64_t>(host_lseek(fd, offset, whence));
         return NirValue(static_cast<std::int64_t>(res < 0 ? -errno : res));
     }
     if (name == "fileFlush") {
@@ -430,7 +455,7 @@ std::optional<NirValue> callNoqeriAbi(const noqeri_abi* abi,const std::string& n
         uintptr_t dst = static_cast<uintptr_t>(getI64(args[1]));
         size_t maxLen = static_cast<size_t>(getI64(args[2]));
         if (!dst) return NirValue(static_cast<std::int64_t>(-1));
-        size_t copyLen = std::min(s.size(), maxLen);
+        size_t copyLen = (std::min)(s.size(), maxLen);
         if (copyLen > 0) std::memcpy(reinterpret_cast<void*>(dst), s.data(), copyLen);
         return NirValue(static_cast<std::int64_t>(copyLen));
     }

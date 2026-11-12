@@ -10,8 +10,9 @@ import sys
 import tempfile
 import time
 
-binary = sys.argv[1] if len(sys.argv) > 1 else "./build/noqeri-web"
-source = sys.argv[2] if len(sys.argv) > 2 else "examples/native_web_rest_api.noqeri"
+root = pathlib.Path(__file__).resolve().parent.parent
+binary = sys.argv[1] if len(sys.argv) > 1 else str(root / "build" / "noqeri-web")
+source = sys.argv[2] if len(sys.argv) > 2 else str(root / "examples" / "native_web_rest_api.noqeri")
 source = pathlib.Path(source).resolve()
 assert source.is_file() and source.suffix == ".noqeri"
 
@@ -32,7 +33,8 @@ def request(port, method, path, payload=None, headers=None):
 
 def test_rest_api_server(binary_cmd):
     port = get_free_port()
-    proc = subprocess.Popen(binary_cmd + [str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    env = dict(os.environ, MY_API_SECRET="secret_token_123")
+    proc = subprocess.Popen(binary_cmd + [str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
     try:
         # Wait for server to bind
         ready = False
@@ -45,29 +47,73 @@ def test_rest_api_server(binary_cmd):
                 time.sleep(0.05)
         assert ready, "Server did not start up in time"
 
-        # 1. Test /hello
+        # 1. Test GET /hello
         status, headers, body = request(port, "GET", "/hello")
         assert status == 200, f"Expected 200, got {status}"
         assert "application/json" in headers.get("content-type", "").lower(), f"Expected application/json, got {headers.get('content-type')}"
         parsed = json.loads(body)
         assert parsed.get("message") == "Hello from Noqeri!", f"Unexpected body: {body}"
 
-        # 2. Test /users/:id param extraction
-        status, headers, body = request(port, "GET", "/users/1042")
+        # 2. Test GET /users/:id param extraction with leading zero preservation
+        status, headers, body = request(port, "GET", "/users/0012")
         assert status == 200, f"Expected 200, got {status}"
         assert "application/json" in headers.get("content-type", "").lower()
         parsed = json.loads(body)
-        assert str(parsed.get("id")) == "1042", f"Expected id 1042, got {parsed}"
+        assert parsed.get("id") == "0012", f"Expected id '0012', got {parsed.get('id')}"
+        assert isinstance(parsed.get("id"), str), f"Expected string type for id, got {type(parsed.get('id'))}"
 
-        # 3. Test body size limit (security: default limit 4096 bytes rejects overly large payload)
+        # 3. Test 405 Method Not Allowed + Allow header
+        status, headers, body = request(port, "DELETE", "/hello")
+        assert status == 405, f"Expected 405 Method Not Allowed, got {status}"
+        assert "allow" in headers, f"Expected Allow header, got {headers}"
+        assert "GET" in headers["allow"], f"Expected GET in Allow header: {headers['allow']}"
+
+        # 4. Test POST /users with JSON body
+        payload = json.dumps({"name": "Alice"})
+        status, headers, body = request(port, "POST", "/users", payload=payload, headers={"Content-Type": "application/json"})
+        assert status == 200, f"Expected 200, got {status}"
+        parsed = json.loads(body)
+        assert parsed.get("user") == "Alice", f"Expected user Alice, got {parsed}"
+        assert parsed.get("created") is True, f"Expected created True, got {parsed}"
+
+        # 5. Test POST /users with invalid JSON body -> 400 Bad Request
+        status, headers, body = request(port, "POST", "/users", payload="{'invalid': json}", headers={"Content-Type": "application/json"})
+        assert status == 400, f"Expected 400 Bad Request for invalid JSON, got {status}"
+
+        # 6. Test route-specific authorization
+        # 6a. Missing auth token -> 401
+        status, _, _ = request(port, "GET", "/secret")
+        assert status == 401, f"Expected 401 Unauthorized, got {status}"
+
+        # 6b. Wrong auth token -> 401
+        status, _, _ = request(port, "GET", "/secret", headers={"Authorization": "Bearer wrong_secret"})
+        assert status == 401, f"Expected 401 Unauthorized, got {status}"
+
+        # 6c. Correct auth token -> 200
+        status, _, body = request(port, "GET", "/secret", headers={"Authorization": "Bearer secret_token_123"})
+        assert status == 200, f"Expected 200 OK, got {status}"
+        parsed = json.loads(body)
+        assert parsed.get("secret") == "super-confidential", f"Unexpected secret response: {body}"
+
+        # 7. Test typed JSON AST (numbers, floats, booleans, null, arrays, nested objects, unicode escapes)
+        status, _, body = request(port, "GET", "/types")
+        assert status == 200, f"Expected 200 OK, got {status}"
+        parsed = json.loads(body)
+        assert parsed.get("str") == "0012" and isinstance(parsed.get("str"), str), f"str mismatch: {parsed.get('str')}"
+        assert parsed.get("num") == 42 and isinstance(parsed.get("num"), int), f"num mismatch: {parsed.get('num')}"
+        assert abs(parsed.get("neg") - (-15.5)) < 1e-6, f"neg mismatch: {parsed.get('neg')}"
+        assert parsed.get("flag") is True, f"flag mismatch: {parsed.get('flag')}"
+        assert parsed.get("none") is None, f"none mismatch: {parsed.get('none')}"
+        assert parsed.get("arr") == ["item1", "item2"], f"arr mismatch: {parsed.get('arr')}"
+        assert parsed.get("nested", {}).get("inner") == "val", f"nested mismatch: {parsed.get('nested')}"
+        assert parsed.get("unicode") == "testA", f"unicode mismatch: {parsed.get('unicode')}"
+
+        # 8. Test body size limit (deterministic 413 without connection reset / try-except)
         large_payload = "x" * 6000
-        try:
-            status, _, _ = request(port, "POST", "/hello", payload=large_payload, headers={"Content-Type": "application/json"})
-            assert status == 413, f"Expected 413 Payload Too Large, got {status}"
-        except (http.client.RemoteDisconnected, ConnectionResetError):
-            pass # Connection dropped due to overflow is also safe
+        status, _, _ = request(port, "POST", "/hello", payload=large_payload, headers={"Content-Type": "application/json"})
+        assert status == 413, f"Expected 413 Payload Too Large, got {status}"
 
-        print("REST API server checks passed.")
+        print("All REST API server checks passed.")
     finally:
         proc.terminate()
         proc.wait(timeout=3)
@@ -88,4 +134,4 @@ with tempfile.TemporaryDirectory() as folder:
 
     test_rest_api_server([str(out_bin)])
 
-print("PASS: native REST API, json responses, param binding, and security limits")
+print("PASS: native REST API, method routing, auth, json AST, and deterministic limits")

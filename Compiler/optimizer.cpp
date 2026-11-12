@@ -759,8 +759,10 @@ bool globalGvn(NirFunction& fn) {
         if (!in.dest || !g.reachable[g.owner[pc]]) continue;
         std::string key;
         if (in.op == NirOp::Const) {
+            const auto typeK = in.type.kind != TypeKind::Unknown ? in.type.kind :
+                (in.dest && *in.dest < fn.registerTypes.size() ? fn.registerTypes[*in.dest].kind : TypeKind::Int);
             if (auto v = std::get_if<std::int64_t>(&in.literal))
-                key = "const:i64:" + std::to_string(*v);
+                key = "const:" + std::to_string(static_cast<int>(typeK)) + ":i64:" + std::to_string(*v);
             else if (auto v = std::get_if<bool>(&in.literal))
                 key = std::string("const:bool:") + (*v ? "1" : "0");
         } else if (in.op == NirOp::Binary && in.args.size() == 2 && safeIntResult(in) &&

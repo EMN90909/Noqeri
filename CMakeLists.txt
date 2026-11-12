@@ -430,6 +430,11 @@ if(BUILD_TESTING)
    "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
    "-DOUTPUT_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
    -P ${CMAKE_SOURCE_DIR}/tests/cmake/native_web_smoke.cmake)
+ find_package(Python3 COMPONENTS Interpreter QUIET)
+ if(Python3_FOUND)
+  add_test(NAME noqeri-bounds-safety COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/bounds_safety.py $<TARGET_FILE:noqeri>)
+  add_test(NAME noqeri-native-web-rest-api COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/native_web_rest_api.py $<TARGET_FILE:noqeri-web>)
+ endif()
  add_test(NAME noqeri-check-hello COMMAND noqeri check ${CMAKE_SOURCE_DIR}/examples/hello.noqeri)
  add_test(NAME noqeri-tests COMMAND noqeri test ${CMAKE_SOURCE_DIR}/tests)
  add_test(NAME noqeri-noqeri-owned-components COMMAND noqeri run ${CMAKE_SOURCE_DIR}/tests/noqeri_owned_components.noqeri)

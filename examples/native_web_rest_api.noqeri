@@ -2,14 +2,42 @@
 // Zero boilerplate, compiled directly to a standalone native executable.
 // Run: noqeri-web serve-app examples/native_web_rest_api.noqeri 3000
 
-api "/hello" {
+api get "/hello" {
     json {
         message: "Hello from Noqeri!"
     }
 }
 
-api "/users/:id" {
+api get "/users/:id" {
     json {
         id: params.id
+    }
+}
+
+api post "/users" {
+    json {
+        user: body.name,
+        created: true
+    }
+}
+
+api get "/secret" auth "MY_API_SECRET" {
+    json {
+        secret: "super-confidential"
+    }
+}
+
+api get "/types" {
+    json {
+        str: "0012",
+        num: 42,
+        neg: -15.5,
+        flag: true,
+        none: null,
+        arr: ["item1", "item2"],
+        nested: {
+            inner: "val"
+        },
+        unicode: "test\u0041"
     }
 }

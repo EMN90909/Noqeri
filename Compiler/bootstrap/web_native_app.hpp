@@ -68,6 +68,196 @@ std::string escapeJson(const std::string& s) {
     }
     return out;
 }
+inline void drainAndClose(int fd) {
+    ::shutdown(fd, SHUT_WR);
+    timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = 50000;
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    char buf[2048];
+    while (::recv(fd, buf, sizeof(buf), 0) > 0) {}
+    ::close(fd);
+}
+std::string renderJsonValue(const JsonValue& jv,
+                            const std::map<std::string, std::string>& params,
+                            const std::map<std::string, std::string>& globals) {
+    switch (jv.type) {
+        case JsonType::String:
+            return "\"" + escapeJson(jv.text) + "\"";
+        case JsonType::Number:
+            return jv.text;
+        case JsonType::Boolean:
+            return jv.text;
+        case JsonType::Null:
+            return "null";
+        case JsonType::Variable: {
+            auto it = params.find(jv.text);
+            if (it != params.end()) {
+                return "\"" + escapeJson(it->second) + "\"";
+            }
+            auto git = globals.find(jv.text);
+            if (git != globals.end()) {
+                return "\"" + escapeJson(git->second) + "\"";
+            }
+            return "\"\"";
+        }
+        case JsonType::Array: {
+            std::string out = "[";
+            for (size_t i = 0; i < jv.arrayItems.size(); ++i) {
+                if (i > 0) out += ",";
+                out += renderJsonValue(jv.arrayItems[i], params, globals);
+            }
+            out += "]";
+            return out;
+        }
+        case JsonType::Object: {
+            std::string out = "{";
+            for (size_t i = 0; i < jv.objectItems.size(); ++i) {
+                if (i > 0) out += ",";
+                out += "\"" + escapeJson(jv.objectItems[i].first) + "\":" +
+                       renderJsonValue(jv.objectItems[i].second, params, globals);
+            }
+            out += "}";
+            return out;
+        }
+    }
+    return "null";
+}
+bool parseJsonBody(const std::string& body, std::map<std::string, std::string>& out) {
+    std::size_t i = 0;
+    auto skipWhitespace = [&]() {
+        while (i < body.size() && (body[i] == ' ' || body[i] == '\t' || body[i] == '\r' || body[i] == '\n')) {
+            ++i;
+        }
+    };
+    skipWhitespace();
+    if (i >= body.size() || body[i] != '{') return false;
+    ++i;
+    skipWhitespace();
+    if (i < body.size() && body[i] == '}') {
+        ++i;
+        skipWhitespace();
+        return i == body.size();
+    }
+
+    auto parseString = [&](std::string& s) -> bool {
+        if (i >= body.size() || body[i] != '"') return false;
+        ++i;
+        s.clear();
+        while (i < body.size()) {
+            char c = body[i++];
+            if (c == '"') return true;
+            if (c == '\\') {
+                if (i >= body.size()) return false;
+                char esc = body[i++];
+                if (esc == '"') s += '"';
+                else if (esc == '\\') s += '\\';
+                else if (esc == '/') s += '/';
+                else if (esc == 'b') s += '\b';
+                else if (esc == 'f') s += '\f';
+                else if (esc == 'n') s += '\n';
+                else if (esc == 'r') s += '\r';
+                else if (esc == 't') s += '\t';
+                else if (esc == 'u') {
+                    if (i + 4 > body.size()) return false;
+                    uint32_t cp = 0;
+                    for (int k = 0; k < 4; ++k) {
+                        char ch = body[i++];
+                        cp <<= 4;
+                        if (ch >= '0' && ch <= '9') cp |= (ch - '0');
+                        else if (ch >= 'a' && ch <= 'f') cp |= (ch - 'a' + 10);
+                        else if (ch >= 'A' && ch <= 'F') cp |= (ch - 'A' + 10);
+                        else return false;
+                    }
+                    if (cp <= 0x7F) {
+                        s += static_cast<char>(cp);
+                    } else if (cp <= 0x7FF) {
+                        s += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
+                        s += static_cast<char>(0x80 | (cp & 0x3F));
+                    } else {
+                        s += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+                        s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                        s += static_cast<char>(0x80 | (cp & 0x3F));
+                    }
+                } else return false;
+            } else {
+                s += c;
+            }
+        }
+        return false;
+    };
+
+    auto skipBalanced = [&](char openCh, char closeCh) -> bool {
+        int depth = 1;
+        ++i;
+        bool inStr = false;
+        while (i < body.size() && depth > 0) {
+            char c = body[i++];
+            if (inStr) {
+                if (c == '\\' && i < body.size()) ++i;
+                else if (c == '"') inStr = false;
+            } else {
+                if (c == '"') inStr = true;
+                else if (c == openCh) ++depth;
+                else if (c == closeCh) --depth;
+            }
+        }
+        return depth == 0;
+    };
+
+    while (i < body.size()) {
+        skipWhitespace();
+        std::string key;
+        if (!parseString(key)) return false;
+        skipWhitespace();
+        if (i >= body.size() || body[i] != ':') return false;
+        ++i;
+        skipWhitespace();
+        if (i >= body.size()) return false;
+
+        std::string val;
+        if (body[i] == '"') {
+            if (!parseString(val)) return false;
+        } else if (body[i] == '{') {
+            size_t start = i;
+            if (!skipBalanced('{', '}')) return false;
+            val = body.substr(start, i - start);
+        } else if (body[i] == '[') {
+            size_t start = i;
+            if (!skipBalanced('[', ']')) return false;
+            val = body.substr(start, i - start);
+        } else {
+            size_t start = i;
+            while (i < body.size() && body[i] != ',' && body[i] != '}' && !std::isspace(static_cast<unsigned char>(body[i]))) {
+                ++i;
+            }
+            val = body.substr(start, i - start);
+            if (val != "true" && val != "false" && val != "null") {
+                char* endp = nullptr;
+                std::strtod(val.c_str(), &endp);
+                if (!endp || *endp != '\0') return false;
+            }
+        }
+        out[key] = val;
+        out["body." + key] = val;
+        out["params." + key] = val;
+
+        skipWhitespace();
+        if (i >= body.size()) return false;
+        if (body[i] == ',') {
+            ++i;
+            skipWhitespace();
+            continue;
+        }
+        if (body[i] == '}') {
+            ++i;
+            break;
+        }
+        return false;
+    }
+    skipWhitespace();
+    return i == body.size();
+}
 void loadPersisted(AppStore& store) {
     for (const auto& name:store.project.persistentState)
         store.persisted[name]=store.project.globals.at(name);
@@ -429,14 +619,15 @@ AppRequest receiveAppRequest(int fd) {
     }
     if(protocol=="HTTP/1.1"&&req.host.empty())
         throw std::runtime_error("missing HTTP Host header");
-    if(req.method=="POST"&&(!hasLength||
+    const bool isBodyMethod = (req.method=="POST"||req.method=="PUT"||req.method=="PATCH");
+    if(isBodyMethod && length>0 &&
         (req.type!="application/x-www-form-urlencoded"&&
          req.type!="application/x-www-form-urlencoded; charset=utf-8"&&
          req.type!="application/x-www-form-urlencoded;charset=utf-8"&&
          req.type!="application/json"&&
          req.type!="application/json; charset=utf-8"&&
-         req.type!="application/json;charset=utf-8")))
-        throw std::runtime_error("unsupported POST encoding");
+         req.type!="application/json;charset=utf-8"))
+        throw std::runtime_error("unsupported request body encoding");
     if(req.method=="POST" && req.hasOrigin && req.origin.empty())
         throw std::runtime_error("empty Origin is not valid");
     // Older same-origin clients may omit Origin. Enable strict mode when the
@@ -446,7 +637,7 @@ AppRequest receiveAppRequest(int fd) {
         if(strict && std::string(strict)=="1")
             throw std::runtime_error("POST requires Origin in strict mode");
     }
-    if(req.method!="POST"&&length!=0)throw std::runtime_error("unexpected request body");
+    if(!isBodyMethod&&length!=0)throw std::runtime_error("unexpected request body");
     req.body=received.substr(at+4);
     if(req.body.size()>length)throw std::runtime_error("excess request body");
     while(req.body.size()<length) {
@@ -471,7 +662,8 @@ std::string getSid(const std::string& cookie) {
     return "";
 }
 void appReply(int fd,int status,const std::string& data,const std::string& cookie="",
-              const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8") {
+              const std::string& redirect="",bool head=false,const std::string& mime="text/html; charset=utf-8",
+              const std::string& extraHeader="") {
     const auto reason=status==200?"OK":status==303?"See Other":status==400?"Bad Request":
         status==401?"Unauthorized":status==403?"Forbidden":status==404?"Not Found":status==405?"Method Not Allowed":
         status==413?"Payload Too Large":
@@ -486,7 +678,10 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
         std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?
                     "; script-src 'self'; connect-src 'self'":"")+"; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n";
-    if(status==401)header+=std::getenv("NOQERI_WEB_BEARER_TOKEN")?
+    if(!extraHeader.empty()) {
+        header+=extraHeader+"\r\n";
+    }
+    if(status==401 && extraHeader.find("WWW-Authenticate") == std::string::npos)header+=std::getenv("NOQERI_WEB_BEARER_TOKEN")?
         "WWW-Authenticate: Bearer realm=\"Noqeri native preview\"\r\n":
         "WWW-Authenticate: Basic realm=\"Noqeri native preview\", charset=\"UTF-8\"\r\n";
     if(!cookie.empty()) {
@@ -541,6 +736,27 @@ bool routePatternsOverlap(const std::string& one,const std::string& two) {
         if(a[i]==b[i]||a[i][0]==':'||b[i][0]==':')continue;
         return false;
     }
+    return true;
+}
+bool matchPath(const std::string& pattern, const std::string& path, std::map<std::string, std::string>& params) {
+    if (pattern == path) return true;
+    if (!dynamicRoute(pattern)) return false;
+    const auto patSegments = splitRoute(pattern);
+    const auto pathSegments = splitRoute(path);
+    if (patSegments.size() != pathSegments.size()) return false;
+    std::map<std::string, std::string> localParams;
+    for (size_t i = 0; i < patSegments.size(); ++i) {
+        if (patSegments[i][0] == ':') {
+            const std::string paramName = patSegments[i].substr(1);
+            const std::string& part = pathSegments[i];
+            if (part.empty() || part.size() > 64) return false;
+            localParams[paramName] = part;
+            localParams["params." + paramName] = part;
+        } else if (patSegments[i] != pathSegments[i]) {
+            return false;
+        }
+    }
+    params.insert(localParams.begin(), localParams.end());
     return true;
 }
 RouteSelection matchAppRoute(const Project& project,const std::string& path) {
@@ -988,30 +1204,118 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             } else if(reactive&&path=="/__nq/reactive.js"&&req.method!="POST") {
                 appReply(client,200,reactiveClientScript(),"","",head,"text/javascript; charset=utf-8");
             } else {
-                const auto page=matchAppRoute(app.project,path);
-                if(!page.nodes) {
-                    const auto content=app.project.hasFallback?
-                        htmlPage(app.project.hasLayout?
-                            render(app.project.layout,app.project,{},0,&app.project.fallback):
-                            render(app.project.fallback,app.project),"/theme.css"):"Page not found";
-                    appReply(client,404,content,"","",head);
-                } else if(!page.nodes->empty() && (page.nodes->front().kind=="json" || page.nodes->front().tag=="json")) {
-                    const auto& jsonNode=page.nodes->front();
-                    std::string jsonContent="{";
-                    bool first=true;
-                    for(const auto& attr:jsonNode.attrs) {
-                        if(!first)jsonContent+=",";
-                        first=false;
-                        const auto val=evaluate(attr.second,page.params,app.project.globals);
-                        bool isNum=!val.empty()&&std::all_of(val.begin(),val.end(),[](char c){return c>='0'&&c<='9';});
-                        bool isBool=val=="true"||val=="false";
-                        jsonContent+="\""+attr.first+"\":";
-                        if(isNum||isBool)jsonContent+=val;
-                        else jsonContent+="\""+escapeJson(val)+"\"";
+                std::vector<const ApiRoute*> matchingPathApiRoutes;
+                std::map<std::string, std::string> apiParams;
+                for (const auto& ar : app.project.apiRoutes) {
+                    std::map<std::string, std::string> tempParams;
+                    if (matchPath(ar.path, path, tempParams)) {
+                        matchingPathApiRoutes.push_back(&ar);
+                        apiParams.insert(tempParams.begin(), tempParams.end());
                     }
-                    jsonContent+="}";
-                    appReply(client,200,jsonContent,"","",head,"application/json; charset=utf-8");
-                } else if(req.method=="POST") {
+                }
+
+                if (!matchingPathApiRoutes.empty()) {
+                    const ApiRoute* matchedMethodRoute = nullptr;
+                    std::set<std::string> allowedMethods;
+                    for (const auto* ar : matchingPathApiRoutes) {
+                        allowedMethods.insert(ar->method);
+                        if (ar->method == req.method || (req.method == "HEAD" && ar->method == "GET")) {
+                            matchedMethodRoute = ar;
+                        }
+                    }
+
+                    if (!matchedMethodRoute) {
+                        std::string allowHeader;
+                        for (const auto& m : allowedMethods) {
+                            if (!allowHeader.empty()) allowHeader += ", ";
+                            allowHeader += m;
+                        }
+                        if (allowedMethods.count("GET") && !allowedMethods.count("HEAD")) {
+                            allowHeader += ", HEAD";
+                        }
+                        appReply(client, 405, "{\"error\":\"Method Not Allowed\"}", "", "", head, "application/json; charset=utf-8", "Allow: " + allowHeader);
+                    } else {
+                        bool authOk = true;
+                        if (!matchedMethodRoute->authSecretEnv.empty()) {
+                            const char* secret = std::getenv(matchedMethodRoute->authSecretEnv.c_str());
+                            std::string expectedSecret = (secret && *secret) ? secret : "";
+                            std::string authVal = req.authorization;
+                            if (authVal.rfind("Bearer ", 0) == 0 || authVal.rfind("bearer ", 0) == 0) {
+                                authVal = authVal.substr(7);
+                            }
+                            while (!authVal.empty() && (authVal.front() == ' ' || authVal.front() == '\t')) authVal.erase(authVal.begin());
+                            while (!authVal.empty() && (authVal.back() == ' ' || authVal.back() == '\t')) authVal.pop_back();
+
+                            if (expectedSecret.empty() || authVal != expectedSecret) {
+                                authOk = false;
+                            }
+                        }
+
+                        if (!authOk) {
+                            appReply(client, 401, "{\"error\":\"Unauthorized\"}", "", "", head, "application/json; charset=utf-8");
+                        } else {
+                            bool jsonOk = true;
+                            if ((req.method == "POST" || req.method == "PUT" || req.method == "PATCH") && !req.body.empty()) {
+                                std::map<std::string, std::string> bodyParams;
+                                if (!parseJsonBody(req.body, bodyParams)) {
+                                    jsonOk = false;
+                                } else {
+                                    apiParams.insert(bodyParams.begin(), bodyParams.end());
+                                }
+                            }
+
+                            if (!jsonOk) {
+                                appReply(client, 400, "{\"error\":\"Invalid JSON body\"}", "", "", head, "application/json; charset=utf-8");
+                            } else {
+                                std::string jsonContent = "{}";
+                                if (!matchedMethodRoute->nodes.empty()) {
+                                    const auto& n = matchedMethodRoute->nodes.front();
+                                    if (n.kind == "json" || n.tag == "json") {
+                                        if (n.jsonVal.type == JsonType::Object) {
+                                            jsonContent = renderJsonValue(n.jsonVal, apiParams, app.project.globals);
+                                        } else {
+                                            jsonContent = "{";
+                                            bool first = true;
+                                            for (const auto& attr : n.attrs) {
+                                                if (!first) jsonContent += ",";
+                                                first = false;
+                                                const auto val = evaluate(attr.second, apiParams, app.project.globals);
+                                                jsonContent += "\"" + attr.first + "\":\"" + escapeJson(val) + "\"";
+                                            }
+                                            jsonContent += "}";
+                                        }
+                                    }
+                                }
+                                appReply(client, 200, jsonContent, "", "", head, "application/json; charset=utf-8");
+                            }
+                        }
+                    }
+                } else {
+                    const auto page=matchAppRoute(app.project,path);
+                    if(!page.nodes) {
+                        const auto content=app.project.hasFallback?
+                            htmlPage(app.project.hasLayout?
+                                render(app.project.layout,app.project,{},0,&app.project.fallback):
+                                render(app.project.fallback,app.project),"/theme.css"):"Page not found";
+                        appReply(client,404,content,"","",head);
+                    } else if(!page.nodes->empty() && (page.nodes->front().kind=="json" || page.nodes->front().tag=="json")) {
+                        const auto& jsonNode=page.nodes->front();
+                        std::string jsonContent="{}";
+                        if(jsonNode.jsonVal.type == JsonType::Object) {
+                            jsonContent = renderJsonValue(jsonNode.jsonVal, page.params, app.project.globals);
+                        } else {
+                            jsonContent="{";
+                            bool first=true;
+                            for(const auto& attr:jsonNode.attrs) {
+                                if(!first)jsonContent+=",";
+                                first=false;
+                                const auto val=evaluate(attr.second,page.params,app.project.globals);
+                                jsonContent+="\""+attr.first+"\":\""+escapeJson(val)+"\"";
+                            }
+                            jsonContent+="}";
+                        }
+                        appReply(client,200,jsonContent,"","",head,"application/json; charset=utf-8");
+                    } else if(req.method=="POST") {
                     std::lock_guard<std::mutex> locked(stateGuard);
                     const auto sid=getSid(req.cookie);
 #if defined(NOQERI_WEB_SQLITE)
@@ -1205,6 +1509,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                 }
             }
             }
+            }
         } catch(const RequestTooLarge&) {
             appReply(client,413,"Payload Too Large");
         } catch(const NativeDatabaseFailure&) {
@@ -1214,7 +1519,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
             std::cerr<<"noqeri-web request error: "<<e.what()<<"\n";
             appReply(client,400,"Bad Request");
         }
-        ::close(client);
+        drainAndClose(client);
         activeClients.fetch_sub(1);
         }).detach();
     }

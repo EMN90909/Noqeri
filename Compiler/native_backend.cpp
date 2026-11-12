@@ -1405,9 +1405,11 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             break;
         }if(a==ValueKind::String||b==ValueKind::String){diagnostics.error("NQR-N5002",{},"runtime string binary operations are not implemented yet");return false;}const auto operandKind=i.args[0]<fn.registerTypes.size()?
             fn.registerTypes[i.args[0]].kind:TypeKind::Unknown;
-        const bool unsign=isUnsigned(operandKind)||
-            (i.args[1]<fn.registerTypes.size()&&
-             isUnsigned(fn.registerTypes[i.args[1]].kind));
+        const bool unsign=isComparison(i.text) ?
+            (isUnsigned(operandKind)||
+             (i.args[1]<fn.registerTypes.size()&&
+              isUnsigned(fn.registerTypes[i.args[1]].kind))) :
+            isUnsigned(operandKind);
         // If a comparison feeds only the immediately following conditional
         // branch, emit one compare and a direct inverted jcc. Preserve NIR
         // short-circuit structure: RHS evaluation is never speculated.
