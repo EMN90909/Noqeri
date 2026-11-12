@@ -75,7 +75,14 @@ inline void drainAndClose(int fd) {
     tv.tv_usec = 50000;
     ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     char buf[2048];
-    while (::recv(fd, buf, sizeof(buf), 0) > 0) {}
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+    std::size_t totalBytes = 0;
+    constexpr std::size_t maxDrainBytes = 64 * 1024;
+    while (totalBytes < maxDrainBytes && std::chrono::steady_clock::now() < deadline) {
+        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) break;
+        totalBytes += static_cast<std::size_t>(n);
+    }
     ::close(fd);
 }
 std::string renderJsonValue(const JsonValue& jv,
@@ -123,140 +130,209 @@ std::string renderJsonValue(const JsonValue& jv,
     }
     return "null";
 }
-bool parseJsonBody(const std::string& body, std::map<std::string, std::string>& out) {
-    std::size_t i = 0;
-    auto skipWhitespace = [&]() {
-        while (i < body.size() && (body[i] == ' ' || body[i] == '\t' || body[i] == '\r' || body[i] == '\n')) {
-            ++i;
+struct JsonValidator {
+    const std::string& src;
+    std::size_t pos = 0;
+    int depth = 0;
+    static constexpr int maxDepth = 64;
+
+    void skipWs() {
+        while (pos < src.size() && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n')) {
+            ++pos;
         }
-    };
-    skipWhitespace();
-    if (i >= body.size() || body[i] != '{') return false;
-    ++i;
-    skipWhitespace();
-    if (i < body.size() && body[i] == '}') {
-        ++i;
-        skipWhitespace();
-        return i == body.size();
     }
 
-    auto parseString = [&](std::string& s) -> bool {
-        if (i >= body.size() || body[i] != '"') return false;
-        ++i;
-        s.clear();
-        while (i < body.size()) {
-            char c = body[i++];
+    bool parseString(std::string* outStr = nullptr) {
+        if (pos >= src.size() || src[pos] != '"') return false;
+        ++pos;
+        if (outStr) outStr->clear();
+        while (pos < src.size()) {
+            char c = src[pos++];
+            if (static_cast<unsigned char>(c) < 0x20) return false;
             if (c == '"') return true;
             if (c == '\\') {
-                if (i >= body.size()) return false;
-                char esc = body[i++];
-                if (esc == '"') s += '"';
-                else if (esc == '\\') s += '\\';
-                else if (esc == '/') s += '/';
-                else if (esc == 'b') s += '\b';
-                else if (esc == 'f') s += '\f';
-                else if (esc == 'n') s += '\n';
-                else if (esc == 'r') s += '\r';
-                else if (esc == 't') s += '\t';
+                if (pos >= src.size()) return false;
+                char esc = src[pos++];
+                if (esc == '"' || esc == '\\' || esc == '/') {
+                    if (outStr) *outStr += esc;
+                } else if (esc == 'b') { if (outStr) *outStr += '\b'; }
+                else if (esc == 'f') { if (outStr) *outStr += '\f'; }
+                else if (esc == 'n') { if (outStr) *outStr += '\n'; }
+                else if (esc == 'r') { if (outStr) *outStr += '\r'; }
+                else if (esc == 't') { if (outStr) *outStr += '\t'; }
                 else if (esc == 'u') {
-                    if (i + 4 > body.size()) return false;
+                    if (pos + 4 > src.size()) return false;
                     uint32_t cp = 0;
                     for (int k = 0; k < 4; ++k) {
-                        char ch = body[i++];
+                        char ch = src[pos++];
                         cp <<= 4;
                         if (ch >= '0' && ch <= '9') cp |= (ch - '0');
                         else if (ch >= 'a' && ch <= 'f') cp |= (ch - 'a' + 10);
                         else if (ch >= 'A' && ch <= 'F') cp |= (ch - 'A' + 10);
                         else return false;
                     }
-                    if (cp <= 0x7F) {
-                        s += static_cast<char>(cp);
-                    } else if (cp <= 0x7FF) {
-                        s += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
-                        s += static_cast<char>(0x80 | (cp & 0x3F));
-                    } else {
-                        s += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
-                        s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-                        s += static_cast<char>(0x80 | (cp & 0x3F));
+                    if (outStr) {
+                        if (cp <= 0x7F) {
+                            *outStr += static_cast<char>(cp);
+                        } else if (cp <= 0x7FF) {
+                            *outStr += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
+                            *outStr += static_cast<char>(0x80 | (cp & 0x3F));
+                        } else {
+                            *outStr += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+                            *outStr += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                            *outStr += static_cast<char>(0x80 | (cp & 0x3F));
+                        }
                     }
                 } else return false;
             } else {
-                s += c;
+                if (outStr) *outStr += c;
             }
-        }
-        return false;
-    };
-
-    auto skipBalanced = [&](char openCh, char closeCh) -> bool {
-        int depth = 1;
-        ++i;
-        bool inStr = false;
-        while (i < body.size() && depth > 0) {
-            char c = body[i++];
-            if (inStr) {
-                if (c == '\\' && i < body.size()) ++i;
-                else if (c == '"') inStr = false;
-            } else {
-                if (c == '"') inStr = true;
-                else if (c == openCh) ++depth;
-                else if (c == closeCh) --depth;
-            }
-        }
-        return depth == 0;
-    };
-
-    while (i < body.size()) {
-        skipWhitespace();
-        std::string key;
-        if (!parseString(key)) return false;
-        skipWhitespace();
-        if (i >= body.size() || body[i] != ':') return false;
-        ++i;
-        skipWhitespace();
-        if (i >= body.size()) return false;
-
-        std::string val;
-        if (body[i] == '"') {
-            if (!parseString(val)) return false;
-        } else if (body[i] == '{') {
-            size_t start = i;
-            if (!skipBalanced('{', '}')) return false;
-            val = body.substr(start, i - start);
-        } else if (body[i] == '[') {
-            size_t start = i;
-            if (!skipBalanced('[', ']')) return false;
-            val = body.substr(start, i - start);
-        } else {
-            size_t start = i;
-            while (i < body.size() && body[i] != ',' && body[i] != '}' && !std::isspace(static_cast<unsigned char>(body[i]))) {
-                ++i;
-            }
-            val = body.substr(start, i - start);
-            if (val != "true" && val != "false" && val != "null") {
-                char* endp = nullptr;
-                std::strtod(val.c_str(), &endp);
-                if (!endp || *endp != '\0') return false;
-            }
-        }
-        out[key] = val;
-        out["body." + key] = val;
-        out["params." + key] = val;
-
-        skipWhitespace();
-        if (i >= body.size()) return false;
-        if (body[i] == ',') {
-            ++i;
-            skipWhitespace();
-            continue;
-        }
-        if (body[i] == '}') {
-            ++i;
-            break;
         }
         return false;
     }
-    skipWhitespace();
-    return i == body.size();
+
+    bool parseNumber(std::string* outNum = nullptr) {
+        std::size_t start = pos;
+        if (pos < src.size() && src[pos] == '-') ++pos;
+        if (pos >= src.size()) return false;
+        if (src[pos] == '0') {
+            ++pos;
+        } else if (src[pos] >= '1' && src[pos] <= '9') {
+            while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') ++pos;
+        } else return false;
+
+        if (pos < src.size() && src[pos] == '.') {
+            ++pos;
+            if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') return false;
+            while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') ++pos;
+        }
+
+        if (pos < src.size() && (src[pos] == 'e' || src[pos] == 'E')) {
+            ++pos;
+            if (pos < src.size() && (src[pos] == '+' || src[pos] == '-')) ++pos;
+            if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') return false;
+            while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') ++pos;
+        }
+        if (outNum) *outNum = src.substr(start, pos - start);
+        return true;
+    }
+
+    bool parseValue(std::string* outVal = nullptr) {
+        skipWs();
+        if (pos >= src.size()) return false;
+        char c = src[pos];
+        if (c == '"') {
+            return parseString(outVal);
+        } else if (c == '{') {
+            std::size_t start = pos;
+            if (!parseObject(nullptr)) return false;
+            if (outVal) *outVal = src.substr(start, pos - start);
+            return true;
+        } else if (c == '[') {
+            std::size_t start = pos;
+            if (!parseArray()) return false;
+            if (outVal) *outVal = src.substr(start, pos - start);
+            return true;
+        } else if (c == 't') {
+            if (src.compare(pos, 4, "true") != 0) return false;
+            pos += 4;
+            if (outVal) *outVal = "true";
+            return true;
+        } else if (c == 'f') {
+            if (src.compare(pos, 5, "false") != 0) return false;
+            pos += 5;
+            if (outVal) *outVal = "false";
+            return true;
+        } else if (c == 'n') {
+            if (src.compare(pos, 4, "null") != 0) return false;
+            pos += 4;
+            if (outVal) *outVal = "null";
+            return true;
+        } else if (c == '-' || (c >= '0' && c <= '9')) {
+            return parseNumber(outVal);
+        }
+        return false;
+    }
+
+    bool parseArray() {
+        if (++depth > maxDepth) return false;
+        if (pos >= src.size() || src[pos] != '[') return false;
+        ++pos;
+        skipWs();
+        if (pos < src.size() && src[pos] == ']') {
+            ++pos;
+            --depth;
+            return true;
+        }
+        while (pos < src.size()) {
+            if (!parseValue(nullptr)) return false;
+            skipWs();
+            if (pos >= src.size()) return false;
+            if (src[pos] == ',') {
+                ++pos;
+                skipWs();
+                continue;
+            }
+            if (src[pos] == ']') {
+                ++pos;
+                --depth;
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    bool parseObject(std::map<std::string, std::string>* topOut) {
+        if (++depth > maxDepth) return false;
+        if (pos >= src.size() || src[pos] != '{') return false;
+        ++pos;
+        skipWs();
+        if (pos < src.size() && src[pos] == '}') {
+            ++pos;
+            --depth;
+            return true;
+        }
+        while (pos < src.size()) {
+            skipWs();
+            std::string key;
+            if (!parseString(&key)) return false;
+            skipWs();
+            if (pos >= src.size() || src[pos] != ':') return false;
+            ++pos;
+            skipWs();
+            std::string val;
+            if (!parseValue(&val)) return false;
+            if (topOut) {
+                (*topOut)[key] = val;
+                (*topOut)["body." + key] = val;
+                (*topOut)["params." + key] = val;
+            }
+            skipWs();
+            if (pos >= src.size()) return false;
+            if (src[pos] == ',') {
+                ++pos;
+                skipWs();
+                continue;
+            }
+            if (src[pos] == '}') {
+                ++pos;
+                --depth;
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+};
+
+inline bool parseJsonBody(const std::string& body, std::map<std::string, std::string>& out) {
+    if (body.empty() || body.size() > 1048576) return false;
+    JsonValidator v{body};
+    v.skipWs();
+    if (!v.parseObject(&out)) return false;
+    v.skipWs();
+    return v.pos == body.size();
 }
 void loadPersisted(AppStore& store) {
     for (const auto& name:store.project.persistentState)
@@ -1239,15 +1315,17 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                         if (!matchedMethodRoute->authSecretEnv.empty()) {
                             const char* secret = std::getenv(matchedMethodRoute->authSecretEnv.c_str());
                             std::string expectedSecret = (secret && *secret) ? secret : "";
-                            std::string authVal = req.authorization;
-                            if (authVal.rfind("Bearer ", 0) == 0 || authVal.rfind("bearer ", 0) == 0) {
-                                authVal = authVal.substr(7);
-                            }
-                            while (!authVal.empty() && (authVal.front() == ' ' || authVal.front() == '\t')) authVal.erase(authVal.begin());
-                            while (!authVal.empty() && (authVal.back() == ' ' || authVal.back() == '\t')) authVal.pop_back();
-
-                            if (expectedSecret.empty() || authVal != expectedSecret) {
+                            if (expectedSecret.empty() || expectedSecret.size() < 16) {
                                 authOk = false;
+                            } else if (req.authorization.rfind("Bearer ", 0) != 0) {
+                                authOk = false;
+                            } else {
+                                std::string authVal = req.authorization.substr(7);
+                                while (!authVal.empty() && (authVal.front() == ' ' || authVal.front() == '\t')) authVal.erase(authVal.begin());
+                                while (!authVal.empty() && (authVal.back() == ' ' || authVal.back() == '\t')) authVal.pop_back();
+                                if (!constantTimeEquals(authVal, expectedSecret)) {
+                                    authOk = false;
+                                }
                             }
                         }
 

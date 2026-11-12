@@ -79,6 +79,8 @@ def test_rest_api_server(binary_cmd):
         # 5. Test POST /users with invalid JSON body -> 400 Bad Request
         status, headers, body = request(port, "POST", "/users", payload="{'invalid': json}", headers={"Content-Type": "application/json"})
         assert status == 400, f"Expected 400 Bad Request for invalid JSON, got {status}"
+        status, headers, body = request(port, "POST", "/users", payload='{"name": [not json]}', headers={"Content-Type": "application/json"})
+        assert status == 400, f"Expected 400 Bad Request for malformed nested JSON, got {status}"
 
         # 6. Test route-specific authorization
         # 6a. Missing auth token -> 401
@@ -89,7 +91,11 @@ def test_rest_api_server(binary_cmd):
         status, _, _ = request(port, "GET", "/secret", headers={"Authorization": "Bearer wrong_secret"})
         assert status == 401, f"Expected 401 Unauthorized, got {status}"
 
-        # 6c. Correct auth token -> 200
+        # 6c. Missing strict Bearer prefix -> 401
+        status, _, _ = request(port, "GET", "/secret", headers={"Authorization": "secret_token_123"})
+        assert status == 401, f"Expected 401 Unauthorized for missing Bearer prefix, got {status}"
+
+        # 6d. Correct auth token with Bearer prefix -> 200
         status, _, body = request(port, "GET", "/secret", headers={"Authorization": "Bearer secret_token_123"})
         assert status == 200, f"Expected 200 OK, got {status}"
         parsed = json.loads(body)

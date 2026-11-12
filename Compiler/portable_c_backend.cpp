@@ -236,17 +236,26 @@ bool emitFunction(std::ostream& out,const NirFunction& fn,
         out<<"L"<<pc<<":;\n";
         switch(in.op){
         case NirOp::Const:
-            if(auto v=std::get_if<std::int64_t>(&in.literal))
-                out<<" "<<dst<<"=UINT64_C("<<static_cast<std::uint64_t>(*v)<<");\n";
-            else if(auto v=std::get_if<bool>(&in.literal))
-                out<<" "<<dst<<"=UINT64_C("<<(*v?1:0)<<");\n";
-            else if(auto v=std::get_if<double>(&in.literal))
-                out<<" "<<dst<<"=nq_bits("<<std::setprecision(17)<<*v<<");\n";
-            else if(auto v=std::get_if<std::string>(&in.literal)){
-                if(v->find('\0')!=std::string::npos){
-                    diagnostics.error("NQR-C8205",{},"portable native strings cannot contain embedded NUL bytes");return false;
+            if(in.dest&&*in.dest<fn.registerTypes.size()&&fn.registerTypes[*in.dest].kind==TypeKind::Float){
+                if(auto v=std::get_if<double>(&in.literal))
+                    out<<" "<<dst<<"=nq_bits("<<std::setprecision(17)<<*v<<");\n";
+                else if(auto v=std::get_if<std::int64_t>(&in.literal))
+                    out<<" "<<dst<<"=nq_bits((double)"<<*v<<");\n";
+                else if(auto v=std::get_if<bool>(&in.literal))
+                    out<<" "<<dst<<"=nq_bits("<<(*v?"1.0":"0.0")<<");\n";
+            }else{
+                if(auto v=std::get_if<std::int64_t>(&in.literal))
+                    out<<" "<<dst<<"=UINT64_C("<<static_cast<std::uint64_t>(*v)<<");\n";
+                else if(auto v=std::get_if<bool>(&in.literal))
+                    out<<" "<<dst<<"=UINT64_C("<<(*v?1:0)<<");\n";
+                else if(auto v=std::get_if<double>(&in.literal))
+                    out<<" "<<dst<<"=nq_bits("<<std::setprecision(17)<<*v<<");\n";
+                else if(auto v=std::get_if<std::string>(&in.literal)){
+                    if(v->find('\0')!=std::string::npos){
+                        diagnostics.error("NQR-C8205",{},"portable native strings cannot contain embedded NUL bytes");return false;
+                    }
+                    out<<" "<<dst<<"=(uint64_t)(uintptr_t)"<<quote(*v)<<";\n";
                 }
-                out<<" "<<dst<<"=(uint64_t)(uintptr_t)"<<quote(*v)<<";\n";
             }
             break;
         case NirOp::Store:out<<" v["<<vars.at(in.text)<<"]="<<lhs<<";\n";break;

@@ -985,17 +985,19 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         const auto& pointer=fn.code[defPc];
         if(pointer.width!=8||!fixedStackAddress(pointer))continue;
         bool allMemoryUses=true;
+        std::size_t uses=0;
         for(std::size_t u=defPc+1;u<fn.code.size();++u){
-            for(Reg arg:fn.code[u].args){
-                if(arg==reg){
-                    if(fn.code[u].op!=NirOp::LoadMemory&&fn.code[u].op!=NirOp::StoreMemory){
+            for(std::size_t argIdx=0;argIdx<fn.code[u].args.size();++argIdx){
+                if(fn.code[u].args[argIdx]==reg){
+                    ++uses;
+                    if((fn.code[u].op!=NirOp::LoadMemory&&fn.code[u].op!=NirOp::StoreMemory)||argIdx!=0||fn.code[u].width!=8){
                         allMemoryUses=false;break;
                     }
                 }
             }
             if(!allMemoryUses)break;
         }
-        if(allMemoryUses)fusedPointers.insert(defPc);
+        if(allMemoryUses&&uses>0)fusedPointers.insert(defPc);
     }
     std::vector<std::string> coldTrapLabels;
     std::vector<std::string> coldBoundsTrapLabels;

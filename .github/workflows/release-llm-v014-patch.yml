@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_WEB_SQL_DRIVERS=OFF
-          cmake --build build-ai --config Release --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test --parallel 2
+          cmake --build build-ai --config Release --target noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi noqeri_owned_collections noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test --parallel 2
       - name: Qualify training, prediction, agent tools and typed Noqeri modules
         shell: bash
         env:

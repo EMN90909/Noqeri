@@ -115,6 +115,7 @@ std::optional<SourceSelection> selectSource(int argc, char** argv, Diagnostics& 
 bool isIgnoredDirectory(const std::filesystem::path& path) {
     const auto name = path.filename().string();
     return name == ".git" || name == ".github" || name == ".vs" || name == "build" ||
+           name.rfind("build", 0) == 0 ||
            name == "out" || name == "dist" || name == "node_modules" || name == ".cache";
 }
 

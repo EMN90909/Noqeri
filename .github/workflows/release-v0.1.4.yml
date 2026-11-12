@@ -52,8 +52,8 @@ jobs:
           cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
             -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_ENABLE_SDL2=OFF
           # All installed runtime targets must be built before cmake --install.
-          cmake --build build-release --target noqeri noqeri-nqri noqeri-web noqeri-ai \
-            noqeri_graphics_fastpath noqeri-websocket-frame-test --parallel 2
+          cmake --build build-release --target noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi \
+            noqeri_owned_collections noqeri-ai noqeri_graphics_fastpath noqeri-websocket-frame-test --parallel 2
       - name: Test compiler, VM and native WebSocket frames
         shell: bash
         run: |
@@ -81,6 +81,7 @@ jobs:
           test -s stage/bin/noqeri
           test -s stage/bin/noqeri-web
           test -s stage/bin/noqeri-nqri
+          test -s stage/bin/noqeri-pkg
           test -s stage/bin/noqeri-ai
           test -s stage/share/noqeri/licenses/Apache-2.0.txt
           test -s stage/share/noqeri/LICENSE

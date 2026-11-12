@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <cstring>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <unordered_map>
@@ -42,6 +43,57 @@ std::int64_t typedArithmetic(std::uint64_t bits,TypeKind kind){
     bits&=mask;
     if(sign&&(bits&(std::uint64_t{1}<<(width-1))))bits|=~mask;
     return wrapped(bits);
+}
+
+std::optional<NirValue> foldCast(const NirValue& v, TypeKind targetKind, TypeKind sourceKind) {
+    if (targetKind == TypeKind::Unknown) return std::nullopt;
+    if (targetKind == TypeKind::Float) {
+        if (auto n = std::get_if<std::int64_t>(&v)) {
+            if (unsignedType(sourceKind)) {
+                return NirValue(static_cast<double>(static_cast<std::uint64_t>(*n)));
+            } else {
+                return NirValue(static_cast<double>(*n));
+            }
+        }
+        if (auto f = std::get_if<double>(&v)) {
+            return NirValue(*f);
+        }
+        if (auto b = std::get_if<bool>(&v)) {
+            return NirValue(*b ? 1.0 : 0.0);
+        }
+    } else if (targetKind == TypeKind::Bool) {
+        if (auto n = std::get_if<std::int64_t>(&v)) return NirValue(*n != 0);
+        if (auto f = std::get_if<double>(&v)) return NirValue(*f != 0.0);
+        if (auto b = std::get_if<bool>(&v)) return NirValue(*b);
+    } else if (unsignedType(targetKind) || signedIndexType(targetKind) || targetKind == TypeKind::Pointer) {
+        if (auto f = std::get_if<double>(&v)) {
+            int width = 64;
+            switch (targetKind) {
+                case TypeKind::U8: case TypeKind::I8: width = 8; break;
+                case TypeKind::U16: case TypeKind::I16: width = 16; break;
+                case TypeKind::U32: case TypeKind::I32: width = 32; break;
+                default: width = 64; break;
+            }
+            const bool unsignedTarget = unsignedType(targetKind);
+            const long double truncated = std::trunc(static_cast<long double>(*f));
+            const long double lower = unsignedTarget ? 0.0L : -std::ldexp(1.0L, width - 1);
+            const long double upper = std::ldexp(1.0L, unsignedTarget ? width : width - 1);
+            if (!std::isfinite(*f) || truncated < lower || truncated >= upper) {
+                return std::nullopt;
+            }
+            const std::uint64_t bits = unsignedTarget
+                ? static_cast<std::uint64_t>(truncated)
+                : static_cast<std::uint64_t>(static_cast<std::int64_t>(truncated));
+            return NirValue(typedArithmetic(bits, targetKind));
+        }
+        if (auto n = std::get_if<std::int64_t>(&v)) {
+            return NirValue(typedArithmetic(static_cast<std::uint64_t>(*n), targetKind));
+        }
+        if (auto b = std::get_if<bool>(&v)) {
+            return NirValue(typedArithmetic(*b ? 1 : 0, targetKind));
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<NirValue>fold(const std::string&op,const NirValue&a,const NirValue&b,TypeKind operand=TypeKind::Int){
@@ -86,12 +138,13 @@ bool constants(NirFunction&fn){
         if(index!=0&&leaders.count(index))known.clear();
         auto&i=fn.code[index];
         if(i.op==NirOp::Const&&i.dest){known[*i.dest]=i.literal;continue;}
-        if(i.op==NirOp::Cast&&i.dest&&i.args.size()==1&&i.type.kind!=TypeKind::Unknown){
+        if(i.op==NirOp::Cast&&i.dest&&i.args.size()==1){
             auto a=known.find(i.args[0]);
             if(a!=known.end()){
-                if(auto val=std::get_if<std::int64_t>(&a->second)){
-                    auto res=typedArithmetic(static_cast<std::uint64_t>(*val), i.type.kind);
-                    i.op=NirOp::Const;i.literal=res;i.text.clear();i.args.clear();known[*i.dest]=res;changed=true;continue;
+                const auto targetKind=i.type.kind!=TypeKind::Unknown?i.type.kind:operandType(fn,*i.dest);
+                const auto srcKind=operandType(fn,i.args[0]);
+                if(auto res=foldCast(a->second,targetKind,srcKind)){
+                    i.op=NirOp::Const;i.literal=*res;i.text.clear();i.args.clear();known[*i.dest]=*res;changed=true;continue;
                 }
             }
         }
@@ -603,11 +656,12 @@ bool sparseConstants(NirFunction& fn) {
             const auto lhs=facts.find(in.args[0]),rhs=facts.find(in.args[1]);
             if(lhs!=facts.end()&&rhs!=facts.end())
                 result=fold(in.text,lhs->second,rhs->second,operandType(fn,in.args[0]));
-        }else if(in.op==NirOp::Cast&&in.args.size()==1){
+        }else if(in.op==NirOp::Cast&&in.args.size()==1&&in.dest){
             const auto a=facts.find(in.args[0]);
             if(a!=facts.end()){
-                if(auto val=std::get_if<std::int64_t>(&a->second))
-                    result=NirValue(typedArithmetic(static_cast<std::uint64_t>(*val), in.type.kind));
+                const auto targetKind=in.type.kind!=TypeKind::Unknown?in.type.kind:operandType(fn,*in.dest);
+                const auto srcKind=operandType(fn,in.args[0]);
+                result=foldCast(a->second,targetKind,srcKind);
             }
         }else if(in.op==NirOp::Unary&&in.args.size()==1){
             const auto a=facts.find(in.args[0]);

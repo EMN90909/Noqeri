@@ -328,10 +328,10 @@ if(NOQERI_GRAPHICS_PORTABLE_BUILD)
  # The portable profile deliberately omits Linux-specific mailbox/PGAS services,
  # but its installed SDK must still contain the bytecode VM, public headers,
  # and Noqeri-owned standard/runtime source modules.
- install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
- install(TARGETS noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
- install(TARGETS noqeri_owned_collections ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+ install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL)
+ install(TARGETS noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
+ install(TARGETS noqeri_owned_collections ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
  install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri
   FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
  foreach(component IN ITEMS Lib Modules Objects Database Runtime Parser)
@@ -514,7 +514,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
-install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
 # Header installed through existing public include/noqeri rule.
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")

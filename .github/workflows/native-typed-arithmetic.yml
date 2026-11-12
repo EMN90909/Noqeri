@@ -305,7 +305,7 @@ jobs:
           node scripts/native-build.mjs tests/native_indexed_fusion.noqeri build-typed/indexed-O3 --compiler=build-typed/noqeri --opt=-O3 --keep-asm
           test "$(build-typed/indexed-O0)" = "30"
           test "$(build-typed/indexed-O3)" = "30"
-          grep -Fq 'QWORD PTR [rax + r11*8]' build-typed/indexed-O0.s
+          grep -Eq 'QWORD PTR \[(rax \+ r11\*8|rbp - [0-9]+ \+ [a-z0-9]+\*8)\]' build-typed/indexed-O0.s
       - name: Bounds proof and OOB trap preservation
         shell: bash
         run: |

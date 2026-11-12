@@ -12,10 +12,10 @@
 
 namespace {
 constexpr std::uint32_t guard=0xcafedeadu;
-void check(bool condition,const char* why) {
+[[maybe_unused]] void check(bool condition,const char* why) {
     if(!condition)throw std::runtime_error(why);
 }
-void checkFlat(std::size_t length,std::size_t offset,std::uint32_t color) {
+[[maybe_unused]] void checkFlat(std::size_t length,std::size_t offset,std::uint32_t color) {
     std::vector<std::uint32_t> pixels(length+offset+4,guard);
     check(nq_graphics_clear_argb32(pixels.data()+offset,length,color)==0,
           "valid contiguous clear failed");
@@ -23,8 +23,8 @@ void checkFlat(std::size_t length,std::size_t offset,std::uint32_t color) {
         check(pixels[i]==(i>=offset&&i-offset<length?color:guard),
               "contiguous clear changed padding or used wrong color");
 }
-void checkPitched(std::size_t width,std::size_t height,
-                  std::size_t pad,std::uint32_t color) {
+[[maybe_unused]] void checkPitched(std::size_t width,std::size_t height,
+                                  std::size_t pad,std::uint32_t color) {
     const std::size_t pitch=width+pad;
     std::vector<std::uint32_t> pixels(pitch*height+4,guard);
     check(nq_graphics_clear_rows_argb32(pixels.data(),pixels.size(),width,
@@ -76,6 +76,15 @@ int main() {
                     checkPitched(width,height,padding,0xffaabbccu);
                     ++cases;
                 }
+        // Full-frame 1080p and 4K max-boundary validation
+        checkFlat(1920u * 1080u, 0u, 0xff112233u);
+        ++cases;
+        checkFlat(1920u * 1080u, 3u, 0xffaabbccu);
+        ++cases;
+        checkPitched(1920u, 1080u, 64u, 0xff556677u);
+        ++cases;
+        checkFlat(4096u * 4096u, 0u, 0xdeadbeefu);
+        ++cases;
         std::printf("Noqeri portable graphics C ABI: PASS cases=%zu os=%s cpu=%s kernel=%s\n",
                     cases,os,arch,backend);
         return 0;
