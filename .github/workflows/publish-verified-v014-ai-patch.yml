@@ -43,7 +43,7 @@ jobs:
           done
           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq \
             'select(.isDraft==false and .isPrerelease==true) | .isPrerelease' | grep -Fx true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           run-id: 40325587839
           github-token: ${{ github.token }}

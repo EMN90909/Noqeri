@@ -312,7 +312,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download Stage-1 GCC candidate
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: noqeri-stage1-seed-${{ github.sha }}
           path: gcc-seed
