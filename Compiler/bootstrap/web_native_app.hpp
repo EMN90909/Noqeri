@@ -87,17 +87,23 @@ inline void drainAndClose(int fd) {
 }
 std::string renderJsonValue(const JsonValue& jv,
                             const std::map<std::string, std::string>& params,
-                            const std::map<std::string, std::string>& globals) {
+                            const std::map<std::string, std::string>& globals,
+                            const std::map<std::string, JsonValue>* typedParams = nullptr) {
     switch (jv.type) {
         case JsonType::String:
             return "\"" + escapeJson(jv.text) + "\"";
         case JsonType::Number:
-            return jv.text;
         case JsonType::Boolean:
             return jv.text;
         case JsonType::Null:
             return "null";
         case JsonType::Variable: {
+            if (typedParams) {
+                auto tit = typedParams->find(jv.text);
+                if (tit != typedParams->end()) {
+                    return renderJsonValue(tit->second, params, globals, nullptr);
+                }
+            }
             auto it = params.find(jv.text);
             if (it != params.end()) {
                 return "\"" + escapeJson(it->second) + "\"";
@@ -112,7 +118,7 @@ std::string renderJsonValue(const JsonValue& jv,
             std::string out = "[";
             for (size_t i = 0; i < jv.arrayItems.size(); ++i) {
                 if (i > 0) out += ",";
-                out += renderJsonValue(jv.arrayItems[i], params, globals);
+                out += renderJsonValue(jv.arrayItems[i], params, globals, typedParams);
             }
             out += "]";
             return out;
@@ -122,7 +128,7 @@ std::string renderJsonValue(const JsonValue& jv,
             for (size_t i = 0; i < jv.objectItems.size(); ++i) {
                 if (i > 0) out += ",";
                 out += "\"" + escapeJson(jv.objectItems[i].first) + "\":" +
-                       renderJsonValue(jv.objectItems[i].second, params, globals);
+                       renderJsonValue(jv.objectItems[i].second, params, globals, typedParams);
             }
             out += "}";
             return out;
@@ -130,15 +136,54 @@ std::string renderJsonValue(const JsonValue& jv,
     }
     return "null";
 }
+
 struct JsonValidator {
     const std::string& src;
     std::size_t pos = 0;
     int depth = 0;
     static constexpr int maxDepth = 64;
 
+    struct DepthGuard {
+        int& d;
+        explicit DepthGuard(int& depthRef) : d(depthRef) { ++d; }
+        ~DepthGuard() { --d; }
+    };
+
     void skipWs() {
         while (pos < src.size() && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n')) {
             ++pos;
+        }
+    }
+
+    bool parseHex4(uint32_t& cp) {
+        if (pos + 4 > src.size()) return false;
+        cp = 0;
+        for (int k = 0; k < 4; ++k) {
+            char ch = src[pos++];
+            cp <<= 4;
+            if (ch >= '0' && ch <= '9') cp |= static_cast<uint32_t>(ch - '0');
+            else if (ch >= 'a' && ch <= 'f') cp |= static_cast<uint32_t>(ch - 'a' + 10);
+            else if (ch >= 'A' && ch <= 'F') cp |= static_cast<uint32_t>(ch - 'A' + 10);
+            else return false;
+        }
+        return true;
+    }
+
+    static void appendUtf8(std::string& out, uint32_t cp) {
+        if (cp <= 0x7F) {
+            out += static_cast<char>(cp);
+        } else if (cp <= 0x7FF) {
+            out += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp <= 0xFFFF) {
+            out += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | ((cp >> 18) & 0x07));
+            out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
         }
     }
 
@@ -161,29 +206,25 @@ struct JsonValidator {
                 else if (esc == 'r') { if (outStr) *outStr += '\r'; }
                 else if (esc == 't') { if (outStr) *outStr += '\t'; }
                 else if (esc == 'u') {
-                    if (pos + 4 > src.size()) return false;
                     uint32_t cp = 0;
-                    for (int k = 0; k < 4; ++k) {
-                        char ch = src[pos++];
-                        cp <<= 4;
-                        if (ch >= '0' && ch <= '9') cp |= (ch - '0');
-                        else if (ch >= 'a' && ch <= 'f') cp |= (ch - 'a' + 10);
-                        else if (ch >= 'A' && ch <= 'F') cp |= (ch - 'A' + 10);
-                        else return false;
-                    }
-                    if (outStr) {
-                        if (cp <= 0x7F) {
-                            *outStr += static_cast<char>(cp);
-                        } else if (cp <= 0x7FF) {
-                            *outStr += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
-                            *outStr += static_cast<char>(0x80 | (cp & 0x3F));
-                        } else {
-                            *outStr += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
-                            *outStr += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-                            *outStr += static_cast<char>(0x80 | (cp & 0x3F));
+                    if (!parseHex4(cp)) return false;
+                    if (cp >= 0xD800 && cp <= 0xDBFF) {
+                        if (pos + 2 > src.size() || src[pos] != '\\' || src[pos + 1] != 'u') {
+                            return false;
                         }
+                        pos += 2;
+                        uint32_t low = 0;
+                        if (!parseHex4(low) || low < 0xDC00 || low > 0xDFFF) {
+                            return false;
+                        }
+                        cp = 0x10000u + (((cp - 0xD800u) << 10) | (low - 0xDC00u));
+                    } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                        return false;
                     }
-                } else return false;
+                    if (outStr) appendUtf8(*outStr, cp);
+                } else {
+                    return false;
+                }
             } else {
                 if (outStr) *outStr += c;
             }
@@ -217,55 +258,76 @@ struct JsonValidator {
         return true;
     }
 
-    bool parseValue(std::string* outVal = nullptr) {
+    bool parseValue(JsonValue* outVal = nullptr) {
         skipWs();
         if (pos >= src.size()) return false;
         char c = src[pos];
         if (c == '"') {
-            return parseString(outVal);
+            std::string s;
+            if (!parseString(outVal ? &s : nullptr)) return false;
+            if (outVal) {
+                outVal->type = JsonType::String;
+                outVal->text = std::move(s);
+            }
+            return true;
         } else if (c == '{') {
-            std::size_t start = pos;
-            if (!parseObject(nullptr)) return false;
-            if (outVal) *outVal = src.substr(start, pos - start);
-            return true;
+            return parseObject(nullptr, nullptr, outVal);
         } else if (c == '[') {
-            std::size_t start = pos;
-            if (!parseArray()) return false;
-            if (outVal) *outVal = src.substr(start, pos - start);
-            return true;
+            return parseArray(outVal);
         } else if (c == 't') {
             if (src.compare(pos, 4, "true") != 0) return false;
             pos += 4;
-            if (outVal) *outVal = "true";
+            if (outVal) {
+                outVal->type = JsonType::Boolean;
+                outVal->text = "true";
+            }
             return true;
         } else if (c == 'f') {
             if (src.compare(pos, 5, "false") != 0) return false;
             pos += 5;
-            if (outVal) *outVal = "false";
+            if (outVal) {
+                outVal->type = JsonType::Boolean;
+                outVal->text = "false";
+            }
             return true;
         } else if (c == 'n') {
             if (src.compare(pos, 4, "null") != 0) return false;
             pos += 4;
-            if (outVal) *outVal = "null";
+            if (outVal) {
+                outVal->type = JsonType::Null;
+                outVal->text = "null";
+            }
             return true;
         } else if (c == '-' || (c >= '0' && c <= '9')) {
-            return parseNumber(outVal);
+            std::string num;
+            if (!parseNumber(outVal ? &num : nullptr)) return false;
+            if (outVal) {
+                outVal->type = JsonType::Number;
+                outVal->text = std::move(num);
+            }
+            return true;
         }
         return false;
     }
 
-    bool parseArray() {
-        if (++depth > maxDepth) return false;
+    bool parseArray(JsonValue* outArr = nullptr) {
+        DepthGuard guard(depth);
+        if (depth > maxDepth) return false;
         if (pos >= src.size() || src[pos] != '[') return false;
         ++pos;
+        if (outArr) {
+            outArr->type = JsonType::Array;
+            outArr->arrayItems.clear();
+        }
         skipWs();
         if (pos < src.size() && src[pos] == ']') {
             ++pos;
-            --depth;
             return true;
         }
         while (pos < src.size()) {
-            if (!parseValue(nullptr)) return false;
+            JsonValue item;
+            if (!parseValue(outArr ? &item : nullptr)) return false;
+            if (outArr) outArr->arrayItems.push_back(std::move(item));
             skipWs();
             if (pos >= src.size()) return false;
             if (src[pos] == ',') {
@@ -275,7 +337,6 @@ struct JsonValidator {
             }
             if (src[pos] == ']') {
                 ++pos;
-                --depth;
                 return true;
             }
             return false;
@@ -283,14 +344,20 @@ struct JsonValidator {
         return false;
     }
 
-    bool parseObject(std::map<std::string, std::string>* topOut) {
-        if (++depth > maxDepth) return false;
+    bool parseObject(std::map<std::string, std::string>* topOut,
+                     std::map<std::string, JsonValue>* typedOut = nullptr,
+                     JsonValue* outObj = nullptr) {
+        DepthGuard guard(depth);
+        if (depth > maxDepth) return false;
         if (pos >= src.size() || src[pos] != '{') return false;
         ++pos;
+        if (outObj) {
+            outObj->type = JsonType::Object;
+            outObj->objectItems.clear();
+        }
         skipWs();
         if (pos < src.size() && src[pos] == '}') {
             ++pos;
-            --depth;
             return true;
         }
         while (pos < src.size()) {
@@ -301,12 +368,25 @@ struct JsonValidator {
             if (pos >= src.size() || src[pos] != ':') return false;
             ++pos;
             skipWs();
-            std::string val;
-            if (!parseValue(&val)) return false;
+            JsonValue val;
+            const bool needVal = (topOut != nullptr || typedOut != nullptr || outObj != nullptr);
+            if (!parseValue(needVal ? &val : nullptr)) return false;
             if (topOut) {
-                (*topOut)[key] = val;
-                (*topOut)["body." + key] = val;
-                (*topOut)["params." + key] = val;
+                const std::string flat = (val.type == JsonType::String || val.type == JsonType::Number ||
+                                          val.type == JsonType::Boolean || val.type == JsonType::Null)
+                                             ? val.text
+                                             : renderJsonValue(val, {}, {});
+                (*topOut)[key] = flat;
+                (*topOut)["body." + key] = flat;
+                (*topOut)["params." + key] = flat;
+            }
+            if (typedOut) {
+                (*typedOut)[key] = val;
+                (*typedOut)["body." + key] = val;
+                (*typedOut)["params." + key] = val;
+            }
+            if (outObj) {
+                outObj->objectItems.emplace_back(std::move(key), std::move(val));
             }
             skipWs();
             if (pos >= src.size()) return false;
@@ -317,7 +397,6 @@ struct JsonValidator {
             }
             if (src[pos] == '}') {
                 ++pos;
-                --depth;
                 return true;
             }
             return false;
@@ -326,13 +405,34 @@ struct JsonValidator {
     }
 };
 
-inline bool parseJsonBody(const std::string& body, std::map<std::string, std::string>& out) {
+inline bool parseJsonBody(const std::string& body,
+                          std::map<std::string, std::string>& out,
+                          std::map<std::string, JsonValue>* typedOut = nullptr) {
     if (body.empty() || body.size() > 1048576) return false;
     JsonValidator v{body};
     v.skipWs();
-    if (!v.parseObject(&out)) return false;
+    if (!v.parseObject(&out, typedOut)) return false;
     v.skipWs();
     return v.pos == body.size();
+}
+
+inline std::string renderJsonRouteNode(const Node& jsonNode,
+                                       const std::map<std::string, std::string>& params,
+                                       const std::map<std::string, std::string>& globals,
+                                       const std::map<std::string, JsonValue>* typedParams = nullptr) {
+    if (jsonNode.jsonVal.type == JsonType::Object) {
+        return renderJsonValue(jsonNode.jsonVal, params, globals, typedParams);
+    }
+    std::string jsonContent = "{";
+    bool first = true;
+    for (const auto& attr : jsonNode.attrs) {
+        if (!first) jsonContent += ",";
+        first = false;
+        const auto val = evaluate(attr.second, params, globals);
+        jsonContent += "\"" + attr.first + "\":\"" + escapeJson(val) + "\"";
+    }
+    jsonContent += "}";
+    return jsonContent;
 }
 void loadPersisted(AppStore& store) {
     for (const auto& name:store.project.persistentState)
@@ -1321,10 +1421,15 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                                 authOk = false;
                             } else {
                                 std::string authVal = req.authorization.substr(7);
-                                while (!authVal.empty() && (authVal.front() == ' ' || authVal.front() == '\t')) authVal.erase(authVal.begin());
-                                while (!authVal.empty() && (authVal.back() == ' ' || authVal.back() == '\t')) authVal.pop_back();
-                                if (!constantTimeEquals(authVal, expectedSecret)) {
+                                const auto firstChar = authVal.find_first_not_of(" \t");
+                                if (firstChar == std::string::npos) {
                                     authOk = false;
+                                } else {
+                                    const auto lastChar = authVal.find_last_not_of(" \t");
+                                    authVal = authVal.substr(firstChar, lastChar - firstChar + 1);
+                                    if (!constantTimeEquals(authVal, expectedSecret)) {
+                                        authOk = false;
+                                    }
                                 }
                             }
                         }
@@ -1333,9 +1438,10 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                             appReply(client, 401, "{\"error\":\"Unauthorized\"}", "", "", head, "application/json; charset=utf-8");
                         } else {
                             bool jsonOk = true;
+                            std::map<std::string, JsonValue> typedBodyParams;
                             if ((req.method == "POST" || req.method == "PUT" || req.method == "PATCH") && !req.body.empty()) {
                                 std::map<std::string, std::string> bodyParams;
-                                if (!parseJsonBody(req.body, bodyParams)) {
+                                if (!parseJsonBody(req.body, bodyParams, &typedBodyParams)) {
                                     jsonOk = false;
                                 } else {
                                     apiParams.insert(bodyParams.begin(), bodyParams.end());
@@ -1349,19 +1455,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                                 if (!matchedMethodRoute->nodes.empty()) {
                                     const auto& n = matchedMethodRoute->nodes.front();
                                     if (n.kind == "json" || n.tag == "json") {
-                                        if (n.jsonVal.type == JsonType::Object) {
-                                            jsonContent = renderJsonValue(n.jsonVal, apiParams, app.project.globals);
-                                        } else {
-                                            jsonContent = "{";
-                                            bool first = true;
-                                            for (const auto& attr : n.attrs) {
-                                                if (!first) jsonContent += ",";
-                                                first = false;
-                                                const auto val = evaluate(attr.second, apiParams, app.project.globals);
-                                                jsonContent += "\"" + attr.first + "\":\"" + escapeJson(val) + "\"";
-                                            }
-                                            jsonContent += "}";
-                                        }
+                                        jsonContent = renderJsonRouteNode(n, apiParams, app.project.globals, &typedBodyParams);
                                     }
                                 }
                                 appReply(client, 200, jsonContent, "", "", head, "application/json; charset=utf-8");
@@ -1377,21 +1471,7 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
                                 render(app.project.fallback,app.project),"/theme.css"):"Page not found";
                         appReply(client,404,content,"","",head);
                     } else if(!page.nodes->empty() && (page.nodes->front().kind=="json" || page.nodes->front().tag=="json")) {
-                        const auto& jsonNode=page.nodes->front();
-                        std::string jsonContent="{}";
-                        if(jsonNode.jsonVal.type == JsonType::Object) {
-                            jsonContent = renderJsonValue(jsonNode.jsonVal, page.params, app.project.globals);
-                        } else {
-                            jsonContent="{";
-                            bool first=true;
-                            for(const auto& attr:jsonNode.attrs) {
-                                if(!first)jsonContent+=",";
-                                first=false;
-                                const auto val=evaluate(attr.second,page.params,app.project.globals);
-                                jsonContent+="\""+attr.first+"\":\""+escapeJson(val)+"\"";
-                            }
-                            jsonContent+="}";
-                        }
+                        const std::string jsonContent = renderJsonRouteNode(page.nodes->front(), page.params, app.project.globals);
                         appReply(client,200,jsonContent,"","",head,"application/json; charset=utf-8");
                     } else if(req.method=="POST") {
                     std::lock_guard<std::mutex> locked(stateGuard);

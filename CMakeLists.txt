@@ -64,8 +64,20 @@ option(NOQERI_AI_OPENCL "Enable OpenCL GPU-backed framework GEMM" ON)
 if(NOQERI_AI_OPENCL)
  find_package(OpenCL QUIET)
  if(OpenCL_FOUND)
-  target_link_libraries(noqeri_ai PRIVATE OpenCL::OpenCL)
-  target_compile_definitions(noqeri_ai PRIVATE NQAI_HAVE_OPENCL=1)
+  include(CheckIncludeFileCXX)
+  set(CMAKE_REQUIRED_INCLUDES ${OpenCL_INCLUDE_DIRS})
+  if(APPLE)
+   check_include_file_cxx("OpenCL/opencl.h" NOQERI_OPENCL_HEADER_FOUND)
+  else()
+   check_include_file_cxx("CL/cl.h" NOQERI_OPENCL_HEADER_FOUND)
+  endif()
+  unset(CMAKE_REQUIRED_INCLUDES)
+  if(NOQERI_OPENCL_HEADER_FOUND)
+   target_link_libraries(noqeri_ai PRIVATE OpenCL::OpenCL)
+   target_compile_definitions(noqeri_ai PRIVATE NQAI_HAVE_OPENCL=1)
+  else()
+   message(STATUS "Noqeri AI: OpenCL headers unavailable, building CPU-only backend")
+  endif()
  endif()
 endif()
 
@@ -308,9 +320,10 @@ if(NOQERI_ENABLE_SDL2)
  endif()
 endif()
 
-# Optional AI CLI/library are not required for the lightweight portable SDK.
-# Avoid installing unbuilt AI binaries in the release matrix.
-if(NOT NOQERI_GRAPHICS_PORTABLE_BUILD)
+# Optional AI CLI/library are not required for the lightweight core SDK.
+# Enable NOQERI_INSTALL_AI=ON for AI/LLM add-on distributions and full previews.
+option(NOQERI_INSTALL_AI "Install Noqeri AI runtime CLI and static library" OFF)
+if(NOT NOQERI_GRAPHICS_PORTABLE_BUILD OR NOQERI_INSTALL_AI)
  install(TARGETS noqeri-ai RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
  install(TARGETS noqeri_ai ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
@@ -328,10 +341,10 @@ if(NOQERI_GRAPHICS_PORTABLE_BUILD)
  # The portable profile deliberately omits Linux-specific mailbox/PGAS services,
  # but its installed SDK must still contain the bytecode VM, public headers,
  # and Noqeri-owned standard/runtime source modules.
- install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL)
- install(TARGETS noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
- install(TARGETS noqeri_owned_collections ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
+ install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+ install(TARGETS noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+ install(TARGETS noqeri_owned_collections ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
  install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri
   FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
  foreach(component IN ITEMS Lib Modules Objects Database Runtime Parser)
@@ -514,7 +527,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME noqeri-mailbox-tls COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run-mailbox-tls.sh $<TARGET_FILE:noqeri-mailbox-tls-test>)
  endif()
 endif()
-install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} OPTIONAL LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
+install(TARGETS noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Header installed through existing public include/noqeri rule.
 install(DIRECTORY Include/noqeri/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/noqeri FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
 install(DIRECTORY Lib/ DESTINATION ${CMAKE_INSTALL_DATADIR}/noqeri/Lib FILES_MATCHING PATTERN "*.noqeri")

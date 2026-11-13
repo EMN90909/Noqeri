@@ -90,7 +90,8 @@ def extract_sdk(archive, target, dest):
     exe="noqeri.exe" if target.startswith("windows-") else "noqeri"
     compiler=stage/"bin"/exe
     vm=stage/"bin"/("noqeri-nqri.exe" if target.startswith("windows-") else "noqeri-nqri")
-    pkg=stage/"bin"/("noqeri-pkg.exe" if target.startswith("windows-") else "noqeri-pkg")
+    pkg_name="noqeri-pkg.exe" if target.startswith("windows-") else "noqeri-pkg"
+    pkg=stage/"bin"/pkg_name
     if not compiler.is_file() or not vm.is_file():
         fail("SDK archive missing real compiler or NQRI virtual machine")
     if not (stage/"share/noqeri/Lib").is_dir():
@@ -99,7 +100,7 @@ def extract_sdk(archive, target, dest):
         fail("SDK archive missing public C/C++ ABI headers")
     # Reject partial archives: releases must install all five SDK components.
     web = "noqeri-web.exe" if target.startswith("windows-") else "noqeri-web"
-    required = ("bin/" + web, "bin/" + pkg,
+    required = ("bin/" + web, "bin/" + pkg_name,
                 "share/noqeri/Lib/std/string.noqeri",
                 "share/noqeri/Lib/std/file.noqeri",
                 "share/noqeri/Lib/std/http.noqeri",

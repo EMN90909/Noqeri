@@ -64,14 +64,12 @@ void compare(const char* scene,std::size_t w,std::size_t h,std::size_t cell,
         expected=referenceClear(reference.data(),actualLength);
         got=nqRenderClear(&pixels,0xff345678u)!=0;
     }
-    if(got!=expected)
-        throw std::runtime_error(std::string(scene)+" returned wrong status w="+
-            std::to_string(w)+" h="+std::to_string(h)+" cell="+std::to_string(cell));
+    require(got == expected, std::string(scene) + " returned wrong status w=" +
+        std::to_string(w) + " h=" + std::to_string(h) + " cell=" + std::to_string(cell));
     for(std::size_t i=0;i<allocated;i++)
-        if(nq[i]!=reference[i])
-            throw std::runtime_error(std::string(scene)+" differs at pixel "+std::to_string(i)+
-                " w="+std::to_string(w)+" h="+std::to_string(h)+
-                " cell="+std::to_string(cell));
+        require(nq[i] == reference[i], std::string(scene) + " differs at pixel " + std::to_string(i) +
+            " w=" + std::to_string(w) + " h=" + std::to_string(h) +
+            " cell=" + std::to_string(cell));
 }
 void correctness() {
     const std::array<std::size_t,15> dims{0,1,2,3,7,15,31,63,64,65,127,255,256,257,513};

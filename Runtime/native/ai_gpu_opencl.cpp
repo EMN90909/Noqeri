@@ -6,7 +6,11 @@
 #include <vector>
 #ifdef NQAI_HAVE_OPENCL
 #define CL_TARGET_OPENCL_VERSION 120
+#if defined(__APPLE__)
+#include <OpenCL/opencl.h>
+#else
 #include <CL/cl.h>
+#endif
 #endif
 namespace noqeri_ai::framework {
 #ifdef NQAI_HAVE_OPENCL

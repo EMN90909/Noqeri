@@ -76,11 +76,21 @@ def test_rest_api_server(binary_cmd):
         assert parsed.get("user") == "Alice", f"Expected user Alice, got {parsed}"
         assert parsed.get("created") is True, f"Expected created True, got {parsed}"
 
+        # 4b. Test POST /users with UTF-16 surrogate pair in JSON body -> decoded UTF-8 scalar
+        status, headers, body = request(port, "POST", "/users", payload='{"name": "Hi\\uD83D\\uDE00"}', headers={"Content-Type": "application/json"})
+        assert status == 200, f"Expected 200 for UTF-16 surrogate pair, got {status}"
+        parsed = json.loads(body)
+        assert parsed.get("user") == "Hi😀", f"Expected decoded surrogate pair 'Hi😀', got {parsed}"
+
         # 5. Test POST /users with invalid JSON body -> 400 Bad Request
         status, headers, body = request(port, "POST", "/users", payload="{'invalid': json}", headers={"Content-Type": "application/json"})
         assert status == 400, f"Expected 400 Bad Request for invalid JSON, got {status}"
         status, headers, body = request(port, "POST", "/users", payload='{"name": [not json]}', headers={"Content-Type": "application/json"})
         assert status == 400, f"Expected 400 Bad Request for malformed nested JSON, got {status}"
+        status, headers, body = request(port, "POST", "/users", payload='{"name": "\\uD83D"}', headers={"Content-Type": "application/json"})
+        assert status == 400, f"Expected 400 Bad Request for unpaired UTF-16 high surrogate, got {status}"
+        status, headers, body = request(port, "POST", "/users", payload='{"name": "\\uDE00"}', headers={"Content-Type": "application/json"})
+        assert status == 400, f"Expected 400 Bad Request for unpaired UTF-16 low surrogate, got {status}"
 
         # 6. Test route-specific authorization
         # 6a. Missing auth token -> 401
