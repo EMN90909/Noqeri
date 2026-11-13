@@ -22,7 +22,7 @@ try {
   await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));
   const port=probe.address().port;
   await new Promise(resolve=>probe.close(resolve));
-  staticServer=spawn('python3',['-m','http.server',String(port),'--bind','127.0.0.1',
+  staticServer=spawn('/usr/bin/python3',['-m','http.server',String(port),'--bind','127.0.0.1',
     '--directory',join(temp,'dist')],{stdio:['ignore','ignore','pipe']});
   const origin='http://127.0.0.1:'+port;
   for(let i=0;i<60;i++){

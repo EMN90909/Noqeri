@@ -9,14 +9,16 @@ import {join,resolve,sep} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {chromium} from 'playwright';
 
-const cwdRoot=resolve(process.cwd());
-const safeWorkspacePath=(arg,fallback)=>{
-  const candidate=resolve(arg||fallback);
-  if(candidate!==cwdRoot&&!candidate.startsWith(cwdRoot+sep))throw new Error('Path outside workspace: '+candidate);
-  return candidate;
-};
-const executable=safeWorkspacePath(process.argv[2],'./build/noqeri-web');
-const source=safeWorkspacePath(process.argv[3],'./examples/native_web_actions');
+const allowedExecutables=new Map([
+  ['./build/noqeri-web',resolve('./build/noqeri-web')],
+  ['./build-browser/noqeri-web',resolve('./build-browser/noqeri-web')]
+]);
+const allowedSources=new Map([
+  ['./examples/native_web_actions',resolve('./examples/native_web_actions')]
+]);
+const executable=allowedExecutables.get(process.argv[2]||'./build/noqeri-web');
+const source=allowedSources.get(process.argv[3]||'./examples/native_web_actions');
+if(!executable||!source)throw new Error('Unsupported reactive E2E executable or source path');
 const temp=await mkdtemp(join(tmpdir(),'noqeri-reactive-browser-'));
 const socket=createServer();
 await new Promise(resolve=>socket.listen(0,'127.0.0.1',resolve));

@@ -9,14 +9,16 @@ import { join, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { chromium } from 'playwright'
 
-const cwdRoot=resolve(process.cwd())
-const safeWorkspacePath=(arg,fallback)=>{
-  const candidate=resolve(arg || fallback)
-  if(candidate!==cwdRoot && !candidate.startsWith(cwdRoot+sep))throw new Error('Path outside workspace: '+candidate)
-  return candidate
-}
-const executable=safeWorkspacePath(process.argv[2],'./build/noqeri-web')
-const input=safeWorkspacePath(process.argv[3],'./examples/native_web_actions')
+const allowedExecutables=new Map([
+  ['./build/noqeri-web',resolve('./build/noqeri-web')],
+  ['./build-browser/noqeri-web',resolve('./build-browser/noqeri-web')]
+])
+const allowedInputs=new Map([
+  ['./examples/native_web_actions',resolve('./examples/native_web_actions')]
+])
+const executable=allowedExecutables.get(process.argv[2] || './build/noqeri-web')
+const input=allowedInputs.get(process.argv[3] || './examples/native_web_actions')
+if(!executable || !input)throw new Error('Unsupported E2E executable or input path')
 const root=await mkdtemp(join(tmpdir(),'noqeri-browser-e2e-'))
 async function freePort() {
   const s=createServer()

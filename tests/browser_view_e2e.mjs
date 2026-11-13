@@ -21,7 +21,7 @@ let server=null,browser=null;
 try {
   await buildWebProject({source,out:output});
   const root='http://127.0.0.1:'+port;
-  server=spawn('python3',['-m','http.server',String(port),'--bind','127.0.0.1',
+  server=spawn('/usr/bin/python3',['-m','http.server',String(port),'--bind','127.0.0.1',
     '--directory',output],{stdio:['ignore','ignore','pipe']});
   let logs='';
   server.stderr.on('data',data=>{if(logs.length<4000)logs+=data.toString()});

@@ -23,7 +23,7 @@ try{
  await new Promise(ok=>probe.listen(0,'127.0.0.1',ok));
  const port=probe.address().port;
  await new Promise(ok=>probe.close(ok));
- server=spawn('python3',['-m','http.server',String(port),'--bind','127.0.0.1',
+ server=spawn('/usr/bin/python3',['-m','http.server',String(port),'--bind','127.0.0.1',
    '--directory',output],{stdio:['ignore','ignore','pipe']});
  const origin='http://127.0.0.1:'+port;
  for(let i=0;i<60;i++){
