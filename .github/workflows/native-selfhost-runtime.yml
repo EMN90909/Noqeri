@@ -17,6 +17,7 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
+      - 'tests/selfhost_native_elf_smoke.noqeri'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -38,6 +39,7 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
+      - 'tests/selfhost_native_elf_smoke.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -156,6 +158,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $result = (& .\build-native\Release\noqeri-nqri.exe build-native\zero-init.nqri zeroInitCheck).Trim()
           if ($LASTEXITCODE -ne 0 -or $result -ne '10') { throw "zero-init NQRI check returned '$result'" }
+      - name: Verify Noqeri-owned ELF64 object emission subset (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check tests/selfhost_native_elf_smoke.noqeri
+          ./build-native/noqeri nqri tests/selfhost_native_elf_smoke.noqeri build-native/selfhost-native-elf-smoke.nqri
+          result=$(./build-native/noqeri-nqri build-native/selfhost-native-elf-smoke.nqri nativeElfObjectSmoke)
+          test "$result" = "0"
       - name: Verify bootstrap language compatibility (Linux)
         if: runner.os == 'Linux'
         shell: bash

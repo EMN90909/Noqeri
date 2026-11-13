@@ -1,6 +1,8 @@
 module noqeri.compiler.selfhost.elf_writer
 import "targets.noqeri"
 import "object_formats.noqeri"
+import "nir.noqeri"
+import "ast.noqeri"
 
 export function nqElfHeaderBytes64(): usize { return 64 as usize }
 export function nqElfSectionHeaderBytes64(): usize { return 64 as usize }
@@ -41,4 +43,92 @@ export function nqElfWriteHeader64(buffer: []u8, offset: usize, target: int, sec
 export function nqElfObjectHeaderSize(sections: usize): usize {
     if !nqElfSectionCountValid(sections) { return 0 as usize }
     return nqElfHeaderBytes64() + sections * nqElfSectionHeaderBytes64()
+}
+
+
+// Experimental Noqeri-owned native code generation (Linux x86-64, no calls).
+// This deliberately supports only one typed i64 constant and its return.
+// It is NOT sufficient for native compiler self-hosting: general NIR, ABI
+// lowering, relocations, and a native Stage-2/Stage-3 compiler are still absent.
+function nqElfWriteSigned64(buffer: []u8, offset: usize, value: i64): bool {
+    if !nqObjectRangeValid(buffer, offset, 8 as usize) { return false }
+    let remaining: i64 = value
+    let i: usize = 0 as usize
+    while i < 8 as usize {
+        let byte: i64 = remaining % 256 as i64
+        if byte < 0 as i64 { byte = byte + 256 as i64 }
+        buffer[offset + i] = byte as u8
+        remaining = (remaining - byte) / 256 as i64
+        i = i + 1 as usize
+    }
+    return true
+}
+
+export function nqElfWriteSectionHeader64(buffer: []u8, offset: usize,
+        nameIndex: u32, sectionType: u32, flags: u64,
+        fileOffset: u64, sectionBytes: u64, link: u32,
+        info: u32, alignment: u64, entryBytes: u64): bool {
+    if !nqObjectZero(buffer, offset, nqElfSectionHeaderBytes64()) { return false }
+    if !nqObjectWriteU32LE(buffer, offset, nameIndex) { return false }
+    if !nqObjectWriteU32LE(buffer, offset + 4 as usize, sectionType) { return false }
+    if !nqObjectWriteU64LE(buffer, offset + 8 as usize, flags) { return false }
+    if !nqObjectWriteU64LE(buffer, offset + 24 as usize, fileOffset) { return false }
+    if !nqObjectWriteU64LE(buffer, offset + 32 as usize, sectionBytes) { return false }
+    if !nqObjectWriteU32LE(buffer, offset + 40 as usize, link) { return false }
+    if !nqObjectWriteU32LE(buffer, offset + 44 as usize, info) { return false }
+    if !nqObjectWriteU64LE(buffer, offset + 48 as usize, alignment) { return false }
+    return nqObjectWriteU64LE(buffer, offset + 56 as usize, entryBytes)
+}
+
+export function nqElfConstReturnObjectBytes(): usize { return 497 as usize }
+
+// Writes a complete ET_REL ELF64 object with an executable .text section,
+// a globally exported noqeri_entry symbol, and zero relocations. The function
+// is: movabs rax, <i64 immediate>; ret. An ordinary Linux linker can link it.
+// Reject any other NIR rather than silently emitting an incorrect executable.
+export function nqElfWriteConstReturnObject(buffer: []u8, target: int,
+        instructions: []NqNirInstruction): isize {
+    if target != nqTargetLinuxX64() || len(instructions) != 2 as usize { return -1 as isize }
+    if !nqNirInstructionValid(&instructions[0]) || !nqNirInstructionValid(&instructions[1]) { return -1 as isize }
+    if instructions[0].opcode != nqNirConstI64() || instructions[0].typeCode != nqAstTypeI64() { return -1 as isize }
+    if instructions[0].dest < 0 as isize || instructions[0].flags != 0 as u32 { return -1 as isize }
+    if instructions[1].opcode != nqNirReturn() || instructions[1].left != instructions[0].dest { return -1 as isize }
+    if instructions[1].flags != 0 as u32 { return -1 as isize }
+    if len(buffer) < nqElfConstReturnObjectBytes() { return -2 as isize }
+    if !nqObjectZero(buffer, 0 as usize, nqElfConstReturnObjectBytes()) { return -2 as isize }
+    if nqElfWriteHeader64(buffer, 0 as usize, target, 64 as u64, 5 as usize, 4 as usize) != 64 as isize { return -2 as isize }
+    // Five sections: null, .text, .symtab, .strtab, .shstrtab.
+    if !nqElfWriteSectionHeader64(buffer, 128 as usize, 1 as u32, 1 as u32, 6 as u64,
+        384 as u64, 11 as u64, 0 as u32, 0 as u32, 16 as u64, 0 as u64) { return -2 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 192 as usize, 7 as u32, 2 as u32, 0 as u64,
+        416 as u64, 48 as u64, 3 as u32, 1 as u32, 8 as u64, 24 as u64) { return -2 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 256 as usize, 15 as u32, 3 as u32, 0 as u64,
+        400 as u64, 14 as u64, 0 as u32, 0 as u32, 1 as u64, 0 as u64) { return -2 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 320 as usize, 23 as u32, 3 as u32, 0 as u64,
+        464 as u64, 33 as u64, 0 as u32, 0 as u32, 1 as u64, 0 as u64) { return -2 as isize }
+    // x86-64: movabs rax, imm64 ; ret
+    buffer[384 as usize] = 0x48 as u8
+    buffer[385 as usize] = 0xb8 as u8
+    if !nqElfWriteSigned64(buffer, 386 as usize, instructions[0].immediate) { return -2 as isize }
+    buffer[394 as usize] = 0xc3 as u8
+
+    let symbolName: [u8; 14] = [0 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 101 as u8, 110 as u8, 116 as u8, 114 as u8, 121 as u8, 0 as u8]
+    let sectionNames: [u8; 33] = [0 as u8, 46 as u8, 116 as u8, 101 as u8, 120 as u8, 116 as u8, 0 as u8, 46 as u8, 115 as u8, 121 as u8, 109 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8, 46 as u8, 115 as u8, 116 as u8, 114 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8, 46 as u8, 115 as u8, 104 as u8, 115 as u8, 116 as u8, 114 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8]
+    let i: usize = 0 as usize
+    while i < 14 as usize {
+        buffer[400 as usize + i] = symbolName[i]
+        i = i + 1 as usize
+    }
+    i = 0 as usize
+    while i < 33 as usize {
+        buffer[464 as usize + i] = sectionNames[i]
+        i = i + 1 as usize
+    }
+
+    // Symbol 0 is null; symbol 1 is global FUNC in section .text.
+    if !nqObjectWriteU32LE(buffer, 440 as usize, 1 as u32) { return -2 as isize }
+    buffer[444 as usize] = 0x12 as u8
+    if !nqObjectWriteU16LE(buffer, 446 as usize, 1 as u16) { return -2 as isize }
+    if !nqObjectWriteU64LE(buffer, 456 as usize, 11 as u64) { return -2 as isize }
+    return nqElfConstReturnObjectBytes() as isize
 }
