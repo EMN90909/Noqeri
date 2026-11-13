@@ -30,3 +30,14 @@ export function nativeElfObjectSmoke(): int {
     if nqElfWriteConstReturnObject(slice(bytes), nqTargetLinuxX64(), slice(code)) != -1 as isize { return 11 }
     return 0
 }
+
+
+// A narrow writable-buffer ABI for the NQRI VM host adapter. All ELF syntax,
+// machine-code bytes and relocation policy remain in elf_writer.noqeri.
+export function nativeElfWriteFixture(out: []u8): isize {
+    let code: [NqNirInstruction; 2]
+    nqNirMakeConst(&code[0], 0 as isize, 42 as i64, nqAstTypeI64())
+    nqNirInstructionInit(&code[1], nqNirReturn(), nqNirNoValue())
+    code[1].left = 0 as isize
+    return nqElfWriteConstReturnObject(out, nqTargetLinuxX64(), slice(code))
+}

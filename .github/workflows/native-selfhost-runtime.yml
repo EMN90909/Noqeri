@@ -167,6 +167,11 @@ jobs:
           ./build-native/noqeri nqri tests/selfhost_native_elf_smoke.noqeri build-native/selfhost-native-elf-smoke.nqri
           result=$(./build-native/noqeri-nqri build-native/selfhost-native-elf-smoke.nqri nativeElfObjectSmoke)
           test "$result" = "0"
+          ./build-native/noqeri-nqri write-buffer build-native/selfhost-native-elf-smoke.nqri nativeElfWriteFixture build-native/noqeri-owned-const.o
+          readelf -h -S -s build-native/noqeri-owned-const.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 42 ? 0 : 1; }' > build-native/noqeri-owned-link.c
+          cc build-native/noqeri-owned-link.c build-native/noqeri-owned-const.o -o build-native/noqeri-owned-link
+          ./build-native/noqeri-owned-link
       - name: Verify bootstrap language compatibility (Linux)
         if: runner.os == 'Linux'
         shell: bash
