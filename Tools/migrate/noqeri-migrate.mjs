@@ -15,7 +15,7 @@ async function sources(root) {
     }
   }
   await walk(root)
-  return out.sort()
+  return out.sort((a, b) => a.localeCompare(b))
 }
 function applyRules(text, rules) {
   let current = text

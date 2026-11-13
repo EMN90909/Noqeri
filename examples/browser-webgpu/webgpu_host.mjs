@@ -35,7 +35,7 @@ export async function inspectNoqeriGpuCompatibility(suppliedGpu = null) {
       },
       format:typeof gpu.getPreferredCanvasFormat==='function'?
         gpu.getPreferredCanvasFormat():null,
-      features:adapter.features ? Array.from(adapter.features).sort():[],
+      features:adapter.features ? Array.from(adapter.features).sort((a, b) => a.localeCompare(b)):[],
       limits:{
         maxTextureDimension2D:limits.maxTextureDimension2D ?? null,
         maxBufferSize:limits.maxBufferSize ?? null,

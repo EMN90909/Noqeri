@@ -64,7 +64,8 @@ jobs:
           cp Doc/AI_PATCH_V0_1_4.md patch/README-AI-PATCH.md
           printf '%s\n' "$GITHUB_SHA" > patch/PATCH_SOURCE_SHA
           printf '%s\n' '50606b6c491dfde2c8a9f4db624a82f8839621b3' > patch/ORIGINAL_V014_TAG_SHA
-          output="artifacts/noqeri-v0.1.4-ai-patch-$TARGET.$EXTENSION"
+          short_sha="${GITHUB_SHA::7}"
+          output="artifacts/noqeri-v0.1.4-ai-patch-$short_sha-$TARGET.$EXTENSION"
           if [[ "$EXTENSION" == zip ]]; then cmake -E tar cf "$output" --format=zip -- patch
           else cmake -E tar czf "$output" -- patch; fi
           test -s "$output"
@@ -98,7 +99,7 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')" = "$ORIGINAL_SHA"
           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq 'select(.isDraft==false and .isPrerelease==true) | .isPrerelease' | grep -Fx true
           python3 scripts/distribution/verify_ai_patch.py artifacts "$GITHUB_SHA"
-          (cd artifacts && sha256sum -c SHA256SUMS-v014-ai-patch)
+          (cd artifacts && sha256sum -c "SHA256SUMS-v014-ai-patch-${GITHUB_SHA::7}")
       - name: Upload unique verified files to existing public release
         shell: bash
         run: |

@@ -17,7 +17,7 @@ async function verify(file){
   const raw=await loadSmall(file,2*maxPayload)
   const envelope=JSON.parse(raw.toString('utf8'))
   invariant(envelope && typeof envelope==='object' &&
-    Object.keys(envelope).sort().join(',') ===
+    Object.keys(envelope).sort((a, b) => a.localeCompare(b)).join(',') ===
     'format,payloadBase64,payloadSha256,sourceSha256,target',
     'Unrecognized firmware development envelope schema')
   invariant(envelope.format==='noqeri-gpu-firmware-dev-v1' &&

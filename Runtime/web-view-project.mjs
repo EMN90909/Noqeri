@@ -25,7 +25,7 @@ export async function buildViewProject({source,out,checkSource=null}={}) {
   }
  }
  await walk(input)
- all.sort(); // Deterministic output order across filesystems.
+ all.sort((a, b) => a.localeCompare(b)); // Deterministic output order across filesystems.
  const entries=new Map(),viewAst=new Map(),modules=new Set();
  for(const file of all.filter(x=>x.endsWith('.noqeri'))){
   const code=await readFile(file,'utf8');entries.set(file,code)

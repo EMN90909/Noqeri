@@ -105,8 +105,8 @@ for (const entry of entries) {
 }
 
 const represented = new Set(entries.map(entry => entry.class))
-const missingClasses = [...required].filter(name => !represented.has(name)).sort()
-const pendingClasses = results.filter(result => result.status === 'pending').map(result => result.class).sort()
+const missingClasses = [...required].filter(name => !represented.has(name)).sort((a, b) => a.localeCompare(b))
+const pendingClasses = results.filter(result => result.status === 'pending').map(result => result.class).sort((a, b) => a.localeCompare(b))
 const failed = results.filter(result => result.status === 'failed')
 const passed = results.filter(result => result.status === 'passed')
 const report = {

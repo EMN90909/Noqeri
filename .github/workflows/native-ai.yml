@@ -16,9 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure lightweight C++17 toolchain
-        run: cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF
+        run: cmake -S . -B build-ai -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DNOQERI_ENABLE_SDL2=OFF -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF -DNOQERI_INSTALL_AI=ON
       - name: Build language compiler and native AI runtime
-        run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri_abi noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test noqeri-ai-framework-test noqeri-ai-optimizer-test noqeri-ai-autodiff-deep-test noqeri-ai-resume-depth-test --parallel 2
+        run: cmake --build build-ai --target noqeri noqeri-nqri noqeri-web noqeri-pkg noqeri_abi noqeri_owned_collections noqeri_graphics_fastpath noqeri-ai noqeri-ai-runtime-test noqeri-lm-runtime-test noqeri-ai-framework-test noqeri-ai-optimizer-test noqeri-ai-autodiff-deep-test noqeri-ai-resume-depth-test --parallel 2
       - name: Run native training, model integrity and agent budget tests
         run: ctest --test-dir build-ai -R '^noqeri-(ai|lm)-runtime$|^noqeri-ai-framework$|^noqeri-ai-optimizer$|^noqeri-ai-autodiff-deep$|^noqeri-ai-resume-depth$' --output-on-failure
       - name: Compile typed Noqeri AI modules and run agent integration

@@ -91,7 +91,6 @@ def extract_sdk(archive, target, dest):
     compiler=stage/"bin"/exe
     vm=stage/"bin"/("noqeri-nqri.exe" if target.startswith("windows-") else "noqeri-nqri")
     pkg_name="noqeri-pkg.exe" if target.startswith("windows-") else "noqeri-pkg"
-    pkg=stage/"bin"/pkg_name
     if not compiler.is_file() or not vm.is_file():
         fail("SDK archive missing real compiler or NQRI virtual machine")
     if not (stage/"share/noqeri/Lib").is_dir():

@@ -35,15 +35,18 @@ def inspect(target, binary):
 
 def verify(root, sha):
     assert re.fullmatch("[0-9a-f]{40}",sha),"invalid patch SHA"
+    root = root.resolve(strict=True)
+    assert root.is_dir(), "artifacts root must be a directory"
+    short_sha = sha[:7]
     expect_names = {
-        f"noqeri-v0.1.4-ai-framework-{target}."+
+        f"noqeri-v0.1.4-ai-framework-{short_sha}-{target}."+
         ("zip" if target.startswith("windows") else "tar.gz")
         for target in TARGETS
     }
     assert {f.name for f in root.iterdir()} == expect_names,"unexpected/missing AI patch archive"
     sums={}
     for target in TARGETS:
-        filename=f"noqeri-v0.1.4-ai-framework-{target}."+(
+        filename=f"noqeri-v0.1.4-ai-framework-{short_sha}-{target}."+(
             "zip" if target.startswith("windows") else "tar.gz")
         archive=root/filename
         assert archive.is_file() and not archive.is_symlink()
@@ -65,9 +68,9 @@ def verify(root, sha):
                     return tar.extractfile(item).read()
                 checked_entries(archive,target,entries,read,sha)
         sums[filename]=hashlib.sha256(archive.read_bytes()).hexdigest()
-    (root/"SHA256SUMS-v014-ai-framework").write_text(
+    (root/f"SHA256SUMS-v014-ai-framework-{short_sha}").write_text(
         "".join(f"{v}  {k}\n" for k,v in sorted(sums.items())))
-    (root/"v0.1.4-ai-framework-manifest.json").write_text(json.dumps({
+    (root/f"v0.1.4-ai-framework-{short_sha}-manifest.json").write_text(json.dumps({
        "tag":"v0.1.4","tag_sha":TAG,"patch_source_sha":sha,
        "targets":list(TARGETS),"checksums":sums,
        "status":"experimental native CPU developer add-on",
