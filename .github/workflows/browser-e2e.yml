@@ -48,7 +48,7 @@ jobs:
       - name: Install test-only browser runtime
         run: |
           npm install --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
-          npx playwright install --with-deps chromium
+          ./node_modules/.bin/playwright install --with-deps chromium
       - name: Build native web tool (not a browser JS runtime)
         run: |
           cmake -S . -B build-browser -DCMAKE_BUILD_TYPE=Release -DNOQERI_GRAPHICS_PORTABLE_BUILD=ON -DNOQERI_WEB_SQL_DRIVERS=OFF

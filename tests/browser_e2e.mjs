@@ -5,12 +5,18 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { chromium } from 'playwright'
 
-const executable=resolve(process.argv[2] || './build/noqeri-web')
-const input=resolve(process.argv[3] || './examples/native_web_actions')
+const cwdRoot=resolve(process.cwd())
+const safeWorkspacePath=(arg,fallback)=>{
+  const candidate=resolve(arg || fallback)
+  if(candidate!==cwdRoot && !candidate.startsWith(cwdRoot+sep))throw new Error('Path outside workspace: '+candidate)
+  return candidate
+}
+const executable=safeWorkspacePath(process.argv[2],'./build/noqeri-web')
+const input=safeWorkspacePath(process.argv[3],'./examples/native_web_actions')
 const root=await mkdtemp(join(tmpdir(),'noqeri-browser-e2e-'))
 async function freePort() {
   const s=createServer()

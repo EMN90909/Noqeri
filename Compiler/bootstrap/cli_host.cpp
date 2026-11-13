@@ -221,15 +221,21 @@ bool runNoqeriDbStress(const std::filesystem::path& root) {
 
 bool runParserFuzz(const std::filesystem::path& root, int cases) {
     const std::string chars = "(){}[]<>+-*/=abcdefghijklmnopqrstuvwxyz0123456789";
-    std::mt19937 rng(0x4E514552u);
-    std::uniform_int_distribution<int> pick(0, static_cast<int>(chars.size() - 1));
+    std::uint64_t rng_state = 0x4E514552ULL ^ 0x9e3779b97f4a7c15ULL;
+    auto next_idx = [&]() -> std::size_t {
+        rng_state += 0x9e3779b97f4a7c15ULL;
+        std::uint64_t z = rng_state;
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        return static_cast<std::size_t>((z ^ (z >> 31)) >> 32) % chars.size();
+    };
     const auto dir = root / ".noqeri-stress-tmp" / "noqeri-stress-fuzz";
     std::filesystem::create_directories(dir);
     bool ok = true;
     for (int i = 0; i < cases; ++i) {
         std::string text;
         text.reserve(500);
-        for (int j = 0; j < 500; ++j) text.push_back(chars[static_cast<std::size_t>(pick(rng))]);
+        for (int j = 0; j < 500; ++j) text.push_back(chars[next_idx()]);
         const auto file = dir / ("fuzz-" + std::to_string(i) + ".noqeri");
         { std::ofstream out(file, std::ios::trunc); out << text << "\n"; }
         try {

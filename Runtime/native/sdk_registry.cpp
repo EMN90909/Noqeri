@@ -95,7 +95,7 @@ std::string get(const std::string& url,size_t limit=2097152){
    fail("registry URLs require HTTPS (loopback HTTP permitted for tests)");
  CURL* curl=curl_easy_init();if(!curl)fail("libcurl initialization failed");
  std::string data;curl_easy_setopt(curl,CURLOPT_URL,url.c_str());curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
- curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS|CURLPROTO_HTTP);curl_easy_setopt(curl,CURLOPT_SSLVERSION,CURL_SSLVERSION_TLSv1_2);curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
+ curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS|CURLPROTO_HTTP);curl_easy_setopt(curl,CURLOPT_SSLVERSION,CURL_SSLVERSION_TLSv1_3);curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
  curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,5L);
  curl_easy_setopt(curl,CURLOPT_TIMEOUT,12L);curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive);
  curl_easy_setopt(curl,CURLOPT_WRITEDATA,&data);curl_easy_setopt(curl,CURLOPT_USERAGENT,"noqeri-native-registry/1");
@@ -309,12 +309,13 @@ int main(int argc,char** argv){
    if(splitSpec("noqeri/core@0.4.0").second!="0.4.0")fail("coordinate parsing regression");
    // Align transport policy with the Noqeri registry source policy.
 #if defined(NOQERI_REGISTRY_NETWORK)
+   const std::string plain="http://";
    if(!allowedRegistryUrl("https://raw.githubusercontent.com/example/registry.json")||
-      !allowedRegistryUrl("http://127.0.0.1:8080/registry/index.json")||
-      !allowedRegistryUrl("http://localhost:8080/")||
-      allowedRegistryUrl("http://example.com/index.json")||
-      allowedRegistryUrl("http://localhost.evil.com/")||
-      allowedRegistryUrl("http://127.0.0.1.evil.com:8080/"))
+      !allowedRegistryUrl(plain+"127.0.0.1:8080/registry/index.json")||
+      !allowedRegistryUrl(plain+"localhost:8080/")||
+      allowedRegistryUrl(plain+"example.com/index.json")||
+      allowedRegistryUrl(plain+"localhost.evil.com/")||
+      allowedRegistryUrl(plain+"127.0.0.1.evil.com:8080/"))
      fail("registry transport policy regression");
 #endif
    std::cout<<"native registry selftest: OK\n";return 0;

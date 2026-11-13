@@ -150,7 +150,14 @@ void testTriangles(){
                  1024,1024,9,0xff112244u);
     triangleCase(32,32,{{-8192,8192,1,-8192,-8192,65535,8192,0,40}},
                  1024,1024,9,0xff112244u);
-    std::mt19937 rng(0x5eedd3u);
+    std::uint64_t rng_state=0x5eedd3ULL^0x9e3779b97f4a7c15ULL;
+    auto rng=[&]() -> std::uint32_t {
+        rng_state+=0x9e3779b97f4a7c15ULL;
+        std::uint64_t z=rng_state;
+        z=(z^(z>>30))*0xbf58476d1ce4e5b9ULL;
+        z=(z^(z>>27))*0x94d049bb133111ebULL;
+        return static_cast<std::uint32_t>((z^(z>>31))>>32);
+    };
     for(int trial=0;trial<250;++trial){
         std::array<I,9> v{};
         for(int k=0;k<3;k++){

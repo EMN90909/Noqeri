@@ -3,6 +3,8 @@
 // Deliberately supports only 'v' and 'f' (position-only polygons). Unsupported
 // records fail explicitly rather than silently dropping asset data.
 import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 
@@ -106,7 +108,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.exitCode = 2
   } else {
     try {
-      const bytes = await readFile(file)
+      const resolvedFile = resolve(file)
+      const cwdRoot = resolve(process.cwd())
+      if (resolvedFile !== cwdRoot && !resolvedFile.startsWith(cwdRoot + sep) && !resolvedFile.startsWith(tmpdir() + sep)) {
+        throw new Error('OBJ path must be inside workspace or temp directory')
+      }
+      const bytes = await readFile(resolvedFile)
       if (bytes.length > 4 * 1024 * 1024) throw new Error('OBJ exceeds input byte limit')
       const geometry = parseObj(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
       const summary = { file, vertexCount: geometry.vertexCount, triangleCount: geometry.triangleCount, bounds: geometry.bounds }

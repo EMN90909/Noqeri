@@ -210,7 +210,7 @@ jobs:
       NDK_VERSION: '27.2.12479018'
     steps:
       - uses: actions/checkout@v4
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
       - name: Install pinned Android NDK
         shell: bash
         run: sdkmanager --install "ndk;${NDK_VERSION}"
@@ -273,8 +273,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
         with:
           gradle-version: '8.11.1'
       - name: Install pinned Android SDK / CMake / NDK
@@ -333,7 +333,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build, run and package in FreeBSD
-        uses: vmactions/freebsd-vm@v1
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1
         with:
           release: '14.4'
           usesh: true
@@ -377,7 +377,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build, run and package in OpenBSD
-        uses: vmactions/openbsd-vm@v1
+        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1
         with:
           release: '7.9'
           usesh: true
@@ -489,7 +489,7 @@ jobs:
           require "noqeri-$version-android-universal-debug.apk"
           (cd artifacts && sha256sum noqeri-* > SHA256SUMS-available && sha256sum -c SHA256SUMS-available)
       - name: Publish verified desktop and Android targets
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.verify.outputs.tag }}
           target_commitish: ${{ github.sha }}
@@ -556,7 +556,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"; fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Upload verified OpenBSD ARM64 and x86-64 artifacts
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.verify.outputs.tag }}
           target_commitish: ${{ github.sha }}
@@ -609,7 +609,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version-platform-preview.$GITHUB_RUN_NUMBER"; fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Upload verified FreeBSD ARM64 and x86-64 artifacts
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.verify.outputs.tag }}
           target_commitish: ${{ github.sha }}
@@ -732,7 +732,7 @@ jobs:
           (cd artifacts && sha256sum noqeri-* > SHA256SUMS && sha256sum -c SHA256SUMS)
           cp artifacts/SHA256SUMS artifacts/checksums.txt
       - name: Publish verified prerelease assets to GitHub Releases
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.verify.outputs.tag }}
           target_commitish: ${{ github.sha }}

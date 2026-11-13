@@ -7,8 +7,24 @@ import re
 import struct
 import sys
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
+
+
+def _resolve_safe_dir(root_arg):
+    raw = os.path.realpath(str(root_arg))
+    cwd = os.path.realpath(os.getcwd())
+    tmp = os.path.realpath(tempfile.gettempdir())
+    allowed = (
+        raw == cwd
+        or raw.startswith(cwd + os.sep)
+        or raw == tmp
+        or raw.startswith(tmp + os.sep)
+    )
+    if not allowed:
+        raise ValueError("artifacts root must be inside workspace or temp directory")
+    return Path(raw)
 
 TARGETS = (
     "linux-x86_64",
@@ -72,7 +88,7 @@ def verify_patch(
     readme_name,
 ):
     assert re.fullmatch("[0-9a-f]{40}", sha), "invalid patch SHA"
-    root = Path(os.path.realpath(str(root_arg)))
+    root = _resolve_safe_dir(root_arg)
     assert root.is_dir(), "artifacts root must be a directory"
     short_sha = sha[:7]
     expect_names = {

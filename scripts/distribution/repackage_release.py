@@ -162,6 +162,12 @@ def main():
     args=parser.parse_args()
     root=Path(args.input).resolve()
     output=Path(args.output).resolve()
+    if not re.fullmatch(r"[0-9A-Za-z._-]+", args.version):
+        fail("invalid version format")
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", args.source_commit):
+        fail("invalid source_commit SHA")
+    if not re.fullmatch(r"[0-9A-Za-z._-]+", args.license):
+        fail("invalid license identifier")
     expected=[x.strip() for x in args.targets.split(",") if x.strip()]
     if not expected or len(set(expected))!=len(expected) or any(x not in TARGETS for x in expected):
         fail("invalid target matrix")
