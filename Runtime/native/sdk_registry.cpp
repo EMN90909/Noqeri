@@ -96,6 +96,7 @@ std::string get(const std::string& url,size_t limit=2097152){
  CURL* curl=curl_easy_init();if(!curl)fail("libcurl initialization failed");
  std::string data;curl_easy_setopt(curl,CURLOPT_URL,url.c_str());curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
  if(url.rfind("https://",0)==0)curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS);
+ curl_easy_setopt(curl,CURLOPT_SSLVERSION,CURL_SSLVERSION_TLSv1_3);
  curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
  curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,5L);
  curl_easy_setopt(curl,CURLOPT_TIMEOUT,12L);curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive);
