@@ -19,6 +19,7 @@ on:
       - 'tests/bootstrap_seed_pin.test.mjs'
       - 'tests/selfhost_native_elf_smoke.noqeri'
       - 'tests/selfhost_native_source_smoke.noqeri'
+      - 'Compiler/selfhost/native-codegen-sources.txt'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -42,6 +43,7 @@ on:
       - 'tests/bootstrap_seed_pin.test.mjs'
       - 'tests/selfhost_native_elf_smoke.noqeri'
       - 'tests/selfhost_native_source_smoke.noqeri'
+      - 'Compiler/selfhost/native-codegen-sources.txt'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -227,6 +229,15 @@ jobs:
           test "$actual" = "$expected"
           cmp build-native/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
           ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
+          # The hash-pinned Stage-1 Noqeri compiler itself compiles the
+          # Noqeri-written native codegen module; do not substitute Stage-0.
+          ./build-native/noqeri-nqri compile-manifest build-native/noqeri-stage1.nqri "$PWD" Compiler/selfhost/native-codegen-sources.txt build-native/noqeri-stage1-native-codegen.nqri 3
+          ./build-native/noqeri-nqri has-export build-native/noqeri-stage1-native-codegen.nqri nativeElfWriteSourceFixture
+          ./build-native/noqeri-nqri write-buffer build-native/noqeri-stage1-native-codegen.nqri nativeElfWriteSourceFixture build-native/noqeri-stage1-owned-native.o
+          readelf -h -S -s build-native/noqeri-stage1-owned-native.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 42 ? 0 : 1; }' > build-native/noqeri-stage1-owned-native.c
+          cc build-native/noqeri-stage1-owned-native.c build-native/noqeri-stage1-owned-native.o -o build-native/noqeri-stage1-owned-native
+          ./build-native/noqeri-stage1-owned-native
           while IFS= read -r source; do
             test -z "$source" && continue
             ./build-native/noqeri-nqri syntax build-native/noqeri-stage1.nqri "$source"

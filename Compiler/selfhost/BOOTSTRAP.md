@@ -101,3 +101,7 @@ Cross-language interoperability is a separate contract using the versioned embed
 ### Experimental source-to-native acceptance path
 
 The `Compiler/selfhost/native_pipeline.noqeri` module now connects the Noqeri-written parser, semantic analysis, NIR lowering and optimizer to the restricted ELF64 arithmetic emitter. Its Linux test compiles a Noqeri source function to a linkable object and executes it. It still relies on the NQRI VM as its build-time host, handles one i64 function, and does not establish native compiler self-hosting. The canonical Stage-1 source closure and pin remain unchanged.
+
+### Stage-1 owned native emitter qualification
+
+The separate `Compiler/selfhost/native-codegen-sources.txt` manifest contains the full NQRI source-compiler closure plus the experimental ELF64 emitter, source-to-native adapter and fixture. The Linux CI job asks the pinned Noqeri-written Stage-1 compiler to compile this manifest to NQRI, then executes the emitted module to write a native ELF64 object, links it and checks it runs. This verifies Noqeri-compiled native code generation for the restricted fixture rather than only Stage-0 compiling the emitter. It does not change the canonical Stage-2/3 source manifest, proves no native Stage-2 compiler executable, and cannot set `native_selfhost=true`.
