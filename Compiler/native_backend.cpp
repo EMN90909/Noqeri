@@ -394,6 +394,73 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             }
         }
     }
+    std::vector<bool> nonNegative(fn.nextReg, false);
+    std::unordered_map<std::string, bool> nonNegativeVars;
+    for(std::size_t r=0; r<fn.registerTypes.size() && r<fn.nextReg; ++r){
+        if(isUnsigned(fn.registerTypes[r].kind)) nonNegative[r] = true;
+    }
+    for(const auto& [reg, val] : constantValues){
+        if(val >= 0 && reg < nonNegative.size()) nonNegative[reg] = true;
+    }
+    for(int pass=0; pass<4; ++pass){
+        bool updated = false;
+        for(const auto& in : fn.code){
+            if(in.op == NirOp::Store && !in.args.empty() && in.args[0] < nonNegative.size()){
+                auto it = nonNegativeVars.find(in.text);
+                if(it == nonNegativeVars.end()){
+                    nonNegativeVars[in.text] = nonNegative[in.args[0]];
+                } else if(!nonNegative[in.args[0]]){
+                    it->second = false;
+                }
+            }
+            if(!in.dest || *in.dest >= nonNegative.size() || nonNegative[*in.dest]) continue;
+            bool isNonNeg = false;
+            if(in.op == NirOp::Const){
+                if(auto v = std::get_if<std::int64_t>(&in.literal)) isNonNeg = (*v >= 0);
+                else if(std::holds_alternative<bool>(in.literal)) isNonNeg = true;
+            }else if(in.op == NirOp::Load){
+                auto it = nonNegativeVars.find(in.text);
+                if(it != nonNegativeVars.end() && it->second) isNonNeg = true;
+            }else if(in.op == NirOp::SliceLen || in.op == NirOp::StackAlloc ||
+                     in.op == NirOp::MakeSlice || in.op == NirOp::AddressOf){
+                isNonNeg = true;
+            }else if(in.op == NirOp::Cast && in.args.size() == 1){
+                if(isUnsigned(in.type.kind) ||
+                   (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]))
+                    isNonNeg = true;
+            }else if(in.op == NirOp::Binary && in.args.size() == 2){
+                if(isComparison(in.text)){
+                    isNonNeg = true;
+                }else if(in.text == "+" || in.text == "*"){
+                    const bool a0 = (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                                    (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0);
+                    const bool a1 = (in.args[1] < nonNegative.size() && nonNegative[in.args[1]]) ||
+                                    (constantValues.count(in.args[1]) && constantValues.at(in.args[1]) >= 0);
+                    if(a0 && a1) isNonNeg = true;
+                }else if(in.text == "/" || in.text == "%"){
+                    const bool a0 = (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                                    (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0);
+                    const bool a1 = (constantValues.count(in.args[1]) && constantValues.at(in.args[1]) > 0);
+                    if(a0 && (in.text == "%" || a1)) isNonNeg = true;
+                }else if(in.text == "&"){
+                    const bool a0 = (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                                    (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0);
+                    const bool a1 = (in.args[1] < nonNegative.size() && nonNegative[in.args[1]]) ||
+                                    (constantValues.count(in.args[1]) && constantValues.at(in.args[1]) >= 0);
+                    if(a0 || a1) isNonNeg = true;
+                }else if(in.text == ">>"){
+                    if((in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                       (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0))
+                        isNonNeg = true;
+                }
+            }
+            if(isNonNeg){
+                nonNegative[*in.dest] = true;
+                updated = true;
+            }
+        }
+        if(!updated) break;
+    }
     std::unordered_map<Reg,std::string> physical;
     std::vector<std::string> saved;
     const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
@@ -437,7 +504,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
         const char* hotRegisters[]={"rbx","r12","r13","r14","r15"};
-        const std::size_t maxHotVars = hasCalls ? 3u : 5u;
+        const std::size_t maxHotVars = hasCalls ? 1u : 2u;
         for(std::size_t n=0;n<ranked.size()&&n<maxHotVars;++n){
             if(ranked[n].second<2u)break;
             variablePhysical.emplace(ranked[n].first,hotRegisters[n]);
@@ -448,7 +515,10 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         std::vector<std::string> pool;
         const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
+        const bool hasCmpXchg = std::any_of(fn.code.begin(),fn.code.end(),
+            [](const NirInstruction& in){return in.op==NirOp::AtomicCompareExchange;});
         if(!hasCalls){
+            if(!hasCmpXchg)pool.push_back("rcx");
             pool.push_back("r9");
             pool.push_back("rdi");
             pool.push_back("rsi");
@@ -624,17 +694,21 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     std::unordered_set<std::size_t> fusedPointers;
     for(std::size_t pc=0;pc+1<fn.code.size();++pc){
         const auto& pointer=fn.code[pc];
-        const auto& access=fn.code[pc+1];
         if(pointer.op!=NirOp::PtrOffset||!pointer.dest||
            pointer.args.size()!=2||
            (pointer.width!=1&&pointer.width!=2&&
             pointer.width!=4&&pointer.width!=8)||
-           jumpTargets.count(pc+1)||*pointer.dest>=useCounts.size()||
+           *pointer.dest>=useCounts.size()||
            useCounts[*pointer.dest]!=1)
             continue;
-        if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
-           !access.args.empty()&&access.args[0]==*pointer.dest)
-            fusedPointers.insert(pc);
+        std::size_t nextPc=pc+1;
+        while(nextPc<fn.code.size()&&fn.code[nextPc].op==NirOp::Nop)++nextPc;
+        if(nextPc<fn.code.size()&&!jumpTargets.count(nextPc)){
+            const auto& access=fn.code[nextPc];
+            if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
+               !access.args.empty()&&access.args[0]==*pointer.dest)
+                fusedPointers.insert(pc);
+        }
     }
     // Fuse a single-use scalar array LoadMemory into its immediately
     // following compare-and-branch. One or two side-effect-free named
@@ -1123,8 +1197,11 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const bool directQword=i.width==8&&destination!=physical.end();
             std::optional<std::string> stackAddr;
             if(i.width==8){
-                if(pc>0&&fusedPointers.count(pc-1)){
-                    stackAddr=fixedStackAddress(fn.code[pc-1]);
+                std::size_t priorPc=pc;
+                while(priorPc>0&&fn.code[priorPc-1].op==NirOp::Nop)--priorPc;
+                if(priorPc>0&&fusedPointers.count(priorPc-1)){
+                    stackAddr=fixedStackAddress(fn.code[priorPc-1]);
+                    if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
                 if(!stackAddr){
                     const auto def=ptrOffsetDefs.find(i.args[0]);
@@ -1136,18 +1213,6 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 if(directQword)
                     out<<"    mov "<<destination->second<<", "<<*stackAddr<<"\n";
                 else out<<"    mov rax, "<<*stackAddr<<"\n";
-            }else if(pc>0&&fusedPointers.count(pc-1)){
-                const auto& pointer=fn.code[pc-1];
-                if(i.width==8){
-                    const auto address=registerIndexedAddress(pointer);
-                    if(directQword)
-                        out<<"    mov "<<destination->second<<", "<<address<<"\n";
-                    else out<<"    mov rax, "<<address<<"\n";
-                }else{
-                    load(pointer.args[0],"rax");
-                    load(pointer.args[1],"r11");
-                    emitIndexedLoad(out,i.width,sign,pointer.width);
-                }
             }else{
                 load(i.args[0],"rax");
                 if(directQword)
@@ -1163,8 +1228,11 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const bool directQword=i.width==8&&value!=physical.end();
             std::optional<std::string> stackAddr;
             if(i.width==8){
-                if(pc>0&&fusedPointers.count(pc-1)){
-                    stackAddr=fixedStackAddress(fn.code[pc-1]);
+                std::size_t priorPc=pc;
+                while(priorPc>0&&fn.code[priorPc-1].op==NirOp::Nop)--priorPc;
+                if(priorPc>0&&fusedPointers.count(priorPc-1)){
+                    stackAddr=fixedStackAddress(fn.code[priorPc-1]);
+                    if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
                 if(!stackAddr){
                     const auto def=ptrOffsetDefs.find(i.args[0]);
@@ -1178,22 +1246,6 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 else{
                     load(i.args[1],"r10");
                     out<<"    mov "<<*stackAddr<<", r10\n";
-                }
-            }else if(pc>0&&fusedPointers.count(pc-1)){
-                const auto& pointer=fn.code[pc-1];
-                if(i.width==8){
-                    const auto address=registerIndexedAddress(pointer);
-                    if(directQword)
-                        out<<"    mov "<<address<<", "<<value->second<<"\n";
-                    else{
-                        load(i.args[1],"r10");
-                        out<<"    mov "<<address<<", r10\n";
-                    }
-                }else{
-                    load(pointer.args[0],"rax");
-                    load(pointer.args[1],"r11");
-                    load(i.args[1],"r10");
-                    emitIndexedStore(out,i.width,pointer.width);
                 }
             }else{
                 load(i.args[0],"rax");
@@ -1411,7 +1463,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             (isUnsigned(operandKind)||
              (i.args[1]<fn.registerTypes.size()&&
               isUnsigned(fn.registerTypes[i.args[1]].kind))) :
-            isUnsigned(operandKind);
+            (isUnsigned(operandKind)||
+             (i.args[0]<nonNegative.size()&&nonNegative[i.args[0]]));
         // If a comparison feeds only the immediately following conditional
         // branch, emit one compare and a direct inverted jcc. Preserve NIR
         // short-circuit structure: RHS evaluation is never speculated.
@@ -1469,21 +1522,48 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 const bool hasImmediate=rhsImmediate!=constantValues.end()&&
                     rhsImmediate->second>=std::numeric_limits<std::int32_t>::min()&&
                     rhsImmediate->second<=std::numeric_limits<std::int32_t>::max();
-                if(registerOperand(i.args[0])!=targetReg)
-                    out<<"    mov "<<targetReg<<", "<<registerOperand(i.args[0])<<"\n";
+                const std::string srcReg=registerOperand(i.args[0]);
                 if(hasImmediate){
                     if(i.text=="*"){
                         const auto factor=rhsImmediate->second;
                         const auto bits=static_cast<std::uint64_t>(factor);
-                        if(factor>0&&!(bits&(bits-1))){
+                        if(factor==0){
+                            out<<"    xor "<<targetReg<<", "<<targetReg<<"\n";
+                        }else if(factor>0&&!(bits&(bits-1))){
                             unsigned shift=0;
                             for(auto x=bits;x>1;x>>=1)++shift;
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
                             if(shift)out<<"    shl "<<targetReg<<", "<<shift<<"\n";
-                        }else if(factor==0)out<<"    xor "<<targetReg<<", "<<targetReg<<"\n";
-                        else out<<"    imul "<<targetReg<<", "<<targetReg<<", "<<factor<<"\n";
-                    }else out<<"    "<<(i.text=="+"?"add":"sub")
-                            <<" "<<targetReg<<", "<<rhsImmediate->second<<"\n";
+                        }else{
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    imul "<<targetReg<<", "<<targetReg<<", "<<factor<<"\n";
+                        }
+                    }else if(i.text=="+"){
+                        const auto imm=rhsImmediate->second;
+                        if(imm==0){
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                        }else{
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    add "<<targetReg<<", "<<imm<<"\n";
+                        }
+                    }else{ // "-"
+                        const auto imm=rhsImmediate->second;
+                        if(imm==0){
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                        }else{
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    sub "<<targetReg<<", "<<imm<<"\n";
+                        }
+                    }
                 }else{
+                    if(srcReg!=targetReg)
+                        out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
                     const auto rhs=registerOperand(i.args[1]);
                     if(i.text=="+")out<<"    add "<<targetReg<<", "<<rhs<<"\n";
                     else if(i.text=="-")out<<"    sub "<<targetReg<<", "<<rhs<<"\n";

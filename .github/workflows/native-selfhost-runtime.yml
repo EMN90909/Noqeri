@@ -17,6 +17,9 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
+      - 'tests/selfhost_native_elf_smoke.noqeri'
+      - 'tests/selfhost_native_source_smoke.noqeri'
+      - 'Compiler/selfhost/native-codegen-sources.txt'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -38,6 +41,9 @@ on:
       - 'tests/invalid_hex_literal.noqeri'
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
+      - 'tests/selfhost_native_elf_smoke.noqeri'
+      - 'tests/selfhost_native_source_smoke.noqeri'
+      - 'Compiler/selfhost/native-codegen-sources.txt'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -156,6 +162,35 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $result = (& .\build-native\Release\noqeri-nqri.exe build-native\zero-init.nqri zeroInitCheck).Trim()
           if ($LASTEXITCODE -ne 0 -or $result -ne '10') { throw "zero-init NQRI check returned '$result'" }
+      - name: Verify Noqeri-owned ELF64 object emission subset (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build-native/noqeri check tests/selfhost_native_elf_smoke.noqeri
+          ./build-native/noqeri nqri tests/selfhost_native_elf_smoke.noqeri build-native/selfhost-native-elf-smoke.nqri
+          result=$(./build-native/noqeri-nqri build-native/selfhost-native-elf-smoke.nqri nativeElfObjectSmoke)
+          test "$result" = "0"
+          ./build-native/noqeri-nqri write-buffer build-native/selfhost-native-elf-smoke.nqri nativeElfWriteFixture build-native/noqeri-owned-const.o
+          readelf -h -S -s build-native/noqeri-owned-const.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 42 ? 0 : 1; }' > build-native/noqeri-owned-link.c
+          cc build-native/noqeri-owned-link.c build-native/noqeri-owned-const.o -o build-native/noqeri-owned-link
+          ./build-native/noqeri-owned-link
+          result=$(./build-native/noqeri-nqri build-native/selfhost-native-elf-smoke.nqri nativeElfArithmeticSmoke)
+          test "$result" = "0"
+          ./build-native/noqeri-nqri write-buffer build-native/selfhost-native-elf-smoke.nqri nativeElfArithmeticWriteFixture build-native/noqeri-owned-arithmetic.o
+          readelf -S -s build-native/noqeri-owned-arithmetic.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 70 ? 0 : 1; }' > build-native/noqeri-owned-arithmetic.c
+          cc build-native/noqeri-owned-arithmetic.c build-native/noqeri-owned-arithmetic.o -o build-native/noqeri-owned-arithmetic
+          ./build-native/noqeri-owned-arithmetic
+          ./build-native/noqeri check tests/selfhost_native_source_smoke.noqeri
+          ./build-native/noqeri nqri tests/selfhost_native_source_smoke.noqeri build-native/selfhost-native-source-smoke.nqri
+          test "$(./build-native/noqeri-nqri build-native/selfhost-native-source-smoke.nqri nativeElfSourceSmoke)" = "0"
+          ./build-native/noqeri-nqri write-buffer build-native/selfhost-native-source-smoke.nqri nativeElfWriteSourceFixture build-native/noqeri-owned-from-source.o
+          readelf -S -s build-native/noqeri-owned-from-source.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 42 ? 0 : 1; }' > build-native/noqeri-owned-source.c
+          cc build-native/noqeri-owned-source.c build-native/noqeri-owned-from-source.o -o build-native/noqeri-owned-from-source
+          ./build-native/noqeri-owned-from-source
       - name: Verify bootstrap language compatibility (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -194,6 +229,15 @@ jobs:
           test "$actual" = "$expected"
           cmp build-native/noqeri-stage1.nqri Compiler/selfhost/trusted-stage1.nqri
           ./build-native/noqeri-nqri has-export build-native/noqeri-stage1.nqri stage2CompileToNqri
+          # The hash-pinned Stage-1 Noqeri compiler itself compiles the
+          # Noqeri-written native codegen module; do not substitute Stage-0.
+          ./build-native/noqeri-nqri compile-manifest build-native/noqeri-stage1.nqri "$PWD" Compiler/selfhost/native-codegen-sources.txt build-native/noqeri-stage1-native-codegen.nqri 3
+          ./build-native/noqeri-nqri has-export build-native/noqeri-stage1-native-codegen.nqri nativeElfWriteSourceFixture
+          ./build-native/noqeri-nqri write-buffer build-native/noqeri-stage1-native-codegen.nqri nativeElfWriteSourceFixture build-native/noqeri-stage1-owned-native.o
+          readelf -h -S -s build-native/noqeri-stage1-owned-native.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 42 ? 0 : 1; }' > build-native/noqeri-stage1-owned-native.c
+          cc build-native/noqeri-stage1-owned-native.c build-native/noqeri-stage1-owned-native.o -o build-native/noqeri-stage1-owned-native
+          ./build-native/noqeri-stage1-owned-native
           while IFS= read -r source; do
             test -z "$source" && continue
             ./build-native/noqeri-nqri syntax build-native/noqeri-stage1.nqri "$source"

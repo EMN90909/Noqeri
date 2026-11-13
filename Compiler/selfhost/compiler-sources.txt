@@ -14,6 +14,7 @@ Compiler/selfhost/linker.noqeri
 Compiler/selfhost/lower.noqeri
 Compiler/selfhost/lsp.noqeri
 Compiler/selfhost/macho_writer.noqeri
+Compiler/selfhost/native_pipeline.noqeri
 Compiler/selfhost/main.noqeri
 Compiler/selfhost/nir.noqeri
 Compiler/selfhost/nqri_writer.noqeri

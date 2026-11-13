@@ -429,6 +429,10 @@ if(BUILD_TESTING)
  set_tests_properties(noqeri-reject-incomplete-hex PROPERTIES WILL_FAIL TRUE)
  add_test(NAME noqeri-nqri-selftest COMMAND noqeri-nqri --selftest)
  add_test(NAME noqeri-version COMMAND noqeri --version)
+ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64")
+  add_test(NAME noqeri-native-selfhost-reproducibility
+   COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/bootstrap-native.sh)
+ endif()
  find_program(NOQERI_NODE_EXECUTABLE NAMES node node.exe)
  if(NOQERI_NODE_EXECUTABLE)
   add_test(NAME noqeri-agent-loop

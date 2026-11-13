@@ -1,0 +1,47 @@
+module noqeri.compiler.selfhost.native_pipeline
+import "pipeline.noqeri"
+import "elf_writer.noqeri"
+import "native_x64.noqeri"
+import "ast.noqeri"
+import "nir.noqeri"
+import "targets.noqeri"
+
+// Noqeri-owned source -> native ELF64 object pipeline.
+export function nqCompileSourceToElf64(source: []u8, output: []u8): isize {
+    if len(source) == 0 as usize { return -901 as isize }
+    let nodes: [NqAstNode; 131072]
+    let instructions: [NqNirInstruction; 262144]
+    let functions: [NqNirFunction; 8192]
+    let result: NqCompileResult
+    let status: isize = nqPipelineCompileToNir(source, nqTargetLinuxX64(), true, false,
+        slice(nodes), slice(instructions), slice(functions), &result)
+    if status < 0 as isize { return status }
+    if result.functionCount != 1 as usize { return -902 as isize }
+    return nqElfWriteModule64(output, nqTargetLinuxX64(), source,
+        slice(functions, result.functionCount),
+        slice(instructions, result.instructionCount), true)
+}
+
+// Full multi-function Noqeri source -> native ELF64 object pipeline for native self-hosting.
+export function nqCompileProgramToElf64(source: []u8, output: []u8, unsafeAllowed: bool): isize {
+    if len(source) == 0 as usize { return -901 as isize }
+    let nodes: [NqAstNode; 131072]
+    let instructions: [NqNirInstruction; 262144]
+    let functions: [NqNirFunction; 8192]
+    let result: NqCompileResult
+    let status: isize = nqPipelineCompileToNir(source, nqTargetLinuxX64(), false, unsafeAllowed,
+        slice(nodes), slice(instructions), slice(functions), &result)
+    if status < 0 as isize { return status }
+    return nqElfWriteModule64(output, nqTargetLinuxX64(), source,
+        slice(functions, result.functionCount),
+        slice(instructions, result.instructionCount), false)
+}
+
+// Raw-pointer ABI entry point for the standalone native Stage-2/Stage-3 compiler driver.
+export function nqNativeMainCompile(sourcePtr: *u8, sourceLen: usize, outPtr: *u8, outCap: usize): isize {
+    if sourcePtr == null || outPtr == null || sourceLen == 0 as usize || outCap == 0 as usize { return -901 as isize }
+    let src: []u8 = slice(sourcePtr, sourceLen)
+    let out: []u8 = slice(outPtr, outCap)
+    return nqCompileProgramToElf64(src, out, true)
+}
+
