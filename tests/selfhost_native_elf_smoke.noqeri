@@ -41,3 +41,43 @@ export function nativeElfWriteFixture(out: []u8): isize {
     code[1].left = 0 as isize
     return nqElfWriteConstReturnObject(out, nqTargetLinuxX64(), slice(code))
 }
+
+
+// A larger, checked NIR -> native ELF64 acceptance test. Expected result:
+// ((2+3)*7)-(-35) = 70. It cannot be optimized away into a constant by
+// the ELF emitter; all SSA intermediate instructions must be lowered.
+function nativeElfArithmeticInit(code: []NqNirInstruction): bool {
+    if len(code) != 8 as usize { return false }
+    nqNirMakeConst(&code[0], 0 as isize, 2 as i64, nqAstTypeI64())
+    nqNirMakeConst(&code[1], 1 as isize, 3 as i64, nqAstTypeI64())
+    nqNirMakeBinary(&code[2], nqNirAdd(), 2 as isize, 0 as isize, 1 as isize, nqAstTypeI64())
+    nqNirMakeConst(&code[3], 3 as isize, 7 as i64, nqAstTypeI64())
+    nqNirMakeBinary(&code[4], nqNirMul(), 4 as isize, 2 as isize, 3 as isize, nqAstTypeI64())
+    nqNirMakeConst(&code[5], 5 as isize, -35 as i64, nqAstTypeI64())
+    nqNirMakeBinary(&code[6], nqNirSub(), 6 as isize, 4 as isize, 5 as isize, nqAstTypeI64())
+    nqNirInstructionInit(&code[7], nqNirReturn(), nqNirNoValue())
+    code[7].left = 6 as isize
+    return true
+}
+export function nativeElfArithmeticSmoke(): int {
+    let code: [NqNirInstruction; 8]
+    if !nativeElfArithmeticInit(slice(code)) { return 1 }
+    let bytes: [u8; 1024]
+    let required: isize = nqElfX64ArithmeticObjectBytes(slice(code))
+    if required <= 0 as isize || required > 1024 as isize { return 2 }
+    if nqElfWriteArithmeticObject(slice(bytes), nqTargetLinuxX64(), slice(code)) != required { return 3 }
+    if bytes[0] != 0x7f as u8 || bytes[1] != 69 as u8 || bytes[2] != 76 as u8 || bytes[3] != 70 as u8 { return 4 }
+    if bytes[384] != 0x55 as u8 || bytes[385] != 0x48 as u8 { return 5 }
+    let shortBytes: [u8; 64]
+    if nqElfWriteArithmeticObject(slice(shortBytes), nqTargetLinuxX64(), slice(code)) != -2 as isize { return 6 }
+    if nqElfWriteArithmeticObject(slice(bytes), nqTargetMacX64(), slice(code)) != -1 as isize { return 7 }
+    code[2].right = 15 as isize
+    if nqElfWriteArithmeticObject(slice(bytes), nqTargetLinuxX64(), slice(code)) != -1 as isize { return 8 }
+    return 0
+}
+export function nativeElfArithmeticWriteFixture(out: []u8): isize {
+    let code: [NqNirInstruction; 8]
+    if !nativeElfArithmeticInit(slice(code)) { return -1 as isize }
+    return nqElfWriteArithmeticObject(out, nqTargetLinuxX64(), slice(code))
+}
+

@@ -132,3 +132,187 @@ export function nqElfWriteConstReturnObject(buffer: []u8, target: int,
     if !nqObjectWriteU64LE(buffer, 456 as usize, 11 as u64) { return -2 as isize }
     return nqElfConstReturnObjectBytes() as isize
 }
+
+
+// Experimental Linux x86-64 straight-line SSA lowering. This is an additional
+// bounded backend subset, not native Stage-2 compiler self-hosting. No calls,
+// traps, branches, relocations, floating point or memory user operations.
+// Every SSA temporary is stored in an aligned 128-byte stack frame. Signed
+// 64-bit arithmetic uses two's-complement wrapping and never enables checked
+// overflow flags. Reject unsupported NIR, rather than changing its semantics.
+function nqElfX64StackDisp(slot: isize): u32 {
+    let byteCount: u64 = (slot as u64 + 1 as u64) * 8 as u64
+    return (4294967296 as u64 - byteCount) as u32
+}
+
+function nqElfX64Put8(buffer: []u8, position: *usize, value: u8): bool {
+    if position == null || !nqObjectRangeValid(buffer, position[0], 1 as usize) { return false }
+    buffer[position[0]] = value
+    position[0] = position[0] + 1 as usize
+    return true
+}
+
+function nqElfX64Put32(buffer: []u8, position: *usize, value: u32): bool {
+    if position == null || !nqObjectWriteU32LE(buffer, position[0], value) { return false }
+    position[0] = position[0] + 4 as usize
+    return true
+}
+
+function nqElfX64EmitSlot(buffer: []u8, position: *usize, operation: u8, slot: isize): bool {
+    if !nqElfX64Put8(buffer, position, 0x48 as u8) { return false }
+    if !nqElfX64Put8(buffer, position, operation) { return false }
+    if !nqElfX64Put8(buffer, position, 0x85 as u8) { return false }
+    return nqElfX64Put32(buffer, position, nqElfX64StackDisp(slot))
+}
+
+function nqElfX64EmitMultiply(buffer: []u8, position: *usize, slot: isize): bool {
+    if !nqElfX64Put8(buffer, position, 0x48 as u8) { return false }
+    if !nqElfX64Put8(buffer, position, 0x0f as u8) { return false }
+    if !nqElfX64Put8(buffer, position, 0xaf as u8) { return false }
+    if !nqElfX64Put8(buffer, position, 0x85 as u8) { return false }
+    return nqElfX64Put32(buffer, position, nqElfX64StackDisp(slot))
+}
+
+function nqElfX64EmitConst(buffer: []u8, position: *usize, value: i64): bool {
+    if !nqElfX64Put8(buffer, position, 0x48 as u8) { return false }
+    if !nqElfX64Put8(buffer, position, 0xb8 as u8) { return false }
+    if !nqElfWriteSigned64(buffer, position[0], value) { return false }
+    position[0] = position[0] + 8 as usize
+    return true
+}
+
+// Validates forward SSA references, distinct definitions, a single final
+// return, exact i64 types, and the full whitelist before any object is written.
+// A failed check does not partially create an output object.
+export function nqElfX64ArithmeticCodeBytes(instructions: []NqNirInstruction): isize {
+    if len(instructions) < 2 as usize || len(instructions) > 64 as usize { return -1 as isize }
+    let defined: [bool; 16]
+    let slot: usize = 0 as usize
+    while slot < 16 as usize {
+        defined[slot] = false
+        slot = slot + 1 as usize
+    }
+    let codeBytes: usize = 11 as usize // push rbp; mov rbp,rsp; sub rsp,128
+    let index: usize = 0 as usize
+    while index < len(instructions) {
+        let ins: *NqNirInstruction = &instructions[index]
+        if !nqNirInstructionValid(ins) || ins.flags != 0 as u32 { return -1 as isize }
+        if ins.opcode == nqNirReturn() {
+            if index + 1 as usize != len(instructions) { return -1 as isize }
+            if ins.left < 0 as isize || ins.left >= 16 as isize { return -1 as isize }
+            if !defined[ins.left as usize] { return -1 as isize }
+            codeBytes = codeBytes + 9 as usize
+        } else {
+            if ins.dest < 0 as isize || ins.dest >= 16 as isize { return -1 as isize }
+            if defined[ins.dest as usize] || ins.typeCode != nqAstTypeI64() { return -1 as isize }
+            if ins.opcode == nqNirConstI64() {
+                codeBytes = codeBytes + 17 as usize
+            } else if ins.opcode == nqNirMove() {
+                if ins.left < 0 as isize || ins.left >= 16 as isize { return -1 as isize }
+                if !defined[ins.left as usize] { return -1 as isize }
+                codeBytes = codeBytes + 14 as usize
+            } else if ins.opcode == nqNirAdd() || ins.opcode == nqNirSub() || ins.opcode == nqNirMul() {
+                if ins.left < 0 as isize || ins.left >= 16 as isize || ins.right < 0 as isize || ins.right >= 16 as isize { return -1 as isize }
+                if !defined[ins.left as usize] || !defined[ins.right as usize] { return -1 as isize }
+                if ins.opcode == nqNirMul() {
+                    codeBytes = codeBytes + 22 as usize
+                } else {
+                    codeBytes = codeBytes + 21 as usize
+                }
+            } else {
+                return -1 as isize
+            }
+            defined[ins.dest as usize] = true
+        }
+        index = index + 1 as usize
+    }
+    if instructions[len(instructions) - 1 as usize].opcode != nqNirReturn() { return -1 as isize }
+    return codeBytes as isize
+}
+
+export function nqElfX64ArithmeticObjectBytes(instructions: []NqNirInstruction): isize {
+    let textBytes: isize = nqElfX64ArithmeticCodeBytes(instructions)
+    if textBytes < 0 as isize { return -1 as isize }
+    let textEnd: usize = 384 as usize + textBytes as usize
+    let strtabStart: usize = nqObjectAlignUp(textEnd, 8 as usize)
+    let symtabStart: usize = nqObjectAlignUp(strtabStart + 14 as usize, 8 as usize)
+    return (symtabStart + 48 as usize + 33 as usize) as isize
+}
+
+// Emits a relocatable ET_REL with a globally exported noqeri_entry.
+// Layout: ELF header, 5 section headers, .text, .strtab, .symtab,
+// .shstrtab. All metadata offsets derive from the actual emitted code size.
+export function nqElfWriteArithmeticObject(buffer: []u8, target: int,
+        instructions: []NqNirInstruction): isize {
+    if target != nqTargetLinuxX64() { return -1 as isize }
+    let textBytes: isize = nqElfX64ArithmeticCodeBytes(instructions)
+    if textBytes < 0 as isize { return -1 as isize }
+    let textStart: usize = 384 as usize
+    let strtabStart: usize = nqObjectAlignUp(textStart + textBytes as usize, 8 as usize)
+    let symtabStart: usize = nqObjectAlignUp(strtabStart + 14 as usize, 8 as usize)
+    let shstrtabStart: usize = symtabStart + 48 as usize
+    let needed: usize = shstrtabStart + 33 as usize
+    if len(buffer) < needed { return -2 as isize }
+    if !nqObjectZero(buffer, 0 as usize, needed) { return -2 as isize }
+    if nqElfWriteHeader64(buffer, 0 as usize, target, 64 as u64, 5 as usize, 4 as usize) != 64 as isize { return -3 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 128 as usize, 1 as u32, 1 as u32, 6 as u64,
+        textStart as u64, textBytes as u64, 0 as u32, 0 as u32, 16 as u64, 0 as u64) { return -3 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 192 as usize, 7 as u32, 2 as u32, 0 as u64,
+        symtabStart as u64, 48 as u64, 3 as u32, 1 as u32, 8 as u64, 24 as u64) { return -3 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 256 as usize, 15 as u32, 3 as u32, 0 as u64,
+        strtabStart as u64, 14 as u64, 0 as u32, 0 as u32, 1 as u64, 0 as u64) { return -3 as isize }
+    if !nqElfWriteSectionHeader64(buffer, 320 as usize, 23 as u32, 3 as u32, 0 as u64,
+        shstrtabStart as u64, 33 as u64, 0 as u32, 0 as u32, 1 as u64, 0 as u64) { return -3 as isize }
+
+    let pos: usize = textStart
+    if !nqElfX64Put8(buffer, &pos, 0x55 as u8) { return -3 as isize }
+    if !nqElfX64Put8(buffer, &pos, 0x48 as u8) || !nqElfX64Put8(buffer, &pos, 0x89 as u8) || !nqElfX64Put8(buffer, &pos, 0xe5 as u8) { return -3 as isize }
+    if !nqElfX64Put8(buffer, &pos, 0x48 as u8) || !nqElfX64Put8(buffer, &pos, 0x81 as u8) || !nqElfX64Put8(buffer, &pos, 0xec as u8) { return -3 as isize }
+    if !nqElfX64Put32(buffer, &pos, 128 as u32) { return -3 as isize }
+    let index: usize = 0 as usize
+    while index < len(instructions) {
+        let ins: *NqNirInstruction = &instructions[index]
+        if ins.opcode == nqNirConstI64() {
+            if !nqElfX64EmitConst(buffer, &pos, ins.immediate) { return -3 as isize }
+            if !nqElfX64EmitSlot(buffer, &pos, 0x89 as u8, ins.dest) { return -3 as isize }
+        } else if ins.opcode == nqNirMove() {
+            if !nqElfX64EmitSlot(buffer, &pos, 0x8b as u8, ins.left) { return -3 as isize }
+            if !nqElfX64EmitSlot(buffer, &pos, 0x89 as u8, ins.dest) { return -3 as isize }
+        } else if ins.opcode == nqNirAdd() || ins.opcode == nqNirSub() || ins.opcode == nqNirMul() {
+            if !nqElfX64EmitSlot(buffer, &pos, 0x8b as u8, ins.left) { return -3 as isize }
+            if ins.opcode == nqNirMul() {
+                if !nqElfX64EmitMultiply(buffer, &pos, ins.right) { return -3 as isize }
+            } else if ins.opcode == nqNirAdd() {
+                if !nqElfX64EmitSlot(buffer, &pos, 0x03 as u8, ins.right) { return -3 as isize }
+            } else {
+                if !nqElfX64EmitSlot(buffer, &pos, 0x2b as u8, ins.right) { return -3 as isize }
+            }
+            if !nqElfX64EmitSlot(buffer, &pos, 0x89 as u8, ins.dest) { return -3 as isize }
+        } else if ins.opcode == nqNirReturn() {
+            if !nqElfX64EmitSlot(buffer, &pos, 0x8b as u8, ins.left) { return -3 as isize }
+            if !nqElfX64Put8(buffer, &pos, 0xc9 as u8) || !nqElfX64Put8(buffer, &pos, 0xc3 as u8) { return -3 as isize }
+        } else {
+            return -3 as isize
+        }
+        index = index + 1 as usize
+    }
+    if pos != textStart + textBytes as usize { return -3 as isize }
+    let symbolName: [u8; 14] = [0 as u8, 110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 101 as u8, 110 as u8, 116 as u8, 114 as u8, 121 as u8, 0 as u8]
+    let sectionNames: [u8; 33] = [0 as u8, 46 as u8, 116 as u8, 101 as u8, 120 as u8, 116 as u8, 0 as u8, 46 as u8, 115 as u8, 121 as u8, 109 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8, 46 as u8, 115 as u8, 116 as u8, 114 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8, 46 as u8, 115 as u8, 104 as u8, 115 as u8, 116 as u8, 114 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8]
+    index = 0 as usize
+    while index < 14 as usize {
+        buffer[strtabStart + index] = symbolName[index]
+        index = index + 1 as usize
+    }
+    index = 0 as usize
+    while index < 33 as usize {
+        buffer[shstrtabStart + index] = sectionNames[index]
+        index = index + 1 as usize
+    }
+    if !nqObjectWriteU32LE(buffer, symtabStart + 24 as usize, 1 as u32) { return -3 as isize }
+    buffer[symtabStart + 28 as usize] = 0x12 as u8
+    if !nqObjectWriteU16LE(buffer, symtabStart + 30 as usize, 1 as u16) { return -3 as isize }
+    if !nqObjectWriteU64LE(buffer, symtabStart + 40 as usize, textBytes as u64) { return -3 as isize }
+    return needed as isize
+}
+
