@@ -95,7 +95,8 @@ std::string get(const std::string& url,size_t limit=2097152){
    fail("registry URLs require HTTPS (loopback HTTP permitted for tests)");
  CURL* curl=curl_easy_init();if(!curl)fail("libcurl initialization failed");
  std::string data;curl_easy_setopt(curl,CURLOPT_URL,url.c_str());curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,0L);
- curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS|CURLPROTO_HTTP);curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
+ if(url.rfind("https://",0)==0)curl_easy_setopt(curl,CURLOPT_PROTOCOLS,CURLPROTO_HTTPS);
+ curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
  curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,5L);
  curl_easy_setopt(curl,CURLOPT_TIMEOUT,12L);curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,receive);
  curl_easy_setopt(curl,CURLOPT_WRITEDATA,&data);curl_easy_setopt(curl,CURLOPT_USERAGENT,"noqeri-native-registry/1");

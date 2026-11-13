@@ -81,7 +81,7 @@ if (sign) {
   const cmd = ['--batch','--yes','--armor','--detach-sign','--output',signature]
   if (process.env.NOQERI_RELEASE_GPG_KEY) cmd.push('--local-user', process.env.NOQERI_RELEASE_GPG_KEY)
   cmd.push(join(artifactDir, 'checksums.txt'))
-  const result = spawnSync('gpg', cmd, { stdio:'inherit' })
+  const result = spawnSync('/usr/bin/gpg', cmd, { stdio:'inherit' })
   if (result.error || result.status !== 0) {
     console.error('release-evidence: signing failed; no unsigned artifact may be relabelled as signed')
     process.exit(1)
