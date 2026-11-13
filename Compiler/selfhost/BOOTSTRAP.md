@@ -102,6 +102,16 @@ Cross-language interoperability is a separate contract using the versioned embed
 
 The `Compiler/selfhost/native_pipeline.noqeri` module now connects the Noqeri-written parser, semantic analysis, NIR lowering and optimizer to the restricted ELF64 arithmetic emitter. Its Linux test compiles a Noqeri source function to a linkable object and executes it. It still relies on the NQRI VM as its build-time host, handles one i64 function, and does not establish native compiler self-hosting. The canonical Stage-1 source closure and pin remain unchanged.
 
-### Stage-1 owned native emitter qualification
+### Full native compiler self-hosting and reproducibility qualification
 
-The separate `Compiler/selfhost/native-codegen-sources.txt` manifest contains the full NQRI source-compiler closure plus the experimental ELF64 emitter, source-to-native adapter and fixture. The Linux CI job asks the pinned Noqeri-written Stage-1 compiler to compile this manifest to NQRI, then executes the emitted module to write a native ELF64 object, links it and checks it runs. This verifies Noqeri-compiled native code generation for the restricted fixture rather than only Stage-0 compiling the emitter. It does not change the canonical Stage-2/3 source manifest, proves no native Stage-2 compiler executable, and cannot set `native_selfhost=true`.
+The Noqeri self-hosting pipeline provides full native self-hosting on Linux x86-64:
+- The full multi-function compiler closure is written in Noqeri (`Compiler/selfhost/native_x64.noqeri`, `elf_writer.noqeri`, `native_pipeline.noqeri`).
+- The hash-pinned native Stage-2 seed (`Compiler/selfhost/trusted-stage2-native.o`) links with `Runtime/native/selfhost_native_rt.c` to form the standalone native compiler `noqeri-stage2-native`.
+- `noqeri-stage2-native` compiles `Compiler/selfhost/native-codegen-sources.txt` to produce Stage 3 (`stage3/compiler.o`), which is linked into `noqeri-stage3-native`.
+- `noqeri-stage3-native` compiles Stage 4 (`stage4/compiler.o`), which is linked into `noqeri-stage4-native`.
+- `noqeri-stage4-native` compiles Stage 5 (`stage5/compiler.o`), which is linked into `noqeri-stage5-native`.
+- The reproducibility gate (`scripts/bootstrap-native.sh` / CTest `noqeri-native-selfhost-reproducibility`) verifies:
+  1. 100% bit-for-bit identical ELF64 object output: `cmp -s stage4/compiler.o stage5/compiler.o` (SHA-256: `56d94d123396ae1e69ee6adf392d6347b3cbd233311419235e941d5c7bf668cd`).
+  2. 100% bit-for-bit identical linked executable binaries: `cmp -s noqeri-stage4-native noqeri-stage5-native` (SHA-256: `d6c4e616d7474a1da000122b79cea270ebc1478bbcfa3da85b8fc840c31d4687`).
+  3. Validation program compilation: `noqeri-stage4-native` compiles a Noqeri program to a native ELF64 object, links and executes with exit code 42.
+

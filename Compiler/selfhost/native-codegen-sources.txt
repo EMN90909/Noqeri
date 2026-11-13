@@ -30,5 +30,6 @@ Compiler/selfhost/stage2.noqeri
 Compiler/selfhost/nqri_writer.noqeri
 Compiler/selfhost/main.noqeri
 Compiler/selfhost/elf_writer.noqeri
+Compiler/selfhost/native_x64.noqeri
 Compiler/selfhost/native_pipeline.noqeri
 tests/selfhost_native_source_smoke.noqeri

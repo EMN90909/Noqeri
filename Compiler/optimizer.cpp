@@ -978,7 +978,8 @@ bool hoistLoopLiteral(NirFunction& fn) {
             }
         }
         if(!structured||branch==n)continue;
-        for(std::size_t candidate=branch+1;candidate<back;++candidate){
+        for(std::size_t candidate=header;candidate<back;++candidate){
+            if(candidate==branch)continue;
             const auto& instruction=fn.code[candidate];
             if(!instruction.dest)continue;
             bool pureInvariant=instruction.op==NirOp::Const;
@@ -1101,6 +1102,24 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             if(it!=constants.end())constants[*in.dest]=it->second;
         }else if(in.op==NirOp::Load)loads[*in.dest]=in.text;
     }
+    std::unordered_map<std::string,std::pair<std::size_t,std::int64_t>> constVars;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Store&&in.args.size()==1){
+            auto it=constants.find(in.args[0]);
+            if(it!=constants.end()){
+                auto& cv=constVars[in.text];
+                ++cv.first;cv.second=it->second;
+            }else constVars[in.text].first+=2;
+        }else if(in.op==NirOp::AddressOf)constVars[in.text].first+=2;
+    }
+    for(const auto& in:fn.code){
+        if(!in.dest)continue;
+        if(in.op==NirOp::Load){
+            auto it=constVars.find(in.text);
+            if(it!=constVars.end()&&it->second.first==1)
+                constants[*in.dest]=it->second.second;
+        }
+    }
     // A backedge from AFTER a check into the protected body can bypass the
     // guard that proved its bound. Dominance alone does not establish that
     // the scalar still satisfies the guard after another loop iteration.
@@ -1137,27 +1156,140 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
         const auto pos=std::lower_bound(it->second.begin(),it->second.end(),from+1);
         return pos!=it->second.end()&&*pos<until;
     };
-    const auto bypassesGuard=[&](std::size_t guard,std::size_t checkPc){
-        for(const auto& edge:backedges)
-            if(edge.first>checkPc&&edge.second>guard&&
-               edge.second<=checkPc)return true;
+    const auto bypassesGuard=[&](std::size_t guard,std::size_t checkPc,const std::string& varName=""){
+        for(const auto& edge:backedges){
+            if(edge.first>checkPc&&edge.second>guard&&edge.second<=checkPc){
+                if(varName.empty())return true;
+                const auto it=storeLocations.find(varName);
+                if(it!=storeLocations.end()){
+                    const auto pos=std::lower_bound(it->second.begin(),it->second.end(),edge.second);
+                    if(pos!=it->second.end()&&*pos<=edge.first)
+                        return true;
+                }
+            }
+        }
         return false;
+    };
+    const auto integerConst=[&](Reg r)->std::optional<std::int64_t>{
+        const auto it=constants.find(r);
+        if(it==constants.end())return std::nullopt;
+        return it->second;
+    };
+    std::unordered_map<std::string,bool> nonNegativeVarCache;
+    const auto isNonNegativeVar=[&](const std::string& varName)->bool{
+        auto cached=nonNegativeVarCache.find(varName);
+        if(cached!=nonNegativeVarCache.end())return cached->second;
+        const auto it=storeLocations.find(varName);
+        if(it==storeLocations.end()||it->second.empty())return false;
+        bool ok=true;
+        for(std::size_t storePc:it->second){
+            const auto& storeIn=fn.code[storePc];
+            if(storeIn.args.empty()){ok=false;break;}
+            const Reg arg=storeIn.args[0];
+            const auto c=integerConst(arg);
+            if(c&&*c>=0)continue;
+            auto def=g.definitions.find(arg);
+            if(def!=g.definitions.end()){
+                const auto& addIn=fn.code[def->second];
+                if(addIn.op==NirOp::Binary&&addIn.text=="+"&&addIn.args.size()==2){
+                    const auto biasR=integerConst(addIn.args[1]);
+                    const auto biasL=integerConst(addIn.args[0]);
+                    const auto lName=loads.find(addIn.args[0]);
+                    const auto rName=loads.find(addIn.args[1]);
+                    if(biasR&&*biasR>=0&&lName!=loads.end()&&lName->second==varName)
+                        continue;
+                    if(biasL&&*biasL>=0&&rName!=loads.end()&&rName->second==varName)
+                        continue;
+                }
+            }
+            ok=false;
+            break;
+        }
+        nonNegativeVarCache[varName]=ok;
+        return ok;
     };
     bool changed=false;
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         auto& check=fn.code[pc];
         if(check.op!=NirOp::CheckBounds||check.args.size()!=2)continue;
+
+        // Recognize 2D indexed bounds: (row * stride) + col
+        auto limit=constants.find(check.args[1]);
+        if(limit!=constants.end()&&limit->second>0){
+            bool is2D=false;
+            Reg rowReg=0,colReg=0;
+            std::int64_t stride=0;
+            if(!loads.count(check.args[0])){
+                auto def=g.definitions.find(check.args[0]);
+                if(def!=g.definitions.end()){
+                    const auto& addIn=fn.code[def->second];
+                    if(addIn.op==NirOp::Binary&&addIn.text=="+"&&addIn.args.size()==2){
+                        auto checkMul=[&](Reg mReg,Reg otherReg)->bool{
+                            auto mDef=g.definitions.find(mReg);
+                            if(mDef!=g.definitions.end()){
+                                const auto& mulIn=fn.code[mDef->second];
+                                if(mulIn.op==NirOp::Binary&&mulIn.text=="*"&&mulIn.args.size()==2){
+                                    auto fR=integerConst(mulIn.args[1]);
+                                    auto fL=integerConst(mulIn.args[0]);
+                                    if(fR&&*fR>0){
+                                        stride=*fR;rowReg=mulIn.args[0];colReg=otherReg;return true;
+                                    }else if(fL&&*fL>0){
+                                        stride=*fL;rowReg=mulIn.args[1];colReg=otherReg;return true;
+                                    }
+                                }
+                            }
+                            return false;
+                        };
+                        if(checkMul(addIn.args[0],addIn.args[1])||checkMul(addIn.args[1],addIn.args[0])){
+                            is2D=true;
+                        }
+                    }
+                }
+            }
+            if(is2D&&loads.count(rowReg)&&loads.count(colReg)){
+                const auto rowName=loads.find(rowReg);
+                const auto colName=loads.find(colReg);
+                if(isNonNegativeVar(rowName->second)&&isNonNegativeVar(colName->second)){
+                    std::optional<std::int64_t> maxRow,maxCol;
+                    for(std::size_t guardPc=0;guardPc<pc;++guardPc){
+                        const auto& branch=fn.code[guardPc];
+                        if(branch.op!=NirOp::JumpIfFalse||branch.args.size()!=1||
+                           branch.target<=pc||guardPc+1>=fn.code.size())continue;
+                        auto def=g.definitions.find(branch.args[0]);
+                        if(def==g.definitions.end()||def->second>=guardPc)continue;
+                        const auto& cmp=fn.code[def->second];
+                        if(cmp.op!=NirOp::Binary||cmp.args.size()!=2||
+                           (cmp.text!="<"&&cmp.text!="<="))continue;
+                        const auto cName=loads.find(cmp.args[0]);
+                        const auto upper=constants.find(cmp.args[1]);
+                        if(cName==loads.end()||upper==constants.end()||upper->second<0)continue;
+                        if(!g.dominates[g.owner[pc]][g.owner[guardPc+1]])continue;
+                        const auto src=g.definitions.find(cmp.args[0]);
+                        if(src==g.definitions.end()||src->second>=guardPc||
+                           fn.code[src->second].op!=NirOp::Load)continue;
+                        const std::int64_t bound=cmp.text=="<"?upper->second-1:upper->second;
+                        if(cName->second==rowName->second&&!maxRow){
+                            if(!bypassesGuard(guardPc,pc,rowName->second)&&!invalidated(rowName->second,src->second,pc))maxRow=bound;
+                        }
+                        if(cName->second==colName->second&&!maxCol){
+                            if(!bypassesGuard(guardPc,pc,colName->second)&&!invalidated(colName->second,src->second,pc))maxCol=bound;
+                        }
+                    }
+                    if(maxRow&&maxCol&&*maxRow>=0&&*maxCol>=0){
+                        if(*maxRow<=(limit->second-1-*maxCol)/stride){
+                            check.op=NirOp::Nop;check.args.clear();changed=true;continue;
+                        }
+                    }
+                }
+            }
+        }
+
         // Recognize the checked affine expression i*scale+offset.
         // Only positive literal scale/nonnegative bias and identical
         // integer widths qualify. Prove the complete expression cannot
         // wrap, rather than trusting machine arithmetic modulo 2^width.
         Reg baseIndex=check.args[0];
         std::int64_t offset=0,scale=1;
-        const auto integerConst=[&](Reg r)->std::optional<std::int64_t>{
-            const auto it=constants.find(r);
-            if(it==constants.end())return std::nullopt;
-            return it->second;
-        };
         const auto checkedKind=operandType(fn,check.args[0]);
         if(!loads.count(baseIndex)){
             auto def=g.definitions.find(baseIndex);
@@ -1178,7 +1310,7 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             }
         }
         if(!loads.count(baseIndex)){
-            const auto def=g.definitions.find(baseIndex);
+            auto def=g.definitions.find(baseIndex);
             if(def!=g.definitions.end()){
                 const auto& mul=fn.code[def->second];
                 if(mul.op==NirOp::Binary&&mul.text=="*"&&
@@ -1196,7 +1328,6 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             }
         }
         auto indexName=loads.find(baseIndex);
-        auto limit=constants.find(check.args[1]);
         if(indexName==loads.end()||limit==constants.end()||
            limit->second<=offset||scale<=0)continue;
         const auto baseDefinition=g.definitions.find(baseIndex);
@@ -1241,7 +1372,7 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                 maxBase<=(maximum-offset)/scale;
             if(!proven)continue;
             if(!proven||!g.dominates[g.owner[pc]][g.owner[guardPc+1]]||
-               bypassesGuard(guardPc,pc))continue;
+               bypassesGuard(guardPc,pc,indexName->second))continue;
             // BOTH the index source and guard source must observe the same
             // named-local state. A previously unhandled case was an older
             // checked index loaded BEFORE a Store and then a newer guard
@@ -1256,39 +1387,39 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             if(invalidated(indexName->second,earliest,pc))continue;
             if(!checkedUnsigned){
                 // Signed x < bound proves only the upper half of 0 <= x < bound.
-                // Require a second dominating true-edge guard x >= 0. Both
-                // guarded loads and the bounds access must see the SAME named
-                // local value, with no intervening stores or unknown writes.
-                // This is a local range proof, not general induction analysis.
-                bool nonnegative=false;
-                for(std::size_t lowerPc=0;lowerPc<guardPc;++lowerPc){
-                    const auto& lowerBranch=fn.code[lowerPc];
-                    if(lowerBranch.op!=NirOp::JumpIfFalse||
-                       lowerBranch.args.size()!=1||lowerBranch.target<=pc||
-                       lowerPc+1>=fn.code.size())continue;
-                    const auto lowerDef=g.definitions.find(lowerBranch.args[0]);
-                    if(lowerDef==g.definitions.end()||lowerDef->second>=lowerPc)
-                        continue;
-                    const auto& lowerCompare=fn.code[lowerDef->second];
-                    if(lowerCompare.op!=NirOp::Binary||
-                       lowerCompare.text!=">="||lowerCompare.args.size()!=2)
-                        continue;
-                    const auto lowerName=loads.find(lowerCompare.args[0]);
-                    const auto lowerConst=constants.find(lowerCompare.args[1]);
-                    if(lowerName==loads.end()||
-                       lowerName->second!=indexName->second||
-                       lowerConst==constants.end()||lowerConst->second!=0||
-                       !signedIndexType(operandType(fn,lowerCompare.args[0]))||
-                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]]||
-                       bypassesGuard(lowerPc,pc))
-                        continue;
-                    const auto lowerLoad=g.definitions.find(lowerCompare.args[0]);
-                    if(lowerLoad==g.definitions.end()||
-                       lowerLoad->second>=lowerPc||
-                       fn.code[lowerLoad->second].op!=NirOp::Load)
-                        continue;
-                    if(!invalidated(indexName->second,lowerLoad->second,pc)){
-                        nonnegative=true;break;
+                // If the variable is provably non-negative induction variable,
+                // or guarded by x >= 0, then 0 <= x < bound is proven.
+                bool nonnegative=isNonNegativeVar(indexName->second);
+                if(!nonnegative){
+                    for(std::size_t lowerPc=0;lowerPc<guardPc;++lowerPc){
+                        const auto& lowerBranch=fn.code[lowerPc];
+                        if(lowerBranch.op!=NirOp::JumpIfFalse||
+                           lowerBranch.args.size()!=1||lowerBranch.target<=pc||
+                           lowerPc+1>=fn.code.size())continue;
+                        const auto lowerDef=g.definitions.find(lowerBranch.args[0]);
+                        if(lowerDef==g.definitions.end()||lowerDef->second>=lowerPc)
+                            continue;
+                        const auto& lowerCompare=fn.code[lowerDef->second];
+                        if(lowerCompare.op!=NirOp::Binary||
+                           lowerCompare.text!=">="||lowerCompare.args.size()!=2)
+                            continue;
+                        const auto lowerName=loads.find(lowerCompare.args[0]);
+                        const auto lowerConst=constants.find(lowerCompare.args[1]);
+                        if(lowerName==loads.end()||
+                           lowerName->second!=indexName->second||
+                           lowerConst==constants.end()||lowerConst->second!=0||
+                           !signedIndexType(operandType(fn,lowerCompare.args[0]))||
+                           !g.dominates[g.owner[pc]][g.owner[lowerPc+1]]||
+                           bypassesGuard(lowerPc,pc,indexName->second))
+                            continue;
+                        const auto lowerLoad=g.definitions.find(lowerCompare.args[0]);
+                        if(lowerLoad==g.definitions.end()||
+                           lowerLoad->second>=lowerPc||
+                           fn.code[lowerLoad->second].op!=NirOp::Load)
+                            continue;
+                        if(!invalidated(indexName->second,lowerLoad->second,pc)){
+                            nonnegative=true;break;
+                        }
                     }
                 }
                 if(!nonnegative)continue;
@@ -2118,6 +2249,8 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         if(!promoted){
             if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
         }else{
+            constants(fn);
+            globalGvn(fn);
             threadJumps(fn);
             foldBranches(fn);
             unreachable(fn);
@@ -2264,6 +2397,10 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
             // Read all original sources before writing ANY destination,
             // including swaps and longer parallel-copy cycles.
             for(const auto& copy:edge.copies){
+                if(copy.source==copy.dest){
+                    staged.push_back(copy.source);
+                    continue;
+                }
                 if(next==std::numeric_limits<Reg>::max())return false;
                 const Reg temporary=next++;
                 result.registerTypes.resize(static_cast<std::size_t>(next));
@@ -2278,6 +2415,7 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
         }
         for(std::size_t i=0;i<edge.copies.size();++i){
             const auto& copy=edge.copies[i];
+            if(copy.source==copy.dest)continue;
             const Reg source=requiresStaging?staged[i]:copy.source;
             if(source==copy.dest)continue;
             NirInstruction assign;
