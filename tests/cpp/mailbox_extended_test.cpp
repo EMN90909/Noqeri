@@ -51,7 +51,7 @@ static void reactor_test(){
   nq_mail_reactor_destroy(r);
 }
 static void persistence_test(){
-  char dir[]="/tmp/noqeri-durable-XXXXXX";assert(mkdtemp(dir));
+  char dir[]="noqeri-durable-XXXXXX";assert(mkdtemp(dir));
   const char msg[]="hello durable mailbox";
   assert(nq_mail_commit_message(dir,"abc_123",msg,sizeof(msg))==0);
   assert(nq_mail_commit_message(dir,"abc_123",msg,sizeof(msg))==-EEXIST);

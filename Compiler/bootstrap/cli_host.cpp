@@ -187,7 +187,7 @@ bool runProgramForStress(const std::filesystem::path& root, const std::filesyste
 
 bool runNoqeriDbStress(const std::filesystem::path& root) {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dir = std::filesystem::temp_directory_path() / ("noqeri-stress-" + std::to_string(stamp));
+    const auto dir = root / ".noqeri-stress-tmp" / ("noqeri-stress-" + std::to_string(stamp));
     std::filesystem::create_directories(dir);
     const auto script = dir / "stress.nqd";
     const auto database = dir / "stress.nqdb";
@@ -216,7 +216,6 @@ bool runNoqeriDbStress(const std::filesystem::path& root) {
     }
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
-    (void)root;
     return false;
 }
 
@@ -224,7 +223,7 @@ bool runParserFuzz(const std::filesystem::path& root, int cases) {
     const std::string chars = "(){}[]<>+-*/=abcdefghijklmnopqrstuvwxyz0123456789";
     std::mt19937 rng(0x4E514552u);
     std::uniform_int_distribution<int> pick(0, static_cast<int>(chars.size() - 1));
-    const auto dir = std::filesystem::temp_directory_path() / "noqeri-stress-fuzz";
+    const auto dir = root / ".noqeri-stress-tmp" / "noqeri-stress-fuzz";
     std::filesystem::create_directories(dir);
     bool ok = true;
     for (int i = 0; i < cases; ++i) {
@@ -244,7 +243,6 @@ bool runParserFuzz(const std::filesystem::path& root, int cases) {
     }
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
-    (void)root;
     if (ok) std::cout << "ok   parser fuzz cases=" << cases << "\n";
     return ok;
 }

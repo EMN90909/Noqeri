@@ -159,16 +159,32 @@ std::uint64_t training_fingerprint(const std::string& corpus,
        <<static_cast<int>(o.precision);
     return fnv64(cfg.str());
 }
+struct DeterministicStream {
+    std::uint64_t state=0x9e3779b97f4a7c15ULL;
+    explicit DeterministicStream(std::uint64_t seed=0):state(seed^0x9e3779b97f4a7c15ULL){}
+    std::uint32_t operator()() {
+        state+=0x9e3779b97f4a7c15ULL;
+        std::uint64_t z=state;
+        z=(z^(z>>30))*0xbf58476d1ce4e5b9ULL;
+        z=(z^(z>>27))*0x94d049bb133111ebULL;
+        return static_cast<std::uint32_t>((z^(z>>31))>>32);
+    }
+    double uniform(double lo,double hi) {
+        return lo+(hi-lo)*((static_cast<double>((*this)())+0.5)/4294967296.0);
+    }
+    friend std::ostream& operator<<(std::ostream& os,const DeterministicStream& s){return os<<s.state;}
+    friend std::istream& operator>>(std::istream& is,DeterministicStream& s){return is>>s.state;}
+};
 struct CheckpointState {
     std::size_t updates=0,logged=0;
     double trailing_sum=0;
-    std::mt19937 rng;
+    DeterministicStream rng;
     AdamWState optimizer;
 };
 void save_checkpoint(const std::string& path,const std::string& corpus,
                      const TransformerOptions& options,
                      TransformerModel& model,const AdamWOptimizer& adamw,
-                     const std::mt19937& rng,std::size_t updates,
+                     const DeterministicStream& rng,std::size_t updates,
                      double sum_loss,std::size_t logged) {
     check(!path.empty() && path.size()<=4096,"invalid checkpoint path");
     verify_model(model);
@@ -393,10 +409,9 @@ TransformerModel train_transformer(const std::string& corpus,
     for(auto& layer:m.extra_layers)
         for(Matrix* x:{&layer.wq,&layer.wk,&layer.wv,&layer.wo,&layer.w1,&layer.w2})
             *x=Matrix(d,d);
-    std::mt19937 rng(opt.seed);
-    std::uniform_real_distribution<double> uniform(-0.08,0.08);
+    DeterministicStream rng(opt.seed);
     auto p=parameters(m);
-    for(Matrix* param:p)for(double& w:param->values)w=uniform(rng);
+    for(Matrix* param:p)for(double& w:param->values)w=rng.uniform(-0.08,0.08);
     AdamWOptimizer adamw(p);
     double sum_loss=0.0;
     std::size_t logged=0,start_step=0;
@@ -494,7 +509,7 @@ std::string generate_transformer(const TransformerModel& m,const std::string& pr
           "invalid generation temperature");
     auto ids=m.tokenizer.encode(prompt);
     std::vector<std::size_t> generated;
-    std::mt19937 rng(seed);
+    DeterministicStream rng(seed);
     for(std::size_t i=0;i<tokens;++i) {
         const auto ctx=preceding(ids,ids.size(),m.context);
         const auto g=forward(m,ctx,backend,

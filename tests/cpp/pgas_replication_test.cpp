@@ -14,8 +14,10 @@
 
 int main(int argc,char **argv) {
   assert(argc==8);
-  char name[]="/tmp/noqeri-pgas-pair-XXXXXX";
-  char *directory=mkdtemp(name);assert(directory);
+  char cwd[1024]{};
+  assert(getcwd(cwd, sizeof(cwd)) != nullptr);
+  std::string name_str = std::string(cwd) + "/noqeri-pgas-pair-XXXXXX";
+  char *directory = mkdtemp(name_str.data()); assert(directory);
   std::string first=std::string(directory)+"/primary.wal";
   std::string second=std::string(directory)+"/standby.wal";
   const char *token="two-node-replica-test-token-2026";

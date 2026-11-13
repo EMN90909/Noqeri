@@ -201,14 +201,23 @@ LanguageModel train_language(const std::string& corpus, const LanguageOptions& o
     m.embedding.resize(vocab*m.hidden);
     m.projection.resize(m.hidden*vocab);
     m.bias.assign(vocab,0.0);
-    std::mt19937 rng(opt.seed);
-    std::uniform_real_distribution<double> init(-0.03,0.03);
-    for (double& x : m.embedding) x = init(rng);
-    for (double& x : m.projection) x = init(rng);
+    std::uint64_t rng_state = static_cast<std::uint64_t>(opt.seed) ^ 0x9e3779b97f4a7c15ULL;
+    auto next_u32 = [&]() -> std::uint32_t {
+        rng_state += 0x9e3779b97f4a7c15ULL;
+        std::uint64_t z = rng_state;
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        return static_cast<std::uint32_t>((z ^ (z >> 31)) >> 32);
+    };
+    auto init_weight = [&]() -> double {
+        return -0.03 + 0.06 * ((static_cast<double>(next_u32()) + 0.5) / 4294967296.0);
+    };
+    for (double& x : m.embedding) x = init_weight();
+    for (double& x : m.projection) x = init_weight();
     double last=0.0;
     const auto monitor = std::min<std::size_t>(100,opt.steps);
     for (std::size_t step=0; step<opt.steps; ++step) {
-        const std::size_t position = static_cast<std::size_t>(rng()) % data.size();
+        const std::size_t position = static_cast<std::size_t>(next_u32()) % data.size();
         const auto context = context_at(data,position,m.context);
         std::vector<double> state(m.hidden,0.0);
         for (std::size_t id : context)
@@ -247,7 +256,14 @@ std::string generate_language(const LanguageModel& m, const std::string& prompt,
     check(std::isfinite(temperature) && temperature >= 0.0 && temperature <= 2.0,
           "temperature must be in 0..2");
     auto tokens = encode(prompt);
-    std::mt19937 rng(seed);
+    std::uint64_t rng_state = static_cast<std::uint64_t>(seed) ^ 0x9e3779b97f4a7c15ULL;
+    auto next_u32 = [&]() -> std::uint32_t {
+        rng_state += 0x9e3779b97f4a7c15ULL;
+        std::uint64_t z = rng_state;
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        return static_cast<std::uint32_t>((z ^ (z >> 31)) >> 32);
+    };
     std::string continuation;
     continuation.reserve(max_tokens);
     for (std::size_t n=0; n<max_tokens; ++n) {
@@ -262,7 +278,7 @@ std::string generate_language(const LanguageModel& m, const std::string& prompt,
             for (std::size_t j=0; j<vocab; ++j)
                 logits[j] = std::log(std::max(probabilities[j],1e-300))/temperature;
             probabilities=distribution(std::move(logits));
-            const double selection=(static_cast<double>(rng())+0.5)/4294967296.0;
+            const double selection=(static_cast<double>(next_u32())+0.5)/4294967296.0;
             double cumulative=0.0;
             next=vocab-1;
             for (std::size_t j=0; j<vocab; ++j) {

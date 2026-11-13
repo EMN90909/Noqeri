@@ -18,8 +18,10 @@
 
 static constexpr const char *secret = "private-pgas-durable-test-token";
 int main() {
-  char tmpl[] = "/tmp/noqeri-pgas-wal-XXXXXX";
-  char *dir = mkdtemp(tmpl);
+  char cwd[1024]{};
+  assert(getcwd(cwd, sizeof(cwd)) != nullptr);
+  std::string tmpl_str = std::string(cwd) + "/noqeri-pgas-wal-XXXXXX";
+  char *dir = mkdtemp(tmpl_str.data());
   assert(dir);
   const std::string path = std::string(dir) + "/node.wal";
   int pipefd[2]; assert(pipe(pipefd) == 0);

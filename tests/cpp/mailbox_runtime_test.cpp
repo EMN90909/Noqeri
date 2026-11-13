@@ -29,7 +29,7 @@ int main(){
   char buf[8]{};assert(nq_mail_read(server,buf,4)==4);
   assert(std::memcmp(buf,txt,4)==0);
   assert(nq_mail_close(server)==0);assert(nq_mail_close(client)==0);assert(nq_mail_close(listener)==0);
-  char dir[]="/tmp/noqeri-mailbox-XXXXXX";assert(mkdtemp(dir));
+  char dir[]="noqeri-mailbox-XXXXXX";assert(mkdtemp(dir));
   assert(nq_mail_atomic_write(dir,"../bad",txt,4)==-EINVAL);
   assert(nq_mail_atomic_write(dir,"message",txt,4)==0);
   std::ifstream in(std::string(dir)+"/message",std::ios::binary);

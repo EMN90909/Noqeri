@@ -117,8 +117,19 @@ Model train(const std::vector<Sample>& samples,const Options& options,TrainingRe
     }
     std::vector<std::size_t> order(samples.size());
     std::iota(order.begin(),order.end(),0);
-    std::mt19937 rng(options.seed);
-    std::shuffle(order.begin(),order.end(),rng);
+    std::uint64_t rng_state=static_cast<std::uint64_t>(options.seed)^0x9e3779b97f4a7c15ULL;
+    auto next_u32=[&]() -> std::uint32_t {
+        rng_state+=0x9e3779b97f4a7c15ULL;
+        std::uint64_t z=rng_state;
+        z=(z^(z>>30))*0xbf58476d1ce4e5b9ULL;
+        z=(z^(z>>27))*0x94d049bb133111ebULL;
+        return static_cast<std::uint32_t>((z^(z>>31))>>32);
+    };
+    auto shuffle_prefix=[&](std::size_t count) {
+        for(std::size_t k=count;k>1;--k)
+            std::swap(order[k-1],order[static_cast<std::size_t>(next_u32())%k]);
+    };
+    shuffle_prefix(order.size());
     const auto validation_count=std::max<std::size_t>(1,samples.size()/5);
     const auto train_count=samples.size()-validation_count;
     require(train_count>=2,"not enough training examples");
@@ -139,7 +150,7 @@ Model train(const std::vector<Sample>& samples,const Options& options,TrainingRe
     }
     for(unsigned epoch=0;epoch<options.epochs;++epoch) {
         // Training partition only. Never mix validation rows into SGD.
-        std::shuffle(order.begin(),order.begin()+static_cast<std::ptrdiff_t>(train_count),rng);
+        shuffle_prefix(train_count);
         const double decay=options.learning_rate/(1.0+double(epoch)*0.005);
         for(std::size_t i=0;i<train_count;++i) {
             const auto& row=samples[order[i]];
