@@ -18,6 +18,7 @@ on:
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
       - 'tests/selfhost_native_elf_smoke.noqeri'
+      - 'tests/selfhost_native_source_smoke.noqeri'
       - 'tests/bootstrap_language_compat.noqeri'
       - 'tests/loop_control.noqeri'
       - 'tests/nested_call_args.noqeri'
@@ -40,6 +41,7 @@ on:
       - 'tests/cpp/**'
       - 'tests/bootstrap_seed_pin.test.mjs'
       - 'tests/selfhost_native_elf_smoke.noqeri'
+      - 'tests/selfhost_native_source_smoke.noqeri'
       - '.github/workflows/native-selfhost-runtime.yml'
 
 permissions:
@@ -179,6 +181,14 @@ jobs:
           printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 70 ? 0 : 1; }' > build-native/noqeri-owned-arithmetic.c
           cc build-native/noqeri-owned-arithmetic.c build-native/noqeri-owned-arithmetic.o -o build-native/noqeri-owned-arithmetic
           ./build-native/noqeri-owned-arithmetic
+          ./build-native/noqeri check tests/selfhost_native_source_smoke.noqeri
+          ./build-native/noqeri nqri tests/selfhost_native_source_smoke.noqeri build-native/selfhost-native-source-smoke.nqri
+          test "$(./build-native/noqeri-nqri build-native/selfhost-native-source-smoke.nqri nativeElfSourceSmoke)" = "0"
+          ./build-native/noqeri-nqri write-buffer build-native/selfhost-native-source-smoke.nqri nativeElfWriteSourceFixture build-native/noqeri-owned-from-source.o
+          readelf -S -s build-native/noqeri-owned-from-source.o | grep -Fq 'noqeri_entry'
+          printf '%s\n' 'extern long noqeri_entry(void);' 'int main(void) { return noqeri_entry() == 42 ? 0 : 1; }' > build-native/noqeri-owned-source.c
+          cc build-native/noqeri-owned-source.c build-native/noqeri-owned-from-source.o -o build-native/noqeri-owned-from-source
+          ./build-native/noqeri-owned-from-source
       - name: Verify bootstrap language compatibility (Linux)
         if: runner.os == 'Linux'
         shell: bash

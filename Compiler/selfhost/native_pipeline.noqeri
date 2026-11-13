@@ -1,0 +1,24 @@
+module noqeri.compiler.selfhost.native_pipeline
+import "pipeline.noqeri"
+import "elf_writer.noqeri"
+import "ast.noqeri"
+import "nir.noqeri"
+import "targets.noqeri"
+
+// Experimental Noqeri-owned source -> native ELF64 pipeline. Reject any
+// unsupported NIR. This is a single i64 function, not compiler self-hosting.
+export function nqCompileSourceToElf64(source: []u8, output: []u8): isize {
+    if len(source) == 0 as usize { return -901 as isize }
+    let nodes: [NqAstNode; 131072]
+    let instructions: [NqNirInstruction; 262144]
+    let functions: [NqNirFunction; 8192]
+    let result: NqCompileResult
+    let status: isize = nqPipelineCompileToNir(source, nqTargetLinuxX64(), true, false,
+        slice(nodes), slice(instructions), slice(functions), &result)
+    if status < 0 as isize { return status }
+    if result.functionCount != 1 as usize { return -902 as isize }
+    if functions[0].firstInstruction != 0 as usize { return -903 as isize }
+    if functions[0].instructionCount != result.instructionCount { return -903 as isize }
+    return nqElfWriteArithmeticObject(output, nqTargetLinuxX64(),
+        slice(instructions, result.instructionCount))
+}

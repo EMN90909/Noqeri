@@ -97,3 +97,7 @@ NQRI self-host evidence is accepted only when:
 `Runtime/nqri-vm.mjs` remains a reference/parity implementation and is not the default bootstrap executor. `scripts/bootstrap-stage2.mjs` remains useful for broader release-suite orchestration.
 
 Cross-language interoperability is a separate contract using the versioned embedding C ABI and adapters documented in `Doc/ABI.md` and `Doc/FFI.md`.
+
+### Experimental source-to-native acceptance path
+
+The `Compiler/selfhost/native_pipeline.noqeri` module now connects the Noqeri-written parser, semantic analysis, NIR lowering and optimizer to the restricted ELF64 arithmetic emitter. Its Linux test compiles a Noqeri source function to a linkable object and executes it. It still relies on the NQRI VM as its build-time host, handles one i64 function, and does not establish native compiler self-hosting. The canonical Stage-1 source closure and pin remain unchanged.
