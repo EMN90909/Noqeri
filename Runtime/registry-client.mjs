@@ -1,4 +1,4 @@
-// Registry v1 HTTPS client and bounded deterministic .nqpkg reader.
+// Registry v1 HTTPS client and bounded deterministic .ndl reader.
 // No GitHub/raw-content fallback, no unverified archive installation.
 import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
