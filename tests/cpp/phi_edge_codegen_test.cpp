@@ -51,6 +51,18 @@ noe::NirFunction function(const std::string& name,bool criticalFall,
         phi.block=1;
         phi.incoming={{0,2},{2,3}};
     }
+    if(!criticalFall&&flag){
+        // The value defined exclusively on the other branch is NOT
+        // available to the predecessor that takes the critical edge.
+        auto invalid=fn;
+        auto wrong=phi;
+        wrong.incoming={{0,3},{1,2}};
+        if(noe::lowerPhiNodes(invalid,{wrong})||
+           invalid.code.size()!=fn.code.size()){
+            std::cerr<<"unsound Phi predecessor was accepted\n";
+            std::exit(1);
+        }
+    }
     if(!noe::lowerPhiNodes(fn,{phi})){
         std::cerr<<"Phi lowering failed for "<<name<<"\n";
         std::exit(1);
