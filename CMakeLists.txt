@@ -26,7 +26,7 @@ add_executable(noqeri-nqri Runtime/native/nqri_vm.cpp)
 # Bootstrap transport uses libcurl TLS when available; SHA-256 is bundled
 # from the compiler implementation and works without extra libraries.
 # Offline/help commands still compile on restricted cross-build toolchains.
-add_executable(noqeri-pkg Runtime/native/sdk_registry.cpp)
+add_executable(noqeri-pkg Runtime/native/sdk_registry.cpp Runtime/native/nodule_pack.cpp)
 target_compile_features(noqeri-pkg PRIVATE cxx_std_17)
 find_package(CURL QUIET)
 if(CURL_FOUND)

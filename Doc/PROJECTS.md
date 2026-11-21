@@ -41,4 +41,16 @@ There is no required module declaration, explicit `main` function, type annotati
 
 `noqeri lock` writes the deterministic lockfile. `noqeri add` and `noqeri install` update/resolve package information while `noqeri.lock` remains the exact dependency and integrity record.
 
+Package authors can create a registry artifact directly from a project or
+library directory:
+
+```sh
+noqeri pkg pack ./library target/library-0.1.0.ndl
+noqeri pkg publish ./library target/library-0.1.0.ndl
+```
+
+The artifact format is the Noqeri Nodule Distribution Layer (`.ndl`). It is
+deterministic, bounded to the registry limits, and contains no executable
+install step.
+
 NQON is a portable data format rather than executable Noqeri source. See `Doc/NQON.md`. Existing `project.noqeri` manifests remain readable during the 0.7 migration, but new tooling should generate `project.nqon`.

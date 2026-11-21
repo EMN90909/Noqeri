@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Native bootstrap adapter for the Noqeri registry. No Node.js or JavaScript
 // runtime: HTTPS and SHA-256 are provided by platform-native libraries.
+#include "nodule_pack.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -127,6 +128,7 @@ std::string hashFiles(const std::map<std::string,std::string>& files){
  }
  return "sha256:"+sha.finish();
 }
+std::string hashBytes(const std::string& value){Sha256 sha;sha.update(value);return "sha256:"+sha.finish();}
 
 const std::string coordinateRx="[A-Za-z0-9_-]+/[A-Za-z0-9_-]+";
 const std::string versionRx="[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.+-]+)?";
@@ -134,8 +136,15 @@ std::pair<std::string,std::string> splitSpec(std::string s){auto a=s.rfind('@');
  if(!valid(s,coordinateRx)||(!version.empty()&&!valid(version,versionRx)))fail("expected namespace/name[@semantic-version]");return {s,version};}
 std::string alias(const std::string& coordinate){auto a=coordinate.substr(coordinate.find('/')+1);std::replace(a.begin(),a.end(),'-','_');return a;}
 std::string versionKey(const std::string& v){std::ostringstream o;std::istringstream in(v);std::string n;for(int i=0;i<3;++i){std::getline(in,n,'.');o<<std::setw(12)<<std::setfill('0')<<std::stoull(n);}return o.str()+((v.find('-')==std::string::npos)?"z":"a"+v);}
-std::string indexUrl(){return env("NOQERI_REGISTRY_INDEX","https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json");}
+std::string indexUrl(){auto api=env("NOQERI_REGISTRY_API_URL");return env("NOQERI_REGISTRY_INDEX",api.empty()?"https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/registry/index.json":api+"/v1/index");}
 std::string contentBase(){return env("NOQERI_REGISTRY_CONTENTS","https://api.github.com/repos/EMN90909/noqeri-registry/contents/");}
+std::string archiveBase(){return env("NOQERI_REGISTRY_ARCHIVE_BASE","https://raw.githubusercontent.com/EMN90909/noqeri-registry/main/");}
+std::string archiveUrl(const std::string& path){
+ if(path.rfind("https://",0)==0)return path;
+ auto api=env("NOQERI_REGISTRY_API_URL");if(!api.empty()&&path.rfind("/",0)==0)return api+path;
+ if(path.rfind("distribution/",0)==0)return archiveBase()+path;
+ return path;
+}
 struct Release{std::string version,path,integrity;};
 Release release(const std::string& coordinate,const std::string& requested){
  const auto [ns,name]=splitSpec(coordinate);(void)ns;(void)name;
@@ -145,11 +154,17 @@ Release release(const std::string& coordinate,const std::string& requested){
   for(auto& ver:pkg.at("versions").array){
    std::string v=ver.at("version").str();if(!valid(v,versionRx)||(!requested.empty()&&v!=requested))continue;
    auto yank=ver.object.find("yanked");if(requested.empty()&&yank!=ver.object.end()&&yank->second.boolean())continue;
-   if(best.empty()||versionKey(v)>versionKey(best)){best=v;base=ver.at("path").str();auto it=ver.object.find("integrity");integrity=it==ver.object.end()?"":it->second.str();}
+   if(best.empty()||versionKey(v)>versionKey(best)){
+    best=v;
+    auto download=ver.object.find("download"), archive=ver.object.find("archive"), path=ver.object.find("path");
+    if(download!=ver.object.end())base=download->second.str();else if(archive!=ver.object.end())base=archive->second.str();else if(path!=ver.object.end())base=path->second.str();else fail("release has no archive or download path");
+    auto integrityField=ver.object.find("archiveIntegrity"), legacyIntegrity=ver.object.find("integrity");
+    integrity=integrityField!=ver.object.end()?integrityField->second.str():(legacyIntegrity==ver.object.end()?"":legacyIntegrity->second.str());
+   }
   }
  }
  if(best.empty())fail("registry package/version not found: "+coordinate+"@"+requested);
- safePath(base);if(!integrity.empty()&&!valid(integrity,"sha256:[0-9a-f]{64}"))fail("invalid published package SHA256");return {best,base,integrity};
+ if(base.rfind("https://",0)!=0&&base.rfind("/",0)!=0)safePath(base);if(!integrity.empty()&&!valid(integrity,"sha256:[0-9a-f]{64}"))fail("invalid published package SHA256");return {best,base,integrity};
 }
 fs::path packagePath(const std::string& coord,const std::string& version){return home()/"cache/registry-v1"/coord/version;}
 std::map<std::string,std::string> localFiles(const fs::path& dir){
@@ -182,6 +197,20 @@ void listFiles(const std::string& base,const std::string& path,std::map<std::str
   bytes+=data.size();if(bytes>8388608||!files.emplace(rel,std::move(data)).second)fail("duplicate/oversized registry file");
  }
 }
+std::uint32_t crc32(std::string_view value){std::uint32_t crc=0xffffffffu;for(unsigned char byte:value){crc^=byte;for(int bit=0;bit<8;++bit)crc=(crc>>1)^(0xedb88320u&-(crc&1u));}return ~crc;}
+std::uint32_t le32(const std::string& value,std::size_t offset){if(offset+4>value.size())fail("truncated nodule gzip footer");return static_cast<std::uint32_t>(static_cast<unsigned char>(value[offset]))|(static_cast<std::uint32_t>(static_cast<unsigned char>(value[offset+1]))<<8)|(static_cast<std::uint32_t>(static_cast<unsigned char>(value[offset+2]))<<16)|(static_cast<std::uint32_t>(static_cast<unsigned char>(value[offset+3]))<<24);}
+std::size_t tarNumber(const std::string& value,std::size_t offset,std::size_t length){if(offset+length>value.size())fail("truncated nodule tar header");std::string text=value.substr(offset,length);while(!text.empty()&&(text.back()==' '||text.back()=='\0'))text.pop_back();if(text.empty())return 0;std::size_t number=0;for(unsigned char byte:text){if(byte<'0'||byte>'7')fail("invalid nodule tar number");number=number*8+(byte-'0');}return number;}
+std::map<std::string,std::string> unpackNodule(const std::string& archive){
+ if(archive.size()<18||static_cast<unsigned char>(archive[0])!=0x1f||static_cast<unsigned char>(archive[1])!=0x8b||static_cast<unsigned char>(archive[2])!=0x08)fail("registry artifact is not gzip");
+ std::string tar;std::size_t input=10;bool final=false;
+ while(!final){if(input>=archive.size()-8)fail("truncated nodule deflate stream");const unsigned char flags=static_cast<unsigned char>(archive[input++]);final=(flags&1u)!=0;if((flags&6u)!=0)fail("unsupported nodule compression; repack with noqeri pkg pack");if(input+4>archive.size()-8)fail("truncated nodule stored block");const auto length=static_cast<std::uint16_t>(static_cast<unsigned char>(archive[input]))|(static_cast<std::uint16_t>(static_cast<unsigned char>(archive[input+1]))<<8);const auto inverse=static_cast<std::uint16_t>(static_cast<unsigned char>(archive[input+2]))|(static_cast<std::uint16_t>(static_cast<unsigned char>(archive[input+3]))<<8);input+=4;if(static_cast<std::uint16_t>(~length)!=inverse||input+length>archive.size()-8)fail("invalid nodule stored block");tar.append(archive,input,length);input+=length;if(tar.size()>9*1024*1024)fail("nodule contents exceed size limit");}
+ if(crc32(tar)!=le32(archive,archive.size()-8)||static_cast<std::uint32_t>(tar.size())!=le32(archive,archive.size()-4))fail("nodule gzip integrity mismatch");
+ std::map<std::string,std::string> files;std::size_t offset=0;int zeroBlocks=0;std::size_t bytes=0;
+ while(offset+512<=tar.size()){
+  const bool zero=std::all_of(tar.begin()+static_cast<std::ptrdiff_t>(offset),tar.begin()+static_cast<std::ptrdiff_t>(offset+512),[](char byte){return byte==0;});if(zero){++zeroBlocks;offset+=512;if(zeroBlocks==2)break;continue;}zeroBlocks=0;const auto& header=tar; if(header.compare(offset+257,5,"ustar",5)!=0)fail("nodule tar is not ustar");std::string name=header.substr(offset,100);name.erase(std::find(name.begin(),name.end(),'\0'),name.end());safePath(name);if(files.count(name))fail("unsafe or duplicate nodule path");if(static_cast<unsigned char>(header[offset+156])!='0')fail("nodule contains a non-regular entry");const auto size=tarNumber(tar,offset+124,12);const auto dataStart=offset+512;if(size>tar.size()-dataStart)fail("nodule entry exceeds archive bounds");const auto content=tar.substr(dataStart,size);bytes+=size;if(bytes>8*1024*1024||files.size()>=256)fail("nodule limits exceeded");files.emplace(std::move(name),content);offset=dataStart+((size+511)/512)*512;
+ }
+ if(zeroBlocks<2||!files.count("package.noqeri"))fail("nodule manifest or tar terminator missing");return files;
+}
 Package fetch(const std::string& coord,std::string requested){
  if(!requested.empty()){try{return verify(coord,requested);}catch(const std::exception&){if(offline())throw;}}
  if(offline()){
@@ -193,12 +222,15 @@ Package fetch(const std::string& coord,std::string requested){
  }
  auto [version,base,expectedHash]=release(coord,requested);
  try{auto pkg=verify(coord,version);if(!expectedHash.empty()&&pkg.integrity!=expectedHash)fail("published registry SHA256 mismatch");return pkg;}catch(const std::exception&){}
- std::map<std::string,std::string> files;size_t bytes=0;listFiles(base,base,files,bytes,0);
+ std::map<std::string,std::string> files;size_t bytes=0;const bool archiveArtifact=base.rfind("/v1/",0)==0||base.rfind("https://",0)==0||(base.size()>=4&&base.compare(base.size()-4,4,".ndl")==0);
+ if(archiveArtifact){
+  const auto archive=get(archiveUrl(base),8*1024*1024);if(!expectedHash.empty()&&hashBytes(archive)!=expectedHash)fail("published archive SHA256 mismatch");files=unpackNodule(archive);for(const auto& item:files)bytes+=item.second.size();
+ }else listFiles(base,base,files,bytes,0);
  if(!files.count("package.noqeri"))fail("registry package manifest missing");
  auto entry=std::regex(R"re(\bentry\s*:\s*"([^"]+)")re");
  std::smatch match;if(!std::regex_search(files.at("package.noqeri"),match,entry))fail("package entry missing");
  auto relative=match[1].str();safePath(relative);if(!files.count(relative))fail("package entry file missing");
- auto digest=hashFiles(files);if(!expectedHash.empty()&&digest!=expectedHash)fail("published registry SHA256 mismatch");auto target=packagePath(coord,version);
+ auto digest=hashFiles(files);if(!archiveArtifact&&!expectedHash.empty()&&digest!=expectedHash)fail("published registry SHA256 mismatch");auto target=packagePath(coord,version);
  // Only accept immutable registry hashes when declared; never execute package code.
  auto staging=fs::path(target.string()+".native-temp");fs::remove_all(staging);fs::create_directories(staging);
  try{
@@ -309,6 +341,9 @@ int main(int argc,char** argv){
    bool rejected=false;try{safePath("../escape");}catch(const std::exception&){rejected=true;}
    if(!rejected)fail("path traversal regression");
    if(splitSpec("noqeri/core@0.4.0").second!="0.4.0")fail("coordinate parsing regression");
+   const auto noduleRoot=fs::temp_directory_path()/"noqeri-nodule-selftest";fs::remove_all(noduleRoot);fs::create_directories(noduleRoot/"src");
+   write(noduleRoot/"package.noqeri","package {\n name: \"noqeri/selftest\"\n version: \"0.1.0\"\n entry: \"src/main.noqeri\"\n}\n");write(noduleRoot/"src/main.noqeri","print(\"nodule\")\n");
+   auto noduleA=fs::temp_directory_path()/"noqeri-nodule-selftest-a.ndl",noduleB=fs::temp_directory_path()/"noqeri-nodule-selftest-b.ndl";noqeri::nodule::pack(noduleRoot,noduleA);noqeri::nodule::pack(noduleRoot,noduleB);if(read(noduleA)!=read(noduleB)||read(noduleA).substr(0,3)!="\x1f\x8b\x08")fail("nodule reproducibility regression");fs::remove_all(noduleRoot);fs::remove(noduleA);fs::remove(noduleB);
    // Align transport policy with the Noqeri registry source policy.
 #if defined(NOQERI_REGISTRY_NETWORK)
    const std::string plain=std::string("ht")+"tp://";
@@ -322,8 +357,19 @@ int main(int argc,char** argv){
 #endif
    std::cout<<"native registry selftest: OK\n";return 0;
   }
+  if(argc>=2&&std::string(argv[1])=="pack"){
+   if(argc<3||argc>4)fail("pack expects a package directory and optional output .ndl path");
+   noqeri::nodule::pack(argv[2],argc==4?argv[3]:""); return 0;
+  }
+  if(argc>=2&&std::string(argv[1])=="publish"){
+   if(argc<3||argc>4)fail("publish expects a package directory and optional output .ndl path");
+   const auto registry=env("NOQERI_PRIVATE_REGISTRY_URL",env("NOQERI_REGISTRY_API_URL"));
+   const auto token=env("NOQERI_REGISTRY_TOKEN",env("NOQERI_PUBLISH_TOKEN"));
+   noqeri::nodule::publish(argv[2],argc==4?argv[3]:"",registry,token); return 0;
+  }
   if(argc<2||std::string(argv[1])=="help"||std::string(argv[1])=="--help"){
    std::cout<<"Noqeri native registry (Node.js-free)\n"
+   <<"  noqeri pkg pack <directory> [output.ndl]\n  noqeri pkg publish <directory> [output.ndl]\n"
    <<"  noqeri pkg add namespace/name[@version]\n  noqeri pkg install\n  noqeri pkg resolve file.noqeri\n"
    <<"  noqeri pkg vendor [--offline]\n  noqeri pkg audit [--offline]\n";return 0;}
   std::string command=argv[1];if(command=="add"){if(argc!=3)fail("add expects one coordinate");add(argv[2]);}

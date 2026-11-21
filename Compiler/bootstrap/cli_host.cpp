@@ -30,7 +30,7 @@ void usage() {
               << "  run [file] [-O...]                execute through reference runtime\n"
               << "  build [file] [assembly] [-O...]   emit target assembly\n"
               << "  build-exe [file] [output] [-O...] compile a host executable via C\n"
-              << "  pkg add|install|resolve|vendor|audit ...  native registry package tools\n"
+              << "  pkg pack|publish|add|install|resolve|vendor|audit ...  native registry package tools\n"
               << "  emit-c [file] [out.c] [-O...]     emit checked portable C11 for native compilation\n"
               << "  nqri [file] [module.nqri]          emit portable NQRI module\n"
               << "  bootstrap-seed <file.noqeri> [out] emit trusted Stage-1 NQRI seed\n"

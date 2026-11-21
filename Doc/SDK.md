@@ -12,6 +12,26 @@ The Noqeri SDK is the installable distribution of the Noqeri language. Select an
 | Package manager | bin/noqeri-pkg (.exe on Windows) | Registry package addition, installation, resolution, vendoring and auditing |
 | Build tools | bin/noqeri-web, CLI build and build-exe, include/noqeri | Native build tooling and experimental web compiler |
 
+## Nodule packaging and publishing
+
+The SDK's package tool produces a deterministic **Noqeri Nodule** (`.ndl`),
+also called the Nodule Distribution Layer. It is a gzip-compressed `ustar`
+archive containing `package.noqeri`, the declared entry source, supporting
+`.noqeri` modules, documentation and tests. Archives are path-checked,
+bounded, reproducible and SHA-256 addressed.
+
+```sh
+noqeri pkg pack ./my-library target/my-library-0.1.0.ndl
+NOQERI_PRIVATE_REGISTRY_URL=https://registry-private.example \
+NOQERI_REGISTRY_TOKEN=nq_... \
+noqeri pkg publish ./my-library target/my-library-0.1.0.ndl
+```
+
+Publishing sends the archive and its manifest to the private Supabase-backed
+registry. Public discovery remains read-only: approved releases are mirrored
+into the public registry catalog and are downloaded as immutable `.ndl`
+artifacts. Package installation never executes package code or install hooks.
+
 CMake installs all five components into the portable archives and system packages. The SDK does not claim that every standard-library module or native code-generation backend is production-complete.
 
 ## Install and first project
