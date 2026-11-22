@@ -34,7 +34,7 @@ jobs:
             --jq '.jobs[] | [.name, .conclusion] | @tsv' > qualified-jobs.tsv
           grep -Fxq $'FreeBSD VM / freebsd-aarch64\tsuccess' qualified-jobs.tsv
           grep -Fxq $'OpenBSD VM / openbsd-aarch64\tsuccess' qualified-jobs.tsv
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           run-id: 40208251967
           github-token: ${{ github.token }}
