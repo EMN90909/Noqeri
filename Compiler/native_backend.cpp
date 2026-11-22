@@ -312,6 +312,41 @@ noqeri_rt_bounds_trap:
 .L_noqeri_bounds_exit:
     mov edi, 1
     call exit
+noqeri_rt_has_avx2:
+    mov al, BYTE PTR [rip + .L_noqeri_avx2_state]
+    test al, al
+    jnz .L_noqeri_avx2_cached
+    push rbx
+    push rdx
+    mov eax, 1
+    cpuid
+    and ecx, 402653184
+    cmp ecx, 402653184
+    jne .L_noqeri_no_avx2
+    xor ecx, ecx
+    xgetbv
+    and eax, 6
+    cmp eax, 6
+    jne .L_noqeri_no_avx2
+    mov eax, 7
+    xor ecx, ecx
+    cpuid
+    test ebx, 32
+    jz .L_noqeri_no_avx2
+    pop rdx
+    pop rbx
+    mov BYTE PTR [rip + .L_noqeri_avx2_state], 1
+    mov eax, 1
+    ret
+.L_noqeri_no_avx2:
+    pop rdx
+    pop rbx
+    mov BYTE PTR [rip + .L_noqeri_avx2_state], 2
+    mov eax, 2
+    ret
+.L_noqeri_avx2_cached:
+    movzx eax, al
+    ret
 )ASM";}
 bool signedNarrow(TypeKind kind){
     return kind==TypeKind::I8||kind==TypeKind::I16||kind==TypeKind::I32;
@@ -502,7 +537,42 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
         const bool hasCmpXchg = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::AtomicCompareExchange;});
+        bool mayUseR8 = false;
+        bool mayUseRdx = false;
+        for(std::size_t idx=0;idx<fn.code.size();++idx){
+            const auto& in=fn.code[idx];
+            if(in.op==NirOp::LoadMemory&&in.width==8&&!in.isVolatile){
+                // Conservative check matching memoryComparisons window
+                for(std::size_t k=idx+1;k<fn.code.size()&&k<=idx+5;++k){
+                    const auto& c=fn.code[k];
+                    if(c.op==NirOp::Binary&&!c.args.empty()&&in.dest&&c.args[0]==*in.dest){
+                        mayUseR8=true;break;
+                    }
+                }
+            }
+            if(in.op==NirOp::Intrinsic&&in.text=="x86.rdtsc")mayUseRdx=true;
+            if(in.op==NirOp::Binary&&in.args.size()==2){
+                const auto ak=in.args[0]<l.regKinds.size()?l.regKinds[in.args[0]]:ValueKind::Unknown;
+                const auto bk=in.args[1]<l.regKinds.size()?l.regKinds[in.args[1]]:ValueKind::Unknown;
+                if((ak==ValueKind::Float||bk==ValueKind::Float)&&isComparison(in.text))
+                    mayUseRdx=true;
+                if(in.text=="/"||in.text=="%"){
+                    const auto opK=in.args[0]<fn.registerTypes.size()?fn.registerTypes[in.args[0]].kind:TypeKind::Unknown;
+                    const bool isUn=isUnsigned(opK)||(in.args[0]<nonNegative.size()&&nonNegative[in.args[0]]);
+                    if(!isUn)mayUseR8=true;
+                    const auto cit=constantValues.find(in.args[1]);
+                    bool isPow2=false;
+                    if(cit!=constantValues.end()&&cit->second>0){
+                        const auto d=static_cast<std::uint64_t>(cit->second);
+                        if((d&(d-1))==0)isPow2=true;
+                    }
+                    if(!isPow2)mayUseRdx=true;
+                }
+            }
+        }
         if(!hasCalls){
+            if(!mayUseRdx)pool.push_back("rdx");
+            if(!mayUseR8)pool.push_back("r8");
             if(!hasCmpXchg)pool.push_back("rcx");
             pool.push_back("r9");
             pool.push_back("rdi");
@@ -1036,10 +1106,745 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                std::to_string(pointer.width)+"]";
     };
 
+    // Fold PtrOffset(stackRoot, add_or_sub(idx, small_imm)) into [rbp - adjusted_disp + idx*8]
+    // and skip emitting the single-use index adjustment arithmetic.
+    struct FoldedStackOffset { std::size_t rootPc=0; Reg idxReg=0; std::int64_t elemOffset=0; };
+    std::unordered_map<std::size_t,FoldedStackOffset> foldedPtrOffsets;
+    std::unordered_set<std::size_t> skippedOffsetBinary;
+    for(const std::size_t ptrPc:fusedPointers){
+        if(ptrPc==0||jumpTargets.count(ptrPc))continue;
+        const auto& ptrIn=fn.code[ptrPc];
+        if(ptrIn.op!=NirOp::PtrOffset||ptrIn.args.size()!=2||ptrIn.width!=8)continue;
+        const Reg base=ptrIn.args[0],sumIdx=ptrIn.args[1];
+        if(base>=stackRoot.size()||stackRoot[base]==noStackRoot)continue;
+        const std::size_t root=stackRoot[base];
+        if(root>=fixedStorage.size()||fixedStorage[root]==0)continue;
+        std::size_t binPc=ptrPc-1;
+        while(binPc>0&&fn.code[binPc].op==NirOp::Nop)--binPc;
+        const auto& binIn=fn.code[binPc];
+        if(binIn.op!=NirOp::Binary||!binIn.dest||*binIn.dest!=sumIdx||
+           binIn.args.size()!=2||binIn.isVolatile||(binIn.text!="+"&&binIn.text!="-")||
+           definitions[sumIdx]!=1||useCounts[sumIdx]!=1)continue;
+        if(jumpTargets.count(binPc+1))continue;
+        std::optional<std::pair<Reg,std::int64_t>> adj;
+        if(binIn.text=="+"){
+            auto rC=constantValues.find(binIn.args[1]);
+            auto lC=constantValues.find(binIn.args[0]);
+            if(rC!=constantValues.end()&&rC->second>=-1024&&rC->second<=1024)
+                adj=std::make_pair(binIn.args[0],rC->second);
+            else if(lC!=constantValues.end()&&lC->second>=-1024&&lC->second<=1024)
+                adj=std::make_pair(binIn.args[1],lC->second);
+        }else{
+            auto rC=constantValues.find(binIn.args[1]);
+            if(rC!=constantValues.end()&&rC->second>=-1024&&rC->second<=1024)
+                adj=std::make_pair(binIn.args[0],-rC->second);
+        }
+        if(!adj||!physical.count(adj->first))continue;
+        const std::int64_t disp=static_cast<std::int64_t>(fixedStorage[root])-adj->second*8;
+        if(disp<=0||disp>100000000LL)continue;
+        foldedPtrOffsets[ptrPc]={root,adj->first,adj->second};
+        skippedOffsetBinary.insert(binPc);
+    }
+    const auto foldedStackAddress=[&](std::size_t ptrPc)->std::optional<std::string>{
+        const auto it=foldedPtrOffsets.find(ptrPc);
+        if(it==foldedPtrOffsets.end())return std::nullopt;
+        const auto phys=physical.find(it->second.idxReg);
+        if(phys==physical.end())return std::nullopt;
+        const std::size_t storage=fixedStorage[it->second.rootPc];
+        const std::int64_t disp=static_cast<std::int64_t>(storage)-it->second.elemOffset*8;
+        if(disp<=0)return std::nullopt;
+        return "QWORD PTR [rbp - "+std::to_string(disp)+" + "+phys->second+"*8]";
+    };
+
+    // General AVX2 4-lane counted-loop vectorizer for pure/array integer loops.
+    struct Avx2LoopPtr {
+        std::size_t rootPc=0;
+        std::optional<Reg> invOffsetReg; // nullopt => [rbp - storage + rax*8]
+    };
+    struct Avx2BodyOp {
+        enum Kind { Add, Sub, Mul, And, Or, Xor, ShlImm, ShrImm, ModPow2Imm, ModMagic32, LoadArr, StoreArr, AccAdd } kind=Add;
+        int dstYmm=-1;
+        int lhsYmm=-1;
+        int rhsYmm=-1;
+        std::int64_t imm=0;
+        std::int64_t modMagic=0;
+        int modShift=0;
+        int ptrIdx=-1;
+        bool mulFast32=false;
+        bool mulRhsInvariantLow32=false;
+    };
+    struct Avx2LoopPlan {
+        std::size_t header=0,backPc=0;
+        Reg idxReg=0,limitReg=0;
+        std::string cmpOp;
+        bool isUnsigned=false;
+        bool hasAcc=false;
+        bool usesIdxVec=false;
+        Reg accReg=0;
+        std::vector<std::pair<Reg,int>> invBroadcasts;
+        std::vector<std::pair<std::int64_t,int>> constBroadcasts;
+        std::vector<Avx2LoopPtr> ptrs;
+        std::vector<Avx2BodyOp> ops;
+    };
+    std::unordered_map<std::size_t,Avx2LoopPlan> avx2Loops;
+    std::unordered_set<std::size_t> avx2JumpRedirects;
+    {
+        std::unordered_set<std::size_t> escapingRoots;
+        for(const auto& in:fn.code){
+            for(std::size_t a=0;a<in.args.size();++a){
+                const Reg arg=in.args[a];
+                if(arg>=stackRoot.size()||stackRoot[arg]==noStackRoot)continue;
+                if(a==0&&(in.op==NirOp::LoadMemory||in.op==NirOp::StoreMemory||
+                          in.op==NirOp::CheckNonNull||in.op==NirOp::PtrOffset))continue;
+                escapingRoots.insert(stackRoot[arg]);
+            }
+        }
+        const auto resolveNonNegLoop=[&](Reg r,const std::unordered_set<Reg>& inLoopDefs){
+            if(r<nonNegative.size()&&nonNegative[r])return true;
+            if(!inLoopDefs.count(r)){
+                auto c=constantValues.find(r);
+                if(c!=constantValues.end()&&c->second>=0)return true;
+            }
+            return false;
+        };
+        for(std::size_t backPc=0;backPc<fn.code.size();++backPc){
+            const auto& backIn=fn.code[backPc];
+            if(backIn.op!=NirOp::Jump||backIn.target>=backPc)continue;
+            const std::size_t header=backIn.target;
+            if(avx2Loops.count(header))continue;
+            // Collect guards & validate structured single-entry loop without side effects
+            std::vector<std::size_t> guards;
+            bool okCtrl=true;
+            for(std::size_t pc=header;pc<backPc;++pc){
+                const auto& in=fn.code[pc];
+                if(in.op==NirOp::JumpIfFalse){
+                    if(in.target<=backPc){okCtrl=false;break;}
+                    guards.push_back(pc);
+                }else if(in.op==NirOp::Jump||in.op==NirOp::Return||in.op==NirOp::Throw||
+                         in.op==NirOp::Try||in.op==NirOp::InlineAsm||in.op==NirOp::Call||
+                         in.op==NirOp::CheckBounds||in.op==NirOp::CheckNonNull||
+                         in.op==NirOp::Load||in.op==NirOp::Store||
+                         in.op==NirOp::AtomicLoad||in.op==NirOp::AtomicStore||
+                         in.op==NirOp::AtomicExchange||in.op==NirOp::AtomicCompareExchange||
+                         in.op==NirOp::AtomicFence||in.op==NirOp::Intrinsic){
+                    okCtrl=false;break;
+                }
+            }
+            if(!okCtrl||(guards.size()!=1&&guards.size()!=2))continue;
+            if(guards.size()==1&&fn.code[guards[0]].target!=backPc+1)continue;
+            // Forbid external jumps entering inside (header, backPc]
+            bool extJump=false;
+            for(std::size_t pc=0;pc<fn.code.size();++pc){
+                if(pc>=header&&pc<=backPc)continue;
+                const auto& in=fn.code[pc];
+                if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&
+                   in.target>header&&in.target<=backPc){extJump=true;break;}
+            }
+            if(extJump)continue;
+
+            // Resolve pre-guard aliases and header compare
+            const std::size_t guard1Pc=guards[0];
+            std::unordered_map<Reg,Reg> preAlias;
+            std::size_t cmp1Pc=fn.code.size();
+            for(std::size_t pc=header;pc<guard1Pc;++pc){
+                const auto& in=fn.code[pc];
+                if(in.op==NirOp::Cast&&in.dest&&in.args.size()==1&&
+                   integer64(fn.registerTypes[*in.dest].kind)&&
+                   integer64(fn.registerTypes[in.args[0]].kind)){
+                    Reg src=in.args[0];
+                    if(preAlias.count(src))src=preAlias[src];
+                    preAlias[*in.dest]=src;
+                }else if(in.op==NirOp::Binary&&in.dest&&*in.dest==fn.code[guard1Pc].args[0]){
+                    cmp1Pc=pc;
+                }
+            }
+            if(cmp1Pc>=guard1Pc)continue;
+            const auto& cmp1=fn.code[cmp1Pc];
+            if((cmp1.text!="<"&&cmp1.text!="<=")||cmp1.args.size()!=2)continue;
+            Reg idxReg=cmp1.args[0];
+            if(preAlias.count(idxReg))idxReg=preAlias[idxReg];
+            const Reg limitReg=cmp1.args[1];
+            if(!integer64(fn.registerTypes[idxReg].kind)||
+               !integer64(fn.registerTypes[limitReg].kind))continue;
+
+            // Collect all definitions inside [header..backPc]
+            std::unordered_set<Reg> allLoopDefs;
+            for(std::size_t pc=header;pc<backPc;++pc)
+                if(fn.code[pc].dest)allLoopDefs.insert(*fn.code[pc].dest);
+            if(allLoopDefs.count(limitReg))continue; // limit must be loop-invariant
+
+            // Find induction variable step (+1) and optional reduction acc (+)
+            bool isCaseB=(guards.size()==2);
+            std::size_t bodyStart=guard1Pc+1;
+            std::size_t body1End=backPc;
+            Reg accReg=0;bool hasAcc=false;
+            std::unordered_set<Reg> skipBodyPcs;
+
+            if(isCaseB){
+                // Case B (from unrollGuardedLoop2x): guard1 -> body1 -> idx1=idx+1 -> cmp2(idx1,limit) -> guard2 -> body2 -> idx2=idx1+1 -> latch -> backPc
+                for(std::size_t pc=header;pc<backPc;++pc){
+                    if(fn.code[pc].op==NirOp::LoadMemory||fn.code[pc].op==NirOp::StoreMemory){
+                        okCtrl=false;break;
+                    }
+                }
+                if(!okCtrl)continue;
+                const std::size_t guard2Pc=guards[1];
+                std::size_t cmp2Pc=fn.code.size();
+                for(std::size_t pc=guard1Pc+1;pc<guard2Pc;++pc){
+                    const auto& in=fn.code[pc];
+                    if(in.op==NirOp::Binary&&in.dest&&*in.dest==fn.code[guard2Pc].args[0])cmp2Pc=pc;
+                }
+                if(cmp2Pc>=guard2Pc||cmp2Pc==guard1Pc+1)continue;
+                const auto& cmp2=fn.code[cmp2Pc];
+                if(cmp2.text!=cmp1.text||cmp2.args.size()!=2||cmp2.args[1]!=limitReg)continue;
+                const Reg idx1=cmp2.args[0];
+                // Expect idx1 = idxReg + 1 right before cmp2Pc
+                const std::size_t step1Pc=cmp2Pc-1;
+                const auto& st1=fn.code[step1Pc];
+                if(st1.op!=NirOp::Binary||st1.text!="+"||!st1.dest||*st1.dest!=idx1||
+                   st1.args.size()!=2)continue;
+                auto checkStep1=[&](Reg r)->bool{
+                    auto resolve=[&](Reg x){return preAlias.count(x)?preAlias[x]:x;};
+                    if(resolve(st1.args[0])==r){
+                        auto c=constantValues.find(st1.args[1]);
+                        return c!=constantValues.end()&&c->second==1;
+                    }
+                    if(resolve(st1.args[1])==r){
+                        auto c=constantValues.find(st1.args[0]);
+                        return c!=constantValues.end()&&c->second==1;
+                    }
+                    return false;
+                };
+                if(!checkStep1(idxReg))continue;
+                skipBodyPcs.insert(step1Pc);
+                body1End=step1Pc;
+                // Check latch casts right before backPc
+                std::size_t cur=backPc;
+                std::unordered_map<Reg,Reg> latchMap;
+                while(cur>guard2Pc+1&&fn.code[cur-1].op==NirOp::Cast&&fn.code[cur-1].dest&&fn.code[cur-1].args.size()==1){
+                    --cur;
+                    latchMap[*fn.code[cur].dest]=fn.code[cur].args[0];
+                }
+                const Reg idx2=latchMap.count(idxReg)?latchMap[idxReg]:idxReg;
+                if(cur<=guard2Pc+1)continue;
+                const auto& st2=fn.code[cur-1];
+                if(st2.op!=NirOp::Binary||st2.text!="+"||!st2.dest||*st2.dest!=idx2||st2.args.size()!=2)continue;
+                auto isOne=[&](Reg c){auto it=constantValues.find(c);return it!=constantValues.end()&&it->second==1;};
+                if(!((st2.args[0]==idx1&&isOne(st2.args[1]))||(st2.args[1]==idx1&&isOne(st2.args[0]))))continue;
+                // Identify acc if present
+                for(const auto& [phi,src2]:latchMap){
+                    if(phi==idxReg)continue;
+                    if(hasAcc){okCtrl=false;break;}
+                    hasAcc=true;accReg=phi;
+                }
+                if(!okCtrl)continue;
+                // Verify body2 [guard2Pc+1 .. cur-1) is structurally isomorphic to body1 [bodyStart .. body1End)
+                const std::size_t b1Len=body1End-bodyStart;
+                const std::size_t b2Start=guard2Pc+1;
+                if(cur-1<b2Start||cur-1-b2Start!=b1Len)continue;
+                std::unordered_map<Reg,Reg> iso;
+                iso[idxReg]=idx1;
+                for(const auto& [k,v]:preAlias)if(v==idxReg)iso[k]=idx1;
+                if(hasAcc){
+                    // acc1 is the reduction result in body1
+                    const auto& accAdd1=fn.code[body1End-1];
+                    if(accAdd1.op!=NirOp::Binary||accAdd1.text!="+"||!accAdd1.dest||
+                       accAdd1.args.size()!=2||
+                       (accAdd1.args[0]!=accReg&&accAdd1.args[1]!=accReg)){okCtrl=false;break;}
+                    iso[accReg]=*accAdd1.dest;
+                }
+                for(std::size_t k=0;k<b1Len&&okCtrl;++k){
+                    const auto& a=fn.code[bodyStart+k];
+                    const auto& b=fn.code[b2Start+k];
+                    if(a.op!=b.op||a.text!=b.text||a.args.size()!=b.args.size()||
+                       a.dest.has_value()!=b.dest.has_value()){okCtrl=false;break;}
+                    for(std::size_t p=0;p<a.args.size();++p){
+                        Reg mapped=iso.count(a.args[p])?iso[a.args[p]]:a.args[p];
+                        if(mapped!=b.args[p]){okCtrl=false;break;}
+                    }
+                    if(a.dest&&b.dest)iso[*a.dest]=*b.dest;
+                }
+                if(!okCtrl)continue;
+                if(hasAcc){
+                    const auto& accAdd1=fn.code[body1End-1];
+                    if(!iso.count(*accAdd1.dest)||iso[*accAdd1.dest]!=latchMap[accReg])continue;
+                }
+            }else{
+                // Case A: single guard loop
+                // Parse latch updates at end of [bodyStart .. backPc)
+                std::size_t cur=backPc;
+                std::unordered_map<Reg,Reg> latchMap;
+                while(cur>bodyStart&&fn.code[cur-1].op==NirOp::Cast&&fn.code[cur-1].dest&&fn.code[cur-1].args.size()==1){
+                    --cur;
+                    latchMap[*fn.code[cur].dest]=fn.code[cur].args[0];
+                }
+                // Detect direct idx = idx + 1 or idxNext = idx + 1; idx = Cast(idxNext)
+                bool foundIdxStep=false;
+                for(std::size_t pc=cur;pc>bodyStart;--pc){
+                    const auto& in=fn.code[pc-1];
+                    if(in.op==NirOp::Binary&&in.text=="+"&&in.dest&&in.args.size()==2){
+                        auto resolvesIdx=[&](Reg r){return r==idxReg||(preAlias.count(r)&&preAlias[r]==idxReg);};
+                        auto isOne=[&](Reg c){auto it=constantValues.find(c);return it!=constantValues.end()&&it->second==1;};
+                        if((resolvesIdx(in.args[0])&&isOne(in.args[1]))||(resolvesIdx(in.args[1])&&isOne(in.args[0]))){
+                            if(*in.dest==idxReg||(latchMap.count(idxReg)&&latchMap[idxReg]==*in.dest)){
+                                skipBodyPcs.insert(pc-1);
+                                foundIdxStep=true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if(!foundIdxStep)continue;
+                for(const auto& [phi,src]:latchMap){
+                    if(phi==idxReg)continue;
+                    if(hasAcc){okCtrl=false;break;}
+                    hasAcc=true;accReg=phi;
+                }
+                if(!okCtrl)continue;
+                body1End=cur;
+                if(!hasAcc){
+                    // Check for direct self-add acc = acc + term right before idx step
+                    for(std::size_t pc=bodyStart;pc<body1End;++pc){
+                        if(skipBodyPcs.count(pc))continue;
+                        const auto& in=fn.code[pc];
+                        if(in.dest&&in.op==NirOp::Binary&&in.text=="+"&&in.args.size()==2&&
+                           (*in.dest==in.args[0]||*in.dest==in.args[1])&&
+                           *in.dest!=idxReg){
+                            // Ensure acc is defined before header (phi) and nowhere else in body
+                            if(!hasAcc&&definitions[*in.dest]>=2){
+                                hasAcc=true;accReg=*in.dest;
+                            }else if(*in.dest==accReg){okCtrl=false;break;}
+                        }
+                    }
+                    if(!okCtrl)continue;
+                }
+            }
+            // Reject if Case A has any uses outside [header..backPc] of values defined inside
+            if(!isCaseB){
+                for(std::size_t pc=0;pc<fn.code.size();++pc){
+                    if(pc>=header&&pc<=backPc)continue;
+                    for(Reg a:fn.code[pc].args){
+                        if(a==accReg||a==idxReg)continue;
+                        if(allLoopDefs.count(a)){okCtrl=false;break;}
+                    }
+                    if(!okCtrl)break;
+                }
+                if(!okCtrl)continue;
+            }
+
+            // Build vector IR plan for [bodyStart .. body1End)
+            Avx2LoopPlan plan;
+            plan.header=header;plan.backPc=backPc;
+            plan.idxReg=idxReg;plan.limitReg=limitReg;
+            plan.cmpOp=cmp1.text;
+            plan.isUnsigned=isUnsigned(cmp1.args[0]<fn.registerTypes.size()?
+                fn.registerTypes[cmp1.args[0]].kind:TypeKind::Unknown);
+            plan.hasAcc=hasAcc;plan.accReg=accReg;
+
+            // Determine address-only regs (used ONLY to construct PtrOffset indices)
+            std::unordered_set<Reg> valueUsedRegs;
+            for(std::size_t pc=bodyStart;pc<body1End;++pc){
+                if(skipBodyPcs.count(pc))continue;
+                const auto& in=fn.code[pc];
+                if(in.op==NirOp::PtrOffset&&in.dest)continue;
+                else if(in.op==NirOp::LoadMemory&&in.args.size()==1)continue;
+                else if(in.op==NirOp::StoreMemory&&in.args.size()==2)valueUsedRegs.insert(in.args[1]);
+                else for(Reg a:in.args)valueUsedRegs.insert(a);
+            }
+
+            // Compute upper bounds ub[reg] inside loop for fast 32-bit multiply/modulo
+            std::unordered_map<Reg,std::uint64_t> ub;
+            std::unordered_set<Reg> nonNeg;
+            // Check idx >= 0 from external defs
+            bool idxNonNeg=true;
+            for(std::size_t pc=0;pc<fn.code.size();++pc){
+                if(pc>=header&&pc<=backPc)continue;
+                const auto& in=fn.code[pc];
+                if(in.dest&&*in.dest==idxReg){
+                    bool ok=false;
+                    if(in.op==NirOp::Const){
+                        if(auto cv=std::get_if<std::int64_t>(&in.literal);cv&&*cv>=0)ok=true;
+                    }else if(in.op==NirOp::Cast&&in.args.size()==1){
+                        auto c=constantValues.find(in.args[0]);
+                        if((in.args[0]<nonNegative.size()&&nonNegative[in.args[0]])||
+                           (c!=constantValues.end()&&c->second>=0))ok=true;
+                    }else if(*in.dest<nonNegative.size()&&nonNegative[*in.dest]){
+                        ok=true;
+                    }
+                    if(!ok)idxNonNeg=false;
+                }
+            }
+            for(const auto& [rC,cVal]:constantValues){
+                if(!allLoopDefs.count(rC)&&cVal>=0){
+                    nonNeg.insert(rC);
+                    ub[rC]=static_cast<std::uint64_t>(cVal);
+                }
+            }
+            if(idxNonNeg)nonNeg.insert(idxReg);
+            auto limIt=constantValues.find(limitReg);
+            if(limIt!=constantValues.end()&&limIt->second>=0&&idxNonNeg){
+                std::uint64_t limMax=static_cast<std::uint64_t>(limIt->second);
+                if(cmp1.text=="<"&&limMax>0)--limMax;
+                ub[idxReg]=limMax;
+            }
+            for(const auto& [k,v]:preAlias){
+                if(nonNeg.count(v))nonNeg.insert(k);
+                if(ub.count(v))ub[k]=ub[v];
+            }
+
+            // Map regs -> virtual vector slots (-1: unset, -2: idxVec(ymm0), -3: accVec(ymm1), >=0: vreg id)
+            std::unordered_map<Reg,int> vmap;
+            vmap[idxReg]=-2;
+            for(const auto& [k,v]:preAlias)if(v==idxReg)vmap[k]=-2;
+            if(hasAcc)vmap[accReg]=-3;
+
+            int nextVreg=0;
+            std::unordered_map<std::int64_t,int> constVreg;
+            std::unordered_map<Reg,int> invVreg;
+            std::unordered_map<Reg,int> ptrIdxMap; // ptrOffset dest -> plan.ptrs index
+
+            const auto getValVreg=[&](Reg r)->int{
+                if(vmap.count(r))return vmap[r];
+                if(allLoopDefs.count(r))return -1;
+                auto c=constantValues.find(r);
+                if(c!=constantValues.end()){
+                    auto it=constVreg.find(c->second);
+                    if(it!=constVreg.end()){vmap[r]=it->second;return it->second;}
+                    int vr=nextVreg++;
+                    constVreg[c->second]=vr;
+                    plan.constBroadcasts.push_back({c->second,vr});
+                    vmap[r]=vr;
+                    return vr;
+                }
+                auto it=invVreg.find(r);
+                if(it!=invVreg.end()){vmap[r]=it->second;return it->second;}
+                int vr=nextVreg++;
+                invVreg[r]=vr;
+                plan.invBroadcasts.push_back({r,vr});
+                vmap[r]=vr;
+                return vr;
+            };
+
+            // Track live intervals of vregs inside body for register allocation (ymm2..ymm12 = 11 regs)
+            struct TempOp { Avx2BodyOp op; int dstVreg=-1; int lhsVreg=-1; int rhsVreg=-1; };
+            std::vector<TempOp> bodyOps;
+            bool vecOk=true;
+            for(std::size_t pc=bodyStart;pc<body1End&&vecOk;++pc){
+                if(skipBodyPcs.count(pc))continue;
+                const auto& in=fn.code[pc];
+                if(in.op==NirOp::Nop)continue;
+                if(in.op==NirOp::Const){
+                    if(in.dest)vmap[*in.dest]=getValVreg(*in.dest); // unused unless referenced
+                    continue;
+                }
+                if(in.op==NirOp::Cast&&in.dest&&in.args.size()==1){
+                    if(!integer64(fn.registerTypes[*in.dest].kind)||
+                       !integer64(fn.registerTypes[in.args[0]].kind)){vecOk=false;break;}
+                    int srcV=getValVreg(in.args[0]);
+                    if(srcV==-1){vecOk=false;break;}
+                    vmap[*in.dest]=srcV;
+                    if(nonNeg.count(in.args[0]))nonNeg.insert(*in.dest);
+                    if(ub.count(in.args[0]))ub[*in.dest]=ub[in.args[0]];
+                    continue;
+                }
+                if(in.op==NirOp::PtrOffset&&in.dest&&in.args.size()==2&&in.width==8){
+                    const Reg base=in.args[0],ix=in.args[1];
+                    if(base>=stackRoot.size()||stackRoot[base]==noStackRoot||
+                       escapingRoots.count(stackRoot[base])){vecOk=false;break;}
+                    const std::size_t root=stackRoot[base];
+                    if(root>=fixedStorage.size()||fixedStorage[root]==0){vecOk=false;break;}
+                    std::optional<Reg> invOff;
+                    if(ix==idxReg||(preAlias.count(ix)&&preAlias[ix]==idxReg)){
+                        invOff=std::nullopt;
+                    }else{
+                        // Look for inv + idx in body
+                        const NirInstruction* idxBin=nullptr;
+                        for(std::size_t k=bodyStart;k<pc;++k){
+                            if(fn.code[k].dest&&*fn.code[k].dest==ix){idxBin=&fn.code[k];break;}
+                        }
+                        if(!idxBin||idxBin->op!=NirOp::Binary||idxBin->text!="+"||idxBin->args.size()!=2){
+                            vecOk=false;break;
+                        }
+                        auto isIdx=[&](Reg x){return x==idxReg||(preAlias.count(x)&&preAlias[x]==idxReg);};
+                        if(isIdx(idxBin->args[0])&&!allLoopDefs.count(idxBin->args[1]))invOff=idxBin->args[1];
+                        else if(isIdx(idxBin->args[1])&&!allLoopDefs.count(idxBin->args[0]))invOff=idxBin->args[0];
+                        else{vecOk=false;break;}
+                    }
+                    int foundIdx=-1;
+                    for(std::size_t pi=0;pi<plan.ptrs.size();++pi){
+                        if(plan.ptrs[pi].rootPc==root&&plan.ptrs[pi].invOffsetReg==invOff){
+                            foundIdx=static_cast<int>(pi);break;
+                        }
+                    }
+                    if(foundIdx<0){
+                        foundIdx=static_cast<int>(plan.ptrs.size());
+                        plan.ptrs.push_back({root,invOff});
+                    }
+                    ptrIdxMap[*in.dest]=foundIdx;
+                    continue;
+                }
+                if(in.op==NirOp::LoadMemory&&in.dest&&in.args.size()==1&&in.width==8&&!in.isVolatile){
+                    if(!ptrIdxMap.count(in.args[0])||!integer64(fn.registerTypes[*in.dest].kind)){vecOk=false;break;}
+                    int d=nextVreg++;vmap[*in.dest]=d;
+                    TempOp top;top.op.kind=Avx2BodyOp::LoadArr;top.op.ptrIdx=ptrIdxMap[in.args[0]];top.dstVreg=d;
+                    bodyOps.push_back(top);
+                    continue;
+                }
+                if(in.op==NirOp::StoreMemory&&in.args.size()==2&&in.width==8&&!in.isVolatile){
+                    if(!ptrIdxMap.count(in.args[0])){vecOk=false;break;}
+                    int valV=getValVreg(in.args[1]);
+                    if(valV==-1){vecOk=false;break;}
+                    TempOp top;top.op.kind=Avx2BodyOp::StoreArr;top.op.ptrIdx=ptrIdxMap[in.args[0]];top.lhsVreg=valV;
+                    bodyOps.push_back(top);
+                    continue;
+                }
+                if(in.op==NirOp::Binary&&in.dest&&in.args.size()==2&&!in.isVolatile){
+                    // Skip pure address-index addition consumed ONLY by PtrOffset
+                    if(in.text=="+"&&!valueUsedRegs.count(*in.dest)){
+                        bool onlyPtr=false;
+                        for(std::size_t k=pc+1;k<body1End;++k)
+                            if(fn.code[k].op==NirOp::PtrOffset&&fn.code[k].args.size()==2&&fn.code[k].args[1]==*in.dest)
+                                onlyPtr=true;
+                        if(onlyPtr)continue;
+                    }
+                    if(!integer64(in.type.kind)){vecOk=false;break;}
+                    // Check reduction acc = acc + term
+                    if(hasAcc&&in.text=="+"&&(in.args[0]==accReg||in.args[1]==accReg)){
+                        Reg term=(in.args[0]==accReg)?in.args[1]:in.args[0];
+                        int tv=getValVreg(term);
+                        if(tv==-1||tv==-3){vecOk=false;break;}
+                        vmap[*in.dest]=-3;
+                        TempOp top;top.op.kind=Avx2BodyOp::AccAdd;top.lhsVreg=tv;
+                        bodyOps.push_back(top);
+                        continue;
+                    }
+                    if(in.args[0]==accReg||in.args[1]==accReg){vecOk=false;break;}
+                    const Reg lhs=in.args[0],rhs=in.args[1];
+                    const bool lhsNN=resolveNonNegLoop(lhs,allLoopDefs)||nonNeg.count(lhs);
+                    const bool rhsNN=resolveNonNegLoop(rhs,allLoopDefs)||nonNeg.count(rhs);
+                    if(in.text=="+"||in.text=="-"||in.text=="&"||in.text=="|"||in.text=="^"){
+                        int lv=getValVreg(lhs),rv=getValVreg(rhs);
+                        if(lv==-1||rv==-1){vecOk=false;break;}
+                        int dv=nextVreg++;vmap[*in.dest]=dv;
+                        TempOp top;
+                        if(in.text=="+")top.op.kind=Avx2BodyOp::Add;
+                        else if(in.text=="-")top.op.kind=Avx2BodyOp::Sub;
+                        else if(in.text=="&")top.op.kind=Avx2BodyOp::And;
+                        else if(in.text=="|")top.op.kind=Avx2BodyOp::Or;
+                        else top.op.kind=Avx2BodyOp::Xor;
+                        top.dstVreg=dv;top.lhsVreg=lv;top.rhsVreg=rv;
+                        bodyOps.push_back(top);
+                        if(in.text=="+"&&lhsNN&&rhsNN){
+                            nonNeg.insert(*in.dest);
+                            if(ub.count(lhs)&&ub.count(rhs)&&ub[lhs]<=UINT64_MAX-ub[rhs])
+                                ub[*in.dest]=ub[lhs]+ub[rhs];
+                        }else if(in.text=="&"){
+                            if(auto rc=constantValues.find(rhs);rc!=constantValues.end()&&rc->second>=0){
+                                nonNeg.insert(*in.dest);
+                                ub[*in.dest]=static_cast<std::uint64_t>(rc->second);
+                            }
+                        }
+                    }else if(in.text=="*"){
+                        auto rc=constantValues.find(rhs);
+                        auto lc=constantValues.find(lhs);
+                        std::optional<std::pair<Reg,std::int64_t>> pow2;
+                        if(rc!=constantValues.end()&&rc->second>0&&(rc->second&(rc->second-1))==0)
+                            pow2=std::make_pair(lhs,rc->second);
+                        else if(lc!=constantValues.end()&&lc->second>0&&(lc->second&(lc->second-1))==0)
+                            pow2=std::make_pair(rhs,lc->second);
+                        if(pow2){
+                            int shift=0;std::uint64_t v=static_cast<std::uint64_t>(pow2->second);
+                            while((v>>=1)!=0)++shift;
+                            int lv=getValVreg(pow2->first);
+                            if(lv==-1){vecOk=false;break;}
+                            int dv=nextVreg++;vmap[*in.dest]=dv;
+                            TempOp top;top.op.kind=Avx2BodyOp::ShlImm;top.op.imm=shift;
+                            top.dstVreg=dv;top.lhsVreg=lv;
+                            bodyOps.push_back(top);
+                            if((pow2->first==lhs?lhsNN:rhsNN)&&ub.count(pow2->first)&&ub[pow2->first]<=(UINT64_MAX>>shift)){
+                                nonNeg.insert(*in.dest);
+                                ub[*in.dest]=ub[pow2->first]<<shift;
+                            }
+                        }else{
+                            int lv=getValVreg(lhs),rv=getValVreg(rhs);
+                            if(lv==-1||rv==-1){vecOk=false;break;}
+                            int dv=nextVreg++;vmap[*in.dest]=dv;
+                            TempOp top;top.op.kind=Avx2BodyOp::Mul;
+                            top.dstVreg=dv;top.lhsVreg=lv;top.rhsVreg=rv;
+                            if(lhsNN&&rhsNN&&ub.count(lhs)&&ub.count(rhs)&&
+                               ub[lhs]<=0xFFFFFFFFULL&&ub[rhs]<=0xFFFFFFFFULL){
+                                top.op.mulFast32=true;
+                                nonNeg.insert(*in.dest);
+                                ub[*in.dest]=ub[lhs]*ub[rhs];
+                            }else if(rhsNN&&!allLoopDefs.count(rhs)&&rc!=constantValues.end()&&
+                                     rc->second>=0&&rc->second<=0xFFFFFFFFLL){
+                                top.op.mulRhsInvariantLow32=true;
+                            }else if(lhsNN&&!allLoopDefs.count(lhs)&&lc!=constantValues.end()&&
+                                     lc->second>=0&&lc->second<=0xFFFFFFFFLL){
+                                std::swap(top.lhsVreg,top.rhsVreg);
+                                top.op.mulRhsInvariantLow32=true;
+                            }
+                            bodyOps.push_back(top);
+                        }
+                    }else if(in.text=="<<"||in.text==">>"){
+                        auto rc=constantValues.find(rhs);
+                        if(rc==constantValues.end()||rc->second<0||rc->second>=64||
+                           (in.text==">>"&&!plan.isUnsigned&&!lhsNN)){vecOk=false;break;}
+                        int lv=getValVreg(lhs);
+                        if(lv==-1){vecOk=false;break;}
+                        int dv=nextVreg++;vmap[*in.dest]=dv;
+                        TempOp top;
+                        top.op.kind=(in.text=="<<")?Avx2BodyOp::ShlImm:Avx2BodyOp::ShrImm;
+                        top.op.imm=rc->second;top.dstVreg=dv;top.lhsVreg=lv;
+                        bodyOps.push_back(top);
+                    }else if(in.text=="%"){
+                        auto rc=constantValues.find(rhs);
+                        if(rc==constantValues.end()||rc->second<=0||!lhsNN){vecOk=false;break;}
+                        const std::uint64_t d=static_cast<std::uint64_t>(rc->second);
+                        int lv=getValVreg(lhs);
+                        if(lv==-1){vecOk=false;break;}
+                        if((d&(d-1))==0){
+                            // % 2^k => vpand (d - 1)
+                            auto mcIt=constVreg.find(static_cast<std::int64_t>(d-1));
+                            int maskV=-1;
+                            if(mcIt!=constVreg.end())maskV=mcIt->second;
+                            else{
+                                maskV=nextVreg++;
+                                constVreg[static_cast<std::int64_t>(d-1)]=maskV;
+                                plan.constBroadcasts.push_back({static_cast<std::int64_t>(d-1),maskV});
+                            }
+                            int dv=nextVreg++;vmap[*in.dest]=dv;
+                            TempOp top;top.op.kind=Avx2BodyOp::ModPow2Imm;
+                            top.dstVreg=dv;top.lhsVreg=lv;top.rhsVreg=maskV;
+                            bodyOps.push_back(top);
+                            nonNeg.insert(*in.dest);
+                            ub[*in.dest]=d-1;
+                        }else if(ub.count(lhs)&&ub[lhs]<=0xFFFFFFFFULL&&d<=0x7FFFFFFFULL){
+                            // 32-bit exact magic multiply: (x * M) >> shift
+                            const std::uint64_t nMax=ub[lhs];
+                            std::uint64_t chosenM=0;
+                            int chosenShift=-1;
+                            for(int sh=42;sh>=32;--sh){
+                                const std::uint64_t pow2s=1ULL<<sh;
+                                const std::uint64_t M=(pow2s+d-1)/d;
+                                if(M>0xFFFFFFFFULL)continue;
+                                const std::uint64_t err=M*d-pow2s;
+                                if(err==0||nMax<=(pow2s-1)/err){
+                                    chosenM=M;chosenShift=sh;break;
+                                }
+                            }
+                            if(chosenShift<0){vecOk=false;break;}
+                            auto getC=[&](std::int64_t cv){
+                                auto it=constVreg.find(cv);
+                                if(it!=constVreg.end())return it->second;
+                                int vr=nextVreg++;constVreg[cv]=vr;
+                                plan.constBroadcasts.push_back({cv,vr});
+                                return vr;
+                            };
+                            const int mVreg=getC(static_cast<std::int64_t>(chosenM));
+                            const int dVreg=getC(static_cast<std::int64_t>(d));
+                            int dv=nextVreg++;vmap[*in.dest]=dv;
+                            TempOp top;top.op.kind=Avx2BodyOp::ModMagic32;
+                            top.op.modMagic=static_cast<std::int64_t>(chosenM);
+                            top.op.modShift=chosenShift;
+                            top.dstVreg=dv;top.lhsVreg=lv;top.rhsVreg=mVreg;
+                            // encode divisor vreg in imm
+                            top.op.imm=dVreg;
+                            bodyOps.push_back(top);
+                            nonNeg.insert(*in.dest);
+                            ub[*in.dest]=d-1;
+                        }else{vecOk=false;break;}
+                    }else{vecOk=false;break;}
+                    continue;
+                }
+                vecOk=false;break;
+            }
+            if(!vecOk||bodyOps.empty())continue;
+
+            // Check aliasing of dynamic pointers & count dynamic base pointers <= 2
+            std::size_t dynPtrCount=0;
+            for(const auto& p:plan.ptrs)if(p.invOffsetReg.has_value())++dynPtrCount;
+            if(dynPtrCount>2)continue;
+            bool aliasOk=true;
+            for(const auto& opA:bodyOps){
+                if(opA.op.kind!=Avx2BodyOp::StoreArr)continue;
+                const auto& ptrS=plan.ptrs[opA.op.ptrIdx];
+                for(const auto& opB:bodyOps){
+                    if(opB.op.kind!=Avx2BodyOp::LoadArr&&opB.op.kind!=Avx2BodyOp::StoreArr)continue;
+                    const auto& ptrX=plan.ptrs[opB.op.ptrIdx];
+                    if(ptrX.rootPc==ptrS.rootPc&&ptrX.invOffsetReg!=ptrS.invOffsetReg){
+                        aliasOk=false;break;
+                    }
+                }
+                if(!aliasOk)break;
+            }
+            if(!aliasOk)continue;
+
+            // Allocate ymm2..ymm12 (11 regs) to vregs
+            std::vector<int> vLastUse(nextVreg,-1);
+            for(const auto& b:plan.invBroadcasts)vLastUse[b.second]=static_cast<int>(bodyOps.size());
+            for(const auto& c:plan.constBroadcasts)vLastUse[c.second]=static_cast<int>(bodyOps.size());
+            for(int iOp=0;iOp<static_cast<int>(bodyOps.size());++iOp){
+                const auto& top=bodyOps[iOp];
+                if(top.lhsVreg>=0)vLastUse[top.lhsVreg]=std::max(vLastUse[top.lhsVreg],iOp);
+                if(top.rhsVreg>=0)vLastUse[top.rhsVreg]=std::max(vLastUse[top.rhsVreg],iOp);
+            }
+            std::vector<int> vregToYmm(nextVreg,-1);
+            bool ymmBusy[13]={};
+            for(int y=0;y<=1;++y)ymmBusy[y]=true; // ymm0=idx, ymm1=acc
+            const auto allocYmm=[&]()->int{
+                for(int y=2;y<=12;++y){if(!ymmBusy[y]){ymmBusy[y]=true;return y;}}
+                return -1;
+            };
+            bool regOk=true;
+            for(auto& b:plan.invBroadcasts){
+                int y=allocYmm();if(y<0){regOk=false;break;}
+                vregToYmm[b.second]=y;b.second=y;
+            }
+            for(auto& c:plan.constBroadcasts){
+                int y=allocYmm();if(y<0){regOk=false;break;}
+                vregToYmm[c.second]=y;c.second=y;
+            }
+            if(!regOk)continue;
+            const auto resolveYmm=[&](int vr)->int{
+                if(vr==-2)return 0;
+                if(vr==-3)return 1;
+                return vr>=0?vregToYmm[vr]:-1;
+            };
+            for(int iOp=0;iOp<static_cast<int>(bodyOps.size());++iOp){
+                auto& top=bodyOps[iOp];
+                if(top.lhsVreg>=0&&vLastUse[top.lhsVreg]==iOp){
+                    int y=vregToYmm[top.lhsVreg];
+                    if(y>=2)ymmBusy[y]=false;
+                }
+                if(top.rhsVreg>=0&&vLastUse[top.rhsVreg]==iOp&&top.rhsVreg!=top.lhsVreg){
+                    int y=vregToYmm[top.rhsVreg];
+                    if(y>=2)ymmBusy[y]=false;
+                }
+                if(top.dstVreg>=0){
+                    int y=allocYmm();if(y<0){regOk=false;break;}
+                    vregToYmm[top.dstVreg]=y;
+                }
+                Avx2BodyOp finalOp=top.op;
+                finalOp.dstYmm=resolveYmm(top.dstVreg);
+                finalOp.lhsYmm=resolveYmm(top.lhsVreg);
+                finalOp.rhsYmm=resolveYmm(top.rhsVreg);
+                if(finalOp.kind==Avx2BodyOp::ModMagic32)
+                    finalOp.imm=resolveYmm(static_cast<int>(finalOp.imm));
+                if(finalOp.lhsYmm==0||finalOp.rhsYmm==0)plan.usesIdxVec=true;
+                plan.ops.push_back(finalOp);
+            }
+            if(!regOk)continue;
+            avx2Loops.emplace(header,std::move(plan));
+            avx2JumpRedirects.insert(backPc);
+        }
+    }
+
     std::vector<std::string> coldTrapLabels;
     std::vector<std::string> coldBoundsTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(skippedOffsetBinary.count(pc))continue;
         if(delayedLoads.count(pc)){
             // Materialize the address, not its value, for a later memory
             // comparison in the SAME straight-line basic block.
@@ -1099,6 +1904,216 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             continue;
         }
         if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
+        if(const auto avxIt=avx2Loops.find(pc);avxIt!=avx2Loops.end()){
+            const auto& plan=avxIt->second;
+            const std::string scalarLbl=pcLabel(fn,pc)+"_scalar";
+            const std::string okLbl=localLabel(fn,pc,"avx2_ok");
+            const std::string loopLbl=localLabel(fn,pc,"avx2_loop");
+            out<<"    cmp BYTE PTR [rip + .L_noqeri_avx2_state], 1\n"
+               <<"    je "<<okLbl<<"\n"
+               <<"    ja "<<scalarLbl<<"\n"
+               <<"    call noqeri_rt_has_avx2\n"
+               <<"    cmp eax, 1\n"
+               <<"    jne "<<scalarLbl<<"\n"
+               <<okLbl<<":\n";
+            load(plan.idxReg,"rax");
+            load(plan.limitReg,"r11");
+            out<<"    cmp rax, r11\n";
+            if(plan.cmpOp=="<")
+                out<<(plan.isUnsigned?"    jae ":"    jge ")<<scalarLbl<<"\n";
+            else
+                out<<(plan.isUnsigned?"    ja ":"    jg ")<<scalarLbl<<"\n";
+            out<<"    sub r11, rax\n";
+            if(plan.cmpOp=="<"){
+                out<<"    cmp r11, 4\n"
+                   <<"    jb "<<scalarLbl<<"\n";
+            }else{
+                out<<"    cmp r11, 3\n"
+                   <<"    jb "<<scalarLbl<<"\n"
+                   <<"    add r11, 1\n"
+                   <<"    jc "<<scalarLbl<<"\n";
+            }
+            out<<"    and r11, -4\n"
+               <<"    add r11, rax\n";
+            for(const auto& [rInv,y]:plan.invBroadcasts){
+                load(rInv,"rax");
+                out<<"    vmovq xmm"<<y<<", rax\n"
+                   <<"    vpbroadcastq ymm"<<y<<", xmm"<<y<<"\n";
+            }
+            for(const auto& [cVal,y]:plan.constBroadcasts){
+                if(cVal==0){
+                    out<<"    vpxor xmm"<<y<<", xmm"<<y<<", xmm"<<y<<"\n";
+                }else{
+                    out<<"    mov rax, "<<cVal<<"\n"
+                       <<"    vmovq xmm"<<y<<", rax\n"
+                       <<"    vpbroadcastq ymm"<<y<<", xmm"<<y<<"\n";
+                }
+            }
+            std::vector<std::size_t> ptrStorage(plan.ptrs.size(),0);
+            std::vector<int> ptrDynReg(plan.ptrs.size(),-1);
+            std::size_t minFixedStorage=std::numeric_limits<std::size_t>::max();
+            static const char* kDynBaseRegs[2]={"rcx","r10"};
+            int dynSlot=0;
+            for(std::size_t pi=0;pi<plan.ptrs.size();++pi){
+                const auto& p=plan.ptrs[pi];
+                const auto storage=fixedStorage[p.rootPc];
+                ptrStorage[pi]=storage;
+                if(!p.invOffsetReg){
+                    if(storage<minFixedStorage)minFixedStorage=storage;
+                }else{
+                    ptrDynReg[pi]=dynSlot++;
+                    const char* bReg=kDynBaseRegs[ptrDynReg[pi]];
+                    load(*p.invOffsetReg,"rax");
+                    out<<"    lea "<<bReg<<", [rbp - "<<storage<<" + rax*8]\n";
+                }
+            }
+            const auto ptrMemAt=[&](int pi,std::size_t elemDisp)->std::string{
+                const std::size_t bytes=elemDisp*8;
+                if(ptrDynReg[pi]<0){
+                    return "YMMWORD PTR [rbp-"+std::to_string(ptrStorage[pi]-bytes)+"+rax*8]";
+                }
+                const char* bReg=kDynBaseRegs[ptrDynReg[pi]];
+                if(bytes==0)return std::string("YMMWORD PTR [")+bReg+"+rax*8]";
+                return std::string("YMMWORD PTR [")+bReg+"+rax*8+"+std::to_string(bytes)+"]";
+            };
+            load(plan.idxReg,"rax");
+            if(plan.usesIdxVec){
+                out<<"    vmovq xmm0, rax\n"
+                   <<"    vpbroadcastq ymm0, xmm0\n"
+                   <<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_iota4]\n";
+            }
+            if(plan.hasAcc)out<<"    vpxor xmm1, xmm1, xmm1\n";
+            int hoistedMulHiSrcYmm=-1;
+            {
+                std::unordered_set<int> invYmms;
+                for(const auto& b:plan.invBroadcasts)invYmms.insert(b.second);
+                for(const auto& op:plan.ops){
+                    if(op.kind==Avx2BodyOp::Mul&&!op.mulFast32&&!op.mulRhsInvariantLow32){
+                        if(invYmms.count(op.lhsYmm)){
+                            hoistedMulHiSrcYmm=op.lhsYmm;
+                            out<<"    vpsrlq ymm13, ymm"<<hoistedMulHiSrcYmm<<", 32\n";
+                            break;
+                        }
+                    }
+                }
+            }
+            const auto emitBodySlice=[&](std::size_t elemDisp){
+                for(const auto& op:plan.ops){
+                    const int d=op.dstYmm,l=op.lhsYmm,r=op.rhsYmm;
+                    switch(op.kind){
+                        case Avx2BodyOp::Add: out<<"    vpaddq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
+                        case Avx2BodyOp::Sub: out<<"    vpsubq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
+                        case Avx2BodyOp::And: out<<"    vpand ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
+                        case Avx2BodyOp::Or:  out<<"    vpor ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
+                        case Avx2BodyOp::Xor: out<<"    vpxor ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
+                        case Avx2BodyOp::ShlImm: out<<"    vpsllq ymm"<<d<<", ymm"<<l<<", "<<op.imm<<"\n"; break;
+                        case Avx2BodyOp::ShrImm: out<<"    vpsrlq ymm"<<d<<", ymm"<<l<<", "<<op.imm<<"\n"; break;
+                        case Avx2BodyOp::ModPow2Imm: out<<"    vpand ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
+                        case Avx2BodyOp::ModMagic32:{
+                            const int dYmm=static_cast<int>(op.imm);
+                            out<<"    vpmuludq ymm15, ymm"<<l<<", ymm"<<r<<"\n"
+                               <<"    vpsrlq ymm15, ymm15, "<<op.modShift<<"\n"
+                               <<"    vpmuludq ymm14, ymm15, ymm"<<dYmm<<"\n"
+                               <<"    vpsubq ymm"<<d<<", ymm"<<l<<", ymm14\n";
+                            break;
+                        }
+                        case Avx2BodyOp::Mul:{
+                            if(op.mulFast32){
+                                out<<"    vpmuludq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n";
+                            }else if(op.mulRhsInvariantLow32){
+                                out<<"    vpsrlq ymm14, ymm"<<l<<", 32\n"
+                                   <<"    vpmuludq ymm14, ymm14, ymm"<<r<<"\n"
+                                   <<"    vpsllq ymm14, ymm14, 32\n"
+                                   <<"    vpmuludq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"
+                                   <<"    vpaddq ymm"<<d<<", ymm"<<d<<", ymm14\n";
+                            }else{
+                                if(l==hoistedMulHiSrcYmm){
+                                    out<<"    vpmuludq ymm14, ymm13, ymm"<<r<<"\n";
+                                }else{
+                                    out<<"    vpsrlq ymm14, ymm"<<l<<", 32\n"
+                                       <<"    vpmuludq ymm14, ymm14, ymm"<<r<<"\n";
+                                }
+                                out<<"    vpsrlq ymm15, ymm"<<r<<", 32\n"
+                                   <<"    vpmuludq ymm15, ymm"<<l<<", ymm15\n"
+                                   <<"    vpaddq ymm14, ymm14, ymm15\n"
+                                   <<"    vpsllq ymm14, ymm14, 32\n"
+                                   <<"    vpmuludq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"
+                                   <<"    vpaddq ymm"<<d<<", ymm"<<d<<", ymm14\n";
+                            }
+                            break;
+                        }
+                        case Avx2BodyOp::LoadArr: out<<"    vmovdqu ymm"<<d<<", "<<ptrMemAt(op.ptrIdx,elemDisp)<<"\n"; break;
+                        case Avx2BodyOp::StoreArr: out<<"    vmovdqu "<<ptrMemAt(op.ptrIdx,elemDisp)<<", ymm"<<l<<"\n"; break;
+                        case Avx2BodyOp::AccAdd: out<<"    vpaddq ymm1, ymm1, ymm"<<l<<"\n"; break;
+                    }
+                }
+            };
+            const bool canUnroll4=!plan.isUnsigned&&!plan.usesIdxVec&&
+                plan.ops.size()<=8&&minFixedStorage>96;
+            const bool canUnroll2=!plan.isUnsigned&&!canUnroll4&&
+                plan.ops.size()<=24&&minFixedStorage>32;
+            const std::string tail4Lbl=localLabel(fn,pc,"avx2_tail4");
+            const std::string doneVecLbl=localLabel(fn,pc,"avx2_done");
+            if(canUnroll4){
+                const std::string loop16Lbl=localLabel(fn,pc,"avx2_loop16");
+                out<<"    sub r11, 12\n"
+                   <<"    cmp rax, r11\n"
+                   <<"    jge "<<tail4Lbl<<"\n"
+                   <<loop16Lbl<<":\n";
+                emitBodySlice(0);
+                emitBodySlice(4);
+                emitBodySlice(8);
+                emitBodySlice(12);
+                out<<"    add rax, 16\n"
+                   <<"    cmp rax, r11\n"
+                   <<"    jl "<<loop16Lbl<<"\n"
+                   <<tail4Lbl<<":\n"
+                   <<"    add r11, 12\n"
+                   <<"    cmp rax, r11\n"
+                   <<"    jge "<<doneVecLbl<<"\n";
+            }else if(canUnroll2){
+                const std::string loop8Lbl=localLabel(fn,pc,"avx2_loop8");
+                out<<"    sub r11, 4\n"
+                   <<"    cmp rax, r11\n"
+                   <<"    jge "<<tail4Lbl<<"\n"
+                   <<loop8Lbl<<":\n";
+                emitBodySlice(0);
+                if(plan.usesIdxVec)
+                    out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
+                out<<"    add rax, 4\n";
+                emitBodySlice(0);
+                if(plan.usesIdxVec)
+                    out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
+                out<<"    add rax, 4\n"
+                   <<"    cmp rax, r11\n"
+                   <<"    jl "<<loop8Lbl<<"\n"
+                   <<tail4Lbl<<":\n"
+                   <<"    add r11, 4\n"
+                   <<"    cmp rax, r11\n"
+                   <<"    jge "<<doneVecLbl<<"\n";
+            }
+            out<<loopLbl<<":\n";
+            emitBodySlice(0);
+            if(plan.usesIdxVec)
+                out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
+            out<<"    add rax, 4\n"
+               <<"    cmp rax, r11\n"
+               <<"    jne "<<loopLbl<<"\n"
+               <<doneVecLbl<<":\n";
+            store(plan.idxReg,"rax");
+            if(plan.hasAcc){
+                out<<"    vextracti128 xmm14, ymm1, 1\n"
+                   <<"    vpaddq xmm1, xmm1, xmm14\n"
+                   <<"    vpsrldq xmm14, xmm1, 8\n"
+                   <<"    vpaddq xmm1, xmm1, xmm14\n"
+                   <<"    vmovq rax, xmm1\n";
+                load(plan.accReg,"r11");
+                out<<"    add rax, r11\n";
+                store(plan.accReg,"rax");
+            }
+            out<<"    vzeroupper\n"
+               <<scalarLbl<<":\n";
+        }
         switch(i.op){
         case NirOp::Const:{
             if(!i.dest)break;
@@ -1163,7 +2178,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 std::size_t priorPc=pc;
                 while(priorPc>0&&fn.code[priorPc-1].op==NirOp::Nop)--priorPc;
                 if(priorPc>0&&fusedPointers.count(priorPc-1)){
-                    stackAddr=fixedStackAddress(fn.code[priorPc-1]);
+                    stackAddr=foldedStackAddress(priorPc-1);
+                    if(!stackAddr)stackAddr=fixedStackAddress(fn.code[priorPc-1]);
                     if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
             }
@@ -1194,7 +2210,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 std::size_t priorPc=pc;
                 while(priorPc>0&&fn.code[priorPc-1].op==NirOp::Nop)--priorPc;
                 if(priorPc>0&&fusedPointers.count(priorPc-1)){
-                    stackAddr=fixedStackAddress(fn.code[priorPc-1]);
+                    stackAddr=foldedStackAddress(priorPc-1);
+                    if(!stackAddr)stackAddr=fixedStackAddress(fn.code[priorPc-1]);
                     if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
             }
@@ -1487,14 +2504,23 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 fusedBranches.insert(pc+1);
                 break;
             }
-            load(i.args[0],"rax");
+            const auto lhsOp = registerOperand(i.args[0]);
+            const bool lhsMem = lhsOp.rfind("QWORD PTR [", 0) == 0;
             const auto rhsImmediate=constantValues.find(i.args[1]);
             if(rhsImmediate!=constantValues.end()&&
                rhsImmediate->second>=std::numeric_limits<std::int32_t>::min()&&
-               rhsImmediate->second<=std::numeric_limits<std::int32_t>::max())
-                out<<"    cmp rax, "<<rhsImmediate->second<<"\n";
-            else
-                out<<"    cmp rax, "<<registerOperand(i.args[1])<<"\n";
+               rhsImmediate->second<=std::numeric_limits<std::int32_t>::max()){
+                out<<"    cmp "<<lhsOp<<", "<<rhsImmediate->second<<"\n";
+            }else{
+                const auto rhsOp = registerOperand(i.args[1]);
+                const bool rhsMem = rhsOp.rfind("QWORD PTR [", 0) == 0;
+                if(lhsMem && rhsMem){
+                    load(i.args[0],"rax");
+                    out<<"    cmp rax, "<<rhsOp<<"\n";
+                }else{
+                    out<<"    cmp "<<lhsOp<<", "<<rhsOp<<"\n";
+                }
+            }
             out
                <<"    "<<inverted<<" "<<pcLabel(fn,fn.code[pc+1].target)<<"\n";
             fusedBranches.insert(pc+1);
@@ -1553,12 +2579,24 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                         }
                     }
                 }else{
-                    if(srcReg!=targetReg)
-                        out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
                     const auto rhs=registerOperand(i.args[1]);
-                    if(i.text=="+")out<<"    add "<<targetReg<<", "<<rhs<<"\n";
-                    else if(i.text=="-")out<<"    sub "<<targetReg<<", "<<rhs<<"\n";
-                    else if(i.text=="*")out<<"    imul "<<targetReg<<", "<<rhs<<"\n";
+                    if(i.text=="+"){
+                        if(srcReg==targetReg)out<<"    add "<<targetReg<<", "<<rhs<<"\n";
+                        else if(rhs==targetReg)out<<"    add "<<targetReg<<", "<<srcReg<<"\n";
+                        else{
+                            out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    add "<<targetReg<<", "<<rhs<<"\n";
+                        }
+                    }else if(i.text=="*"){
+                        if(targetReg==rhs)out<<"    imul "<<targetReg<<", "<<srcReg<<"\n";
+                        else{
+                            if(srcReg!=targetReg)out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    imul "<<targetReg<<", "<<rhs<<"\n";
+                        }
+                    }else{ // "-"
+                        if(srcReg!=targetReg)out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                        out<<"    sub "<<targetReg<<", "<<rhs<<"\n";
+                    }
                 }
                 break;
             }
@@ -1657,7 +2695,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             normalizeIntegerResult(out,i.type.kind);
         store(*i.dest,"rax");break;}
         case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float)out<<"    call noqeri_rt_print_float\n";else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(symbols,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
-        case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<"\n";break;
+        case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<(avx2JumpRedirects.count(pc)?"_scalar":"")<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
         case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
         case NirOp::Nop:break;
@@ -1702,7 +2740,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     for(const auto&f:p.functions)
         if(!emitFunction(out,f,returns,strings,callSymbols,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
-    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n.L_noqeri_bounds_err: .asciz \"NQR-R4000: runtime error: index out of bounds\\n\"\n";
+    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n.L_noqeri_bounds_err: .asciz \"NQR-R4000: runtime error: index out of bounds\\n\"\n.L_noqeri_avx2_state: .byte 0\n.p2align 5\n.L_noqeri_vec_iota4: .quad 0, 1, 2, 3\n.L_noqeri_vec_step4: .quad 4, 4, 4, 4\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
 #if !defined(_WIN32)
     // ELF x86-64 native objects must not request an executable stack.

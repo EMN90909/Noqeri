@@ -106,10 +106,26 @@ Matrix matmul(const Matrix& a, const Matrix& b) {
     check(a.cols == b.rows && a.rows <= max_elements / b.cols &&
           a.rows*b.cols*b.rows <= 50000000, "incompatible or oversized matmul");
     Matrix out(a.rows,b.cols);
-    for (std::size_t i = 0; i < a.rows; ++i)
-        for (std::size_t k = 0; k < a.cols; ++k)
-            for (std::size_t j = 0; j < b.cols; ++j)
-                out.values[i*b.cols+j] += a.values[i*a.cols+k] * b.values[k*b.cols+j];
+    const std::size_t M = a.rows, K = a.cols, N = b.cols;
+    const double* ap = a.values.data();
+    const double* bp = b.values.data();
+    double* cp = out.values.data();
+    constexpr std::size_t block = 64;
+    for (std::size_t ii = 0; ii < M; ii += block)
+        for (std::size_t kk = 0; kk < K; kk += block)
+            for (std::size_t jj = 0; jj < N; jj += block) {
+                const std::size_t ie = std::min(ii + block, M);
+                const std::size_t ke = std::min(kk + block, K);
+                const std::size_t je = std::min(jj + block, N);
+                for (std::size_t i = ii; i < ie; ++i)
+                    for (std::size_t k = kk; k < ke; ++k) {
+                        const double av = ap[i * K + k];
+                        const double* brow = &bp[k * N];
+                        double* crow = &cp[i * N];
+                        for (std::size_t j = jj; j < je; ++j)
+                            crow[j] += av * brow[j];
+                    }
+            }
     validate(out);
     return out;
 }

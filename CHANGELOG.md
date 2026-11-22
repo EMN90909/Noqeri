@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.5.1 — 2026-11-22 (AVX2 direct native, LLVM AOT, AI runtime, and strict .ndl archives)
+
+- Direct Native Backend (`--backend=native -O3`) optimization cycle:
+  - General AVX2 4-lane/unrolled counted-loop vectorizer with runtime CPUID/XGETBV verification, invariant `hi32` hoisting, 32-bit exact Barrett modulo, and `vpmuludq` fast multiplication.
+  - Extended-basic-block and exit `Cast` copy propagation, dead local variable store elimination, latch def folding, decrementing induction loop bounds elimination, and `PtrOffset` displacement folding.
+- LLVM AOT (`--backend=llvm -O3`) & Portable C Backend improvements:
+  - Skip odd/even 2x NIR unrolling on memory-accessing loops (`LoadMemory`/`StoreMemory`) so Clang auto-vectorizes image and matrix kernels contiguously.
+  - Non-aliasing scalar locals (`r_*`/`v_*`), non-escaping `directAllocs` arrays, cold trap attributes, and unsigned div/mod fastpaths.
+- AI SDK optimizations:
+  - Runtime CPUID-dispatched AVX2+FMA 4x8 microkernel GEMM in `ai_framework_tensor.cpp`, cache-blocked `lm_runtime.cpp`, and contiguous raw-pointer `AdamWOptimizer::step`.
+- Strict `.ndl` (`NDL\x01`) Archive Loader, Verifier & Compiler Hookup:
+  - Header/table validation, `nodules.toml` parser, `0.1.5`/`0.1.5.1` + ABI v2 version gate, `adler32` frame/entry + SHA-256 verification, path traversal/symlink rejection, `ModuleGraph` resolution, and `tests/cpp/nodule_archive_test.cpp`.
+- Universal version alignment to `0.1.5.1`.
+
 ## 0.1.5 — 2026-11-22 (native self-hosting and direct native optimizations)
 
 - Full native self-hosting achieved on Linux x86-64 with automated bit-for-bit Stage-4 == Stage-5 reproducibility verification.

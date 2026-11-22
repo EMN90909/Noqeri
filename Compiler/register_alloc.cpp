@@ -122,8 +122,8 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
     int currentDepth=0;
     for(std::size_t pc=0;pc<n;++pc){
         currentDepth+=depthDiff[pc];
-        const auto weight=static_cast<std::uint64_t>(1+
-            10*std::min(std::max(currentDepth,0),4));
+        const auto d=std::min(std::max(currentDepth,0),5);
+        const auto weight=std::uint64_t{1}<<(3*d);
         for(const auto reg:fn.code[pc].args)
             if(reg<hotUses.size())hotUses[reg]+=weight;
         // Weight definitions inside loops as well so loop-carried Phi/induction
@@ -152,9 +152,22 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
             if(auto v=std::get_if<std::int64_t>(&in.literal)){
                 if(*v>=std::numeric_limits<std::int32_t>::min()&&
                    *v<=std::numeric_limits<std::int32_t>::max()){
-                    if(immUses[*in.dest]==totalUses[*in.dest]&&totalUses[*in.dest]>0)
+                    if(immUses[*in.dest]==totalUses[*in.dest])
                         isImm32Const.insert(*in.dest);
                 }
+            }
+        }
+    }
+    // Copy-coalescing hints: track identity Cast copy edges (dst <- src)
+    // so if dst and src are allocated sequentially without overlapping, dst
+    // reuses src's physical register cleanly.
+    std::unordered_map<Reg,std::vector<Reg>> copyPeers;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Cast&&in.dest&&in.args.size()==1&&in.type.size()==8){
+            const Reg s=in.args[0],d=*in.dest;
+            if(s!=d){
+                copyPeers[d].push_back(s);
+                copyPeers[s].push_back(d);
             }
         }
     }
@@ -213,9 +226,26 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
             }
             spill(iv);continue;
         }
-        const auto physical=available.back();available.pop_back();
-        active.push_back({current,physical});
-        locations[iv.value]=RegisterLocation{iv.value,physical,false,0};
+        std::string chosen;
+        if(auto pit=copyPeers.find(iv.value);pit!=copyPeers.end()){
+            for(Reg peer:pit->second){
+                auto locIt=locations.find(peer);
+                if(locIt!=locations.end()&&!locIt->second.spilled){
+                    auto avIt=std::find(available.begin(),available.end(),locIt->second.physical);
+                    if(avIt!=available.end()){
+                        chosen=*avIt;
+                        available.erase(avIt);
+                        break;
+                    }
+                }
+            }
+        }
+        if(chosen.empty()){
+            chosen=available.back();
+            available.pop_back();
+        }
+        active.push_back({current,chosen});
+        locations[iv.value]=RegisterLocation{iv.value,chosen,false,0};
     }
     for(const auto& iv:plan.intervals)plan.locations.push_back(locations.at(iv.value));
     return plan;

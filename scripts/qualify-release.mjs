@@ -134,7 +134,7 @@ for (const [name, directories, file] of [
 
 const report = {
   schema: 2,
-  version: '0.1.5',
+  version: '0.1.5.1',
   scope: 'general-purpose-language',
   generated_at: new Date().toISOString(),
   qualification: 'local-build',

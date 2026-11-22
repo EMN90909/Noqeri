@@ -5,9 +5,13 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
-#if defined(__SSE2__) || defined(_M_X64)
+#if defined(__SSE2__) || defined(_M_X64) || defined(__x86_64__)
 #include <emmintrin.h>
 #define NQAI_SSE2 1
+#endif
+#if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(_M_X64))
+#include <immintrin.h>
+#define NQAI_X86_RUNTIME_AVX2 1
 #endif
 
 namespace noqeri_ai::framework {
@@ -52,23 +56,152 @@ double cast_compute(double value,Precision precision) {
     require(rounded<=65504,"binary16 operand overflow after rounding");
     return std::copysign(rounded,value);
 }
+
+#ifdef NQAI_X86_RUNTIME_AVX2
+bool cpu_has_avx2_fma() noexcept {
+    static const bool supported =
+        __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
+    return supported;
+}
+
+__attribute__((target("avx2,fma")))
+void gemm_f64_avx2(const double* a, const double* b, double* c,
+                   std::size_t M, std::size_t K, std::size_t N) {
+    constexpr std::size_t BM = 64;
+    constexpr std::size_t BK = 64;
+    constexpr std::size_t BN = 64;
+    for (std::size_t ii = 0; ii < M; ii += BM) {
+        const std::size_t i_end = std::min(ii + BM, M);
+        for (std::size_t kk = 0; kk < K; kk += BK) {
+            const std::size_t k_end = std::min(kk + BK, K);
+            for (std::size_t jj = 0; jj < N; jj += BN) {
+                const std::size_t j_end = std::min(jj + BN, N);
+                std::size_t i = ii;
+                for (; i + 3 < i_end; i += 4) {
+                    std::size_t j = jj;
+                    for (; j + 7 < j_end; j += 8) {
+                        __m256d c00 = _mm256_loadu_pd(&c[(i + 0) * N + j]);
+                        __m256d c01 = _mm256_loadu_pd(&c[(i + 0) * N + j + 4]);
+                        __m256d c10 = _mm256_loadu_pd(&c[(i + 1) * N + j]);
+                        __m256d c11 = _mm256_loadu_pd(&c[(i + 1) * N + j + 4]);
+                        __m256d c20 = _mm256_loadu_pd(&c[(i + 2) * N + j]);
+                        __m256d c21 = _mm256_loadu_pd(&c[(i + 2) * N + j + 4]);
+                        __m256d c30 = _mm256_loadu_pd(&c[(i + 3) * N + j]);
+                        __m256d c31 = _mm256_loadu_pd(&c[(i + 3) * N + j + 4]);
+                        for (std::size_t k = kk; k < k_end; ++k) {
+                            const __m256d b0 = _mm256_loadu_pd(&b[k * N + j]);
+                            const __m256d b1 = _mm256_loadu_pd(&b[k * N + j + 4]);
+                            const __m256d a0 = _mm256_set1_pd(a[(i + 0) * K + k]);
+                            const __m256d a1 = _mm256_set1_pd(a[(i + 1) * K + k]);
+                            const __m256d a2 = _mm256_set1_pd(a[(i + 2) * K + k]);
+                            const __m256d a3 = _mm256_set1_pd(a[(i + 3) * K + k]);
+                            c00 = _mm256_fmadd_pd(a0, b0, c00);
+                            c01 = _mm256_fmadd_pd(a0, b1, c01);
+                            c10 = _mm256_fmadd_pd(a1, b0, c10);
+                            c11 = _mm256_fmadd_pd(a1, b1, c11);
+                            c20 = _mm256_fmadd_pd(a2, b0, c20);
+                            c21 = _mm256_fmadd_pd(a2, b1, c21);
+                            c30 = _mm256_fmadd_pd(a3, b0, c30);
+                            c31 = _mm256_fmadd_pd(a3, b1, c31);
+                        }
+                        _mm256_storeu_pd(&c[(i + 0) * N + j], c00);
+                        _mm256_storeu_pd(&c[(i + 0) * N + j + 4], c01);
+                        _mm256_storeu_pd(&c[(i + 1) * N + j], c10);
+                        _mm256_storeu_pd(&c[(i + 1) * N + j + 4], c11);
+                        _mm256_storeu_pd(&c[(i + 2) * N + j], c20);
+                        _mm256_storeu_pd(&c[(i + 2) * N + j + 4], c21);
+                        _mm256_storeu_pd(&c[(i + 3) * N + j], c30);
+                        _mm256_storeu_pd(&c[(i + 3) * N + j + 4], c31);
+                    }
+                    for (; j + 3 < j_end; j += 4) {
+                        __m256d c0 = _mm256_loadu_pd(&c[(i + 0) * N + j]);
+                        __m256d c1 = _mm256_loadu_pd(&c[(i + 1) * N + j]);
+                        __m256d c2 = _mm256_loadu_pd(&c[(i + 2) * N + j]);
+                        __m256d c3 = _mm256_loadu_pd(&c[(i + 3) * N + j]);
+                        for (std::size_t k = kk; k < k_end; ++k) {
+                            const __m256d b0 = _mm256_loadu_pd(&b[k * N + j]);
+                            c0 = _mm256_fmadd_pd(_mm256_set1_pd(a[(i + 0) * K + k]), b0, c0);
+                            c1 = _mm256_fmadd_pd(_mm256_set1_pd(a[(i + 1) * K + k]), b0, c1);
+                            c2 = _mm256_fmadd_pd(_mm256_set1_pd(a[(i + 2) * K + k]), b0, c2);
+                            c3 = _mm256_fmadd_pd(_mm256_set1_pd(a[(i + 3) * K + k]), b0, c3);
+                        }
+                        _mm256_storeu_pd(&c[(i + 0) * N + j], c0);
+                        _mm256_storeu_pd(&c[(i + 1) * N + j], c1);
+                        _mm256_storeu_pd(&c[(i + 2) * N + j], c2);
+                        _mm256_storeu_pd(&c[(i + 3) * N + j], c3);
+                    }
+                    for (; j < j_end; ++j) {
+                        double s0 = c[(i + 0) * N + j], s1 = c[(i + 1) * N + j];
+                        double s2 = c[(i + 2) * N + j], s3 = c[(i + 3) * N + j];
+                        for (std::size_t k = kk; k < k_end; ++k) {
+                            const double bv = b[k * N + j];
+                            s0 += a[(i + 0) * K + k] * bv;
+                            s1 += a[(i + 1) * K + k] * bv;
+                            s2 += a[(i + 2) * K + k] * bv;
+                            s3 += a[(i + 3) * K + k] * bv;
+                        }
+                        c[(i + 0) * N + j] = s0; c[(i + 1) * N + j] = s1;
+                        c[(i + 2) * N + j] = s2; c[(i + 3) * N + j] = s3;
+                    }
+                }
+                for (; i < i_end; ++i) {
+                    for (std::size_t k = kk; k < k_end; ++k) {
+                        const double av = a[i * K + k];
+                        const __m256d va = _mm256_set1_pd(av);
+                        std::size_t j = jj;
+                        for (; j + 3 < j_end; j += 4) {
+                            __m256d vc = _mm256_loadu_pd(&c[i * N + j]);
+                            const __m256d vb = _mm256_loadu_pd(&b[k * N + j]);
+                            _mm256_storeu_pd(&c[i * N + j], _mm256_fmadd_pd(va, vb, vc));
+                        }
+                        for (; j < j_end; ++j)
+                            c[i * N + j] += av * b[k * N + j];
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
+
 Matrix compute_gemm(const Matrix& a,const Matrix& b,Precision precision) {
     valid(a);valid(b);
     require(a.cols==b.rows && a.rows<=1048576/b.cols &&
             a.rows<=50000000/(a.cols*b.cols),"invalid compute GEMM shape");
-    Matrix out(a.rows,b.cols);
-    for(std::size_t i=0;i<a.rows;++i)
-        for(std::size_t j=0;j<b.cols;++j) {
-            float sum=0;
-            for(std::size_t k=0;k<a.cols;++k) {
-                const float av=static_cast<float>(
-                    cast_compute(a.at(i,k),precision));
-                const float bv=static_cast<float>(
-                    cast_compute(b.at(k,j),precision));
-                sum=static_cast<float>(sum+av*bv);
+    std::vector<float> aq(a.values.size());
+    std::vector<float> bq(b.values.size());
+    if (precision == Precision::FP32) {
+        for (std::size_t i = 0; i < a.values.size(); ++i)
+            aq[i] = static_cast<float>(a.values[i]);
+        for (std::size_t i = 0; i < b.values.size(); ++i)
+            bq[i] = static_cast<float>(b.values[i]);
+    } else {
+        for (std::size_t i = 0; i < a.values.size(); ++i)
+            aq[i] = static_cast<float>(cast_compute(a.values[i], precision));
+        for (std::size_t i = 0; i < b.values.size(); ++i)
+            bq[i] = static_cast<float>(cast_compute(b.values[i], precision));
+    }
+    const std::size_t M = a.rows, K = a.cols, N = b.cols;
+    std::vector<float> acc(M * N, 0.0f);
+    constexpr std::size_t block = 64;
+    for (std::size_t ii = 0; ii < M; ii += block)
+        for (std::size_t kk = 0; kk < K; kk += block)
+            for (std::size_t jj = 0; jj < N; jj += block) {
+                const std::size_t ie = std::min(ii + block, M);
+                const std::size_t ke = std::min(kk + block, K);
+                const std::size_t je = std::min(jj + block, N);
+                for (std::size_t i = ii; i < ie; ++i)
+                    for (std::size_t k = kk; k < ke; ++k) {
+                        const float av = aq[i * K + k];
+                        float* crow = &acc[i * N];
+                        const float* brow = &bq[k * N];
+                        for (std::size_t j = jj; j < je; ++j)
+                            crow[j] += av * brow[j];
+                    }
             }
-            out.at(i,j)=sum;
-        }
+    Matrix out(M, N);
+    for (std::size_t i = 0; i < out.values.size(); ++i)
+        out.values[i] = static_cast<double>(acc[i]);
     valid(out);return out;
 }
 Matrix transpose_for_grad(const Matrix& m) {
@@ -93,8 +226,13 @@ Matrix gemm(const Matrix& a,const Matrix& b,Backend backend) {
             for(std::size_t j=0;j<b.cols;++j)
                 for(std::size_t k=0;k<a.cols;++k)
                     c.values[i*b.cols+j]+=a.values[i*a.cols+k]*b.values[k*b.cols+j];
+#ifdef NQAI_X86_RUNTIME_AVX2
+    } else if (backend == Backend::Simd && cpu_has_avx2_fma()) {
+        gemm_f64_avx2(a.values.data(), b.values.data(), c.values.data(),
+                      a.rows, a.cols, b.cols);
+#endif
     }else{
-        constexpr std::size_t block=32;
+        constexpr std::size_t block=64;
         for(std::size_t ii=0;ii<a.rows;ii+=block)
             for(std::size_t kk=0;kk<a.cols;kk+=block)
                 for(std::size_t jj=0;jj<b.cols;jj+=block)
@@ -266,13 +404,29 @@ void Tape::backward(std::size_t loss) {
                     nodes_[n.b].grad.values[i]+=gb.values[i];
                 break;
             }
-            for(std::size_t i=0;i<a.rows;++i)
-                for(std::size_t k=0;k<a.cols;++k)
-                    for(std::size_t j=0;j<b.cols;++j) {
-                        const double g=n.grad.at(i,j);
-                        nodes_[n.a].grad.at(i,k)+=g*b.at(k,j);
-                        nodes_[n.b].grad.at(k,j)+=g*a.at(i,k);
+            const std::size_t M=a.rows,K=a.cols,N=b.cols;
+            const double* ap=a.values.data();
+            const double* bp=b.values.data();
+            const double* gp=n.grad.values.data();
+            double* da=nodes_[n.a].grad.values.data();
+            double* db=nodes_[n.b].grad.values.data();
+            for(std::size_t i=0;i<M;++i) {
+                const double* gi=&gp[i*N];
+                double* dai=&da[i*K];
+                const double* ai=&ap[i*K];
+                for(std::size_t k=0;k<K;++k) {
+                    const double aik=ai[k];
+                    const double* bk=&bp[k*N];
+                    double* dbk=&db[k*N];
+                    double sum=0.0;
+                    for(std::size_t j=0;j<N;++j) {
+                        const double gij=gi[j];
+                        sum+=gij*bk[j];
+                        dbk[j]+=gij*aik;
                     }
+                    dai[k]+=sum;
+                }
+            }
             break;
         }
         case Op::Transpose: {

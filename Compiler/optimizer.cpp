@@ -1135,22 +1135,49 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
     // defining Load and each candidate CheckBounds, potentially quadratic
     // or worse when several guards protect large array-heavy loops.
     const auto barrier=[](NirOp op){
-        return op==NirOp::StoreMemory||op==NirOp::Call||op==NirOp::InlineAsm||
+        return op==NirOp::Call||op==NirOp::InlineAsm||
                op==NirOp::AtomicStore||
                op==NirOp::AtomicExchange||
                op==NirOp::AtomicCompareExchange;
     };
+    std::unordered_set<std::string> addressTakenVars;
+    bool hasTryOrInlineAsm=false;
+    std::unordered_set<Reg> stackRoots;
+    std::unordered_map<Reg,Reg> ptrParent;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::AddressOf&&!in.text.empty())addressTakenVars.insert(in.text);
+        if(in.op==NirOp::Try||in.op==NirOp::InlineAsm)hasTryOrInlineAsm=true;
+        if(in.op==NirOp::StackAlloc&&in.dest)stackRoots.insert(*in.dest);
+        if((in.op==NirOp::PtrOffset||in.op==NirOp::Cast)&&in.dest&&!in.args.empty())
+            ptrParent[*in.dest]=in.args[0];
+    }
+    const auto isStackRooted=[&](Reg p){
+        for(int depth=0;depth<16;++depth){
+            if(stackRoots.count(p))return true;
+            auto it=ptrParent.find(p);
+            if(it==ptrParent.end())break;
+            p=it->second;
+        }
+        return false;
+    };
     std::vector<std::size_t> unsafePrefix(fn.code.size()+1,0);
+    std::vector<std::size_t> storeMemPrefix(fn.code.size()+1,0);
     std::unordered_map<std::string,std::vector<std::size_t>> storeLocations;
     for(std::size_t pc=0;pc<fn.code.size();++pc){
         const auto& in=fn.code[pc];
-        unsafePrefix[pc+1]=unsafePrefix[pc]+(barrier(in.op)?1u:0u);
+        bool isBarrier=barrier(in.op);
+        if(!isBarrier&&in.op==NirOp::StoreMemory){
+            if(in.args.empty()||!isStackRooted(in.args[0]))isBarrier=true;
+        }
+        unsafePrefix[pc+1]=unsafePrefix[pc]+(isBarrier?1u:0u);
+        storeMemPrefix[pc+1]=storeMemPrefix[pc]+(in.op==NirOp::StoreMemory?1u:0u);
         if(in.op==NirOp::Store)storeLocations[in.text].push_back(pc);
     }
     const auto invalidated=[&](const std::string& name,
                                std::size_t from,std::size_t until){
         if(from+1>=until)return false;
         if(unsafePrefix[until]!=unsafePrefix[from+1])return true;
+        if(addressTakenVars.count(name)&&storeMemPrefix[until]!=storeMemPrefix[from+1])return true;
         const auto it=storeLocations.find(name);
         if(it==storeLocations.end())return false;
         const auto pos=std::lower_bound(it->second.begin(),it->second.end(),from+1);
@@ -1425,6 +1452,107 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                 if(!nonnegative)continue;
             }
             check.op=NirOp::Nop;check.args.clear();changed=true;break;
+        }
+        if(check.op==NirOp::CheckBounds&&!hasTryOrInlineAsm&&
+           !addressTakenVars.count(indexName->second)&&
+           signedIndexType(checkedKind)&&scale==1&&limit->second>offset){
+            const auto& vName=indexName->second;
+            const auto stIt=storeLocations.find(vName);
+            const std::int64_t maxBaseAllowed=limit->second-1-offset;
+            if(stIt!=storeLocations.end()&&!stIt->second.empty()){
+                // Check if var >= 0 guard dominates check
+                bool hasZeroLowerGuard=false;
+                for(std::size_t lowerPc=0;lowerPc<pc;++lowerPc){
+                    const auto& lb=fn.code[lowerPc];
+                    if(lb.op!=NirOp::JumpIfFalse||lb.args.size()!=1||
+                       lb.target<=pc||lowerPc+1>=fn.code.size())continue;
+                    const auto ld=g.definitions.find(lb.args[0]);
+                    if(ld==g.definitions.end()||ld->second>=lowerPc)continue;
+                    const auto& cmp=fn.code[ld->second];
+                    if(cmp.op!=NirOp::Binary||cmp.text!=">="||cmp.args.size()!=2)continue;
+                    const auto lName=loads.find(cmp.args[0]);
+                    const auto lConst=constants.find(cmp.args[1]);
+                    if(lName==loads.end()||lName->second!=vName||
+                       lConst==constants.end()||lConst->second!=0||
+                       !signedIndexType(operandType(fn,cmp.args[0]))||
+                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]]||
+                       bypassesGuard(lowerPc,pc,vName))continue;
+                    const auto lLoad=g.definitions.find(cmp.args[0]);
+                    if(lLoad==g.definitions.end()||lLoad->second>=lowerPc||
+                       fn.code[lLoad->second].op!=NirOp::Load||
+                       fn.code[lLoad->second].isVolatile)continue;
+                    if(!invalidated(vName,lLoad->second,pc)){
+                        hasZeroLowerGuard=true;break;
+                    }
+                }
+                if(hasZeroLowerGuard){
+                    bool sawInit=false,allValid=true;
+                    for(std::size_t spc:stIt->second){
+                        const auto& st=fn.code[spc];
+                        if(st.isVolatile||st.args.size()!=1){allValid=false;break;}
+                        const Reg valReg=st.args[0];
+                        if(const auto c=integerConst(valReg)){
+                            if(*c>=0&&*c<=maxBaseAllowed){sawInit=true;continue;}
+                            allValid=false;break;
+                        }
+                        const auto defIt=g.definitions.find(valReg);
+                        if(defIt==g.definitions.end()){allValid=false;break;}
+                        const auto& subIn=fn.code[defIt->second];
+                        if(subIn.op!=NirOp::Binary||subIn.text!="-"||subIn.args.size()!=2){
+                            allValid=false;break;
+                        }
+                        const auto lhsLoad=loads.find(subIn.args[0]);
+                        const auto rhsConst=integerConst(subIn.args[1]);
+                        if(lhsLoad==loads.end()||!rhsConst||*rhsConst<0||*rhsConst>1024){
+                            allValid=false;break;
+                        }
+                        if(lhsLoad->second==vName){
+                            // Monotonic decrement var = var - k (safe when var >= 0 dominates or small step)
+                            continue;
+                        }
+                        // Init from outer var: var = outer - d, check outer < U dominates spc
+                        bool outerBounded=isNonNegativeVar(lhsLoad->second);
+                        if(outerBounded){
+                            bool outerGuard=false;
+                            const auto outerKind=operandType(fn,subIn.args[0]);
+                            for(std::size_t gPc=0;gPc<spc;++gPc){
+                                const auto& br=fn.code[gPc];
+                                if(br.op!=NirOp::JumpIfFalse||br.args.size()!=1||
+                                   br.target<=spc||gPc+1>=fn.code.size())continue;
+                                const auto gd=g.definitions.find(br.args[0]);
+                                if(gd==g.definitions.end()||gd->second>=gPc)continue;
+                                const auto& gcmp=fn.code[gd->second];
+                                if(gcmp.op!=NirOp::Binary||gcmp.args.size()!=2||
+                                   (gcmp.text!="<"&&gcmp.text!="<="))continue;
+                                const auto gn=loads.find(gcmp.args[0]);
+                                const auto gu=constants.find(gcmp.args[1]);
+                                if(gn==loads.end()||gn->second!=lhsLoad->second||
+                                   gu==constants.end()||gu->second<0||
+                                   operandType(fn,gcmp.args[0])!=outerKind)continue;
+                                if(gcmp.text=="<"&&gu->second==0)continue;
+                                const std::int64_t oMax=gcmp.text=="<"?gu->second-1:gu->second;
+                                if(oMax-*rhsConst>maxBaseAllowed)continue;
+                                if(!g.dominates[g.owner[spc]][g.owner[gPc+1]]||
+                                   bypassesGuard(gPc,spc,lhsLoad->second))continue;
+                                const auto gSrc=g.definitions.find(gcmp.args[0]);
+                                const auto lSrc=g.definitions.find(subIn.args[0]);
+                                if(gSrc==g.definitions.end()||lSrc==g.definitions.end()||
+                                   gSrc->second>=gPc||lSrc->second>=spc||
+                                   fn.code[gSrc->second].op!=NirOp::Load||
+                                   fn.code[lSrc->second].op!=NirOp::Load)continue;
+                                if(!invalidated(lhsLoad->second,std::min(gSrc->second,lSrc->second),spc)){
+                                    outerGuard=true;break;
+                                }
+                            }
+                            if(outerGuard){sawInit=true;continue;}
+                        }
+                        allValid=false;break;
+                    }
+                    if(sawInit&&allValid){
+                        check.op=NirOp::Nop;check.args.clear();changed=true;
+                    }
+                }
+            }
         }
     }
     return changed;
@@ -1732,6 +1860,208 @@ bool lowerSingleLoopPhi(NirFunction& fn){
     fn.code=std::move(out);
     return true;
 }
+bool eliminateDeadLocalStores(NirFunction& fn){
+    if(fn.code.empty())return false;
+    std::unordered_set<std::string> addressTaken;
+    std::unordered_set<std::string> volatileNames;
+    std::unordered_set<std::string> loadedNames;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Try||in.op==NirOp::InlineAsm)return false;
+        if(in.op==NirOp::AddressOf&&!in.text.empty())addressTaken.insert(in.text);
+        if((in.op==NirOp::Load||in.op==NirOp::Store)&&in.isVolatile&&!in.text.empty())
+            volatileNames.insert(in.text);
+        if(in.op==NirOp::Load&&!in.text.empty())loadedNames.insert(in.text);
+    }
+    bool changed=false;
+    for(auto& in:fn.code){
+        if(in.op==NirOp::Store&&!in.text.empty()&&!in.isVolatile&&
+           !addressTaken.count(in.text)&&!volatileNames.count(in.text)&&
+           !loadedNames.count(in.text)){
+            in.op=NirOp::Nop;
+            in.args.clear();
+            in.text.clear();
+            changed=true;
+        }
+    }
+    return changed;
+}
+bool propagatePostSsaIdentityCasts(NirFunction& fn){
+    if(fn.code.empty()||fn.nextReg==0||fn.nextReg>500000)return false;
+    std::vector<std::uint32_t> defCount(fn.nextReg,0);
+    for(const auto& in:fn.code){
+        if(in.dest){
+            if(*in.dest>=fn.nextReg)return false;
+            ++defCount[*in.dest];
+        }
+        for(Reg a:in.args)if(a>=fn.nextReg)return false;
+    }
+    const auto sameScalarType=[&](Reg dst,Reg src){
+        if(dst>=fn.registerTypes.size()||src>=fn.registerTypes.size())return false;
+        const auto dk=fn.registerTypes[dst].kind;
+        const auto sk=operandType(fn,src);
+        return dk==sk&&dk!=TypeKind::Void&&dk!=TypeKind::Unknown;
+    };
+    bool changed=false;
+    // Global single-def identity Cast propagation
+    std::vector<Reg> globalAlias(fn.nextReg);
+    for(Reg r=0;r<fn.nextReg;++r)globalAlias[r]=r;
+    for(const auto& in:fn.code){
+        if(in.op==NirOp::Cast&&in.dest&&in.args.size()==1&&
+           *in.dest!=in.args[0]&&sameScalarType(*in.dest,in.args[0])&&
+           defCount[*in.dest]==1&&defCount[in.args[0]]==1){
+            globalAlias[*in.dest]=in.args[0];
+        }
+    }
+    const auto resolveGlobal=[&](Reg r){
+        for(int step=0;step<16&&globalAlias[r]!=r;++step)r=globalAlias[r];
+        return r;
+    };
+    for(auto& in:fn.code){
+        for(auto& arg:in.args){
+            const Reg root=resolveGlobal(arg);
+            if(root!=arg){arg=root;changed=true;}
+        }
+    }
+    // Superblock (single-predecessor trace) identity Cast copy propagation
+    const std::size_t n=fn.code.size();
+    std::vector<bool> blockStart(n,false);
+    blockStart[0]=true;
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto& in=fn.code[pc];
+        if(in.op==NirOp::Jump){
+            if(in.target<n)blockStart[in.target]=true;
+            if(pc+1<n)blockStart[pc+1]=true;
+        }else if(in.op==NirOp::JumpIfFalse){
+            if(in.target<n)blockStart[in.target]=true;
+        }else if((in.op==NirOp::Return||in.op==NirOp::Throw)&&pc+1<n){
+            blockStart[pc+1]=true;
+        }
+    }
+    std::unordered_map<Reg,Reg> localAlias;
+    for(std::size_t pc=0;pc<n;++pc){
+        if(blockStart[pc])localAlias.clear();
+        auto& in=fn.code[pc];
+        for(auto& arg:in.args){
+            Reg cur=arg;
+            for(int step=0;step<16;++step){
+                auto it=localAlias.find(cur);
+                if(it==localAlias.end())break;
+                cur=it->second;
+            }
+            if(cur!=arg){arg=cur;changed=true;}
+        }
+        if(in.op==NirOp::Cast&&in.dest&&in.args.size()==1&&
+           *in.dest==in.args[0]&&sameScalarType(*in.dest,in.args[0])){
+            in.op=NirOp::Nop;in.dest.reset();in.args.clear();in.text.clear();
+            changed=true;
+            continue;
+        }
+        if(in.dest){
+            const Reg d=*in.dest;
+            localAlias.erase(d);
+            for(auto it=localAlias.begin();it!=localAlias.end();){
+                if(it->second==d)it=localAlias.erase(it);
+                else ++it;
+            }
+            if(in.op==NirOp::Cast&&in.args.size()==1&&
+               sameScalarType(d,in.args[0])&&d!=in.args[0]){
+                localAlias[d]=in.args[0];
+            }
+        }
+    }
+    // Forward single-def identity Casts (dst = Cast(src)) when all uses occur
+    // along acyclic paths from defPc before src can be redefined.
+    std::vector<std::vector<std::size_t>> usePcs(fn.nextReg);
+    for(std::size_t pc=0;pc<n;++pc){
+        for(Reg a:fn.code[pc].args)if(a<fn.nextReg)usePcs[a].push_back(pc);
+    }
+    const Graph cfg=graphOf(fn);
+    if(cfg.reachable.size()==cfg.spans.size()){
+        auto blkRedefs=[&](std::size_t blk,Reg s){
+            for(std::size_t k=cfg.spans[blk].first;k<cfg.spans[blk].second;++k)
+                if(fn.code[k].dest&&*fn.code[k].dest==s)return true;
+            return false;
+        };
+        for(std::size_t pc=0;pc<n;++pc){
+            const auto& in=fn.code[pc];
+            if(in.op!=NirOp::Cast||!in.dest||in.args.size()!=1)continue;
+            const Reg d=*in.dest,s=in.args[0];
+            if(d==s||!sameScalarType(d,s)||defCount[d]!=1||usePcs[d].empty())continue;
+            if(defCount[s]<=1)continue; // already handled globally
+            const std::size_t defBlk=cfg.owner[pc];
+            bool redefAfterInDef=false;
+            for(std::size_t k=pc+1;k<cfg.spans[defBlk].second;++k){
+                if(fn.code[k].dest&&*fn.code[k].dest==s){redefAfterInDef=true;break;}
+            }
+            if(redefAfterInDef)continue;
+            bool allSafe=true;
+            for(std::size_t upc:usePcs[d]){
+                const std::size_t ublk=cfg.owner[upc];
+                if(ublk==defBlk){if(upc<=pc){allSafe=false;break;} continue;}
+                if(!cfg.dominates[ublk][defBlk]){allSafe=false;break;}
+                for(std::size_t pred:cfg.preds[ublk]){
+                    if(!cfg.reachable[pred])continue;
+                    if(pred==defBlk)continue;
+                    if(cfg.dominates[pred][defBlk]&&!blkRedefs(pred,s)&&
+                       cfg.preds[pred].size()==1&&cfg.preds[pred][0]==defBlk)continue;
+                    allSafe=false;break;
+                }
+                if(!allSafe)break;
+                for(std::size_t k=cfg.spans[ublk].first;k<upc;++k){
+                    if(fn.code[k].dest&&*fn.code[k].dest==s){allSafe=false;break;}
+                }
+                if(!allSafe)break;
+            }
+            if(!allSafe)continue;
+            for(std::size_t upc:usePcs[d]){
+                for(auto& arg:fn.code[upc].args)if(arg==d){arg=s;changed=true;}
+            }
+        }
+    }
+    return changed;
+}
+bool foldLatchCopyDefs(NirFunction& fn){
+    if(fn.code.size()<2||fn.nextReg==0||fn.nextReg>500000)return false;
+    std::vector<std::uint32_t> defCount(fn.nextReg,0),useCount(fn.nextReg,0);
+    std::vector<bool> jumpTargets(fn.code.size(),false);
+    for(const auto& in:fn.code){
+        if(in.dest){
+            if(*in.dest>=fn.nextReg)return false;
+            ++defCount[*in.dest];
+        }
+        for(Reg a:in.args){
+            if(a>=fn.nextReg)return false;
+            ++useCount[a];
+        }
+        if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&in.target<fn.code.size())
+            jumpTargets[in.target]=true;
+    }
+    bool changed=false;
+    for(std::size_t pc=0;pc+1<fn.code.size();++pc){
+        if(jumpTargets[pc+1])continue;
+        auto& opIn=fn.code[pc];
+        auto& castIn=fn.code[pc+1];
+        if(!opIn.dest||opIn.op==NirOp::Nop||opIn.op==NirOp::Jump||
+           opIn.op==NirOp::JumpIfFalse||opIn.op==NirOp::Return||
+           opIn.op==NirOp::Throw||opIn.op==NirOp::Call)continue;
+        if(castIn.op!=NirOp::Cast||!castIn.dest||castIn.args.size()!=1||
+           castIn.args[0]!=*opIn.dest)continue;
+        const Reg tmp=*opIn.dest;
+        const Reg phi=*castIn.dest;
+        if(tmp==phi||defCount[tmp]!=1||useCount[tmp]!=1)continue;
+        if(tmp>=fn.registerTypes.size()||phi>=fn.registerTypes.size())continue;
+        if(fn.registerTypes[tmp].kind!=fn.registerTypes[phi].kind||
+           fn.registerTypes[phi].kind==TypeKind::Void||
+           fn.registerTypes[phi].kind==TypeKind::Unknown)continue;
+        opIn.dest=phi;
+        castIn.op=NirOp::Nop;
+        castIn.dest.reset();
+        castIn.args.clear();
+        castIn.text.clear();
+        changed=true;
+    }
+    return changed;
+}
 // 2x guarded loop unrolling. Every half still executes its original exit
 // condition, so zero/odd trip counts, side effects and safety traps retain
 // their exact evaluation order. Only single-entry, one-backedge structured
@@ -1779,7 +2109,8 @@ bool unrollGuardedLoop2x(NirFunction& fn){
                     validControl=false;break;
                 }
                 candidateGuard=pc;
-            }else if(in.op==NirOp::Jump||in.op==NirOp::Return||in.op==NirOp::Throw){
+            }else if(in.op==NirOp::Jump||in.op==NirOp::Return||in.op==NirOp::Throw||
+                     in.op==NirOp::LoadMemory||in.op==NirOp::StoreMemory){
                 validControl=false;break;
             }
         }
@@ -2168,6 +2499,171 @@ bool promoteImmutableLocalPointers(NirFunction& fn) {
     return changed;
 }
 
+bool cleanupPostSsa(NirFunction& fn) {
+    if (fn.code.empty()) return false;
+    bool changed = false;
+    // 1. Optimistic fixed-point constant propagation across multi-def Phi copies.
+    enum class Kind { Unknown, Const, Overdefined };
+    struct Lattice {
+        Kind kind = Kind::Unknown;
+        std::int64_t val = 0;
+    };
+    std::vector<Lattice> lat(fn.nextReg);
+    std::vector<bool> isParam(fn.nextReg, false);
+    const auto widthPreservingCast = [&](const NirInstruction& in) -> bool {
+        if (in.op != NirOp::Cast || in.args.size() != 1 || !in.dest) return false;
+        const auto dstKind = in.type.kind;
+        const auto srcKind = in.args[0] < fn.registerTypes.size()
+            ? fn.registerTypes[in.args[0]].kind : TypeKind::Unknown;
+        auto is64 = [](TypeKind k) {
+            return k == TypeKind::Int || k == TypeKind::I64 ||
+                   k == TypeKind::U64 || k == TypeKind::Usize ||
+                   k == TypeKind::Isize;
+        };
+        return (is64(dstKind) && is64(srcKind)) ||
+               (dstKind == srcKind && (dstKind == TypeKind::Bool ||
+                dstKind == TypeKind::Pointer));
+    };
+    auto meet = [&](Reg dst, Kind k, std::int64_t v) -> bool {
+        if (dst >= lat.size()) return false;
+        auto& cur = lat[dst];
+        if (k == Kind::Unknown) return false;
+        if (cur.kind == Kind::Overdefined) return false;
+        if (k == Kind::Overdefined) {
+            cur.kind = Kind::Overdefined;
+            return true;
+        }
+        if (cur.kind == Kind::Unknown) {
+            cur.kind = Kind::Const;
+            cur.val = v;
+            return true;
+        }
+        if (cur.val != v) {
+            cur.kind = Kind::Overdefined;
+            return true;
+        }
+        return false;
+    };
+    for (int iter = 0; iter < 16; ++iter) {
+        bool updated = false;
+        for (const auto& in : fn.code) {
+            if (!in.dest || *in.dest >= lat.size()) continue;
+            const Reg d = *in.dest;
+            if (in.op == NirOp::Const) {
+                if (auto v = std::get_if<std::int64_t>(&in.literal)) {
+                    if (meet(d, Kind::Const, *v)) updated = true;
+                } else {
+                    if (meet(d, Kind::Overdefined, 0)) updated = true;
+                }
+            } else if (widthPreservingCast(in)) {
+                const Reg s = in.args[0];
+                if (s < lat.size()) {
+                    if (lat[s].kind != Kind::Unknown) {
+                        if (meet(d, lat[s].kind, lat[s].val)) updated = true;
+                    }
+                } else {
+                    if (meet(d, Kind::Overdefined, 0)) updated = true;
+                }
+            } else {
+                if (meet(d, Kind::Overdefined, 0)) updated = true;
+            }
+        }
+        if (!updated) break;
+    }
+    for (auto& in : fn.code) {
+        if (in.dest && *in.dest < lat.size() &&
+            lat[*in.dest].kind == Kind::Const &&
+            in.op != NirOp::Const) {
+            const auto v = lat[*in.dest].val;
+            in.op = NirOp::Const;
+            in.args.clear();
+            in.text.clear();
+            in.literal = v;
+            changed = true;
+        }
+    }
+
+    // 2. Deduplicate block-local redundant identity Cast instructions:
+    //    if `%d1 = cast T %src` and later `%d2 = cast T %src` in the same
+    //    basic block (with `%src` unmodified and `%d2` single-def & local-only),
+    //    rewrite uses of `%d2` to `%d1`.
+    std::vector<unsigned> defs(fn.nextReg, 0);
+    for (const auto& in : fn.code)
+        if (in.dest && *in.dest < defs.size()) ++defs[*in.dest];
+    std::vector<bool> leader(fn.code.size(), false);
+    leader[0] = true;
+    for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+        const auto& in = fn.code[pc];
+        if ((in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse) &&
+            in.target < fn.code.size())
+            leader[in.target] = true;
+        if ((in.op == NirOp::Jump || in.op == NirOp::JumpIfFalse ||
+             in.op == NirOp::Return || in.op == NirOp::Throw) &&
+            pc + 1 < fn.code.size())
+            leader[pc + 1] = true;
+    }
+    std::vector<std::size_t> blockOf(fn.code.size(), 0);
+    std::size_t curBlock = 0;
+    for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+        if (pc > 0 && leader[pc]) ++curBlock;
+        blockOf[pc] = curBlock;
+    }
+    std::vector<bool> usedOutsideDefBlock(fn.nextReg, false);
+    std::vector<std::size_t> singleDefBlock(fn.nextReg, fn.code.size());
+    for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+        const auto& in = fn.code[pc];
+        if (in.dest && *in.dest < defs.size() && defs[*in.dest] == 1)
+            singleDefBlock[*in.dest] = blockOf[pc];
+    }
+    for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+        for (Reg r : fn.code[pc].args) {
+            if (r < defs.size() &&
+                (defs[r] != 1 || singleDefBlock[r] != blockOf[pc]))
+                usedOutsideDefBlock[r] = true;
+        }
+    }
+    std::unordered_map<Reg, std::pair<Reg, TypeKind>> activeCopy;
+    std::unordered_map<Reg, Reg> rewrite;
+    for (std::size_t pc = 0; pc < fn.code.size(); ++pc) {
+        if (leader[pc]) activeCopy.clear();
+        auto& in = fn.code[pc];
+        for (Reg& arg : in.args) {
+            auto it = rewrite.find(arg);
+            if (it != rewrite.end()) {
+                arg = it->second;
+                changed = true;
+            }
+        }
+        if (in.dest) {
+            const Reg d = *in.dest;
+            for (auto it = activeCopy.begin(); it != activeCopy.end();) {
+                if (it->first == d || it->second.first == d)
+                    it = activeCopy.erase(it);
+                else
+                    ++it;
+            }
+        }
+        if (widthPreservingCast(in) && in.dest &&
+            *in.dest < defs.size() && defs[*in.dest] == 1) {
+            const Reg src = in.args[0];
+            const TypeKind dstKind = in.type.kind;
+            auto prev = activeCopy.find(src);
+            if (prev != activeCopy.end() && prev->second.second == dstKind &&
+                !usedOutsideDefBlock[*in.dest]) {
+                rewrite[*in.dest] = prev->second.first;
+                in.op = NirOp::Nop;
+                in.dest.reset();
+                in.args.clear();
+                in.text.clear();
+                changed = true;
+            } else {
+                activeCopy[src] = std::make_pair(*in.dest, dstKind);
+            }
+        }
+    }
+    return changed;
+}
+
 void pipeline(NirFunction& fn, OptimizationLevel level) {
     if (level == OptimizationLevel::O0) return;
     // Eliminate duplicate expressions before conventional DCE discards their
@@ -2249,12 +2745,20 @@ void pipeline(NirFunction& fn, OptimizationLevel level) {
         if(!promoted){
             if(!lowerSingleLoopPhi(fn))lowerStraightDiamondPhi(fn);
         }else{
-            constants(fn);
-            globalGvn(fn);
-            threadJumps(fn);
-            foldBranches(fn);
-            unreachable(fn);
-            dce(fn);
+            for(int pass=0;pass<3;++pass){
+                const bool s=eliminateDeadLocalStores(fn);
+                const bool a=cleanupPostSsa(fn);
+                const bool c2=propagatePostSsaIdentityCasts(fn);
+                const bool b=constants(fn);
+                const bool c=globalGvn(fn);
+                const bool d=integerStrengthReduction(fn);
+                const bool e=threadJumps(fn);
+                const bool f=foldBranches(fn);
+                const bool g=unreachable(fn);
+                const bool h=dce(fn);
+                if(!s&&!a&&!c2&&!b&&!c&&!d&&!e&&!f&&!g&&!h)break;
+            }
+            if(foldLatchCopyDefs(fn))dce(fn);
         }
     }
 }

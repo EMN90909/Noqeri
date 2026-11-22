@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.5 developer preview" src="https://img.shields.io/badge/version-0.1.5%20preview-F59E0B"></a>
+  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.5.1 developer preview" src="https://img.shields.io/badge/version-0.1.5.1%20preview-F59E0B"></a>
   <a href="LICENSE"><img alt="GPL toolchain, Apache libraries" src="https://img.shields.io/badge/license-GPL--3.0--only-2563EB"></a>
   <a href="Doc/PRODUCTION_READINESS.md"><img alt="Experimental development" src="https://img.shields.io/badge/readiness-experimental-64748B"></a>
 </p>
@@ -19,6 +19,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#what-works-today">Capabilities</a> ·
   <a href="#toolchain-and-self-hosting">Toolchain</a> ·
+  <a href="#benchmarks">Benchmarks</a> ·
   <a href="#documentation">Documentation</a> ·
   <a href="#project-status">Project status</a>
 </p>
@@ -27,7 +28,7 @@
 
 Noqeri is an evolving **statically typed, general-purpose programming language** developed by [Noethric](https://noethric.xyz). It combines inferred local variables and a compact application-oriented syntax with lower-level capabilities such as fixed-width integers, pointers, slices, atomics, native interfaces and explicit compiler targets.
 
-This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.5`, an experimental developer preview, not a production-qualified release.** See [component-specific licenses](LICENSES.md).
+This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.5.1`, an experimental developer preview, not a production-qualified release.** See [component-specific licenses](LICENSES.md).
 
 ## AI Framework (experimental add-on)
 
@@ -354,11 +355,31 @@ The full build has additional native test targets and prerequisites. To run the 
 node scripts/qualify-release.mjs
 ```
 
-**A failing release gate is meaningful.** It can identify unavailable suites, missing external qualifications or native self-hosting gaps; a passing unit test alone is not evidence of a stable release. Comparative performance claims require independently reproduced native AOT measurements. Benchmark fixtures and runners are not included in this repository.
+**A failing release gate is meaningful.** It can identify unavailable suites, missing external qualifications or native self-hosting gaps; a passing unit test alone is not evidence of a stable release.
+
+## Benchmarks
+
+Reproduced locally with [`benchmarks/suite/rebuild_and_benchmark.sh`](benchmarks/suite/rebuild_and_benchmark.sh) (`Noqeri 0.1.5.1`, 2 warmups, 5 timed runs per binary, reporting median wall time; every workload verifies an exact deterministic output checksum).
+
+- **CPU:** Intel Xeon CPU @ 2.30 GHz (2 vCPUs, AVX2/FMA)
+- **Toolchains:** `gcc`/`g++` 13.3.0 (`-O3 -march=native`), `clang` 18.1.3 (`-O3 -march=native`, used by `--backend=llvm`), `rustc` 1.100.0 (`-C opt-level=3 -C target-cpu=native`), `zig` 0.13.0 (`-O ReleaseFast`), `go` 1.24.3, `node` v22.23.5
+
+| Implementation | Modulo (10M iters) | Matrix (256x256 mul) | Sorting (2k insertion) | Image (512x512 render) |
+| --- | ---: | ---: | ---: | ---: |
+| **Noqeri (Direct Native `--backend=native -O3`)** | **0.004401 s** | 0.010073 s | 0.000850 s | 0.001389 s |
+| **Noqeri (LLVM AOT `--backend=llvm -O3`)** | 0.007266 s | 0.008265 s | **0.000666 s** | 0.001524 s |
+| **C (`gcc -O3 -march=native`)** | 0.012029 s | **0.006837 s** | 0.000816 s | 0.001370 s |
+| **C++ (`g++ -O3 -march=native`)** | 0.011751 s | 0.006908 s | 0.000932 s | 0.001453 s |
+| **Rust (`rustc -O3 -C target-cpu=native`)** | 0.011960 s | 0.009635 s | 0.000809 s | 0.001417 s |
+| **Zig (`-O ReleaseFast`)** | 0.007549 s | 0.008444 s | 0.000821 s | **0.001337 s** |
+| **Go (`go build`)** | 0.028093 s | 0.021670 s | **0.000579 s** | 0.002384 s |
+| **JavaScript (`Number`, Node v22)** | 0.047029 s | 0.064635 s | 0.009762 s | 0.014009 s |
+| **JavaScript (`BigInt`, Node v22)** | 0.694391 s | 0.094108 s | 0.017433 s | 0.045917 s |
+| **Noqeri (`VM/Interp`)** | 6.556987 s | — | — | — |
 
 ## Project status
 
-**Development version: `0.1.5`.** Version on `main`: 0.1.5. The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
+**Development version: `0.1.5.1`.** Version on `main`: 0.1.5.1. The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
 
 Current priorities include native Stage-2 compiler parity, broader conformance and portability evidence, qualified GPU/graphics execution, secure distributed recovery and completed Registry/NoeSQL integration. The repository contains working components and meaningful tests, but that is **not equivalent to a production-certified toolchain**.
 

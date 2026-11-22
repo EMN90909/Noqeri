@@ -40,5 +40,5 @@ with tempfile.TemporaryDirectory() as td:
     # Backward-compatible checked web backend still emits an ES module when
     # given a source file, not a framework operation keyword.
     version=subprocess.run([str(compiler),"--version"],capture_output=True,text=True,timeout=3)
-    assert version.returncode==0 and "noqeri 0.1.5" in version.stdout
+    assert version.returncode==0 and "noqeri 0.1.5.1" in version.stdout
 print("PASS: unified Noqeri web CLI: native binary, static site, all database drivers, correct compiler version")

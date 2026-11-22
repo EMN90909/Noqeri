@@ -3,6 +3,7 @@
 // only C++17 and the standard library so `noqeri pkg pack` works offline and
 // does not require Node.js, npm, or an external archive utility.
 #include "nodule_pack.hpp"
+#include "../../Include/noqeri/nodule_archive.hpp"
 
 #include <algorithm>
 #include <array>
@@ -301,3 +302,518 @@ int publish(const fs::path& root, const fs::path& output, const std::string& reg
 }
 
 } // namespace noqeri::nodule
+
+namespace noqeri_nodule {
+
+namespace {
+
+constexpr std::size_t kNdlHeaderSize = 72;
+constexpr std::size_t kNdlEntrySize = 56;
+constexpr std::size_t kNdlMaxManifest = 16u * 1024u * 1024u;
+constexpr std::size_t kNdlMaxPayload = 256u * 1024u * 1024u;
+constexpr std::uint32_t kNdlMaxEntries = 65536u;
+
+std::uint32_t adler32Update(std::uint32_t state, std::string_view data) {
+    std::uint32_t a = state & 0xFFFFu;
+    std::uint32_t b = (state >> 16) & 0xFFFFu;
+    for (const unsigned char ch : data) {
+        a = (a + ch) % 65521u;
+        b = (b + a) % 65521u;
+    }
+    return (b << 16) | a;
+}
+
+std::uint32_t adler32(std::string_view data) {
+    return adler32Update(1u, data);
+}
+
+void writeU16Le(std::string& out, std::uint16_t v) {
+    out.push_back(static_cast<char>(v & 0xFFu));
+    out.push_back(static_cast<char>((v >> 8) & 0xFFu));
+}
+
+void writeU32Le(std::string& out, std::uint32_t v) {
+    out.push_back(static_cast<char>(v & 0xFFu));
+    out.push_back(static_cast<char>((v >> 8) & 0xFFu));
+    out.push_back(static_cast<char>((v >> 16) & 0xFFu));
+    out.push_back(static_cast<char>((v >> 24) & 0xFFu));
+}
+
+std::uint16_t readU16Le(std::string_view s, std::size_t off) {
+    return static_cast<std::uint16_t>(
+        static_cast<unsigned char>(s[off]) |
+        (static_cast<unsigned int>(static_cast<unsigned char>(s[off + 1])) << 8));
+}
+
+std::uint32_t readU32Le(std::string_view s, std::size_t off) {
+    return static_cast<std::uint32_t>(static_cast<unsigned char>(s[off])) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(s[off + 1])) << 8) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(s[off + 2])) << 16) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(s[off + 3])) << 24);
+}
+
+int hexNibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+std::string hexToRaw32(std::string_view hex) {
+    std::string raw(32, '\0');
+    if (hex.size() != 64) return raw;
+    for (std::size_t i = 0; i < 32; ++i) {
+        const int hi = hexNibble(hex[i * 2]);
+        const int lo = hexNibble(hex[i * 2 + 1]);
+        raw[i] = static_cast<char>(((hi < 0 ? 0 : hi) << 4) | (lo < 0 ? 0 : lo));
+    }
+    return raw;
+}
+
+std::string raw32ToHex(std::string_view raw) {
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(raw.size() * 2);
+    for (const unsigned char b : raw) {
+        out.push_back(kHex[(b >> 4) & 0xFu]);
+        out.push_back(kHex[b & 0xFu]);
+    }
+    return out;
+}
+
+bool isAsciiAlpha(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+bool isSafeArchivePath(std::string_view path, std::string& reason) {
+    if (path.empty()) {
+        reason = "empty entry path";
+        return false;
+    }
+    if (path.size() > 512) {
+        reason = "entry path exceeds maximum length";
+        return false;
+    }
+    if (path.find('\0') != std::string_view::npos) {
+        reason = "entry path contains NUL byte";
+        return false;
+    }
+    if (path.find('\\') != std::string_view::npos) {
+        reason = "entry path contains backslash";
+        return false;
+    }
+    if (path.front() == '/') {
+        reason = "entry path must not start with '/'";
+        return false;
+    }
+    if (path.size() >= 2 && isAsciiAlpha(path[0]) && path[1] == ':') {
+        reason = "entry path must not contain drive prefix";
+        return false;
+    }
+    std::size_t pos = 0;
+    while (pos <= path.size()) {
+        const std::size_t slash = path.find('/', pos);
+        const std::size_t end = (slash == std::string_view::npos) ? path.size() : slash;
+        const std::string_view seg = path.substr(pos, end - pos);
+        if (seg.empty()) {
+            reason = "entry path contains empty segment or trailing slash";
+            return false;
+        }
+        if (seg == "." || seg == "..") {
+            reason = "entry path contains traversal segment";
+            return false;
+        }
+        if (slash == std::string_view::npos) break;
+        pos = slash + 1;
+    }
+    return true;
+}
+
+std::string trimView(std::string_view sv) {
+    std::size_t b = 0;
+    std::size_t e = sv.size();
+    while (b < e && (sv[b] == ' ' || sv[b] == '\t' || sv[b] == '\r')) ++b;
+    while (e > b && (sv[e - 1] == ' ' || sv[e - 1] == '\t' || sv[e - 1] == '\r')) --e;
+    return std::string(sv.substr(b, e - b));
+}
+
+std::string unquoteToml(std::string_view raw) {
+    const std::string s = trimView(raw);
+    if (s.size() >= 2 && ((s.front() == '"' && s.back() == '"') ||
+                          (s.front() == '\'' && s.back() == '\''))) {
+        return s.substr(1, s.size() - 2);
+    }
+    return s;
+}
+
+bool parseNodulesToml(std::string_view toml, NdlManifest& out, std::string& error) {
+    out = NdlManifest{};
+    out.abiVersion = 0;
+    out.languageVersion.clear();
+    std::size_t pos = 0;
+    while (pos < toml.size()) {
+        std::size_t nl = toml.find('\n', pos);
+        if (nl == std::string_view::npos) nl = toml.size();
+        std::string line = trimView(toml.substr(pos, nl - pos));
+        pos = nl + 1;
+        if (line.empty() || line[0] == '#' || line[0] == '[') continue;
+        const std::size_t eq = line.find('=');
+        if (eq == std::string::npos) {
+            error = "malformed nodules.toml line: " + line;
+            return false;
+        }
+        const std::string key = trimView(std::string_view(line).substr(0, eq));
+        const std::string val = trimView(std::string_view(line).substr(eq + 1));
+        if (key == "name") out.name = unquoteToml(val);
+        else if (key == "version") out.version = unquoteToml(val);
+        else if (key == "language_version") out.languageVersion = unquoteToml(val);
+        else if (key == "abi_version") {
+            const std::string s = unquoteToml(val);
+            if (s.empty()) {
+                error = "empty abi_version in nodules.toml";
+                return false;
+            }
+            for (const char ch : s) {
+                if (ch < '0' || ch > '9') {
+                    error = "invalid abi_version in nodules.toml: " + s;
+                    return false;
+                }
+            }
+            out.abiVersion = static_cast<std::uint32_t>(std::stoul(s));
+        } else if (key == "entry") out.entry = unquoteToml(val);
+        else if (key == "exports") {
+            if (val.size() < 2 || val.front() != '[' || val.back() != ']') {
+                error = "malformed exports list in nodules.toml";
+                return false;
+            }
+            const std::string_view inner(val.data() + 1, val.size() - 2);
+            std::size_t cur = 0;
+            while (cur < inner.size()) {
+                std::size_t comma = inner.find(',', cur);
+                if (comma == std::string_view::npos) comma = inner.size();
+                const std::string item = unquoteToml(inner.substr(cur, comma - cur));
+                if (!item.empty()) out.exports.push_back(item);
+                cur = comma + 1;
+            }
+        }
+    }
+    if (out.name.empty() || out.version.empty() || out.entry.empty()) {
+        error = "nodules.toml missing required name, version, or entry";
+        return false;
+    }
+    if (out.abiVersion != 2) {
+        error = "incompatible .ndl ABI version: expected 2, got " + std::to_string(out.abiVersion);
+        return false;
+    }
+    const bool langOk = (out.languageVersion == "0.1.5" || out.languageVersion == "0.1.5.1");
+    if (!langOk) {
+        error = "incompatible .ndl language_version: expected 0.1.5 or 0.1.5.1, got '" +
+                out.languageVersion + "'";
+        return false;
+    }
+    std::string pathErr;
+    if (!isSafeArchivePath(out.entry, pathErr)) {
+        error = "unsafe manifest entry path '" + out.entry + "': " + pathErr;
+        return false;
+    }
+    for (const auto& exp : out.exports) {
+        if (!isSafeArchivePath(exp, pathErr)) {
+            error = "unsafe manifest export path '" + exp + "': " + pathErr;
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string serializeNodulesToml(const NdlManifest& m) {
+    std::ostringstream out;
+    out << "name = \"" << m.name << "\"\n"
+        << "version = \"" << m.version << "\"\n"
+        << "language_version = \"" << (m.languageVersion.empty() ? "0.1.5.1" : m.languageVersion) << "\"\n"
+        << "abi_version = " << (m.abiVersion == 0 ? 2u : m.abiVersion) << "\n"
+        << "entry = \"" << m.entry << "\"\n"
+        << "exports = [";
+    for (std::size_t i = 0; i < m.exports.size(); ++i) {
+        if (i > 0) out << ", ";
+        out << "\"" << m.exports[i] << "\"";
+    }
+    out << "]\n";
+    return out.str();
+}
+
+} // namespace
+
+const NdlEntry* NdlArchive::findEntry(std::string_view path) const {
+    for (const auto& e : entries) {
+        if (e.path == path) return &e;
+    }
+    return nullptr;
+}
+
+std::string buildNdlArchive(const NdlManifest& manifest,
+                            const std::vector<std::pair<std::string, std::string>>& files) {
+    std::string pathErr;
+    if (!isSafeArchivePath(manifest.entry, pathErr)) {
+        throw std::runtime_error("unsafe manifest entry path: " + pathErr);
+    }
+    for (const auto& exp : manifest.exports) {
+        if (!isSafeArchivePath(exp, pathErr)) {
+            throw std::runtime_error("unsafe manifest export path: " + pathErr);
+        }
+    }
+    if (files.empty() || files.size() > kNdlMaxEntries) {
+        throw std::runtime_error("invalid .ndl entry count");
+    }
+    const std::string toml = serializeNodulesToml(manifest);
+    std::string payload;
+    std::string entryTable;
+    entryTable.reserve(files.size() * kNdlEntrySize);
+
+    for (const auto& [relPath, content] : files) {
+        if (!isSafeArchivePath(relPath, pathErr)) {
+            throw std::runtime_error("unsafe .ndl entry path '" + relPath + "': " + pathErr);
+        }
+        const std::uint32_t pathOff = static_cast<std::uint32_t>(payload.size());
+        const std::uint32_t pathLen = static_cast<std::uint32_t>(relPath.size());
+        payload.append(relPath);
+        const std::uint32_t dataOff = static_cast<std::uint32_t>(payload.size());
+        const std::uint32_t dataLen = static_cast<std::uint32_t>(content.size());
+        payload.append(content);
+
+        const std::uint32_t entryAdler = adler32(content);
+        const std::string entryShaRaw = hexToRaw32(sha256(content));
+
+        writeU32Le(entryTable, pathOff);
+        writeU32Le(entryTable, pathLen);
+        writeU32Le(entryTable, dataOff);
+        writeU32Le(entryTable, dataLen);
+        writeU32Le(entryTable, entryAdler);
+        writeU32Le(entryTable, 0u);
+        entryTable.append(entryShaRaw);
+    }
+
+    const std::uint32_t manifestOffset = static_cast<std::uint32_t>(kNdlHeaderSize);
+    const std::uint32_t manifestLength = static_cast<std::uint32_t>(toml.size());
+    const std::uint32_t entryTableOffset = manifestOffset + manifestLength;
+    const std::uint32_t entryCount = static_cast<std::uint32_t>(files.size());
+    const std::uint32_t payloadOffset =
+        entryTableOffset + static_cast<std::uint32_t>(entryTable.size());
+    const std::uint32_t payloadLength = static_cast<std::uint32_t>(payload.size());
+
+    std::string hdrPrefix;
+    hdrPrefix.reserve(40);
+    hdrPrefix.append("NDL\x01", 4);
+    writeU16Le(hdrPrefix, 1u);
+    writeU16Le(hdrPrefix, 0u);
+    writeU32Le(hdrPrefix, manifestOffset);
+    writeU32Le(hdrPrefix, manifestLength);
+    writeU32Le(hdrPrefix, entryTableOffset);
+    writeU32Le(hdrPrefix, entryCount);
+    writeU32Le(hdrPrefix, payloadOffset);
+    writeU32Le(hdrPrefix, payloadLength);
+
+    std::uint32_t frameAdler = adler32Update(1u, hdrPrefix);
+    frameAdler = adler32Update(frameAdler, toml);
+    frameAdler = adler32Update(frameAdler, entryTable);
+    frameAdler = adler32Update(frameAdler, payload);
+
+    writeU32Le(hdrPrefix, frameAdler);
+    writeU32Le(hdrPrefix, 0u);
+
+    Sha256 fullHash;
+    fullHash.update(hdrPrefix);
+    fullHash.update(toml);
+    fullHash.update(entryTable);
+    fullHash.update(payload);
+    const std::string contentShaRaw = hexToRaw32(fullHash.finish());
+
+    std::string out;
+    out.reserve(kNdlHeaderSize + toml.size() + entryTable.size() + payload.size());
+    out.append(hdrPrefix);
+    out.append(contentShaRaw);
+    out.append(toml);
+    out.append(entryTable);
+    out.append(payload);
+    return out;
+}
+
+bool loadNdlArchiveFromBytes(std::string_view bytes, NdlArchive& out, std::string& error) {
+    out = NdlArchive{};
+    if (bytes.size() < kNdlHeaderSize) {
+        error = "malformed .ndl archive: header shorter than 72 bytes";
+        return false;
+    }
+    if (bytes.substr(0, 4) != std::string_view("NDL\x01", 4)) {
+        error = "invalid .ndl magic header (expected NDL\\x01)";
+        return false;
+    }
+    const std::uint16_t formatVersion = readU16Le(bytes, 4);
+    const std::uint16_t flags = readU16Le(bytes, 6);
+    if (formatVersion != 1u) {
+        error = "unsupported .ndl format version: " + std::to_string(formatVersion);
+        return false;
+    }
+    if (flags != 0u) {
+        error = "unsupported .ndl flags: " + std::to_string(flags);
+        return false;
+    }
+    const std::uint32_t manifestOffset = readU32Le(bytes, 8);
+    const std::uint32_t manifestLength = readU32Le(bytes, 12);
+    const std::uint32_t entryTableOffset = readU32Le(bytes, 16);
+    const std::uint32_t entryCount = readU32Le(bytes, 20);
+    const std::uint32_t payloadOffset = readU32Le(bytes, 24);
+    const std::uint32_t payloadLength = readU32Le(bytes, 28);
+    const std::uint32_t expectedAdler = readU32Le(bytes, 32);
+    const std::uint32_t reserved = readU32Le(bytes, 36);
+    if (reserved != 0u) {
+        error = "malformed .ndl header: non-zero reserved field";
+        return false;
+    }
+    const std::string expectedShaHex = raw32ToHex(bytes.substr(40, 32));
+
+    const std::uint64_t totalSize = bytes.size();
+    if (manifestOffset < kNdlHeaderSize || manifestLength == 0 ||
+        manifestLength > kNdlMaxManifest ||
+        static_cast<std::uint64_t>(manifestOffset) + manifestLength > totalSize) {
+        error = "malformed .ndl archive: invalid manifest offset/length";
+        return false;
+    }
+    const std::uint64_t manifestEnd = static_cast<std::uint64_t>(manifestOffset) + manifestLength;
+    if (entryCount == 0 || entryCount > kNdlMaxEntries ||
+        entryTableOffset < manifestEnd ||
+        static_cast<std::uint64_t>(entryTableOffset) + static_cast<std::uint64_t>(entryCount) * kNdlEntrySize > totalSize) {
+        error = "malformed .ndl archive: invalid entry table offset/count";
+        return false;
+    }
+    const std::uint64_t entryTableEnd =
+        static_cast<std::uint64_t>(entryTableOffset) + static_cast<std::uint64_t>(entryCount) * kNdlEntrySize;
+    if (payloadOffset < entryTableEnd || payloadLength > kNdlMaxPayload ||
+        static_cast<std::uint64_t>(payloadOffset) + payloadLength > totalSize) {
+        error = "malformed .ndl archive: invalid payload offset/length";
+        return false;
+    }
+    const std::string_view manifestSlice = bytes.substr(manifestOffset, manifestLength);
+    const std::string_view tableSlice =
+        bytes.substr(entryTableOffset, static_cast<std::size_t>(entryCount) * kNdlEntrySize);
+    const std::string_view payloadSlice = bytes.substr(payloadOffset, payloadLength);
+
+    std::uint32_t actualAdler = adler32Update(1u, bytes.substr(0, 32));
+    actualAdler = adler32Update(actualAdler, manifestSlice);
+    actualAdler = adler32Update(actualAdler, tableSlice);
+    actualAdler = adler32Update(actualAdler, payloadSlice);
+    if (actualAdler != expectedAdler) {
+        error = "corrupt .ndl archive: adler32 frame checksum mismatch";
+        return false;
+    }
+
+    Sha256 fullHash;
+    fullHash.update(bytes.substr(0, 40));
+    fullHash.update(manifestSlice);
+    fullHash.update(tableSlice);
+    fullHash.update(payloadSlice);
+    const std::string actualShaHex = fullHash.finish();
+    if (actualShaHex != expectedShaHex) {
+        error = "corrupt .ndl archive: SHA-256 content checksum mismatch";
+        return false;
+    }
+
+    if (!parseNodulesToml(manifestSlice, out.manifest, error)) {
+        return false;
+    }
+
+    out.entries.reserve(entryCount);
+    for (std::uint32_t idx = 0; idx < entryCount; ++idx) {
+        const std::size_t recOff = static_cast<std::size_t>(idx) * kNdlEntrySize;
+        const std::uint32_t pathOff = readU32Le(tableSlice, recOff + 0);
+        const std::uint32_t pathLen = readU32Le(tableSlice, recOff + 4);
+        const std::uint32_t dataOff = readU32Le(tableSlice, recOff + 8);
+        const std::uint32_t dataLen = readU32Le(tableSlice, recOff + 12);
+        const std::uint32_t recAdler = readU32Le(tableSlice, recOff + 16);
+        const std::uint32_t recReserved = readU32Le(tableSlice, recOff + 20);
+        const std::string recShaHex = raw32ToHex(tableSlice.substr(recOff + 24, 32));
+        if (recReserved != 0u) {
+            error = "malformed .ndl entry record: non-zero reserved field";
+            return false;
+        }
+        if (pathLen == 0 || pathLen > 512 ||
+            static_cast<std::uint64_t>(pathOff) + pathLen > payloadLength ||
+            static_cast<std::uint64_t>(dataOff) + dataLen > payloadLength) {
+            error = "malformed .ndl entry bounds";
+            return false;
+        }
+        const std::string_view entryPath = payloadSlice.substr(pathOff, pathLen);
+        std::string pathErr;
+        if (!isSafeArchivePath(entryPath, pathErr)) {
+            error = "unsafe .ndl entry path '" + std::string(entryPath) + "': " + pathErr;
+            return false;
+        }
+        if (out.findEntry(entryPath) != nullptr) {
+            error = "duplicate .ndl entry path: " + std::string(entryPath);
+            return false;
+        }
+        const std::string_view entryData = payloadSlice.substr(dataOff, dataLen);
+        if (adler32(entryData) != recAdler) {
+            error = "corrupt .ndl entry '" + std::string(entryPath) + "': adler32 mismatch";
+            return false;
+        }
+        const std::string actualEntrySha = sha256(entryData);
+        if (actualEntrySha != recShaHex) {
+            error = "corrupt .ndl entry '" + std::string(entryPath) + "': SHA-256 mismatch";
+            return false;
+        }
+        NdlEntry entry;
+        entry.path = std::string(entryPath);
+        entry.data = std::string(entryData);
+        entry.adler32 = recAdler;
+        entry.sha256Hex = actualEntrySha;
+        out.entries.push_back(std::move(entry));
+    }
+
+    if (out.findEntry(out.manifest.entry) == nullptr) {
+        error = ".ndl archive missing declared entry module: " + out.manifest.entry;
+        return false;
+    }
+    for (const auto& exp : out.manifest.exports) {
+        if (out.findEntry(exp) == nullptr) {
+            error = ".ndl archive missing declared export module: " + exp;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool loadNdlArchiveFromFile(const std::filesystem::path& path, NdlArchive& out, std::string& error) {
+    out = NdlArchive{};
+    std::error_code ec;
+    const auto st = fs::symlink_status(path, ec);
+    if (ec || !fs::exists(st)) {
+        error = "cannot inspect .ndl archive: " + path.string();
+        return false;
+    }
+    if (fs::is_symlink(st)) {
+        error = "refusing symlink .ndl archive path: " + path.string();
+        return false;
+    }
+    if (!fs::is_regular_file(st)) {
+        error = ".ndl archive path is not a regular file: " + path.string();
+        return false;
+    }
+    const auto fsize = fs::file_size(path, ec);
+    if (ec || fsize > kNdlMaxManifest + kNdlMaxPayload + kNdlHeaderSize + 1024u * 1024u) {
+        error = ".ndl archive size invalid or exceeds limit: " + path.string();
+        return false;
+    }
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        error = "cannot open .ndl archive: " + path.string();
+        return false;
+    }
+    std::string bytes(static_cast<std::size_t>(fsize), '\0');
+    if (fsize > 0 && !in.read(bytes.data(), static_cast<std::streamsize>(fsize))) {
+        error = "failed reading .ndl archive: " + path.string();
+        return false;
+    }
+    return loadNdlArchiveFromBytes(bytes, out, error);
+}
+
+} // namespace noqeri_nodule

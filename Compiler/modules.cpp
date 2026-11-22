@@ -1,4 +1,5 @@
 #include "noe.hpp"
+#include "nodule_archive.hpp"
 #include <filesystem>
 #include <cstdlib>
 #include <functional>
@@ -210,9 +211,76 @@ std::unordered_map<std::string, CachedModuleEntry>& moduleCache() {
 }
 } // namespace
 
-bool ModuleGraph::load(const std::filesystem::path&root,Diagnostics&diagnostics){modules_.clear();sources_.clear();byCanonicalPath_.clear();overlays_.clear();ModuleId rootId=0;return loadOne(root,diagnostics,&rootId)&&!diagnostics.hasErrors();}
-bool ModuleGraph::loadWithOverlay(const std::filesystem::path&root,const std::filesystem::path&overlayPath,std::string overlayText,Diagnostics&diagnostics){modules_.clear();sources_.clear();byCanonicalPath_.clear();overlays_.clear();std::error_code ec;auto canonical=std::filesystem::weakly_canonical(overlayPath,ec);if(ec)canonical=std::filesystem::absolute(overlayPath,ec);overlays_[canonical.generic_string()]=std::move(overlayText);ModuleId rootId=0;return loadOne(root,diagnostics,&rootId)&&!diagnostics.hasErrors();}
-bool ModuleGraph::loadOne(const std::filesystem::path&input,Diagnostics&diagnostics,ModuleId*out){std::error_code ec;auto canonical=std::filesystem::weakly_canonical(input,ec);if(ec){canonical=std::filesystem::absolute(input,ec);if(ec){diagnostics.error("NQR-M6000",{},"module source not found: "+input.string(),"check import paths relative to the importing file");return false;}}const auto key=canonical.generic_string();if(auto found=byCanonicalPath_.find(key);found!=byCanonicalPath_.end()){if(out)*out=found->second;return true;}const auto overlay=overlays_.find(key);if(overlay==overlays_.end()&&!std::filesystem::exists(canonical)){diagnostics.error("NQR-M6000",{},"module source not found: "+input.string(),"check import paths relative to the importing file");return false;}const ModuleId id=static_cast<ModuleId>(modules_.size());const SourceId sourceId=static_cast<SourceId>(sources_.size()+1);byCanonicalPath_[key]=id;std::string text;Program ast;bool cacheHit=false;std::filesystem::file_time_type diskMtime{};std::uintmax_t diskSize=0;bool hasDiskStat=false;if(overlay!=overlays_.end()){text=overlay->second;}else{std::error_code statEc;diskMtime=std::filesystem::last_write_time(canonical,statEc);if(!statEc)diskSize=std::filesystem::file_size(canonical,statEc);hasDiskStat=!statEc;if(hasDiskStat){std::lock_guard<std::mutex> lock(moduleCacheMutex());auto it=moduleCache().find(key);if(it!=moduleCache().end()&&it->second.mtime==diskMtime&&it->second.fileSize==diskSize){text=it->second.text;ast=cloneAstProgram(it->second.ast,sourceId);cacheHit=true;}}if(!cacheHit){try{text=readTextFile(canonical);}catch(const std::exception&error){diagnostics.error("NQR-M6001",{},error.what());return false;}}}diagnostics.registerSource(sourceId,canonical.string(),text);sources_.push_back(SourceFile{sourceId,canonical,text});if(!cacheHit){auto syntax=preprocessGenericSyntax(text);Lexer lexer(syntax.source,diagnostics,sourceId,false);auto tokens=lexer.lex();if(diagnostics.hasErrors())return false;Parser parser(std::move(tokens),diagnostics);ast=parser.parse();applyGenericSyntax(ast,syntax);if(diagnostics.hasErrors())return false;if(overlay==overlays_.end()&&hasDiskStat){std::lock_guard<std::mutex> lock(moduleCacheMutex());if(moduleCache().size()>512)moduleCache().clear();moduleCache()[key]=CachedModuleEntry{diskMtime,diskSize,text,cloneAstProgram(ast,0)};}}ModuleUnit unit;unit.id=id;unit.source=sourceId;unit.path=canonical;unit.ast=ast;for(const auto&statement:ast.statements)if(auto module=std::dynamic_pointer_cast<ModuleStmt>(statement)){unit.declaredName=module->name;break;}modules_.push_back(std::move(unit));for(const auto&statement:ast.statements){auto imported=std::dynamic_pointer_cast<ImportStmt>(statement);if(!imported)continue;std::filesystem::path child=imported->path;
+bool ModuleGraph::load(const std::filesystem::path&root,Diagnostics&diagnostics){modules_.clear();sources_.clear();byCanonicalPath_.clear();overlays_.clear();ndlLoadedArchives_.clear();ndlPackageEntries_.clear();ModuleId rootId=0;return loadOne(root,diagnostics,&rootId)&&!diagnostics.hasErrors();}
+bool ModuleGraph::loadWithOverlay(const std::filesystem::path&root,const std::filesystem::path&overlayPath,std::string overlayText,Diagnostics&diagnostics){modules_.clear();sources_.clear();byCanonicalPath_.clear();overlays_.clear();ndlLoadedArchives_.clear();ndlPackageEntries_.clear();std::error_code ec;auto canonical=std::filesystem::weakly_canonical(overlayPath,ec);if(ec)canonical=std::filesystem::absolute(overlayPath,ec);overlays_[canonical.generic_string()]=std::move(overlayText);ModuleId rootId=0;return loadOne(root,diagnostics,&rootId)&&!diagnostics.hasErrors();}
+void ModuleGraph::addNdlOverlayBuffer(const std::filesystem::path& logicalArchivePath,std::string archiveBytes){
+    std::error_code ec;
+    auto canonical=std::filesystem::weakly_canonical(logicalArchivePath,ec);
+    if(ec)canonical=std::filesystem::absolute(logicalArchivePath,ec);
+    ndlBuffers_[canonical.lexically_normal().generic_string()]=std::move(archiveBytes);
+}
+void ModuleGraph::clearNdlOverlays(){ndlBuffers_.clear();}
+bool ModuleGraph::loadNdlBuffer(const std::string& logicalName,const std::string& archiveBytes,Diagnostics& diagnostics){
+    modules_.clear();sources_.clear();byCanonicalPath_.clear();overlays_.clear();ndlLoadedArchives_.clear();ndlPackageEntries_.clear();
+    std::filesystem::path logical=logicalName;
+    if(logical.extension()!=".ndl")logical+=".ndl";
+    std::error_code ec;
+    auto canonical=std::filesystem::weakly_canonical(logical,ec);
+    if(ec)canonical=std::filesystem::absolute(logical,ec);
+    canonical=canonical.lexically_normal();
+    const std::string prevBuf=[&](){
+        auto it=ndlBuffers_.find(canonical.generic_string());
+        return it!=ndlBuffers_.end()?it->second:std::string{};
+    }();
+    const bool hadPrev=ndlBuffers_.count(canonical.generic_string())>0;
+    ndlBuffers_[canonical.generic_string()]=archiveBytes;
+    ModuleId rootId=0;
+    const bool ok=loadOne(canonical,diagnostics,&rootId)&&!diagnostics.hasErrors();
+    if(hadPrev)ndlBuffers_[canonical.generic_string()]=prevBuf;
+    else ndlBuffers_.erase(canonical.generic_string());
+    return ok;
+}
+bool ModuleGraph::loadOne(const std::filesystem::path&input,Diagnostics&diagnostics,ModuleId*out){std::error_code ec;auto canonical=std::filesystem::weakly_canonical(input,ec);if(ec){canonical=std::filesystem::absolute(input,ec);if(ec){diagnostics.error("NQR-M6000",{},"module source not found: "+input.string(),"check import paths relative to the importing file");return false;}}canonical=canonical.lexically_normal();const auto key=canonical.generic_string();if(auto found=byCanonicalPath_.find(key);found!=byCanonicalPath_.end()){if(out)*out=found->second;return true;}
+if(canonical.extension()==".ndl"||ndlBuffers_.count(key)){
+    auto loadedIt=ndlLoadedArchives_.find(key);
+    std::filesystem::path entryVirtualPath;
+    if(loadedIt!=ndlLoadedArchives_.end()){
+        entryVirtualPath=loadedIt->second;
+    }else{
+        noqeri_nodule::NdlArchive archive;
+        std::string err;
+        bool ok=false;
+        if(auto bufIt=ndlBuffers_.find(key);bufIt!=ndlBuffers_.end()){
+            ok=noqeri_nodule::loadNdlArchiveFromBytes(bufIt->second,archive,err);
+        }else{
+            ok=noqeri_nodule::loadNdlArchiveFromFile(canonical,archive,err);
+        }
+        if(!ok){
+            diagnostics.error("NQR-M6010",{},"invalid .ndl archive '"+input.string()+"': "+err,"ensure the archive is a verified NDL\\x01 container matching ABI v2 and Noqeri 0.1.5");
+            return false;
+        }
+        if(archive.manifest.abiVersion!=2||(archive.manifest.languageVersion!="0.1.5"&&archive.manifest.languageVersion!="0.1.5.1")){
+            diagnostics.error("NQR-M6011",{},"incompatible .ndl archive ABI/language version in '"+input.string()+"'");
+            return false;
+        }
+        for(const auto& entry:archive.entries){
+            const auto vpath=(canonical/entry.path).lexically_normal();
+            overlays_[vpath.generic_string()]=entry.data;
+        }
+        entryVirtualPath=(canonical/archive.manifest.entry).lexically_normal();
+        ndlLoadedArchives_[key]=entryVirtualPath;
+        ndlPackageEntries_[archive.manifest.name]=entryVirtualPath;
+        for(const auto& exp:archive.manifest.exports){
+            ndlPackageEntries_[archive.manifest.name+"/"+exp]=(canonical/exp).lexically_normal();
+        }
+    }
+    ModuleId entryId=0;
+    if(!loadOne(entryVirtualPath,diagnostics,&entryId))return false;
+    byCanonicalPath_[key]=entryId;
+    if(out)*out=entryId;
+    return true;
+}
+const auto overlay=overlays_.find(key);if(overlay==overlays_.end()&&!std::filesystem::exists(canonical)){diagnostics.error("NQR-M6000",{},"module source not found: "+input.string(),"check import paths relative to the importing file");return false;}const ModuleId id=static_cast<ModuleId>(modules_.size());const SourceId sourceId=static_cast<SourceId>(sources_.size()+1);byCanonicalPath_[key]=id;std::string text;Program ast;bool cacheHit=false;std::filesystem::file_time_type diskMtime{};std::uintmax_t diskSize=0;bool hasDiskStat=false;if(overlay!=overlays_.end()){text=overlay->second;}else{std::error_code statEc;diskMtime=std::filesystem::last_write_time(canonical,statEc);if(!statEc)diskSize=std::filesystem::file_size(canonical,statEc);hasDiskStat=!statEc;if(hasDiskStat){std::lock_guard<std::mutex> lock(moduleCacheMutex());auto it=moduleCache().find(key);if(it!=moduleCache().end()&&it->second.mtime==diskMtime&&it->second.fileSize==diskSize){text=it->second.text;ast=cloneAstProgram(it->second.ast,sourceId);cacheHit=true;}}if(!cacheHit){try{text=readTextFile(canonical);}catch(const std::exception&error){diagnostics.error("NQR-M6001",{},error.what());return false;}}}diagnostics.registerSource(sourceId,canonical.string(),text);sources_.push_back(SourceFile{sourceId,canonical,text});if(!cacheHit){auto syntax=preprocessGenericSyntax(text);Lexer lexer(syntax.source,diagnostics,sourceId,false);auto tokens=lexer.lex();if(diagnostics.hasErrors())return false;Parser parser(std::move(tokens),diagnostics);ast=parser.parse();applyGenericSyntax(ast,syntax);if(diagnostics.hasErrors())return false;if(overlay==overlays_.end()&&hasDiskStat){std::lock_guard<std::mutex> lock(moduleCacheMutex());if(moduleCache().size()>512)moduleCache().clear();moduleCache()[key]=CachedModuleEntry{diskMtime,diskSize,text,cloneAstProgram(ast,0)};}}ModuleUnit unit;unit.id=id;unit.source=sourceId;unit.path=canonical;unit.ast=ast;for(const auto&statement:ast.statements)if(auto module=std::dynamic_pointer_cast<ModuleStmt>(statement)){unit.declaredName=module->name;break;}modules_.push_back(std::move(unit));for(const auto&statement:ast.statements){auto imported=std::dynamic_pointer_cast<ImportStmt>(statement);if(!imported)continue;std::filesystem::path child=imported->path;
         if(child.extension().empty())child+=".noqeri";
         const bool standard=imported->path.rfind("std/",0)==0 ||
                             imported->path.rfind("ai/",0)==0;
@@ -250,8 +318,42 @@ bool ModuleGraph::loadOne(const std::filesystem::path&input,Diagnostics&diagnost
                 return false;
             }
         } else if(child.is_relative()) child=canonical.parent_path()/child;
-        if(!std::filesystem::is_regular_file(child) &&
-           overlays_.find(std::filesystem::weakly_canonical(child).generic_string())==overlays_.end()) {
+        const auto childKey=[&](const std::filesystem::path& p){
+            std::error_code kek;
+            auto w=std::filesystem::weakly_canonical(p,kek);
+            if(kek)w=std::filesystem::absolute(p,kek);
+            return w.lexically_normal().generic_string();
+        };
+        const bool existsNormal=std::filesystem::exists(child)||
+            overlays_.count(childKey(child))>0||
+            ndlBuffers_.count(childKey(child))>0;
+        if(!existsNormal && !standard) {
+            if(auto pkgIt=ndlPackageEntries_.find(imported->path);pkgIt!=ndlPackageEntries_.end()){
+                child=pkgIt->second;
+            }else{
+                std::vector<std::filesystem::path> ndlCandidates;
+                const std::string rawImp=imported->path;
+                if(rawImp.find("..") == std::string::npos && !rawImp.empty() && rawImp[0] != '/') {
+                    const std::string ndlName=(std::filesystem::path(rawImp).extension()==".ndl")?rawImp:(rawImp+".ndl");
+                    ndlCandidates.push_back(canonical.parent_path()/ndlName);
+                    ndlCandidates.push_back(canonical.parent_path()/"nodules"/ndlName);
+                    ndlCandidates.push_back(canonical.parent_path()/".noqeri"/"cache"/ndlName);
+                    if(const char* envCache=std::getenv("NOQERI_NODULE_CACHE");envCache&&*envCache)
+                        ndlCandidates.push_back(std::filesystem::path(envCache)/ndlName);
+                }
+                for(const auto& cand:ndlCandidates){
+                    const auto ckey=childKey(cand);
+                    if(std::filesystem::exists(cand)||ndlBuffers_.count(ckey)>0){
+                        child=cand;
+                        break;
+                    }
+                }
+            }
+        }
+        const auto resolvedKey=childKey(child);
+        if(!std::filesystem::exists(child) &&
+           overlays_.find(resolvedKey)==overlays_.end() &&
+           ndlBuffers_.find(resolvedKey)==ndlBuffers_.end()) {
             diagnostics.error("NQR-M6002",imported->span,
                 "cannot find imported module '"+imported->path+"'",
                 "check the spelling; local files use import \"./helpers.noqeri\" and standard modules use import \"std/list\"");

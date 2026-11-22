@@ -137,6 +137,11 @@ void AdamWOptimizer::step(const std::vector<Matrix*>& parameters,
     next_weights.reserve(parameters.size());
     next_first.reserve(parameters.size());
     next_second.reserve(parameters.size());
+    const double beta1=options.beta1,beta2=options.beta2;
+    const double one_minus_b1=1.0-beta1,one_minus_b2=1.0-beta2;
+    const double inv_c1=1.0/correction1,inv_c2=1.0/correction2;
+    const double lr=options.learning_rate,eps=options.epsilon;
+    const double wd_factor=1.0-lr*options.weight_decay;
     for(std::size_t k=0;k<parameters.size();++k) {
         demand(parameters[k] && gradients[k],"null optimizer input");
         for(std::size_t j=0;j<k;++j)
@@ -149,23 +154,30 @@ void AdamWOptimizer::step(const std::vector<Matrix*>& parameters,
         next_weights.push_back(w);
         next_first.push_back(first_[k]);
         next_second.push_back(second_[k]);
-        for(std::size_t j=0;j<w.values.size();++j) {
-            const double grad=g.values[j];
-            const double m=options.beta1*first_[k].values[j]+(1-options.beta1)*grad;
-            const double v=options.beta2*second_[k].values[j]+
-                           (1-options.beta2)*grad*grad;
-            const double estimate=m/correction1;
-            const double deviation=v/correction2;
+        const std::size_t count=w.values.size();
+        const double* wp=w.values.data();
+        const double* gp=g.values.data();
+        const double* fp=first_[k].values.data();
+        const double* sp=second_[k].values.data();
+        double* nwp=next_weights[k].values.data();
+        double* nfp=next_first[k].values.data();
+        double* nsp=next_second[k].values.data();
+        for(std::size_t j=0;j<count;++j) {
+            const double grad=gp[j];
+            const double m=beta1*fp[j]+one_minus_b1*grad;
+            const double v=beta2*sp[j]+one_minus_b2*grad*grad;
+            const double estimate=m*inv_c1;
+            const double deviation=v*inv_c2;
             demand(std::isfinite(m) && std::isfinite(v) && v>=0 &&
                    std::isfinite(estimate) && std::isfinite(deviation),
                    "nonfinite optimizer moment");
-            const double next=w.values[j]*(1-options.learning_rate*options.weight_decay)-
-                options.learning_rate*estimate/(std::sqrt(deviation)+options.epsilon);
+            const double next=wp[j]*wd_factor-
+                lr*estimate/(std::sqrt(deviation)+eps);
             demand(std::isfinite(next) && std::abs(next)<=1e8,
                    "parameter update out of bounds");
-            next_weights[k].values[j]=next;
-            next_first[k].values[j]=m;
-            next_second[k].values[j]=v;
+            nwp[j]=next;
+            nfp[j]=m;
+            nsp[j]=v;
         }
     }
     for(std::size_t k=0;k<parameters.size();++k) {
