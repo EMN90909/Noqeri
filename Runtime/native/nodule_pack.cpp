@@ -60,18 +60,6 @@ bool safePath(const std::string& path) {
     return true;
 }
 
-std::string jsonEscape(const std::string& value) {
-    std::string out = "\"";
-    for (const char c : value) {
-        if (c == '\\' || c == '\"') out.push_back('\\');
-        if (c == '\n') { out += "\\n"; continue; }
-        if (c == '\r') { out += "\\r"; continue; }
-        out.push_back(c);
-    }
-    out.push_back('\"');
-    return out;
-}
-
 struct FileEntry { std::string name; std::string bytes; };
 
 noqeri::nodule::PackageInfo readManifest(const fs::path& root) {
@@ -171,12 +159,6 @@ std::uint32_t crc32(std::string_view bytes) {
     return ~crc;
 }
 
-std::uint32_t adler32(std::string_view bytes) {
-    std::uint32_t a = 1, b = 0;
-    for (const unsigned char byte : bytes) { a = (a + byte) % 65521u; b = (b + a) % 65521u; }
-    return (b << 16) | a;
-}
-
 void appendLe32(std::string& output, std::uint32_t value) {
     for (int shift = 0; shift < 32; shift += 8) output.push_back(static_cast<char>((value >> shift) & 0xff));
 }
@@ -254,7 +236,16 @@ std::string base64(std::string_view input) {
     static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::string output; output.reserve((input.size()+2)/3*4);
     for (std::size_t i=0;i<input.size();i+=3) { const auto a=static_cast<unsigned char>(input[i]); const auto b=i+1<input.size()?static_cast<unsigned char>(input[i+1]):0; const auto c=i+2<input.size()?static_cast<unsigned char>(input[i+2]):0; output += alphabet[a>>2]; output += alphabet[((a&3)<<4)|(b>>4)]; output += i+1<input.size()?alphabet[((b&15)<<2)|(c>>6)]:'='; output += i+2<input.size()?alphabet[c&63]:'='; }
-    return output;
+std::string jsonEscape(const std::string& value) {
+    std::string out = "\"";
+    for (const char c : value) {
+        if (c == '\\' || c == '\"') out.push_back('\\');
+        if (c == '\n') { out += "\\n"; continue; }
+        if (c == '\r') { out += "\\r"; continue; }
+        out.push_back(c);
+    }
+    out.push_back('\"');
+    return out;
 }
 
 int publishJson(const std::string& url, const std::string& token, const noqeri::nodule::PackageInfo& info,
