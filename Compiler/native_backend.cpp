@@ -90,9 +90,11 @@ void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
     if(magic.shift)out<<"    shr rax, "<<magic.shift<<"\n";
     if(remainder){
         // n - q*d: low 64 bits suffice, and exact q*d never exceeds n.
-        out<<"    mov r10, "<<divisor<<"\n"
-           <<"    imul rax, r10\n"
-           <<"    sub r11, rax\n"
+        if(divisor<=static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+            out<<"    imul rax, rax, "<<divisor<<"\n";
+        else
+            out<<"    mov r10, "<<divisor<<"\n    imul rax, r10\n";
+        out<<"    sub r11, rax\n"
            <<"    mov rax, r11\n";
     }
 }
@@ -324,23 +326,6 @@ void emitLoadWidth(std::ostream&out,std::size_t width,bool signExtend=false){
     else out<<"    mov rax, QWORD PTR [rax]\n";
 }
 void emitStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    mov BYTE PTR [rax], r10b\n";else if(width==2)out<<"    mov WORD PTR [rax], r10w\n";else if(width==4)out<<"    mov DWORD PTR [rax], r10d\n";else out<<"    mov QWORD PTR [rax], r10\n";}
-// A single-use PtrOffset feeding an adjacent memory instruction does not
-// require an intermediate LEA or virtual pointer register. Keep the operand
-// width/sign rules identical to ordinary LoadMemory and StoreMemory.
-void emitIndexedLoad(std::ostream&out,std::size_t width,bool signedValue,std::size_t scale){
-    const std::string address="[rax + r11*"+std::to_string(scale)+"]";
-    if(width==1)out<<(signedValue?"    movsx rax, BYTE PTR ":"    movzx eax, BYTE PTR ")<<address<<"\n";
-    else if(width==2)out<<(signedValue?"    movsx rax, WORD PTR ":"    movzx eax, WORD PTR ")<<address<<"\n";
-    else if(width==4)out<<(signedValue?"    movsxd rax, DWORD PTR ":"    mov eax, DWORD PTR ")<<address<<"\n";
-    else out<<"    mov rax, QWORD PTR "<<address<<"\n";
-}
-void emitIndexedStore(std::ostream&out,std::size_t width,std::size_t scale){
-    const std::string address="[rax + r11*"+std::to_string(scale)+"]";
-    if(width==1)out<<"    mov BYTE PTR "<<address<<", r10b\n";
-    else if(width==2)out<<"    mov WORD PTR "<<address<<", r10w\n";
-    else if(width==4)out<<"    mov DWORD PTR "<<address<<", r10d\n";
-    else out<<"    mov QWORD PTR "<<address<<", r10\n";
-}
 void emitExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n    movzx eax, r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n    movzx eax, r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n    mov eax, r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n    mov rax, r10\n";}
 void emitAtomicStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n";}
 void emitCompareExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    lock cmpxchg BYTE PTR [r10], cl\n    movzx eax, al\n";else if(width==2)out<<"    lock cmpxchg WORD PTR [r10], cx\n    movzx eax, ax\n";else if(width==4)out<<"    lock cmpxchg DWORD PTR [r10], ecx\n    mov eax, eax\n";else out<<"    lock cmpxchg QWORD PTR [r10], rcx\n";}
@@ -394,6 +379,73 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             }
         }
     }
+    std::vector<bool> nonNegative(fn.nextReg, false);
+    std::unordered_map<std::string, bool> nonNegativeVars;
+    for(std::size_t r=0; r<fn.registerTypes.size() && r<fn.nextReg; ++r){
+        if(isUnsigned(fn.registerTypes[r].kind)) nonNegative[r] = true;
+    }
+    for(const auto& [reg, val] : constantValues){
+        if(val >= 0 && reg < nonNegative.size()) nonNegative[reg] = true;
+    }
+    for(int pass=0; pass<4; ++pass){
+        bool updated = false;
+        for(const auto& in : fn.code){
+            if(in.op == NirOp::Store && !in.args.empty() && in.args[0] < nonNegative.size()){
+                auto it = nonNegativeVars.find(in.text);
+                if(it == nonNegativeVars.end()){
+                    nonNegativeVars[in.text] = nonNegative[in.args[0]];
+                } else if(!nonNegative[in.args[0]]){
+                    it->second = false;
+                }
+            }
+            if(!in.dest || *in.dest >= nonNegative.size() || nonNegative[*in.dest]) continue;
+            bool isNonNeg = false;
+            if(in.op == NirOp::Const){
+                if(auto v = std::get_if<std::int64_t>(&in.literal)) isNonNeg = (*v >= 0);
+                else if(std::holds_alternative<bool>(in.literal)) isNonNeg = true;
+            }else if(in.op == NirOp::Load){
+                auto it = nonNegativeVars.find(in.text);
+                if(it != nonNegativeVars.end() && it->second) isNonNeg = true;
+            }else if(in.op == NirOp::SliceLen || in.op == NirOp::StackAlloc ||
+                     in.op == NirOp::MakeSlice || in.op == NirOp::AddressOf){
+                isNonNeg = true;
+            }else if(in.op == NirOp::Cast && in.args.size() == 1){
+                if(isUnsigned(in.type.kind) ||
+                   (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]))
+                    isNonNeg = true;
+            }else if(in.op == NirOp::Binary && in.args.size() == 2){
+                if(isComparison(in.text)){
+                    isNonNeg = true;
+                }else if(in.text == "+" || in.text == "*"){
+                    const bool a0 = (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                                    (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0);
+                    const bool a1 = (in.args[1] < nonNegative.size() && nonNegative[in.args[1]]) ||
+                                    (constantValues.count(in.args[1]) && constantValues.at(in.args[1]) >= 0);
+                    if(a0 && a1) isNonNeg = true;
+                }else if(in.text == "/" || in.text == "%"){
+                    const bool a0 = (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                                    (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0);
+                    const bool a1 = (constantValues.count(in.args[1]) && constantValues.at(in.args[1]) > 0);
+                    if(a0 && (in.text == "%" || a1)) isNonNeg = true;
+                }else if(in.text == "&"){
+                    const bool a0 = (in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                                    (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0);
+                    const bool a1 = (in.args[1] < nonNegative.size() && nonNegative[in.args[1]]) ||
+                                    (constantValues.count(in.args[1]) && constantValues.at(in.args[1]) >= 0);
+                    if(a0 || a1) isNonNeg = true;
+                }else if(in.text == ">>"){
+                    if((in.args[0] < nonNegative.size() && nonNegative[in.args[0]]) ||
+                       (constantValues.count(in.args[0]) && constantValues.at(in.args[0]) >= 0))
+                        isNonNeg = true;
+                }
+            }
+            if(isNonNeg){
+                nonNegative[*in.dest] = true;
+                updated = true;
+            }
+        }
+        if(!updated) break;
+    }
     std::unordered_map<Reg,std::string> physical;
     std::vector<std::string> saved;
     const bool hasInlineAsm=std::any_of(fn.code.begin(),fn.code.end(),
@@ -437,7 +489,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
         const char* hotRegisters[]={"rbx","r12","r13","r14","r15"};
-        const std::size_t maxHotVars = hasCalls ? 3u : 5u;
+        const std::size_t maxHotVars = hasCalls ? 1u : 2u;
         for(std::size_t n=0;n<ranked.size()&&n<maxHotVars;++n){
             if(ranked[n].second<2u)break;
             variablePhysical.emplace(ranked[n].first,hotRegisters[n]);
@@ -448,7 +500,10 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         std::vector<std::string> pool;
         const bool hasCalls = std::any_of(fn.code.begin(),fn.code.end(),
             [](const NirInstruction& in){return in.op==NirOp::Call||in.op==NirOp::Intrinsic;});
+        const bool hasCmpXchg = std::any_of(fn.code.begin(),fn.code.end(),
+            [](const NirInstruction& in){return in.op==NirOp::AtomicCompareExchange;});
         if(!hasCalls){
+            if(!hasCmpXchg)pool.push_back("rcx");
             pool.push_back("r9");
             pool.push_back("rdi");
             pool.push_back("rsi");
@@ -624,17 +679,21 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     std::unordered_set<std::size_t> fusedPointers;
     for(std::size_t pc=0;pc+1<fn.code.size();++pc){
         const auto& pointer=fn.code[pc];
-        const auto& access=fn.code[pc+1];
         if(pointer.op!=NirOp::PtrOffset||!pointer.dest||
            pointer.args.size()!=2||
-           (pointer.width!=1&&pointer.width!=2&&
-            pointer.width!=4&&pointer.width!=8)||
-           jumpTargets.count(pc+1)||*pointer.dest>=useCounts.size()||
+           pointer.width!=8||
+           *pointer.dest>=useCounts.size()||
            useCounts[*pointer.dest]!=1)
             continue;
-        if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
-           !access.args.empty()&&access.args[0]==*pointer.dest)
-            fusedPointers.insert(pc);
+        std::size_t nextPc=pc+1;
+        while(nextPc<fn.code.size()&&fn.code[nextPc].op==NirOp::Nop)++nextPc;
+        if(nextPc<fn.code.size()&&!jumpTargets.count(nextPc)){
+            const auto& access=fn.code[nextPc];
+            if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
+               access.width==8&&
+               !access.args.empty()&&access.args[0]==*pointer.dest)
+                fusedPointers.insert(pc);
+        }
     }
     // Fuse a single-use scalar array LoadMemory into its immediately
     // following compare-and-branch. One or two side-effect-free named
@@ -976,29 +1035,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         return "QWORD PTR ["+baseReg+" + "+indexReg+"*"+
                std::to_string(pointer.width)+"]";
     };
-    std::unordered_map<Reg,std::size_t> ptrOffsetDefs;
-    for(std::size_t p=0;p<fn.code.size();++p){
-        if(fn.code[p].op==NirOp::PtrOffset&&fn.code[p].dest)
-            ptrOffsetDefs[*fn.code[p].dest]=p;
-    }
-    for(const auto& [reg,defPc]:ptrOffsetDefs){
-        const auto& pointer=fn.code[defPc];
-        if(pointer.width!=8||!fixedStackAddress(pointer))continue;
-        bool allMemoryUses=true;
-        std::size_t uses=0;
-        for(std::size_t u=defPc+1;u<fn.code.size();++u){
-            for(std::size_t argIdx=0;argIdx<fn.code[u].args.size();++argIdx){
-                if(fn.code[u].args[argIdx]==reg){
-                    ++uses;
-                    if((fn.code[u].op!=NirOp::LoadMemory&&fn.code[u].op!=NirOp::StoreMemory)||argIdx!=0||fn.code[u].width!=8){
-                        allMemoryUses=false;break;
-                    }
-                }
-            }
-            if(!allMemoryUses)break;
-        }
-        if(allMemoryUses&&uses>0)fusedPointers.insert(defPc);
-    }
+
     std::vector<std::string> coldTrapLabels;
     std::vector<std::string> coldBoundsTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
@@ -1123,36 +1160,27 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const bool directQword=i.width==8&&destination!=physical.end();
             std::optional<std::string> stackAddr;
             if(i.width==8){
-                if(pc>0&&fusedPointers.count(pc-1)){
-                    stackAddr=fixedStackAddress(fn.code[pc-1]);
-                }
-                if(!stackAddr){
-                    const auto def=ptrOffsetDefs.find(i.args[0]);
-                    if(def!=ptrOffsetDefs.end())
-                        stackAddr=fixedStackAddress(fn.code[def->second]);
+                std::size_t priorPc=pc;
+                while(priorPc>0&&fn.code[priorPc-1].op==NirOp::Nop)--priorPc;
+                if(priorPc>0&&fusedPointers.count(priorPc-1)){
+                    stackAddr=fixedStackAddress(fn.code[priorPc-1]);
+                    if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
             }
             if(stackAddr){
                 if(directQword)
                     out<<"    mov "<<destination->second<<", "<<*stackAddr<<"\n";
                 else out<<"    mov rax, "<<*stackAddr<<"\n";
-            }else if(pc>0&&fusedPointers.count(pc-1)){
-                const auto& pointer=fn.code[pc-1];
-                if(i.width==8){
-                    const auto address=registerIndexedAddress(pointer);
-                    if(directQword)
-                        out<<"    mov "<<destination->second<<", "<<address<<"\n";
-                    else out<<"    mov rax, "<<address<<"\n";
-                }else{
-                    load(pointer.args[0],"rax");
-                    load(pointer.args[1],"r11");
-                    emitIndexedLoad(out,i.width,sign,pointer.width);
-                }
             }else{
-                load(i.args[0],"rax");
+                const auto basePhys=physical.find(i.args[0]);
+                const std::string baseReg=basePhys!=physical.end()?basePhys->second:"rax";
+                if(basePhys==physical.end())load(i.args[0],"rax");
                 if(directQword)
-                    out<<"    mov "<<destination->second<<", QWORD PTR [rax]\n";
-                else emitLoadWidth(out,i.width,sign);
+                    out<<"    mov "<<destination->second<<", QWORD PTR ["<<baseReg<<"]\n";
+                else{
+                    if(baseReg!="rax")out<<"    mov rax, "<<baseReg<<"\n";
+                    emitLoadWidth(out,i.width,sign);
+                }
             }
             if(!directQword)store(*i.dest,"rax");
         }break;
@@ -1163,13 +1191,11 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             const bool directQword=i.width==8&&value!=physical.end();
             std::optional<std::string> stackAddr;
             if(i.width==8){
-                if(pc>0&&fusedPointers.count(pc-1)){
-                    stackAddr=fixedStackAddress(fn.code[pc-1]);
-                }
-                if(!stackAddr){
-                    const auto def=ptrOffsetDefs.find(i.args[0]);
-                    if(def!=ptrOffsetDefs.end())
-                        stackAddr=fixedStackAddress(fn.code[def->second]);
+                std::size_t priorPc=pc;
+                while(priorPc>0&&fn.code[priorPc-1].op==NirOp::Nop)--priorPc;
+                if(priorPc>0&&fusedPointers.count(priorPc-1)){
+                    stackAddr=fixedStackAddress(fn.code[priorPc-1]);
+                    if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
             }
             if(stackAddr){
@@ -1179,38 +1205,55 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     load(i.args[1],"r10");
                     out<<"    mov "<<*stackAddr<<", r10\n";
                 }
-            }else if(pc>0&&fusedPointers.count(pc-1)){
-                const auto& pointer=fn.code[pc-1];
-                if(i.width==8){
-                    const auto address=registerIndexedAddress(pointer);
-                    if(directQword)
-                        out<<"    mov "<<address<<", "<<value->second<<"\n";
-                    else{
-                        load(i.args[1],"r10");
-                        out<<"    mov "<<address<<", r10\n";
-                    }
-                }else{
-                    load(pointer.args[0],"rax");
-                    load(pointer.args[1],"r11");
-                    load(i.args[1],"r10");
-                    emitIndexedStore(out,i.width,pointer.width);
-                }
             }else{
-                load(i.args[0],"rax");
+                const auto basePhys=physical.find(i.args[0]);
+                const std::string baseReg=basePhys!=physical.end()?basePhys->second:"rax";
+                if(basePhys==physical.end())load(i.args[0],"rax");
                 if(directQword)
-                    out<<"    mov QWORD PTR [rax], "<<value->second<<"\n";
+                    out<<"    mov QWORD PTR ["<<baseReg<<"], "<<value->second<<"\n";
                 else{
                     load(i.args[1],"r10");
+                    if(baseReg!="rax")out<<"    mov rax, "<<baseReg<<"\n";
                     emitStoreWidth(out,i.width);
                 }
             }
         }break;
-        case NirOp::PtrOffset:if(fusedPointers.count(pc))break;else if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
-                        out<<"    lea rax, [rax + r10*"<<i.width<<"]\n";
+        case NirOp::PtrOffset:
+            if(fusedPointers.count(pc))break;
+            else if(i.dest&&!i.args.empty()){
+                const Reg base=i.args[0];
+                const auto destPhys=physical.find(*i.dest);
+                const std::string destReg=destPhys!=physical.end()?destPhys->second:"rax";
+                if(base<stackRoot.size()&&stackRoot[base]!=noStackRoot&&
+                   stackRoot[base]<fixedStorage.size()&&fixedStorage[stackRoot[base]]!=0&&
+                   i.args.size()>1&&(i.width==1||i.width==2||i.width==4||i.width==8)){
+                    const auto indexPhys=physical.find(i.args[1]);
+                    const std::string indexReg=indexPhys!=physical.end()?indexPhys->second:"r10";
+                    if(indexPhys==physical.end())load(i.args[1],"r10");
+                    out<<"    lea "<<destReg<<", [rbp - "<<fixedStorage[stackRoot[base]]
+                       <<" + "<<indexReg<<"*"<<i.width<<"]\n";
+                    if(destPhys==physical.end())store(*i.dest,"rax");
+                    break;
+                }
+                const auto basePhys=physical.find(base);
+                const std::string baseReg=basePhys!=physical.end()?basePhys->second:"rax";
+                if(basePhys==physical.end())load(base,"rax");
+                if(i.args.size()>1){
+                    const auto indexPhys=physical.find(i.args[1]);
+                    const std::string indexReg=indexPhys!=physical.end()?indexPhys->second:"r10";
+                    if(indexPhys==physical.end())load(i.args[1],"r10");
+                    if(i.width==1||i.width==2||i.width==4||i.width==8)
+                        out<<"    lea "<<destReg<<", ["<<baseReg<<" + "<<indexReg<<"*"<<i.width<<"]\n";
                     else{
+                        if(destReg!=baseReg)out<<"    mov "<<destReg<<", "<<baseReg<<"\n";
                         out<<"    imul r10, "<<i.width<<"\n";
-                        out<<"    add rax, r10\n";
-                    }}else if(i.target)out<<"    add rax, "<<i.target<<"\n";store(*i.dest,"rax");}break;
+                        out<<"    add "<<destReg<<", r10\n";
+                    }
+                }else if(i.target){
+                    out<<"    lea "<<destReg<<", ["<<baseReg<<" + "<<i.target<<"]\n";
+                }
+                if(destPhys==physical.end())store(*i.dest,"rax");
+            }break;
         case NirOp::StackAlloc:if(i.dest){if(pc>=fixedStorage.size()||fixedStorage[pc]==0){diagnostics.error("NQR-N5024",{},"internal native stack-allocation layout error");return false;}out<<"    lea rax, [rbp-"<<fixedStorage[pc]<<"]\n";store(*i.dest,"rax");}break;
         case NirOp::MakeSlice:if(i.dest&&i.args.size()==2){if(pc>=fixedStorage.size()||fixedStorage[pc]<16){diagnostics.error("NQR-N5025",{},"internal native slice layout error");return false;}out<<"    lea r11, [rbp-"<<fixedStorage[pc]<<"]\n";load(i.args[0],"rax");out<<"    mov QWORD PTR [r11], rax\n";load(i.args[1],"rax");out<<"    mov QWORD PTR [r11+8], rax\n    mov rax, r11\n";store(*i.dest,"rax");}break;
         case NirOp::SliceData:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax]\n";store(*i.dest,"rax");}break;
@@ -1411,7 +1454,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             (isUnsigned(operandKind)||
              (i.args[1]<fn.registerTypes.size()&&
               isUnsigned(fn.registerTypes[i.args[1]].kind))) :
-            isUnsigned(operandKind);
+            (isUnsigned(operandKind)||
+             (i.args[0]<nonNegative.size()&&nonNegative[i.args[0]]));
         // If a comparison feeds only the immediately following conditional
         // branch, emit one compare and a direct inverted jcc. Preserve NIR
         // short-circuit structure: RHS evaluation is never speculated.
@@ -1469,21 +1513,48 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 const bool hasImmediate=rhsImmediate!=constantValues.end()&&
                     rhsImmediate->second>=std::numeric_limits<std::int32_t>::min()&&
                     rhsImmediate->second<=std::numeric_limits<std::int32_t>::max();
-                if(registerOperand(i.args[0])!=targetReg)
-                    out<<"    mov "<<targetReg<<", "<<registerOperand(i.args[0])<<"\n";
+                const std::string srcReg=registerOperand(i.args[0]);
                 if(hasImmediate){
                     if(i.text=="*"){
                         const auto factor=rhsImmediate->second;
                         const auto bits=static_cast<std::uint64_t>(factor);
-                        if(factor>0&&!(bits&(bits-1))){
+                        if(factor==0){
+                            out<<"    xor "<<targetReg<<", "<<targetReg<<"\n";
+                        }else if(factor>0&&!(bits&(bits-1))){
                             unsigned shift=0;
                             for(auto x=bits;x>1;x>>=1)++shift;
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
                             if(shift)out<<"    shl "<<targetReg<<", "<<shift<<"\n";
-                        }else if(factor==0)out<<"    xor "<<targetReg<<", "<<targetReg<<"\n";
-                        else out<<"    imul "<<targetReg<<", "<<targetReg<<", "<<factor<<"\n";
-                    }else out<<"    "<<(i.text=="+"?"add":"sub")
-                            <<" "<<targetReg<<", "<<rhsImmediate->second<<"\n";
+                        }else{
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    imul "<<targetReg<<", "<<targetReg<<", "<<factor<<"\n";
+                        }
+                    }else if(i.text=="+"){
+                        const auto imm=rhsImmediate->second;
+                        if(imm==0){
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                        }else{
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    add "<<targetReg<<", "<<imm<<"\n";
+                        }
+                    }else{ // "-"
+                        const auto imm=rhsImmediate->second;
+                        if(imm==0){
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                        }else{
+                            if(srcReg!=targetReg)
+                                out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
+                            out<<"    sub "<<targetReg<<", "<<imm<<"\n";
+                        }
+                    }
                 }else{
+                    if(srcReg!=targetReg)
+                        out<<"    mov "<<targetReg<<", "<<srcReg<<"\n";
                     const auto rhs=registerOperand(i.args[1]);
                     if(i.text=="+")out<<"    add "<<targetReg<<", "<<rhs<<"\n";
                     else if(i.text=="-")out<<"    sub "<<targetReg<<", "<<rhs<<"\n";

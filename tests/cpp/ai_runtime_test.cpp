@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#include "noqeri/ai.hpp"
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
+#include "noqeri/ai.hpp"
 #include <cmath>
 #include <filesystem>
 #include <fstream>

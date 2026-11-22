@@ -1,0 +1,1449 @@
+module noqeri.compiler.selfhost.native_x64
+import "nir.noqeri"
+import "ast.noqeri"
+import "types.noqeri"
+import "targets.noqeri"
+import "object_formats.noqeri"
+import "elf_writer.noqeri"
+
+// Full Linux x86-64 ELF64 relocatable object (.o) code generator written in Noqeri.
+// Lowers general multi-function NIR (control flow, calls, SysV AMD64 ABI,
+// stack/arena allocations, pointers, slices, bounds checks, i64/f64/narrow ints,
+// string literals, and relocations) into a linkable ET_REL ELF64 object.
+
+record NqX64Rela {
+    offset: u64
+    symIndex: u32
+    relocType: u32
+    addend: i64
+}
+
+record NqX64Sym {
+    nameOff: u32
+    info: u8
+    other: u8
+    shndx: u16
+    value: u64
+    size: u64
+    nirSymbol: u64
+}
+
+record NqX64JumpPatch {
+    codeOffset: usize
+    targetLocalPc: usize
+}
+
+record NqX64StringEntry {
+    nirSymbol: u64
+    sourceStart: usize
+    sourceEnd: usize
+    dataOffset: usize
+    rodataOffset: usize
+    byteLen: usize
+}
+
+record NqX64RecordSize {
+    symbol: u64
+    byteSize: usize
+}
+
+function nqX64AlignUp(value: usize, align: usize): usize {
+    if align <= 1 as usize { return value }
+    let rem: usize = value % align
+    if rem == 0 as usize { return value }
+    return value + (align - rem)
+}
+
+function nqX64Put8(buf: []u8, pos: *usize, val: u8): bool {
+    if pos[0] >= len(buf) { return false }
+    buf[pos[0]] = val
+    pos[0] = pos[0] + 1 as usize
+    return true
+}
+
+function nqX64Put16(buf: []u8, pos: *usize, val: u16): bool {
+    if !nqObjectWriteU16LE(buf, pos[0], val) { return false }
+    pos[0] = pos[0] + 2 as usize
+    return true
+}
+
+function nqX64Put32(buf: []u8, pos: *usize, val: u32): bool {
+    if !nqObjectWriteU32LE(buf, pos[0], val) { return false }
+    pos[0] = pos[0] + 4 as usize
+    return true
+}
+
+function nqX64PutI32(buf: []u8, pos: *usize, val: i64): bool {
+    let v: i64 = val
+    let i: usize = 0 as usize
+    while i < 4 as usize {
+        let b: i64 = v % 256 as i64
+        if b < 0 as i64 { b = b + 256 as i64 }
+        if !nqX64Put8(buf, pos, b as u8) { return false }
+        v = (v - b) / 256 as i64
+        i = i + 1 as usize
+    }
+    return true
+}
+
+function nqX64PutI64(buf: []u8, pos: *usize, val: i64): bool {
+    let v: i64 = val
+    let i: usize = 0 as usize
+    while i < 8 as usize {
+        let b: i64 = v % 256 as i64
+        if b < 0 as i64 { b = b + 256 as i64 }
+        if !nqX64Put8(buf, pos, b as u8) { return false }
+        v = (v - b) / 256 as i64
+        i = i + 1 as usize
+    }
+    return true
+}
+
+function nqX64PutU64(buf: []u8, pos: *usize, val: u64): bool {
+    if !nqObjectWriteU64LE(buf, pos[0], val) { return false }
+    pos[0] = pos[0] + 8 as usize
+    return true
+}
+
+function nqX64PatchI32(buf: []u8, offset: usize, val: i64): bool {
+    let p: usize = offset
+    return nqX64PutI32(buf, &p, val)
+}
+
+// x86-64 register encodings: rax=0, rcx=1, rdx=2, rbx=3, rsp=4, rbp=5, rsi=6, rdi=7, r8=8..r11=11
+function nqX64EmitRex(buf: []u8, pos: *usize, w: bool, r: int, x: int, b: int): bool {
+    let rex: int = 64
+    if w { rex = rex + 8 }
+    if r >= 8 { rex = rex + 4 }
+    if x >= 8 { rex = rex + 2 }
+    if b >= 8 { rex = rex + 1 }
+    if !w && rex == 64 { return true }
+    return nqX64Put8(buf, pos, rex as u8)
+}
+
+function nqX64EmitLoadRbp(buf: []u8, pos: *usize, reg: int, negDisp: usize): bool {
+    if !nqX64EmitRex(buf, pos, true, reg, 0, 5) { return false }
+    if !nqX64Put8(buf, pos, 0x8b as u8) { return false }
+    let modrm: int = 128 + (reg % 8) * 8 + 5
+    if !nqX64Put8(buf, pos, modrm as u8) { return false }
+    return nqX64PutI32(buf, pos, 0 as i64 - negDisp as i64)
+}
+
+function nqX64EmitStoreRbp(buf: []u8, pos: *usize, negDisp: usize, reg: int): bool {
+    if !nqX64EmitRex(buf, pos, true, reg, 0, 5) { return false }
+    if !nqX64Put8(buf, pos, 0x89 as u8) { return false }
+    let modrm: int = 128 + (reg % 8) * 8 + 5
+    if !nqX64Put8(buf, pos, modrm as u8) { return false }
+    return nqX64PutI32(buf, pos, 0 as i64 - negDisp as i64)
+}
+
+function nqX64EmitLeaRbp(buf: []u8, pos: *usize, reg: int, negDisp: usize): bool {
+    if !nqX64EmitRex(buf, pos, true, reg, 0, 5) { return false }
+    if !nqX64Put8(buf, pos, 0x8d as u8) { return false }
+    let modrm: int = 128 + (reg % 8) * 8 + 5
+    if !nqX64Put8(buf, pos, modrm as u8) { return false }
+    return nqX64PutI32(buf, pos, 0 as i64 - negDisp as i64)
+}
+
+function nqX64EmitLoadRbpPos(buf: []u8, pos: *usize, reg: int, posDisp: usize): bool {
+    if !nqX64EmitRex(buf, pos, true, reg, 0, 5) { return false }
+    if !nqX64Put8(buf, pos, 0x8b as u8) { return false }
+    let modrm: int = 128 + (reg % 8) * 8 + 5
+    if !nqX64Put8(buf, pos, modrm as u8) { return false }
+    return nqX64PutI32(buf, pos, posDisp as i64)
+}
+
+function nqX64EmitMovRR(buf: []u8, pos: *usize, dst: int, src: int): bool {
+    if dst == src { return true }
+    if !nqX64EmitRex(buf, pos, true, src, 0, dst) { return false }
+    if !nqX64Put8(buf, pos, 0x89 as u8) { return false }
+    return nqX64Put8(buf, pos, (192 + (src % 8) * 8 + (dst % 8)) as u8)
+}
+
+function nqX64EmitMovImm64(buf: []u8, pos: *usize, reg: int, val: i64): bool {
+    if val == 0 as i64 {
+        if reg >= 8 {
+            if !nqX64EmitRex(buf, pos, false, reg, 0, reg) { return false }
+        }
+        if !nqX64Put8(buf, pos, 0x31 as u8) { return false }
+        return nqX64Put8(buf, pos, (192 + (reg % 8) * 8 + (reg % 8)) as u8)
+    }
+    if val >= 0 as i64 && val <= 2147483647 as i64 {
+        if reg >= 8 {
+            if !nqX64EmitRex(buf, pos, false, 0, 0, reg) { return false }
+        }
+        if !nqX64Put8(buf, pos, (184 + (reg % 8)) as u8) { return false }
+        return nqX64PutI32(buf, pos, val)
+    }
+    if !nqX64EmitRex(buf, pos, true, 0, 0, reg) { return false }
+    if !nqX64Put8(buf, pos, (184 + (reg % 8)) as u8) { return false }
+    return nqX64PutI64(buf, pos, val)
+}
+
+function nqX64EmitAluRR(buf: []u8, pos: *usize, opcodeByte: u8, dst: int, src: int): bool {
+    if !nqX64EmitRex(buf, pos, true, src, 0, dst) { return false }
+    if !nqX64Put8(buf, pos, opcodeByte) { return false }
+    return nqX64Put8(buf, pos, (192 + (src % 8) * 8 + (dst % 8)) as u8)
+}
+
+function nqX64EmitSubRsp32(buf: []u8, pos: *usize, amount: usize): bool {
+    if !nqX64Put8(buf, pos, 0x48 as u8) || !nqX64Put8(buf, pos, 0x81 as u8) || !nqX64Put8(buf, pos, 0xec as u8) { return false }
+    return nqX64PutI32(buf, pos, amount as i64)
+}
+
+function nqX64EmitAddRsp32(buf: []u8, pos: *usize, amount: usize): bool {
+    if !nqX64Put8(buf, pos, 0x48 as u8) || !nqX64Put8(buf, pos, 0x81 as u8) || !nqX64Put8(buf, pos, 0xc4 as u8) { return false }
+    return nqX64PutI32(buf, pos, amount as i64)
+}
+
+function nqX64EmitPushReg(buf: []u8, pos: *usize, reg: int): bool {
+    if reg >= 8 {
+        if !nqX64Put8(buf, pos, 0x41 as u8) { return false }
+    }
+    return nqX64Put8(buf, pos, (80 + (reg % 8)) as u8)
+}
+
+function nqX64EmitPopReg(buf: []u8, pos: *usize, reg: int): bool {
+    if reg >= 8 {
+        if !nqX64Put8(buf, pos, 0x41 as u8) { return false }
+    }
+    return nqX64Put8(buf, pos, (88 + (reg % 8)) as u8)
+}
+
+function nqX64AbiArgReg(index: usize): int {
+    if index == 0 as usize { return 7 } // rdi
+    if index == 1 as usize { return 6 } // rsi
+    if index == 2 as usize { return 2 } // rdx
+    if index == 3 as usize { return 1 } // rcx
+    if index == 4 as usize { return 8 } // r8
+    if index == 5 as usize { return 9 } // r9
+    return 0
+}
+
+function nqX64AddSym(syms: []NqX64Sym, symCount: *usize, strtab: []u8, strPos: *usize,
+        name: []u8, info: u8, shndx: u16, value: u64, size: u64, nirSymbol: u64): isize {
+    if symCount[0] >= len(syms) { return -1 as isize }
+    let nameOff: u32 = 0 as u32
+    if len(name) > 0 as usize {
+        nameOff = strPos[0] as u32
+        let i: usize = 0 as usize
+        while i < len(name) {
+            if !nqX64Put8(strtab, strPos, name[i]) { return -2 as isize }
+            i = i + 1 as usize
+        }
+        if !nqX64Put8(strtab, strPos, 0 as u8) { return -2 as isize }
+    }
+    let idx: usize = symCount[0]
+    syms[idx].nameOff = nameOff
+    syms[idx].info = info
+    syms[idx].other = 0 as u8
+    syms[idx].shndx = shndx
+    syms[idx].value = value
+    syms[idx].size = size
+    syms[idx].nirSymbol = nirSymbol
+    symCount[0] = idx + 1 as usize
+    return idx as isize
+}
+
+function nqX64FindOrAddExtern(syms: []NqX64Sym, symCount: *usize, strtab: []u8, strPos: *usize,
+        name: []u8, nirSymbol: u64): isize {
+    let i: usize = 1 as usize
+    while i < symCount[0] {
+        if nirSymbol != 0 as u64 && syms[i].nirSymbol == nirSymbol { return i as isize }
+        if syms[i].nameOff > 0 as u32 && len(name) > 0 as usize {
+            let off: usize = syms[i].nameOff as usize
+            let match: bool = true
+            let j: usize = 0 as usize
+            while j < len(name) {
+                if off + j >= strPos[0] || strtab[off + j] != name[j] {
+                    match = false
+                    j = len(name)
+                } else {
+                    j = j + 1 as usize
+                }
+            }
+            if match && off + len(name) < strPos[0] && strtab[off + len(name)] == 0 as u8 {
+                return i as isize
+            }
+        }
+        i = i + 1 as usize
+    }
+    // STB_GLOBAL (1<<4) | STT_NOTYPE (0) = 0x10
+    return nqX64AddSym(syms, symCount, strtab, strPos, name, 0x10 as u8, 0 as u16, 0 as u64, 0 as u64, nirSymbol)
+}
+
+function nqX64AddRela(relas: []NqX64Rela, relaCount: *usize, offset: u64, symIndex: u32, relocType: u32, addend: i64): bool {
+    if relaCount[0] >= len(relas) { return false }
+    let idx: usize = relaCount[0]
+    relas[idx].offset = offset
+    relas[idx].symIndex = symIndex
+    relas[idx].relocType = relocType
+    relas[idx].addend = addend
+    relaCount[0] = idx + 1 as usize
+    return true
+}
+
+function nqX64IsIdentChar(c: u8): bool {
+    if c >= 97 as u8 && c <= 122 as u8 { return true }
+    if c >= 65 as u8 && c <= 90 as u8 { return true }
+    if c >= 48 as u8 && c <= 57 as u8 { return true }
+    return c == 95 as u8
+}
+
+function nqX64TrimSpan(source: []u8, start: *usize, end: *usize): void {
+    while start[0] < end[0] && (source[start[0]] == 32 as u8 || source[start[0]] == 9 as u8 || source[start[0]] == 10 as u8 || source[start[0]] == 13 as u8) {
+        start[0] = start[0] + 1 as usize
+    }
+    while end[0] > start[0] && (source[end[0] - 1 as usize] == 32 as u8 || source[end[0] - 1 as usize] == 9 as u8 || source[end[0] - 1 as usize] == 10 as u8 || source[end[0] - 1 as usize] == 13 as u8) {
+        end[0] = end[0] - 1 as usize
+    }
+    return
+}
+
+function nqX64SpanEquals(source: []u8, start: usize, end: usize, lit: []u8): bool {
+    if end <= start || end - start != len(lit) { return false }
+    let i: usize = 0 as usize
+    while i < len(lit) {
+        if source[start + i] != lit[i] { return false }
+        i = i + 1 as usize
+    }
+    return true
+}
+
+function nqX64ParseUsize(source: []u8, start: usize, end: usize, out: *usize): bool {
+    if start >= end { return false }
+    let val: usize = 0 as usize
+    let i: usize = start
+    while i < end {
+        let c: u8 = source[i]
+        if c < 48 as u8 || c > 57 as u8 { return false }
+        val = val * 10 as usize + (c - 48 as u8) as usize
+        i = i + 1 as usize
+    }
+    out[0] = val
+    return true
+}
+
+// Resolves byte size and kind of a type name span from source (for zero-init calls).
+function nqX64ResolveTypeSize(source: []u8, rawStart: usize, rawEnd: usize,
+        recCache: []NqX64RecordSize, recCount: *usize,
+        outKind: *int, outElemCount: *usize): usize {
+    // outKind: 0=scalar/ptr, 1=slice/string, 2=array/record
+    let s: usize = rawStart
+    let e: usize = rawEnd
+    nqX64TrimSpan(source, &s, &e)
+    if s >= e { outKind[0] = 0 return 8 as usize }
+    if source[s] == 42 as u8 { outKind[0] = 0 return 8 as usize } // *T
+    if e - s >= 2 as usize && source[s] == 91 as u8 && source[s + 1 as usize] == 93 as u8 {
+        outKind[0] = 1
+        return 16 as usize
+    } // []T
+    let strLit: [u8; 6] = [115 as u8, 116 as u8, 114 as u8, 105 as u8, 110 as u8, 103 as u8]
+    if nqX64SpanEquals(source, s, e, slice(strLit)) { outKind[0] = 1 return 16 as usize }
+    let bLit: [u8; 4] = [98 as u8, 111 as u8, 111 as u8, 108 as u8]
+    let i8Lit: [u8; 2] = [105 as u8, 56 as u8]
+    let u8Lit: [u8; 2] = [117 as u8, 56 as u8]
+    if nqX64SpanEquals(source, s, e, slice(bLit)) || nqX64SpanEquals(source, s, e, slice(i8Lit)) || nqX64SpanEquals(source, s, e, slice(u8Lit)) { outKind[0] = 0 return 1 as usize }
+    let i16Lit: [u8; 3] = [105 as u8, 49 as u8, 54 as u8]
+    let u16Lit: [u8; 3] = [117 as u8, 49 as u8, 54 as u8]
+    if nqX64SpanEquals(source, s, e, slice(i16Lit)) || nqX64SpanEquals(source, s, e, slice(u16Lit)) { outKind[0] = 0 return 2 as usize }
+    let i32Lit: [u8; 3] = [105 as u8, 51 as u8, 50 as u8]
+    let u32Lit: [u8; 3] = [117 as u8, 51 as u8, 50 as u8]
+    if nqX64SpanEquals(source, s, e, slice(i32Lit)) || nqX64SpanEquals(source, s, e, slice(u32Lit)) { outKind[0] = 0 return 4 as usize }
+    let intLit: [u8; 3] = [105 as u8, 110 as u8, 116 as u8]
+    let i64Lit: [u8; 3] = [105 as u8, 54 as u8, 52 as u8]
+    let u64Lit: [u8; 3] = [117 as u8, 54 as u8, 52 as u8]
+    let iszLit: [u8; 5] = [105 as u8, 115 as u8, 105 as u8, 122 as u8, 101 as u8]
+    let uszLit: [u8; 5] = [117 as u8, 115 as u8, 105 as u8, 122 as u8, 101 as u8]
+    let fltLit: [u8; 5] = [102 as u8, 108 as u8, 111 as u8, 97 as u8, 116 as u8]
+    if nqX64SpanEquals(source, s, e, slice(intLit)) || nqX64SpanEquals(source, s, e, slice(i64Lit)) || nqX64SpanEquals(source, s, e, slice(u64Lit)) || nqX64SpanEquals(source, s, e, slice(iszLit)) || nqX64SpanEquals(source, s, e, slice(uszLit)) || nqX64SpanEquals(source, s, e, slice(fltLit)) {
+        outKind[0] = 0
+        return 8 as usize
+    }
+    if source[s] == 91 as u8 && source[e - 1 as usize] == 93 as u8 {
+        // [Elem; Count]
+        let semi: usize = e
+        let depth: int = 0
+        let k: usize = s
+        while k < e {
+            if source[k] == 91 as u8 { depth = depth + 1 }
+            else if source[k] == 93 as u8 { depth = depth - 1 }
+            else if source[k] == 59 as u8 && depth == 1 { semi = k }
+            k = k + 1 as usize
+        }
+        if semi < e {
+            let cntStart: usize = semi + 1 as usize
+            let cntEnd: usize = e - 1 as usize
+            nqX64TrimSpan(source, &cntStart, &cntEnd)
+            let cnt: usize = 0 as usize
+            if nqX64ParseUsize(source, cntStart, cntEnd, &cnt) {
+                let elemKind: int = 0
+                let elemSubCnt: usize = 0 as usize
+                let elemSize: usize = nqX64ResolveTypeSize(source, s + 1 as usize, semi, recCache, recCount, &elemKind, &elemSubCnt)
+                if elemKind == 1 { elemSize = 16 as usize }
+                outKind[0] = 2
+                outElemCount[0] = cnt
+                return elemSize * cnt
+            }
+        }
+    }
+    // Check record cache
+    let sym: u64 = nqNirSymbolId(source, s, e)
+    let c: usize = 0 as usize
+    while c < recCount[0] {
+        if recCache[c].symbol == sym {
+            outKind[0] = 2
+            outElemCount[0] = 0 as usize
+            return recCache[c].byteSize
+        }
+        c = c + 1 as usize
+    }
+    // Scan source for "record <Name> {"
+    let pos: usize = 0 as usize
+    let slen: usize = len(source)
+    let foundSize: usize = 0 as usize
+    while pos + 8 as usize < slen {
+        if source[pos] == 114 as u8 && source[pos + 1 as usize] == 101 as u8 && source[pos + 2 as usize] == 99 as u8 &&
+           source[pos + 3 as usize] == 111 as u8 && source[pos + 4 as usize] == 114 as u8 && source[pos + 5 as usize] == 100 as u8 &&
+           (pos == 0 as usize || !nqX64IsIdentChar(source[pos - 1 as usize])) &&
+           (source[pos + 6 as usize] == 32 as u8 || source[pos + 6 as usize] == 9 as u8) {
+            let ns: usize = pos + 7 as usize
+            while ns < slen && (source[ns] == 32 as u8 || source[ns] == 9 as u8) { ns = ns + 1 as usize }
+            let ne: usize = ns
+            while ne < slen && nqX64IsIdentChar(source[ne]) { ne = ne + 1 as usize }
+            if nqNirSymbolId(source, ns, ne) == sym {
+                let brace: usize = ne
+                while brace < slen && source[brace] != 123 as u8 { brace = brace + 1 as usize }
+                if brace < slen {
+                    let cur: usize = brace + 1 as usize
+                    let off: usize = 0 as usize
+                    let maxAlign: usize = 1 as usize
+                    while cur < slen && source[cur] != 125 as u8 {
+                        while cur < slen && (source[cur] == 32 as u8 || source[cur] == 9 as u8 || source[cur] == 10 as u8 || source[cur] == 13 as u8 || source[cur] == 44 as u8 || source[cur] == 59 as u8) {
+                            cur = cur + 1 as usize
+                        }
+                        if cur >= slen || source[cur] == 125 as u8 { break }
+                        // skip line comment
+                        if cur + 1 as usize < slen && source[cur] == 47 as u8 && source[cur + 1 as usize] == 47 as u8 {
+                            while cur < slen && source[cur] != 10 as u8 { cur = cur + 1 as usize }
+                            continue
+                        }
+                        while cur < slen && source[cur] != 58 as u8 && source[cur] != 125 as u8 { cur = cur + 1 as usize }
+                        if cur >= slen || source[cur] == 125 as u8 { break }
+                        cur = cur + 1 as usize // skip ':'
+                        let ts: usize = cur
+                        let bDepth: int = 0
+                        while cur < slen && (bDepth > 0 || (source[cur] != 10 as u8 && source[cur] != 13 as u8 && source[cur] != 44 as u8 && source[cur] != 59 as u8 && source[cur] != 125 as u8)) {
+                            if source[cur] == 91 as u8 { bDepth = bDepth + 1 }
+                            else if source[cur] == 93 as u8 && bDepth > 0 { bDepth = bDepth - 1 }
+                            cur = cur + 1 as usize
+                        }
+                        let fk: int = 0
+                        let fc: usize = 0 as usize
+                        let fSize: usize = nqX64ResolveTypeSize(source, ts, cur, recCache, recCount, &fk, &fc)
+                        let fAlign: usize = fSize
+                        if fk == 1 || fk == 2 { fAlign = 8 as usize }
+                        if fAlign > 8 as usize { fAlign = 8 as usize }
+                        if fAlign < 1 as usize { fAlign = 1 as usize }
+                        if fAlign > maxAlign { maxAlign = fAlign }
+                        off = nqX64AlignUp(off, fAlign)
+                        off = off + fSize
+                    }
+                    foundSize = nqX64AlignUp(off, maxAlign)
+                    if foundSize == 0 as usize { foundSize = 8 as usize }
+                    if recCount[0] < len(recCache) {
+                        recCache[recCount[0]].symbol = sym
+                        recCache[recCount[0]].byteSize = foundSize
+                        recCount[0] = recCount[0] + 1 as usize
+                    }
+                    outKind[0] = 2
+                    outElemCount[0] = 0 as usize
+                    return foundSize
+                }
+            }
+        }
+        pos = pos + 1 as usize
+    }
+    outKind[0] = 0
+    return 8 as usize
+}
+
+function nqX64FindOrAddString(source: []u8, start: usize, end: usize, nirSym: u64,
+        entries: []NqX64StringEntry, entryCount: *usize,
+        rodata: []u8, roPos: *usize,
+        data: []u8, dataPos: *usize,
+        dataRelas: []NqX64Rela, dataRelaCount: *usize,
+        rodataSymIdx: u32): isize {
+    let i: usize = 0 as usize
+    while i < entryCount[0] {
+        if entries[i].sourceStart == start && entries[i].sourceEnd == end {
+            return entries[i].dataOffset as isize
+        }
+        i = i + 1 as usize
+    }
+    if entryCount[0] >= len(entries) { return -1 as isize }
+    let roOff: usize = roPos[0]
+    // Decode string literal from source[start..end]
+    let p: usize = start
+    let q: usize = end
+    if q - p >= 2 as usize && source[p] == 34 as u8 && source[q - 1 as usize] == 34 as u8 {
+        p = p + 1 as usize
+        q = q - 1 as usize
+    }
+    let byteLen: usize = 0 as usize
+    while p < q {
+        let c: u8 = source[p]
+        if c == 92 as u8 && p + 1 as usize < q {
+            let n: u8 = source[p + 1 as usize]
+            if n == 110 as u8 { c = 10 as u8 p = p + 1 as usize }
+            else if n == 114 as u8 { c = 13 as u8 p = p + 1 as usize }
+            else if n == 116 as u8 { c = 9 as u8 p = p + 1 as usize }
+            else if n == 34 as u8 { c = 34 as u8 p = p + 1 as usize }
+            else if n == 92 as u8 { c = 92 as u8 p = p + 1 as usize }
+        }
+        if !nqX64Put8(rodata, roPos, c) { return -2 as isize }
+        byteLen = byteLen + 1 as usize
+        p = p + 1 as usize
+    }
+    if !nqX64Put8(rodata, roPos, 0 as u8) { return -2 as isize }
+    // Align .data to 8 bytes and emit 16-byte { ptr, len } descriptor
+    dataPos[0] = nqX64AlignUp(dataPos[0], 8 as usize)
+    let dOff: usize = dataPos[0]
+    if !nqX64PutU64(data, dataPos, 0 as u64) { return -2 as isize }
+    if !nqX64PutU64(data, dataPos, byteLen as u64) { return -2 as isize }
+    if !nqX64AddRela(dataRelas, dataRelaCount, dOff as u64, rodataSymIdx, 1 as u32, roOff as i64) { return -1 as isize }
+    let idx: usize = entryCount[0]
+    entries[idx].nirSymbol = nirSym
+    entries[idx].sourceStart = start
+    entries[idx].sourceEnd = end
+    entries[idx].dataOffset = dOff
+    entries[idx].rodataOffset = roOff
+    entries[idx].byteLen = byteLen
+    entryCount[0] = idx + 1 as usize
+    return dOff as isize
+}
+
+// Main multi-function ELF64 object emitter.
+// If entryAsNoqeriEntry is true and len(functions) == 1, exports the single function as "noqeri_entry".
+export function nqElfWriteModule64(buffer: []u8, target: int, source: []u8,
+        functions: []NqNirFunction, instructions: []NqNirInstruction,
+        entryAsNoqeriEntry: bool): isize {
+    if target != nqTargetLinuxX64() { return -1 as isize }
+    if len(functions) == 0 as usize { return -1 as isize }
+
+    // Section buffers (allocated via arena when compiled natively)
+    let textBuf: [u8; 4194304]
+    let rodataBuf: [u8; 524288]
+    let dataBuf: [u8; 524288]
+    let strtabBuf: [u8; 262144]
+    let textRelas: [NqX64Rela; 65536]
+    let dataRelas: [NqX64Rela; 16384]
+    let syms: [NqX64Sym; 16384]
+    let strEntries: [NqX64StringEntry; 8192]
+    let recCache: [NqX64RecordSize; 256]
+
+    let textPos: usize = 0 as usize
+    let rodataPos: usize = 0 as usize
+    let dataPos: usize = 0 as usize
+    let strtabPos: usize = 1 as usize // byte 0 is '\0'
+    let textRelaCount: usize = 0 as usize
+    let dataRelaCount: usize = 0 as usize
+    let symCount: usize = 1 as usize // sym 0 is STN_UNDEF
+    let strEntryCount: usize = 0 as usize
+    let recCount: usize = 0 as usize
+
+    // Section indices:
+    // 0: null, 1: .text, 2: .rodata, 3: .data, 4: .rela.text, 5: .rela.data, 6: .symtab, 7: .strtab, 8: .shstrtab
+    // Add local section symbols (syms 1, 2, 3)
+    let emptyName: [u8; 1]
+    let textSymIdx: isize = nqX64AddSym(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(emptyName, 0 as usize), 0x03 as u8, 1 as u16, 0 as u64, 0 as u64, 0 as u64)
+    let rodataSymIdx: isize = nqX64AddSym(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(emptyName, 0 as usize), 0x03 as u8, 2 as u16, 0 as u64, 0 as u64, 0 as u64)
+    let dataSymIdx: isize = nqX64AddSym(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(emptyName, 0 as usize), 0x03 as u8, 3 as u16, 0 as u64, 0 as u64, 0 as u64)
+    if textSymIdx < 0 as isize || rodataSymIdx < 0 as isize || dataSymIdx < 0 as isize { return -3 as isize }
+
+    // Pre-register all internal functions as local symbols first, and exported functions after locals.
+    // ELF requires all STB_LOCAL symbols to precede STB_GLOBAL symbols in .symtab (sh_info = first non-local).
+    let fnLocalSymIdx: [usize; 8192]
+    let fnStartOff: [usize; 8192]
+    let fnIsExport: [bool; 8192]
+
+    let fIdx: usize = 0 as usize
+    while fIdx < len(functions) {
+        let fn: *NqNirFunction = &functions[fIdx]
+        let isExp: bool = (fn.flags % 2 as u32) == 1 as u32 || (entryAsNoqeriEntry && len(functions) == 1 as usize)
+        fnIsExport[fIdx] = isExp
+        fnStartOff[fIdx] = 0 as usize
+        fnLocalSymIdx[fIdx] = 0 as usize
+        if !isExp {
+            let nameLen: usize = fn.nameEnd - fn.nameStart
+            let nameBuf: [u8; 256]
+            if nameLen > 255 as usize { nameLen = 255 as usize }
+            let k: usize = 0 as usize
+            while k < nameLen { nameBuf[k] = source[fn.nameStart + k] k = k + 1 as usize }
+            let si: isize = nqX64AddSym(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(nameBuf, nameLen), 0x02 as u8, 1 as u16, 0 as u64, 0 as u64, fn.symbol)
+            if si < 0 as isize { return -3 as isize }
+            fnLocalSymIdx[fIdx] = si as usize
+        }
+        fIdx = fIdx + 1 as usize
+    }
+    let firstGlobalSym: usize = symCount
+    let entryName: [u8; 12] = [110 as u8, 111 as u8, 113 as u8, 101 as u8, 114 as u8, 105 as u8, 95 as u8, 101 as u8, 110 as u8, 116 as u8, 114 as u8, 121 as u8]
+    fIdx = 0 as usize
+    while fIdx < len(functions) {
+        if fnIsExport[fIdx] {
+            let fn: *NqNirFunction = &functions[fIdx]
+            let si: isize = 0 as isize
+            if entryAsNoqeriEntry && len(functions) == 1 as usize {
+                si = nqX64AddSym(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(entryName), 0x12 as u8, 1 as u16, 0 as u64, 0 as u64, fn.symbol)
+            } else {
+                let nameLen: usize = fn.nameEnd - fn.nameStart
+                let nameBuf: [u8; 256]
+                if nameLen > 255 as usize { nameLen = 255 as usize }
+                let k: usize = 0 as usize
+                while k < nameLen { nameBuf[k] = source[fn.nameStart + k] k = k + 1 as usize }
+                si = nqX64AddSym(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(nameBuf, nameLen), 0x12 as u8, 1 as u16, 0 as u64, 0 as u64, fn.symbol)
+            }
+            if si < 0 as isize { return -3 as isize }
+            fnLocalSymIdx[fIdx] = si as usize
+        }
+        fIdx = fIdx + 1 as usize
+    }
+
+    // Lazy runtime helper extern indices (-1 until referenced)
+    let rtMarkName: [u8; 16] = [110 as u8, 113 as u8, 95 as u8, 114 as u8, 116 as u8, 95 as u8, 97 as u8, 114 as u8, 101 as u8, 110 as u8, 97 as u8, 95 as u8, 109 as u8, 97 as u8, 114 as u8, 107 as u8]
+    let rtAllocName: [u8; 17] = [110 as u8, 113 as u8, 95 as u8, 114 as u8, 116 as u8, 95 as u8, 97 as u8, 114 as u8, 101 as u8, 110 as u8, 97 as u8, 95 as u8, 97 as u8, 108 as u8, 108 as u8, 111 as u8, 99 as u8]
+    let rtResetName: [u8; 17] = [110 as u8, 113 as u8, 95 as u8, 114 as u8, 116 as u8, 95 as u8, 97 as u8, 114 as u8, 101 as u8, 110 as u8, 97 as u8, 95 as u8, 114 as u8, 101 as u8, 115 as u8, 101 as u8, 116 as u8]
+    let rtBoundsName: [u8; 17] = [110 as u8, 113 as u8, 95 as u8, 114 as u8, 116 as u8, 95 as u8, 98 as u8, 111 as u8, 117 as u8, 110 as u8, 100 as u8, 115 as u8, 95 as u8, 116 as u8, 114 as u8, 97 as u8, 112 as u8]
+    let rtPrintName: [u8; 15] = [110 as u8, 113 as u8, 95 as u8, 114 as u8, 116 as u8, 95 as u8, 112 as u8, 114 as u8, 105 as u8, 110 as u8, 116 as u8, 95 as u8, 105 as u8, 54 as u8, 52 as u8]
+    let symArenaMark: isize = -1 as isize
+    let symArenaAlloc: isize = -1 as isize
+    let symArenaReset: isize = -1 as isize
+    let symBoundsTrap: isize = -1 as isize
+    let symPrintInt: isize = -1 as isize
+
+    let lenName: [u8; 3] = [108 as u8, 101 as u8, 110 as u8]
+    let sliceName: [u8; 5] = [115 as u8, 108 as u8, 105 as u8, 99 as u8, 101 as u8]
+    let printName: [u8; 5] = [112 as u8, 114 as u8, 105 as u8, 110 as u8, 116 as u8]
+    let nativeMainName: [u8; 19] = [110 as u8, 113 as u8, 78 as u8, 97 as u8, 116 as u8, 105 as u8, 118 as u8, 101 as u8, 77 as u8, 97 as u8, 105 as u8, 110 as u8, 67 as u8, 111 as u8, 109 as u8, 112 as u8, 105 as u8, 108 as u8, 101 as u8]
+    let symLenId: u64 = nqNirSymbolId(slice(lenName), 0 as usize, 3 as usize)
+    let symSliceId: u64 = nqNirSymbolId(slice(sliceName), 0 as usize, 5 as usize)
+    let symPrintId: u64 = nqNirSymbolId(slice(printName), 0 as usize, 5 as usize)
+    let symNativeMainId: u64 = nqNirSymbolId(slice(nativeMainName), 0 as usize, 19 as usize)
+
+    // Per-function scratch tables
+    let regArrayLen: [usize; 65536]
+    let regIsSlice: [bool; 65536]
+    let regAddrVar: [isize; 65536]
+    let varSymbols: [u64; 2048]
+    let varIsPtr: [bool; 2048]
+    let varIsSlice: [bool; 2048]
+    let varArrayLen: [usize; 2048]
+    let instrOffsets: [usize; 32769]
+    let jumpPatches: [NqX64JumpPatch; 16384]
+    let pendingArgRegs: [isize; 64]
+
+    fIdx = 0 as usize
+    while fIdx < len(functions) {
+        let fn: *NqNirFunction = &functions[fIdx]
+        textPos = nqX64AlignUp(textPos, 16 as usize)
+        let fnCodeStart: usize = textPos
+        fnStartOff[fIdx] = fnCodeStart
+        syms[fnLocalSymIdx[fIdx]].value = fnCodeStart as u64
+
+        let firstPc: usize = fn.firstInstruction
+        let countPc: usize = fn.instructionCount
+        if countPc > 32768 as usize { return -41 as isize }
+
+        // Pass 1: discover maxReg, local variable symbols, stack allocations, slice slots, and arena usage.
+        let maxReg: isize = 0 as isize
+        let varCount: usize = 0 as usize
+        let smallAllocCount: usize = 0 as usize
+        let smallAllocBytesTotal: usize = 0 as usize
+        let sliceSlotCount: usize = 0 as usize
+        let usesArena: bool = false
+        let hasBoundsCheck: bool = false
+
+        let allocSlotDisp: [usize; 32768]
+        let sliceSlotDisp: [usize; 32768]
+
+        let pc: usize = 0 as usize
+        while pc < countPc {
+            let ins: *NqNirInstruction = &instructions[firstPc + pc]
+            if ins.dest > maxReg { maxReg = ins.dest }
+            if ins.left > maxReg { maxReg = ins.left }
+            if ins.right > maxReg { maxReg = ins.right }
+            if ins.dest >= 0 as isize && ins.dest < 65536 as isize {
+                regAddrVar[ins.dest as usize] = -1 as isize
+            }
+            if ins.opcode == nqNirLoad() || ins.opcode == nqNirStore() || ins.opcode == nqNirAddr() {
+                let vi: usize = 0 as usize
+                let foundVar: bool = false
+                while vi < varCount {
+                    if varSymbols[vi] == ins.symbol { foundVar = true break }
+                    vi = vi + 1 as usize
+                }
+                if !foundVar {
+                    if varCount >= 2048 as usize { return -42 as isize }
+                    varSymbols[varCount] = ins.symbol
+                    varIsPtr[varCount] = false
+                    varIsSlice[varCount] = false
+                    varArrayLen[varCount] = 0 as usize
+                    varCount = varCount + 1 as usize
+                }
+                if ins.opcode == nqNirAddr() && ins.dest >= 0 as isize && ins.dest < 65536 as isize {
+                    regAddrVar[ins.dest as usize] = vi as isize
+                }
+            }
+            if ins.opcode == nqNirMove() && ins.dest >= 0 as isize && ins.dest < 65536 as isize && ins.left >= 0 as isize && ins.left < 65536 as isize {
+                regAddrVar[ins.dest as usize] = regAddrVar[ins.left as usize]
+            }
+            if ins.opcode == nqNirPtrAdd() && ins.left >= 0 as isize && ins.left < 65536 as isize {
+                let avi: isize = regAddrVar[ins.left as usize]
+                if avi >= 0 as isize {
+                    varIsPtr[avi as usize] = true
+                }
+            }
+            if ins.opcode == nqNirBoundsCheck() { hasBoundsCheck = true }
+            if ins.opcode == nqNirStackAlloc() {
+                let sz: usize = ins.width
+                if sz == 0 as usize { sz = 8 as usize }
+                if sz > 4096 as usize { usesArena = true }
+                else { smallAllocBytesTotal = smallAllocBytesTotal + nqX64AlignUp(sz, 16 as usize) }
+                smallAllocCount = smallAllocCount + 1 as usize
+            }
+            if ins.opcode == nqNirMakeSlice() {
+                sliceSlotCount = sliceSlotCount + 1 as usize
+            }
+            if ins.opcode == nqNirCall() {
+                if ins.symbol == symSliceId {
+                    sliceSlotCount = sliceSlotCount + 1 as usize
+                } else if ins.width == 0 as usize {
+                    // Check if zero-init type
+                    let isInternal: bool = false
+                    let fi2: usize = 0 as usize
+                    while fi2 < len(functions) {
+                        if functions[fi2].symbol == ins.symbol { isInternal = true break }
+                        fi2 = fi2 + 1 as usize
+                    }
+                    if !isInternal && ins.sourceEnd > ins.sourceStart {
+                        let zk: int = 0
+                        let zc: usize = 0 as usize
+                        let zsz: usize = nqX64ResolveTypeSize(source, ins.sourceStart, ins.sourceEnd, slice(recCache), &recCount, &zk, &zc)
+                        if zk == 1 { sliceSlotCount = sliceSlotCount + 1 as usize }
+                        else if zk == 2 {
+                            if zsz > 4096 as usize { usesArena = true }
+                            else { smallAllocBytesTotal = smallAllocBytesTotal + nqX64AlignUp(zsz, 16 as usize) }
+                        }
+                    }
+                }
+            }
+            pc = pc + 1 as usize
+        }
+
+        let numRegs: usize = (maxReg + 1 as isize) as usize
+        if numRegs > 65536 as usize { return -43 as isize }
+        let ri: usize = 0 as usize
+        while ri < numRegs { regArrayLen[ri] = 0 as usize regIsSlice[ri] = false ri = ri + 1 as usize }
+
+        // Frame layout (all negative offsets from rbp):
+        // [reg slots: numRegs * 8] + [var slots: varCount * 8] + [arenaMark: 8] + [slice slots: sliceSlotCount * 16] + [smallAllocs]
+        let frameOff: usize = 0 as usize
+        let regBaseOff: usize = 8 as usize
+        frameOff = numRegs * 8 as usize
+        let varBaseOff: usize = frameOff + 8 as usize
+        frameOff = frameOff + varCount * 8 as usize
+        let arenaMarkDisp: usize = 0 as usize
+        if usesArena {
+            frameOff = frameOff + 8 as usize
+            arenaMarkDisp = frameOff
+        }
+        let nextSliceDisp: usize = frameOff
+        frameOff = frameOff + sliceSlotCount * 16 as usize
+        let nextAllocDisp: usize = frameOff
+        frameOff = frameOff + smallAllocBytesTotal
+        let frameSize: usize = nqX64AlignUp(frameOff, 16 as usize)
+
+        // Prologue: push rbp; mov rbp, rsp; sub rsp, frameSize
+        if !nqX64Put8(slice(textBuf), &textPos, 0x55 as u8) { return -2 as isize }
+        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x89 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xe5 as u8) { return -2 as isize }
+        if frameSize > 0 as usize {
+            if !nqX64EmitSubRsp32(slice(textBuf), &textPos, frameSize) { return -2 as isize }
+        }
+        if usesArena {
+            if symArenaMark < 0 as isize {
+                symArenaMark = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtMarkName), 0 as u64)
+                if symArenaMark < 0 as isize { return -3 as isize }
+            }
+            if !nqX64EmitPushReg(slice(textBuf), &textPos, 7) || !nqX64EmitPushReg(slice(textBuf), &textPos, 6) { return -2 as isize }
+            if !nqX64EmitPushReg(slice(textBuf), &textPos, 2) || !nqX64EmitPushReg(slice(textBuf), &textPos, 1) { return -2 as isize }
+            if !nqX64EmitPushReg(slice(textBuf), &textPos, 8) || !nqX64EmitPushReg(slice(textBuf), &textPos, 9) { return -2 as isize }
+            if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+            if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, symArenaMark as u32, 4 as u32, -4 as i64) { return -3 as isize }
+            if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+            if !nqX64EmitStoreRbp(slice(textBuf), &textPos, arenaMarkDisp, 0) { return -2 as isize }
+            if !nqX64EmitPopReg(slice(textBuf), &textPos, 9) || !nqX64EmitPopReg(slice(textBuf), &textPos, 8) { return -2 as isize }
+            if !nqX64EmitPopReg(slice(textBuf), &textPos, 1) || !nqX64EmitPopReg(slice(textBuf), &textPos, 2) { return -2 as isize }
+            if !nqX64EmitPopReg(slice(textBuf), &textPos, 6) || !nqX64EmitPopReg(slice(textBuf), &textPos, 7) { return -2 as isize }
+        }
+
+        // Save incoming ABI register parameters (0..5) to stack or handle them in nqNirParameter
+        // We save rdi..r9 into a small param area? Even simpler: Parameter instructions are at the very top of the function before any calls!
+        // Still, if a function has >1 param or calls before Parameter, let's save up to 6 reg params?
+        // In lower.noqeri, Parameter instructions are ALWAYS emitted at the start of the function before the body.
+        // To be 100% safe even if anything touches rdi..r9, we can read Parameter directly from rdi..r9 if pc < 16, OR save them!
+        // Actually, let's reserve 6*8=48 bytes? No, Parameter is emitted at pc 0..paramCount-1!
+        let jumpPatchCount: usize = 0 as usize
+        let boundsFailPatches: [usize; 8192]
+        let boundsFailCount: usize = 0 as usize
+        let pendingCount: usize = 0 as usize
+
+        pc = 0 as usize
+        while pc < countPc {
+            instrOffsets[pc] = textPos
+            let ins: *NqNirInstruction = &instructions[firstPc + pc]
+            let op: int = ins.opcode
+
+            if op == nqNirNop() || op == nqNirLabel() {
+                // no-op
+            } else if op == nqNirParameter() {
+                let pIdx: usize = ins.immediate as usize
+                if pIdx < 6 as usize {
+                    let preg: int = nqX64AbiArgReg(pIdx)
+                    if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, preg) { return -2 as isize }
+                } else {
+                    let stackDisp: usize = 16 as usize + (pIdx - 6 as usize) * 8 as usize
+                    if !nqX64EmitLoadRbpPos(slice(textBuf), &textPos, 0, stackDisp) { return -2 as isize }
+                    if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                }
+            } else if op == nqNirConstI64() {
+                if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, ins.immediate) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirConstF64() {
+                let fval: float = ins.floatImmediate
+                let fptr: *float = &fval
+                let uptr: *u64 = fptr as *u64
+                if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, uptr[0] as i64) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirConstString() {
+                let dOff: isize = nqX64FindOrAddString(source, ins.sourceStart, ins.sourceEnd, ins.symbol,
+                    slice(strEntries), &strEntryCount, slice(rodataBuf), &rodataPos,
+                    slice(dataBuf), &dataPos, slice(dataRelas), &dataRelaCount, rodataSymIdx as u32)
+                if dOff < 0 as isize { return dOff }
+                // lea rax, [rip + disp32] -> 48 8d 05 disp32
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8d as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x05 as u8) { return -2 as isize }
+                if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, dataSymIdx as u32, 2 as u32, dOff as i64 - 4 as i64) { return -3 as isize }
+                if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                regIsSlice[ins.dest as usize] = true
+            } else if op == nqNirMove() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                regArrayLen[ins.dest as usize] = regArrayLen[ins.left as usize]
+                regIsSlice[ins.dest as usize] = regIsSlice[ins.left as usize]
+            } else if op == nqNirCast() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                let tc: int = ins.typeCode
+                if tc == nqAstTypeU8() {
+                    // movzx eax, al -> 0f b6 c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xb6 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                } else if tc == nqAstTypeI8() {
+                    // movsx rax, al -> 48 0f be c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xbe as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                } else if tc == nqAstTypeU16() {
+                    // movzx eax, ax -> 0f b7 c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xb7 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                } else if tc == nqAstTypeI16() {
+                    // movsx rax, ax -> 48 0f bf c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xbf as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                } else if tc == nqAstTypeU32() {
+                    // mov eax, eax -> 89 c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x89 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                } else if tc == nqAstTypeI32() {
+                    // movsxd rax, eax -> 48 63 c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x63 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirLoad() {
+                let vi: usize = 0 as usize
+                while vi < varCount && varSymbols[vi] != ins.symbol { vi = vi + 1 as usize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, varBaseOff + vi * 8 as usize) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                regArrayLen[ins.dest as usize] = varArrayLen[vi]
+                regIsSlice[ins.dest as usize] = varIsSlice[vi]
+            } else if op == nqNirStore() {
+                let vi: usize = 0 as usize
+                while vi < varCount && varSymbols[vi] != ins.symbol { vi = vi + 1 as usize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, varBaseOff + vi * 8 as usize, 0) { return -2 as isize }
+                if regArrayLen[ins.left as usize] > 0 as usize {
+                    varIsPtr[vi] = true
+                    varArrayLen[vi] = regArrayLen[ins.left as usize]
+                }
+                if regIsSlice[ins.left as usize] {
+                    varIsSlice[vi] = true
+                }
+            } else if op == nqNirAddr() {
+                let vi: usize = 0 as usize
+                while vi < varCount && varSymbols[vi] != ins.symbol { vi = vi + 1 as usize }
+                if varIsPtr[vi] {
+                    if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, varBaseOff + vi * 8 as usize) { return -2 as isize }
+                } else {
+                    if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 0, varBaseOff + vi * 8 as usize) { return -2 as isize }
+                }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirStackAlloc() {
+                let sz: usize = ins.width
+                if sz == 0 as usize { sz = 8 as usize }
+                if (ins.flags / nqNirFlagArrayLength()) % 2 as u32 == 1 as u32 {
+                    regArrayLen[ins.dest as usize] = ins.immediate as usize
+                } else {
+                    regArrayLen[ins.dest as usize] = 1 as usize
+                }
+                if sz > 4096 as usize {
+                    if symArenaAlloc < 0 as isize {
+                        symArenaAlloc = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtAllocName), 0 as u64)
+                        if symArenaAlloc < 0 as isize { return -3 as isize }
+                    }
+                    if !nqX64EmitMovImm64(slice(textBuf), &textPos, 7, sz as i64) { return -2 as isize }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+                    if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, symArenaAlloc as u32, 4 as u32, -4 as i64) { return -3 as isize }
+                    if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+                    if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                } else {
+                    let alignedSz: usize = nqX64AlignUp(sz, 16 as usize)
+                    nextAllocDisp = nextAllocDisp + alignedSz
+                    let disp: usize = nextAllocDisp
+                    // Zero with rep stosq: lea rdi, [rbp-disp]; xor eax, eax; mov rcx, alignedSz/8; rep stosq
+                    if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 7, disp) { return -2 as isize }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x31 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                    if !nqX64EmitMovImm64(slice(textBuf), &textPos, 1, (alignedSz / 8 as usize) as i64) { return -2 as isize }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0xf3 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xab as u8) { return -2 as isize }
+                    if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 0, disp) { return -2 as isize }
+                    if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                }
+            } else if op == nqNirPtrAdd() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 1, regBaseOff + (ins.right as usize) * 8 as usize) { return -2 as isize }
+                let w: usize = ins.width
+                if w == 0 as usize { w = 1 as usize }
+                if w > 1 as usize {
+                    if !nqX64EmitMovImm64(slice(textBuf), &textPos, 2, w as i64) { return -2 as isize }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xaf as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xca as u8) { return -2 as isize } // imul rcx, rdx
+                }
+                if !nqX64EmitAluRR(slice(textBuf), &textPos, 0x01 as u8, 0, 1) { return -2 as isize } // add rax, rcx
+                if ins.immediate != 0 as i64 {
+                    if !nqX64EmitMovImm64(slice(textBuf), &textPos, 1, ins.immediate) { return -2 as isize }
+                    if !nqX64EmitAluRR(slice(textBuf), &textPos, 0x01 as u8, 0, 1) { return -2 as isize }
+                }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirLoadMemory() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                let w: usize = ins.width
+                let tc: int = ins.typeCode
+                let isSigned: bool = tc == nqAstTypeI8() || tc == nqAstTypeI16() || tc == nqAstTypeI32()
+                if w == 1 as usize {
+                    if isSigned {
+                        // movsx rax, BYTE PTR [rax] -> 48 0f be 00
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xbe as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                    } else {
+                        // movzx eax, BYTE PTR [rax] -> 0f b6 00
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xb6 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                    }
+                } else if w == 2 as usize {
+                    if isSigned {
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xbf as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                    } else {
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xb7 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                    }
+                } else if w == 4 as usize {
+                    if isSigned {
+                        // movsxd rax, DWORD PTR [rax] -> 48 63 00
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x63 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                    } else {
+                        // mov eax, DWORD PTR [rax] -> 8b 00
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                    }
+                } else {
+                    // mov rax, QWORD PTR [rax] -> 48 8b 00
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize }
+                }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirStoreMemory() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 1, regBaseOff + (ins.right as usize) * 8 as usize) { return -2 as isize }
+                let w: usize = ins.width
+                if w == 1 as usize {
+                    // mov BYTE PTR [rax], cl -> 88 08
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x88 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                } else if w == 2 as usize {
+                    // mov WORD PTR [rax], cx -> 66 89 08
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x66 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x89 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                } else if w == 4 as usize {
+                    // mov DWORD PTR [rax], ecx -> 89 08
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x89 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                } else {
+                    // mov QWORD PTR [rax], rcx -> 48 89 08
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x89 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                }
+            } else if op == nqNirSliceData() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x00 as u8) { return -2 as isize } // mov rax, [rax]
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirSliceLen() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x40 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize } // mov rax, [rax+8]
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirMakeSlice() {
+                let sDisp: usize = nextSliceDisp + 16 as usize
+                nextSliceDisp = nextSliceDisp + 16 as usize
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp, 0) { return -2 as isize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.right as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp - 8 as usize, 0) { return -2 as isize }
+                if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 0, sDisp) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                regIsSlice[ins.dest as usize] = true
+            } else if op == nqNirBoundsCheck() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 1, regBaseOff + (ins.right as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitAluRR(slice(textBuf), &textPos, 0x39 as u8, 0, 1) { return -2 as isize } // cmp rax, rcx
+                if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x83 as u8) { return -2 as isize } // jae rel32
+                if boundsFailCount >= 8192 as usize { return -44 as isize }
+                boundsFailPatches[boundsFailCount] = textPos
+                boundsFailCount = boundsFailCount + 1 as usize
+                if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+            } else if op >= nqNirAdd() && op <= nqNirMod() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 1, regBaseOff + (ins.right as usize) * 8 as usize) { return -2 as isize }
+                let isUns: bool = (ins.flags / nqNirFlagUnsigned()) % 2 as u32 == 1 as u32
+                if ins.typeCode == nqAstTypeFloat() {
+                    // movq xmm0, rax (66 48 0f 6e c0); movq xmm1, rcx (66 48 0f 6e c9)
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x66 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x6e as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x66 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x6e as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc9 as u8) { return -2 as isize }
+                    let sseOp: u8 = 0x58 as u8 // addsd
+                    if op == nqNirSub() { sseOp = 0x5c as u8 }
+                    else if op == nqNirMul() { sseOp = 0x59 as u8 }
+                    else if op == nqNirDiv() { sseOp = 0x5e as u8 }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0xf2 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, sseOp) || !nqX64Put8(slice(textBuf), &textPos, 0xc1 as u8) { return -2 as isize }
+                    // movq rax, xmm0 -> 66 48 0f 7e c0
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x66 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x7e as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                } else if op == nqNirAdd() {
+                    if !nqX64EmitAluRR(slice(textBuf), &textPos, 0x01 as u8, 0, 1) { return -2 as isize }
+                } else if op == nqNirSub() {
+                    if !nqX64EmitAluRR(slice(textBuf), &textPos, 0x29 as u8, 0, 1) { return -2 as isize }
+                } else if op == nqNirMul() {
+                    if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xaf as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc1 as u8) { return -2 as isize }
+                } else {
+                    // Div or Mod
+                    if isUns {
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x31 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xd2 as u8) { return -2 as isize } // xor edx, edx
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xf7 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xf1 as u8) { return -2 as isize } // div rcx
+                    } else {
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x99 as u8) { return -2 as isize } // cqo
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xf7 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xf9 as u8) { return -2 as isize } // idiv rcx
+                    }
+                    if op == nqNirMod() {
+                        if !nqX64EmitMovRR(slice(textBuf), &textPos, 0, 2) { return -2 as isize } // mov rax, rdx
+                    }
+                }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirNeg() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                // neg rax -> 48 f7 d8
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xf7 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xd8 as u8) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirNot() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                // test rax, rax; sete al; movzx eax, al -> 48 85 c0 0f 94 c0 0f b6 c0
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x85 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x94 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xb6 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op >= nqNirEq() && op <= nqNirGe() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 1, regBaseOff + (ins.right as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64EmitAluRR(slice(textBuf), &textPos, 0x39 as u8, 0, 1) { return -2 as isize } // cmp rax, rcx
+                let isUns: bool = (ins.flags / nqNirFlagUnsigned()) % 2 as u32 == 1 as u32
+                let cc: u8 = 0x94 as u8 // sete
+                if op == nqNirNe() { cc = 0x95 as u8 }
+                else if op == nqNirLt() { if isUns { cc = 0x92 as u8 } else { cc = 0x9c as u8 } }
+                else if op == nqNirLe() { if isUns { cc = 0x96 as u8 } else { cc = 0x9e as u8 } }
+                else if op == nqNirGt() { if isUns { cc = 0x97 as u8 } else { cc = 0x9f as u8 } }
+                else if op == nqNirGe() { if isUns { cc = 0x93 as u8 } else { cc = 0x9d as u8 } }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, cc) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xb6 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirJump() {
+                if !nqX64Put8(slice(textBuf), &textPos, 0xe9 as u8) { return -2 as isize }
+                if jumpPatchCount >= 16384 as usize { return -45 as isize }
+                jumpPatches[jumpPatchCount].codeOffset = textPos
+                jumpPatches[jumpPatchCount].targetLocalPc = (ins.immediate as usize) - firstPc
+                jumpPatchCount = jumpPatchCount + 1 as usize
+                if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+            } else if op == nqNirBranch() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                // test rax, rax; jz rel32 -> 48 85 c0 0f 84 disp32
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x85 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x84 as u8) { return -2 as isize }
+                if jumpPatchCount >= 16384 as usize { return -46 as isize }
+                jumpPatches[jumpPatchCount].codeOffset = textPos
+                jumpPatches[jumpPatchCount].targetLocalPc = (ins.immediate as usize) - firstPc
+                jumpPatchCount = jumpPatchCount + 1 as usize
+                if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+            } else if op == nqNirCallArg() {
+                let aIdx: usize = ins.immediate as usize
+                if aIdx >= 64 as usize { return -47 as isize }
+                pendingArgRegs[aIdx] = ins.left
+                if aIdx + 1 as usize > pendingCount { pendingCount = aIdx + 1 as usize }
+            } else if op == nqNirCall() {
+                let arity: usize = ins.width
+                if ins.symbol == symLenId && arity == 1 as usize {
+                    let argR: isize = pendingArgRegs[0]
+                    if regArrayLen[argR as usize] > 0 as usize {
+                        if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, regArrayLen[argR as usize] as i64) { return -2 as isize }
+                    } else {
+                        if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (argR as usize) * 8 as usize) { return -2 as isize }
+                        if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x40 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                    }
+                    if ins.dest >= 0 as isize {
+                        if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                    }
+                    pendingCount = 0 as usize
+                } else if ins.symbol == symSliceId && (arity == 1 as usize || arity == 2 as usize) {
+                    let argR: isize = pendingArgRegs[0]
+                    let sDisp: usize = nextSliceDisp + 16 as usize
+                    nextSliceDisp = nextSliceDisp + 16 as usize
+                    if regArrayLen[argR as usize] > 0 as usize {
+                        if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (argR as usize) * 8 as usize) { return -2 as isize }
+                        if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp, 0) { return -2 as isize }
+                        if arity == 2 as usize {
+                            if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (pendingArgRegs[1] as usize) * 8 as usize) { return -2 as isize }
+                        } else {
+                            if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, regArrayLen[argR as usize] as i64) { return -2 as isize }
+                        }
+                        if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp - 8 as usize, 0) { return -2 as isize }
+                    } else {
+                        if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (argR as usize) * 8 as usize) { return -2 as isize }
+                        if arity == 2 as usize && fn.symbol == symNativeMainId {
+                            // rcx = rax (raw pointer from nqNativeMainCompile sourcePtr/outPtr)
+                            if !nqX64EmitMovRR(slice(textBuf), &textPos, 1, 0) { return -2 as isize }
+                        } else {
+                            // rcx = [rax] (dereference slice descriptor data pointer)
+                            if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                        }
+                        if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp, 1) { return -2 as isize }
+                        if arity == 2 as usize {
+                            if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (pendingArgRegs[1] as usize) * 8 as usize) { return -2 as isize }
+                        } else {
+                            // rax = [rax + 8]
+                            if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x8b as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x40 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x08 as u8) { return -2 as isize }
+                        }
+                        if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp - 8 as usize, 0) { return -2 as isize }
+                    }
+                    if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 0, sDisp) { return -2 as isize }
+                    if ins.dest >= 0 as isize {
+                        if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                        regIsSlice[ins.dest as usize] = true
+                    }
+                    pendingCount = 0 as usize
+                } else {
+                    // Check if internal function
+                    let targetFnIdx: isize = -1 as isize
+                    let fi2: usize = 0 as usize
+                    while fi2 < len(functions) {
+                        if functions[fi2].symbol == ins.symbol { targetFnIdx = fi2 as isize break }
+                        fi2 = fi2 + 1 as usize
+                    }
+                    if targetFnIdx < 0 as isize && arity == 0 as usize && ins.sourceEnd > ins.sourceStart {
+                        // Zero-init call!
+                        let zk: int = 0
+                        let zc: usize = 0 as usize
+                        let zsz: usize = nqX64ResolveTypeSize(source, ins.sourceStart, ins.sourceEnd, slice(recCache), &recCount, &zk, &zc)
+                        if zk == 0 {
+                            if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, 0 as i64) { return -2 as isize }
+                            if ins.dest >= 0 as isize {
+                                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                            }
+                        } else if zk == 1 {
+                            let sDisp: usize = nextSliceDisp + 16 as usize
+                            nextSliceDisp = nextSliceDisp + 16 as usize
+                            if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, 0 as i64) { return -2 as isize }
+                            if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp, 0) { return -2 as isize }
+                            if !nqX64EmitStoreRbp(slice(textBuf), &textPos, sDisp - 8 as usize, 0) { return -2 as isize }
+                            if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 0, sDisp) { return -2 as isize }
+                            if ins.dest >= 0 as isize {
+                                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                                regIsSlice[ins.dest as usize] = true
+                            }
+                        } else {
+                            if zc > 0 as usize { regArrayLen[ins.dest as usize] = zc }
+                            else { regArrayLen[ins.dest as usize] = 1 as usize }
+                            if zsz > 4096 as usize {
+                                if symArenaAlloc < 0 as isize {
+                                    symArenaAlloc = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtAllocName), 0 as u64)
+                                    if symArenaAlloc < 0 as isize { return -3 as isize }
+                                }
+                                if !nqX64EmitMovImm64(slice(textBuf), &textPos, 7, zsz as i64) { return -2 as isize }
+                                if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+                                if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, symArenaAlloc as u32, 4 as u32, -4 as i64) { return -3 as isize }
+                                if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+                                if ins.dest >= 0 as isize {
+                                    if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                                }
+                            } else {
+                                if zsz == 0 as usize { zsz = 8 as usize }
+                                let alignedZsz: usize = nqX64AlignUp(zsz, 16 as usize)
+                                nextAllocDisp = nextAllocDisp + alignedZsz
+                                let disp: usize = nextAllocDisp
+                                if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 7, disp) { return -2 as isize }
+                                if !nqX64Put8(slice(textBuf), &textPos, 0x31 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                                if !nqX64EmitMovImm64(slice(textBuf), &textPos, 1, (alignedZsz / 8 as usize) as i64) { return -2 as isize }
+                                if !nqX64Put8(slice(textBuf), &textPos, 0xf3 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xab as u8) { return -2 as isize }
+                                if !nqX64EmitLeaRbp(slice(textBuf), &textPos, 0, disp) { return -2 as isize }
+                                if ins.dest >= 0 as isize {
+                                    if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                                }
+                            }
+                        }
+                        pendingCount = 0 as usize
+                    } else {
+                        // Normal ABI call
+                        let stackArgs: usize = 0 as usize
+                        if arity > 6 as usize { stackArgs = arity - 6 as usize }
+                        let stackPad: usize = 0 as usize
+                        if stackArgs % 2 as usize == 1 as usize {
+                            stackPad = 8 as usize
+                            if !nqX64EmitSubRsp32(slice(textBuf), &textPos, 8 as usize) { return -2 as isize }
+                        }
+                        let ai: usize = arity
+                        while ai > 6 as usize {
+                            ai = ai - 1 as usize
+                            if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (pendingArgRegs[ai] as usize) * 8 as usize) { return -2 as isize }
+                            if !nqX64EmitPushReg(slice(textBuf), &textPos, 0) { return -2 as isize }
+                        }
+                        let regArgs: usize = arity
+                        if regArgs > 6 as usize { regArgs = 6 as usize }
+                        ai = 0 as usize
+                        while ai < regArgs {
+                            if !nqX64EmitLoadRbp(slice(textBuf), &textPos, nqX64AbiArgReg(ai), regBaseOff + (pendingArgRegs[ai] as usize) * 8 as usize) { return -2 as isize }
+                            ai = ai + 1 as usize
+                        }
+                        let callSym: isize = 0 as isize
+                        if ins.symbol == symPrintId {
+                            if symPrintInt < 0 as isize {
+                                symPrintInt = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtPrintName), 0 as u64)
+                                if symPrintInt < 0 as isize { return -3 as isize }
+                            }
+                            callSym = symPrintInt
+                        } else if targetFnIdx >= 0 as isize {
+                            callSym = fnLocalSymIdx[targetFnIdx as usize] as isize
+                        } else {
+                            let nameLen: usize = ins.sourceEnd - ins.sourceStart
+                            let nameBuf: [u8; 256]
+                            if nameLen > 255 as usize { nameLen = 255 as usize }
+                            let k: usize = 0 as usize
+                            while k < nameLen { nameBuf[k] = source[ins.sourceStart + k] k = k + 1 as usize }
+                            callSym = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(nameBuf, nameLen), ins.symbol)
+                            if callSym < 0 as isize { return -3 as isize }
+                        }
+                        if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+                        if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, callSym as u32, 4 as u32, -4 as i64) { return -3 as isize }
+                        if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+                        if stackArgs > 0 as usize || stackPad > 0 as usize {
+                            if !nqX64EmitAddRsp32(slice(textBuf), &textPos, stackArgs * 8 as usize + stackPad) { return -2 as isize }
+                        }
+                        if ins.dest >= 0 as isize {
+                            if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+                        }
+                        pendingCount = 0 as usize
+                    }
+                }
+            } else if op == nqNirReturn() {
+                if ins.left >= 0 as isize {
+                    if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                } else {
+                    if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, 0 as i64) { return -2 as isize }
+                }
+                if usesArena {
+                    if symArenaReset < 0 as isize {
+                        symArenaReset = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtResetName), 0 as u64)
+                        if symArenaReset < 0 as isize { return -3 as isize }
+                    }
+                    if !nqX64EmitPushReg(slice(textBuf), &textPos, 0) { return -2 as isize }
+                    if !nqX64EmitSubRsp32(slice(textBuf), &textPos, 8 as usize) { return -2 as isize }
+                    if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 7, arenaMarkDisp) { return -2 as isize }
+                    if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+                    if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, symArenaReset as u32, 4 as u32, -4 as i64) { return -3 as isize }
+                    if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+                    if !nqX64EmitAddRsp32(slice(textBuf), &textPos, 8 as usize) { return -2 as isize }
+                    if !nqX64EmitPopReg(slice(textBuf), &textPos, 0) { return -2 as isize }
+                }
+                if !nqX64Put8(slice(textBuf), &textPos, 0xc9 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc3 as u8) { return -2 as isize }
+            } else if op == nqNirTry() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                // test rax, rax; jns +2; leave; ret -> 48 85 c0 79 02 c9 c3
+                if !nqX64Put8(slice(textBuf), &textPos, 0x48 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x85 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc0 as u8) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0x79 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x02 as u8) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0xc9 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc3 as u8) { return -2 as isize }
+                if !nqX64EmitStoreRbp(slice(textBuf), &textPos, regBaseOff + (ins.dest as usize) * 8 as usize, 0) { return -2 as isize }
+            } else if op == nqNirThrow() {
+                if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 0, regBaseOff + (ins.left as usize) * 8 as usize) { return -2 as isize }
+                if !nqX64Put8(slice(textBuf), &textPos, 0xc9 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc3 as u8) { return -2 as isize }
+            } else if op == nqNirOverflowCheck() {
+                // Overflow checks are handled inline or no-op
+            } else {
+                return -1 as isize
+            }
+            pc = pc + 1 as usize
+        }
+
+        instrOffsets[countPc] = textPos
+        if !nqX64EmitMovImm64(slice(textBuf), &textPos, 0, 0 as i64) { return -2 as isize }
+        if usesArena {
+            if symArenaReset < 0 as isize {
+                symArenaReset = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtResetName), 0 as u64)
+                if symArenaReset < 0 as isize { return -3 as isize }
+            }
+            if !nqX64EmitPushReg(slice(textBuf), &textPos, 0) { return -2 as isize }
+            if !nqX64EmitSubRsp32(slice(textBuf), &textPos, 8 as usize) { return -2 as isize }
+            if !nqX64EmitLoadRbp(slice(textBuf), &textPos, 7, arenaMarkDisp) { return -2 as isize }
+            if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+            if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, symArenaReset as u32, 4 as u32, -4 as i64) { return -3 as isize }
+            if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+            if !nqX64EmitAddRsp32(slice(textBuf), &textPos, 8 as usize) { return -2 as isize }
+            if !nqX64EmitPopReg(slice(textBuf), &textPos, 0) { return -2 as isize }
+        }
+        if !nqX64Put8(slice(textBuf), &textPos, 0xc9 as u8) || !nqX64Put8(slice(textBuf), &textPos, 0xc3 as u8) { return -2 as isize }
+
+        // Emit cold bounds-check trap stub if needed
+        if hasBoundsCheck {
+            if symBoundsTrap < 0 as isize {
+                symBoundsTrap = nqX64FindOrAddExtern(slice(syms), &symCount, slice(strtabBuf), &strtabPos, slice(rtBoundsName), 0 as u64)
+                if symBoundsTrap < 0 as isize { return -3 as isize }
+            }
+            let trapOff: usize = textPos
+            if !nqX64Put8(slice(textBuf), &textPos, 0xe8 as u8) { return -2 as isize }
+            if !nqX64AddRela(slice(textRelas), &textRelaCount, textPos as u64, symBoundsTrap as u32, 4 as u32, -4 as i64) { return -3 as isize }
+            if !nqX64PutI32(slice(textBuf), &textPos, 0 as i64) { return -2 as isize }
+            if !nqX64Put8(slice(textBuf), &textPos, 0x0f as u8) || !nqX64Put8(slice(textBuf), &textPos, 0x0b as u8) { return -2 as isize } // ud2
+            let bi: usize = 0 as usize
+            while bi < boundsFailCount {
+                let pOff: usize = boundsFailPatches[bi]
+                if !nqX64PatchI32(slice(textBuf), pOff, trapOff as i64 - (pOff as i64 + 4 as i64)) { return -3 as isize }
+                bi = bi + 1 as usize
+            }
+        }
+
+        // Patch all internal jumps/branches in this function
+        let ji: usize = 0 as usize
+        while ji < jumpPatchCount {
+            let pOff: usize = jumpPatches[ji].codeOffset
+            let targetPc: usize = jumpPatches[ji].targetLocalPc
+            if targetPc > countPc { return -31 as isize }
+            let targetAddr: usize = instrOffsets[targetPc]
+            if !nqX64PatchI32(slice(textBuf), pOff, targetAddr as i64 - (pOff as i64 + 4 as i64)) { return -3 as isize }
+            ji = ji + 1 as usize
+        }
+
+        syms[fnLocalSymIdx[fIdx]].size = (textPos - fnCodeStart) as u64
+        fIdx = fIdx + 1 as usize
+    }
+
+    // Build .shstrtab: "\0.text\0.rodata\0.data\0.rela.text\0.rela.data\0.symtab\0.strtab\0.shstrtab\0"
+    let shstrtab: [u8; 71] = [
+        0 as u8,
+        46 as u8, 116 as u8, 101 as u8, 120 as u8, 116 as u8, 0 as u8,
+        46 as u8, 114 as u8, 111 as u8, 100 as u8, 97 as u8, 116 as u8, 97 as u8, 0 as u8,
+        46 as u8, 100 as u8, 97 as u8, 116 as u8, 97 as u8, 0 as u8,
+        46 as u8, 114 as u8, 101 as u8, 108 as u8, 97 as u8, 46 as u8, 116 as u8, 101 as u8, 120 as u8, 116 as u8, 0 as u8,
+        46 as u8, 114 as u8, 101 as u8, 108 as u8, 97 as u8, 46 as u8, 100 as u8, 97 as u8, 116 as u8, 97 as u8, 0 as u8,
+        46 as u8, 115 as u8, 121 as u8, 109 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8,
+        46 as u8, 115 as u8, 116 as u8, 114 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8,
+        46 as u8, 115 as u8, 104 as u8, 115 as u8, 116 as u8, 114 as u8, 116 as u8, 97 as u8, 98 as u8, 0 as u8,
+        0 as u8, 0 as u8
+    ]
+    let shstrtabLen: usize = 69 as usize
+
+    // Compute file layout:
+    // 64 bytes ELF header + 9 * 64 = 576 bytes section headers -> 640 bytes
+    let textStart: usize = 640 as usize
+    let rodataStart: usize = nqX64AlignUp(textStart + textPos, 16 as usize)
+    let dataStart: usize = nqX64AlignUp(rodataStart + rodataPos, 16 as usize)
+    let relaTextStart: usize = nqX64AlignUp(dataStart + dataPos, 8 as usize)
+    let relaTextBytes: usize = textRelaCount * 24 as usize
+    let relaDataStart: usize = nqX64AlignUp(relaTextStart + relaTextBytes, 8 as usize)
+    let relaDataBytes: usize = dataRelaCount * 24 as usize
+    let symtabStart: usize = nqX64AlignUp(relaDataStart + relaDataBytes, 8 as usize)
+    let symtabBytes: usize = symCount * 24 as usize
+    let strtabStart: usize = symtabStart + symtabBytes
+    let shstrtabStart: usize = strtabStart + strtabPos
+    let totalBytes: usize = shstrtabStart + shstrtabLen
+
+    if len(buffer) < totalBytes { return -2 as isize }
+    if !nqObjectZero(buffer, 0 as usize, totalBytes) { return -2 as isize }
+    if nqElfWriteHeader64(buffer, 0 as usize, target, 64 as u64, 9 as usize, 8 as usize) != 64 as isize { return -3 as isize }
+
+    // Section 1: .text (nameOff=1, SHT_PROGBITS=1, SHF_ALLOC|SHF_EXECINSTR=6)
+    if !nqElfWriteSectionHeader64(buffer, 128 as usize, 1 as u32, 1 as u32, 6 as u64, textStart as u64, textPos as u64, 0 as u32, 0 as u32, 16 as u64, 0 as u64) { return -3 as isize }
+    // Section 2: .rodata (nameOff=7, SHT_PROGBITS=1, SHF_ALLOC=2)
+    if !nqElfWriteSectionHeader64(buffer, 192 as usize, 7 as u32, 1 as u32, 2 as u64, rodataStart as u64, rodataPos as u64, 0 as u32, 0 as u32, 16 as u64, 0 as u64) { return -3 as isize }
+    // Section 3: .data (nameOff=15, SHT_PROGBITS=1, SHF_ALLOC|SHF_WRITE=3)
+    if !nqElfWriteSectionHeader64(buffer, 256 as usize, 15 as u32, 1 as u32, 3 as u64, dataStart as u64, dataPos as u64, 0 as u32, 0 as u32, 8 as u64, 0 as u64) { return -3 as isize }
+    // Section 4: .rela.text (nameOff=21, SHT_RELA=4, link=6 (.symtab), info=1 (.text))
+    if !nqElfWriteSectionHeader64(buffer, 320 as usize, 21 as u32, 4 as u32, 0x40 as u64, relaTextStart as u64, relaTextBytes as u64, 6 as u32, 1 as u32, 8 as u64, 24 as u64) { return -3 as isize }
+    // Section 5: .rela.data (nameOff=32, SHT_RELA=4, link=6 (.symtab), info=3 (.data))
+    if !nqElfWriteSectionHeader64(buffer, 384 as usize, 32 as u32, 4 as u32, 0x40 as u64, relaDataStart as u64, relaDataBytes as u64, 6 as u32, 3 as u32, 8 as u64, 24 as u64) { return -3 as isize }
+    // Section 6: .symtab (nameOff=43, SHT_SYMTAB=2, link=7 (.strtab), info=firstGlobalSym)
+    if !nqElfWriteSectionHeader64(buffer, 448 as usize, 43 as u32, 2 as u32, 0 as u64, symtabStart as u64, symtabBytes as u64, 7 as u32, firstGlobalSym as u32, 8 as u64, 24 as u64) { return -3 as isize }
+    // Section 7: .strtab (nameOff=51, SHT_STRTAB=3)
+    if !nqElfWriteSectionHeader64(buffer, 512 as usize, 51 as u32, 3 as u32, 0 as u64, strtabStart as u64, strtabPos as u64, 0 as u32, 0 as u32, 1 as u64, 0 as u64) { return -3 as isize }
+    // Section 8: .shstrtab (nameOff=59, SHT_STRTAB=3)
+    if !nqElfWriteSectionHeader64(buffer, 576 as usize, 59 as u32, 3 as u32, 0 as u64, shstrtabStart as u64, shstrtabLen as u64, 0 as u32, 0 as u32, 1 as u64, 0 as u64) { return -3 as isize }
+
+    // Copy section bytes
+    let ci: usize = 0 as usize
+    while ci < textPos { buffer[textStart + ci] = textBuf[ci] ci = ci + 1 as usize }
+    ci = 0 as usize
+    while ci < rodataPos { buffer[rodataStart + ci] = rodataBuf[ci] ci = ci + 1 as usize }
+    ci = 0 as usize
+    while ci < dataPos { buffer[dataStart + ci] = dataBuf[ci] ci = ci + 1 as usize }
+    ci = 0 as usize
+    while ci < strtabPos { buffer[strtabStart + ci] = strtabBuf[ci] ci = ci + 1 as usize }
+    ci = 0 as usize
+    while ci < shstrtabLen { buffer[shstrtabStart + ci] = shstrtab[ci] ci = ci + 1 as usize }
+
+    // Write .rela.text & .rela.data (Elf64_Rela: r_offset(8), r_info(8 = (sym<<32)|type), r_addend(8))
+    let rPos: usize = relaTextStart
+    ci = 0 as usize
+    while ci < textRelaCount {
+        if !nqX64PutU64(buffer, &rPos, textRelas[ci].offset) { return -3 as isize }
+        if !nqX64Put32(buffer, &rPos, textRelas[ci].relocType) { return -3 as isize }
+        if !nqX64Put32(buffer, &rPos, textRelas[ci].symIndex) { return -3 as isize }
+        if !nqX64PutI64(buffer, &rPos, textRelas[ci].addend) { return -3 as isize }
+        ci = ci + 1 as usize
+    }
+    rPos = relaDataStart
+    ci = 0 as usize
+    while ci < dataRelaCount {
+        if !nqX64PutU64(buffer, &rPos, dataRelas[ci].offset) { return -3 as isize }
+        if !nqX64Put32(buffer, &rPos, dataRelas[ci].relocType) { return -3 as isize }
+        if !nqX64Put32(buffer, &rPos, dataRelas[ci].symIndex) { return -3 as isize }
+        if !nqX64PutI64(buffer, &rPos, dataRelas[ci].addend) { return -3 as isize }
+        ci = ci + 1 as usize
+    }
+
+    // Write .symtab (Elf64_Sym: st_name(4), st_info(1), st_other(1), st_shndx(2), st_value(8), st_size(8))
+    let sPos: usize = symtabStart
+    ci = 0 as usize
+    while ci < symCount {
+        if !nqX64Put32(buffer, &sPos, syms[ci].nameOff) { return -3 as isize }
+        if !nqX64Put8(buffer, &sPos, syms[ci].info) { return -3 as isize }
+        if !nqX64Put8(buffer, &sPos, syms[ci].other) { return -3 as isize }
+        if !nqX64Put16(buffer, &sPos, syms[ci].shndx) { return -3 as isize }
+        if !nqX64PutU64(buffer, &sPos, syms[ci].value) { return -3 as isize }
+        if !nqX64PutU64(buffer, &sPos, syms[ci].size) { return -3 as isize }
+        ci = ci + 1 as usize
+    }
+
+    return totalBytes as isize
+}

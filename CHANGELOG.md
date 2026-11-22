@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5 — 2026-11-22 (native self-hosting and direct native optimizations)
+
+- Full native self-hosting achieved on Linux x86-64 with automated bit-for-bit Stage-4 == Stage-5 reproducibility verification.
+- Direct Native Backend optimization lifecycle:
+  - Eliminated trampoline branch stubs and live-range elongation through in-place phi copy placement.
+  - Linear-scan register allocation priority tuned for active loop registers with constant 32-bit immediate filtering.
+  - Direct pointer register forward propagation in LoadMemory, StoreMemory, and PtrOffset addressing modes.
+  - Multi-language benchmark suite: Direct Native execution optimized across Modulo, Matrix multiplication, Insertion sort, and Image buffer rendering.
+  - Universal version alignment to 0.1.5 across manifests, CMake, headers, documentation, and build targets.
+
 ### 2026-10-26 — verified Stage-2 bytecode parity and native AI bindings
 
 - Fixed Stage-0 record/array address-of corruption, validated with AddressSanitizer and executable Stage-2 parser/NIR regression.

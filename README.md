@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.4 developer preview" src="https://img.shields.io/badge/version-0.1.4%20preview-F59E0B"></a>
+  <a href="https://github.com/EMN90909/Noqeri/blob/main/CHANGELOG.md"><img alt="Version 0.1.5 developer preview" src="https://img.shields.io/badge/version-0.1.5%20preview-F59E0B"></a>
   <a href="LICENSE"><img alt="GPL toolchain, Apache libraries" src="https://img.shields.io/badge/license-GPL--3.0--only-2563EB"></a>
   <a href="Doc/PRODUCTION_READINESS.md"><img alt="Experimental development" src="https://img.shields.io/badge/readiness-experimental-64748B"></a>
 </p>
@@ -27,7 +27,7 @@
 
 Noqeri is an evolving **statically typed, general-purpose programming language** developed by [Noethric](https://noethric.xyz). It combines inferred local variables and a compact application-oriented syntax with lower-level capabilities such as fixed-width integers, pointers, slices, atomics, native interfaces and explicit compiler targets.
 
-This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.4`, an experimental developer preview, not a production-qualified release.** See [v0.1.4 scope and release gates](Doc/V0_1_4_RELEASE.md) and [component-specific licenses](LICENSES.md).
+This repository contains the working **C++17 Stage-0 compiler**, Noqeri-written compiler modules, the NQRI virtual machine, libraries, test infrastructure and experimental browser, graphics and distributed-computing subsystems. Their maturity is not uniform. **The current source version is `0.1.5`, an experimental developer preview, not a production-qualified release.** See [component-specific licenses](LICENSES.md).
 
 ## AI Framework (experimental add-on)
 
@@ -358,7 +358,7 @@ node scripts/qualify-release.mjs
 
 ## Project status
 
-**Development version: `0.1.4`.** Version on `main`: 0.1.4. The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
+**Development version: `0.1.5`.** Version on `main`: 0.1.5. The version is declared by `CMakeLists.txt`, `Include/noqeri/version.hpp` and `project.nqon`. It is **not** a published `1.0` stability claim.
 
 Current priorities include native Stage-2 compiler parity, broader conformance and portability evidence, qualified GPU/graphics execution, secure distributed recovery and completed Registry/NoeSQL integration. The repository contains working components and meaningful tests, but that is **not equivalent to a production-certified toolchain**.
 

@@ -216,7 +216,7 @@ static int append_wal(nq_pgas_server *s, uint32_t slot, int64_t value) {
   int rc = wal_write_all(s->wal_fd, record, sizeof(record));
   if (!rc && fsync(s->wal_fd) != 0) rc = -errno;
   if (rc) {
-    ftruncate(s->wal_fd, end);
+    if (ftruncate(s->wal_fd, end) != 0) { /* best effort rollback */ }
     lseek(s->wal_fd, 0, SEEK_END);
     return rc;
   }

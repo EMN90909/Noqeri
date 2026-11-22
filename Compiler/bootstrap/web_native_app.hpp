@@ -1325,10 +1325,12 @@ void serveApp(const fs::path& input,int port,const fs::path& stateFile,const cha
         std::lock_guard<std::mutex> lock(rateGuard);
         const auto now=std::chrono::steady_clock::now();
         // Bound memory, including when callers rotate bearer identities.
-        if(requestBudgets.size()>1024)
-            for(auto it=requestBudgets.begin();it!=requestBudgets.end();)
+        if(requestBudgets.size()>1024) {
+            for(auto it=requestBudgets.begin();it!=requestBudgets.end();) {
                 if(now-it->second.start>=std::chrono::minutes(1))it=requestBudgets.erase(it);
                 else ++it;
+            }
+        }
         if(requestBudgets.size()>=2048&&!requestBudgets.count(principal))return false;
         auto& budget=requestBudgets[principal];
         if(now-budget.start>=std::chrono::minutes(1)) {
