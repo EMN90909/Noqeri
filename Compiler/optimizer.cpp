@@ -2364,38 +2364,26 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
         next=std::max(next,static_cast<Reg>(*in.dest+1));
     }
     std::unordered_map<std::size_t,Key> fallthroughEdges;
-    for(const auto& [key,edge]:edges)if(edge.fallthrough){
-        if(!fallthroughEdges.emplace(edge.tail,key).second)return false;
-    }
-    std::vector<NirInstruction> rebuilt;
-    rebuilt.reserve(n+edges.size()*8);
-    std::vector<std::size_t> remap(n+1,0);
-    std::unordered_map<std::size_t,std::size_t> insertedJump;
-    for(std::size_t pc=0;pc<n;++pc){
-        remap[pc]=rebuilt.size();
-        rebuilt.push_back(fn.code[pc]);
-        if(fallthroughEdges.count(pc)){
-            insertedJump.emplace(pc,rebuilt.size());
-            NirInstruction jump;jump.op=NirOp::Jump;
-            rebuilt.push_back(std::move(jump));
+    std::unordered_map<std::size_t,Key> jumpEdges;
+    for(const auto& [key,edge]:edges){
+        if(edge.fallthrough){
+            if(!fallthroughEdges.emplace(edge.tail,key).second)return false;
+        }else if(fn.code[edge.tail].op==NirOp::Jump){
+            if(!jumpEdges.emplace(edge.tail,key).second)return false;
         }
     }
-    remap[n]=rebuilt.size();
-    bool requiresStaging=false;
-    for(const auto& [key,edge]:edges){
-        for(const auto& copy:edge.copies)
-            if(copy.source!=copy.dest &&
-               destinations.count(copy.source)){
-                requiresStaging=true;break;
+    auto emitEdgeCopies=[&](const Edge& edge, std::vector<NirInstruction>& out)->bool{
+        std::unordered_set<Reg> edgeDests;
+        for(const auto& copy:edge.copies)edgeDests.insert(copy.dest);
+        bool edgeNeedsStaging=false;
+        for(const auto& copy:edge.copies){
+            if(copy.source!=copy.dest && edgeDests.count(copy.source)){
+                edgeNeedsStaging=true;
+                break;
             }
-        if(requiresStaging)break;
-    }
-    for(auto& [key,edge]:edges){
-        edge.stub=rebuilt.size();
+        }
         std::vector<Reg> staged;
-        if(requiresStaging){
-            // Read all original sources before writing ANY destination,
-            // including swaps and longer parallel-copy cycles.
+        if(edgeNeedsStaging){
             for(const auto& copy:edge.copies){
                 if(copy.source==copy.dest){
                     staged.push_back(copy.source);
@@ -2409,14 +2397,14 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
                 save.op=NirOp::Cast;save.dest=temporary;
                 save.args={copy.source};save.type=copy.type;
                 save.text=copy.cast;
-                rebuilt.push_back(std::move(save));
+                out.push_back(std::move(save));
                 staged.push_back(temporary);
             }
         }
         for(std::size_t i=0;i<edge.copies.size();++i){
             const auto& copy=edge.copies[i];
             if(copy.source==copy.dest)continue;
-            const Reg source=requiresStaging?staged[i]:copy.source;
+            const Reg source=edgeNeedsStaging?staged[i]:copy.source;
             if(source==copy.dest)continue;
             NirInstruction assign;
             assign.op=NirOp::Cast;
@@ -2424,27 +2412,59 @@ bool lowerPhiNodes(NirFunction& fn,const std::vector<NirPhiNode>& phis){
             assign.args={source};
             assign.type=copy.type;
             assign.text=copy.cast;
-            rebuilt.push_back(std::move(assign));
+            out.push_back(std::move(assign));
         }
+        return true;
+    };
+    std::vector<NirInstruction> rebuilt;
+    rebuilt.reserve(n+edges.size()*8);
+    std::vector<std::size_t> remap(n+1,0);
+    std::unordered_map<std::size_t,std::size_t> jumpInstructionPos;
+    std::vector<std::pair<std::size_t,std::size_t>> insertedFallthroughJumps;
+    for(std::size_t pc=0;pc<n;++pc){
+        const auto itJump=jumpEdges.find(pc);
+        if(itJump!=jumpEdges.end()){
+            remap[pc]=rebuilt.size();
+            if(!emitEdgeCopies(edges.at(itJump->second),rebuilt))return false;
+            jumpInstructionPos[pc]=rebuilt.size();
+            rebuilt.push_back(fn.code[pc]);
+        }else{
+            remap[pc]=rebuilt.size();
+            rebuilt.push_back(fn.code[pc]);
+            const auto itFall=fallthroughEdges.find(pc);
+            if(itFall!=fallthroughEdges.end()){
+                const auto& edge=edges.at(itFall->second);
+                if(!emitEdgeCopies(edge,rebuilt))return false;
+                insertedFallthroughJumps.push_back({rebuilt.size(),edge.succ});
+                NirInstruction jump;jump.op=NirOp::Jump;
+                rebuilt.push_back(std::move(jump));
+            }
+        }
+    }
+    remap[n]=rebuilt.size();
+    for(auto& [key,edge]:edges){
+        if(edge.fallthrough||fn.code[edge.tail].op==NirOp::Jump)continue;
+        edge.stub=rebuilt.size();
+        if(!emitEdgeCopies(edge,rebuilt))return false;
         NirInstruction branch;
         branch.op=NirOp::Jump;
         branch.target=remap[g.spans[edge.succ].first];
         rebuilt.push_back(std::move(branch));
     }
-    // Convert old targets to new PCs, except when a taken edge must
-    // enter its dedicated copy block instead of the old successor.
     for(std::size_t pc=0;pc<n;++pc){
-        auto& in=rebuilt[remap[pc]];
+        const auto itPos=jumpInstructionPos.find(pc);
+        const std::size_t targetPos=itPos!=jumpInstructionPos.end()?itPos->second:remap[pc];
+        auto& in=rebuilt[targetPos];
         if(in.op!=NirOp::Jump&&in.op!=NirOp::JumpIfFalse)continue;
         const auto original=in.target;
         const auto key=Key{g.owner[pc],g.owner[original]};
         const auto it=edges.find(key);
-        if(it!=edges.end()&&!it->second.fallthrough)
+        if(it!=edges.end()&&it->second.stub!=0)
             in.target=it->second.stub;
         else in.target=remap[original];
     }
-    for(const auto& [tail,key]:fallthroughEdges){
-        rebuilt[insertedJump.at(tail)].target=edges.at(key).stub;
+    for(const auto& [pos,succ]:insertedFallthroughJumps){
+        rebuilt[pos].target=remap[g.spans[succ].first];
     }
     result.nextReg=next;
     result.code=std::move(rebuilt);

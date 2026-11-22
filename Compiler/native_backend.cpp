@@ -90,9 +90,11 @@ void emitUnsignedConstantDivision(std::ostream& out,std::uint64_t divisor,
     if(magic.shift)out<<"    shr rax, "<<magic.shift<<"\n";
     if(remainder){
         // n - q*d: low 64 bits suffice, and exact q*d never exceeds n.
-        out<<"    mov r10, "<<divisor<<"\n"
-           <<"    imul rax, r10\n"
-           <<"    sub r11, rax\n"
+        if(divisor<=static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+            out<<"    imul rax, rax, "<<divisor<<"\n";
+        else
+            out<<"    mov r10, "<<divisor<<"\n    imul rax, r10\n";
+        out<<"    sub r11, rax\n"
            <<"    mov rax, r11\n";
     }
 }
@@ -324,23 +326,6 @@ void emitLoadWidth(std::ostream&out,std::size_t width,bool signExtend=false){
     else out<<"    mov rax, QWORD PTR [rax]\n";
 }
 void emitStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    mov BYTE PTR [rax], r10b\n";else if(width==2)out<<"    mov WORD PTR [rax], r10w\n";else if(width==4)out<<"    mov DWORD PTR [rax], r10d\n";else out<<"    mov QWORD PTR [rax], r10\n";}
-// A single-use PtrOffset feeding an adjacent memory instruction does not
-// require an intermediate LEA or virtual pointer register. Keep the operand
-// width/sign rules identical to ordinary LoadMemory and StoreMemory.
-void emitIndexedLoad(std::ostream&out,std::size_t width,bool signedValue,std::size_t scale){
-    const std::string address="[rax + r11*"+std::to_string(scale)+"]";
-    if(width==1)out<<(signedValue?"    movsx rax, BYTE PTR ":"    movzx eax, BYTE PTR ")<<address<<"\n";
-    else if(width==2)out<<(signedValue?"    movsx rax, WORD PTR ":"    movzx eax, WORD PTR ")<<address<<"\n";
-    else if(width==4)out<<(signedValue?"    movsxd rax, DWORD PTR ":"    mov eax, DWORD PTR ")<<address<<"\n";
-    else out<<"    mov rax, QWORD PTR "<<address<<"\n";
-}
-void emitIndexedStore(std::ostream&out,std::size_t width,std::size_t scale){
-    const std::string address="[rax + r11*"+std::to_string(scale)+"]";
-    if(width==1)out<<"    mov BYTE PTR "<<address<<", r10b\n";
-    else if(width==2)out<<"    mov WORD PTR "<<address<<", r10w\n";
-    else if(width==4)out<<"    mov DWORD PTR "<<address<<", r10d\n";
-    else out<<"    mov QWORD PTR "<<address<<", r10\n";
-}
 void emitExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n    movzx eax, r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n    movzx eax, r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n    mov eax, r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n    mov rax, r10\n";}
 void emitAtomicStoreWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    xchg BYTE PTR [rax], r10b\n";else if(width==2)out<<"    xchg WORD PTR [rax], r10w\n";else if(width==4)out<<"    xchg DWORD PTR [rax], r10d\n";else out<<"    xchg QWORD PTR [rax], r10\n";}
 void emitCompareExchangeWidth(std::ostream&out,std::size_t width){if(width==1)out<<"    lock cmpxchg BYTE PTR [r10], cl\n    movzx eax, al\n";else if(width==2)out<<"    lock cmpxchg WORD PTR [r10], cx\n    movzx eax, ax\n";else if(width==4)out<<"    lock cmpxchg DWORD PTR [r10], ecx\n    mov eax, eax\n";else out<<"    lock cmpxchg QWORD PTR [r10], rcx\n";}
@@ -696,8 +681,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         const auto& pointer=fn.code[pc];
         if(pointer.op!=NirOp::PtrOffset||!pointer.dest||
            pointer.args.size()!=2||
-           (pointer.width!=1&&pointer.width!=2&&
-            pointer.width!=4&&pointer.width!=8)||
+           pointer.width!=8||
            *pointer.dest>=useCounts.size()||
            useCounts[*pointer.dest]!=1)
             continue;
@@ -706,6 +690,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         if(nextPc<fn.code.size()&&!jumpTargets.count(nextPc)){
             const auto& access=fn.code[nextPc];
             if((access.op==NirOp::LoadMemory||access.op==NirOp::StoreMemory)&&
+               access.width==8&&
                !access.args.empty()&&access.args[0]==*pointer.dest)
                 fusedPointers.insert(pc);
         }
@@ -1050,29 +1035,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         return "QWORD PTR ["+baseReg+" + "+indexReg+"*"+
                std::to_string(pointer.width)+"]";
     };
-    std::unordered_map<Reg,std::size_t> ptrOffsetDefs;
-    for(std::size_t p=0;p<fn.code.size();++p){
-        if(fn.code[p].op==NirOp::PtrOffset&&fn.code[p].dest)
-            ptrOffsetDefs[*fn.code[p].dest]=p;
-    }
-    for(const auto& [reg,defPc]:ptrOffsetDefs){
-        const auto& pointer=fn.code[defPc];
-        if(pointer.width!=8||!fixedStackAddress(pointer))continue;
-        bool allMemoryUses=true;
-        std::size_t uses=0;
-        for(std::size_t u=defPc+1;u<fn.code.size();++u){
-            for(std::size_t argIdx=0;argIdx<fn.code[u].args.size();++argIdx){
-                if(fn.code[u].args[argIdx]==reg){
-                    ++uses;
-                    if((fn.code[u].op!=NirOp::LoadMemory&&fn.code[u].op!=NirOp::StoreMemory)||argIdx!=0||fn.code[u].width!=8){
-                        allMemoryUses=false;break;
-                    }
-                }
-            }
-            if(!allMemoryUses)break;
-        }
-        if(allMemoryUses&&uses>0)fusedPointers.insert(defPc);
-    }
+
     std::vector<std::string> coldTrapLabels;
     std::vector<std::string> coldBoundsTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
@@ -1203,21 +1166,21 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     stackAddr=fixedStackAddress(fn.code[priorPc-1]);
                     if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
-                if(!stackAddr){
-                    const auto def=ptrOffsetDefs.find(i.args[0]);
-                    if(def!=ptrOffsetDefs.end())
-                        stackAddr=fixedStackAddress(fn.code[def->second]);
-                }
             }
             if(stackAddr){
                 if(directQword)
                     out<<"    mov "<<destination->second<<", "<<*stackAddr<<"\n";
                 else out<<"    mov rax, "<<*stackAddr<<"\n";
             }else{
-                load(i.args[0],"rax");
+                const auto basePhys=physical.find(i.args[0]);
+                const std::string baseReg=basePhys!=physical.end()?basePhys->second:"rax";
+                if(basePhys==physical.end())load(i.args[0],"rax");
                 if(directQword)
-                    out<<"    mov "<<destination->second<<", QWORD PTR [rax]\n";
-                else emitLoadWidth(out,i.width,sign);
+                    out<<"    mov "<<destination->second<<", QWORD PTR ["<<baseReg<<"]\n";
+                else{
+                    if(baseReg!="rax")out<<"    mov rax, "<<baseReg<<"\n";
+                    emitLoadWidth(out,i.width,sign);
+                }
             }
             if(!directQword)store(*i.dest,"rax");
         }break;
@@ -1234,11 +1197,6 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     stackAddr=fixedStackAddress(fn.code[priorPc-1]);
                     if(!stackAddr)stackAddr=registerIndexedAddress(fn.code[priorPc-1]);
                 }
-                if(!stackAddr){
-                    const auto def=ptrOffsetDefs.find(i.args[0]);
-                    if(def!=ptrOffsetDefs.end())
-                        stackAddr=fixedStackAddress(fn.code[def->second]);
-                }
             }
             if(stackAddr){
                 if(directQword)
@@ -1248,21 +1206,54 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     out<<"    mov "<<*stackAddr<<", r10\n";
                 }
             }else{
-                load(i.args[0],"rax");
+                const auto basePhys=physical.find(i.args[0]);
+                const std::string baseReg=basePhys!=physical.end()?basePhys->second:"rax";
+                if(basePhys==physical.end())load(i.args[0],"rax");
                 if(directQword)
-                    out<<"    mov QWORD PTR [rax], "<<value->second<<"\n";
+                    out<<"    mov QWORD PTR ["<<baseReg<<"], "<<value->second<<"\n";
                 else{
                     load(i.args[1],"r10");
+                    if(baseReg!="rax")out<<"    mov rax, "<<baseReg<<"\n";
                     emitStoreWidth(out,i.width);
                 }
             }
         }break;
-        case NirOp::PtrOffset:if(fusedPointers.count(pc))break;else if(i.dest&&!i.args.empty()){load(i.args[0],"rax");if(i.args.size()>1){load(i.args[1],"r10");if(i.width==1||i.width==2||i.width==4||i.width==8)
-                        out<<"    lea rax, [rax + r10*"<<i.width<<"]\n";
+        case NirOp::PtrOffset:
+            if(fusedPointers.count(pc))break;
+            else if(i.dest&&!i.args.empty()){
+                const Reg base=i.args[0];
+                const auto destPhys=physical.find(*i.dest);
+                const std::string destReg=destPhys!=physical.end()?destPhys->second:"rax";
+                if(base<stackRoot.size()&&stackRoot[base]!=noStackRoot&&
+                   stackRoot[base]<fixedStorage.size()&&fixedStorage[stackRoot[base]]!=0&&
+                   i.args.size()>1&&(i.width==1||i.width==2||i.width==4||i.width==8)){
+                    const auto indexPhys=physical.find(i.args[1]);
+                    const std::string indexReg=indexPhys!=physical.end()?indexPhys->second:"r10";
+                    if(indexPhys==physical.end())load(i.args[1],"r10");
+                    out<<"    lea "<<destReg<<", [rbp - "<<fixedStorage[stackRoot[base]]
+                       <<" + "<<indexReg<<"*"<<i.width<<"]\n";
+                    if(destPhys==physical.end())store(*i.dest,"rax");
+                    break;
+                }
+                const auto basePhys=physical.find(base);
+                const std::string baseReg=basePhys!=physical.end()?basePhys->second:"rax";
+                if(basePhys==physical.end())load(base,"rax");
+                if(i.args.size()>1){
+                    const auto indexPhys=physical.find(i.args[1]);
+                    const std::string indexReg=indexPhys!=physical.end()?indexPhys->second:"r10";
+                    if(indexPhys==physical.end())load(i.args[1],"r10");
+                    if(i.width==1||i.width==2||i.width==4||i.width==8)
+                        out<<"    lea "<<destReg<<", ["<<baseReg<<" + "<<indexReg<<"*"<<i.width<<"]\n";
                     else{
+                        if(destReg!=baseReg)out<<"    mov "<<destReg<<", "<<baseReg<<"\n";
                         out<<"    imul r10, "<<i.width<<"\n";
-                        out<<"    add rax, r10\n";
-                    }}else if(i.target)out<<"    add rax, "<<i.target<<"\n";store(*i.dest,"rax");}break;
+                        out<<"    add "<<destReg<<", r10\n";
+                    }
+                }else if(i.target){
+                    out<<"    lea "<<destReg<<", ["<<baseReg<<" + "<<i.target<<"]\n";
+                }
+                if(destPhys==physical.end())store(*i.dest,"rax");
+            }break;
         case NirOp::StackAlloc:if(i.dest){if(pc>=fixedStorage.size()||fixedStorage[pc]==0){diagnostics.error("NQR-N5024",{},"internal native stack-allocation layout error");return false;}out<<"    lea rax, [rbp-"<<fixedStorage[pc]<<"]\n";store(*i.dest,"rax");}break;
         case NirOp::MakeSlice:if(i.dest&&i.args.size()==2){if(pc>=fixedStorage.size()||fixedStorage[pc]<16){diagnostics.error("NQR-N5025",{},"internal native slice layout error");return false;}out<<"    lea r11, [rbp-"<<fixedStorage[pc]<<"]\n";load(i.args[0],"rax");out<<"    mov QWORD PTR [r11], rax\n";load(i.args[1],"rax");out<<"    mov QWORD PTR [r11+8], rax\n    mov rax, r11\n";store(*i.dest,"rax");}break;
         case NirOp::SliceData:if(i.dest&&!i.args.empty()){load(i.args[0],"rax");out<<"    mov rax, QWORD PTR [rax]\n";store(*i.dest,"rax");}break;

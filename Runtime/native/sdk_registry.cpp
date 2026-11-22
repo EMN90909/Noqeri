@@ -222,7 +222,7 @@ std::vector<Dep> dependencies(const std::string& source,const std::string& proje
  if(open==std::string::npos||end==std::string::npos)fail("invalid package dependency block");
  const auto body=source.substr(open+1,end-open-1);
  const std::regex rx(project=="project.nqon"?R"re(([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"?([A-Za-z0-9_/-]+@[0-9A-Za-z.+-]+)"?)re":R"re(([A-Za-z_][A-Za-z0-9_]*)\s*:\s*"([^"]+)")re");
- for(auto p=std::sregex_iterator(body.begin(),body.end(),rx);p!=std::sregex_iterator();++p){auto [coord,ver]=splitSpec((*p)[2].str());if(ver.empty())fail("dependency version must be pinned");out.push_back({(*p)[1].str(),coord,ver});}
+ for(auto p=std::sregex_iterator(body.begin(),body.end(),rx);p!=std::sregex_iterator();++p){auto [coord,ver]=splitSpec((*p)[2].str());if(ver.empty())fail("dependency version must be pinned");out.push_back({(*p)[1].str(),coord,ver,""});}
  return out;
 }
 std::vector<Dep> packageDeps(const Package& p){return dependencies(read(p.path/"package.noqeri"),"package.noqeri");}

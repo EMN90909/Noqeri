@@ -259,7 +259,7 @@ void buildClient(const fs::path& input,const fs::path& output,const char* execut
     js+="default:return "+(project.hasFallback?
               clientNodes(project.fallback,project):
               "[__nq_h('h1',{},['Page not found'],{})]")+";}}\n";
-    js+="export function render(path=null){return __nq_h('div',{},__nq_page(path??(__nq_router?__nq_router.path():location.pathname)),{});}\n";
+    js+="export function render(path=null){return __nq_h('div',{},__nq_page(path ?? (__nq_router?__nq_router.path():location.pathname)),{});}\n";
     js+="export function mount(root){if(!root)throw Error('Noqeri root missing');__nq_router=__nq_createRouter(root,()=>__nq_schedule());";
     js+="const app=__nq_createApp(root,render,{hydrate:Boolean(root.childNodes.length)});__nq_schedule=app.schedule;";
     for(const auto& [name,url]:project.clientLoads) {

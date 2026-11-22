@@ -136,12 +136,18 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
         for(std::size_t idx=0;idx<in.args.size();++idx){
             Reg arg=in.args[idx];
             ++totalUses[arg];
-            if(idx==1&&(in.op==NirOp::Binary||in.op==NirOp::CheckBounds))
+            if((idx==1&&(in.op==NirOp::Binary||in.op==NirOp::CheckBounds||
+                         in.op==NirOp::StoreMemory))||
+               (idx==0&&in.op==NirOp::Store))
                 ++immUses[arg];
         }
     }
     std::unordered_set<Reg> isImm32Const;
+    std::unordered_set<Reg> isStackAlloc;
     for(const auto& in:fn.code){
+        if(in.op==NirOp::StackAlloc&&in.dest){
+            isStackAlloc.insert(*in.dest);
+        }
         if(in.op==NirOp::Const&&in.dest){
             if(auto v=std::get_if<std::int64_t>(&in.literal)){
                 if(*v>=std::numeric_limits<std::int32_t>::min()&&
@@ -153,7 +159,7 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
         }
     }
     const auto effectiveWeight=[&](Reg r)->std::uint64_t{
-        if(isImm32Const.count(r))return 0;
+        if(isImm32Const.count(r)||isStackAlloc.count(r))return 0;
         return r<hotUses.size()?hotUses[r]:0;
     };
     struct Active{std::size_t interval;std::string reg;};
@@ -171,6 +177,10 @@ AllocationPlan LinearScanRegisterAllocator::allocate(const NirFunction& fn,
             if(plan.intervals[it->interval].end<iv.begin){
                 available.push_back(it->reg);it=active.erase(it);
             }else ++it;
+        }
+        if(isImm32Const.count(iv.value)||isStackAlloc.count(iv.value)){
+            spill(iv);
+            continue;
         }
         if(iv.type.size()>8||available.empty()){
             if(iv.type.size()<=8&&!active.empty()){

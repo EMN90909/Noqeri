@@ -19,7 +19,7 @@ echo "Rustc:  $(rustc --version)"
 echo "Zig:    $($ZIG_BIN version)"
 echo "Go:     $(go version)"
 echo "Node:   $(node --version)"
-echo "Noqeri: $($NOQERI_BIN --version 2>/dev/null || echo '0.1.4 dev')"
+echo "Noqeri: $($NOQERI_BIN --version 2>/dev/null || echo '0.1.5 dev')"
 echo ""
 
 cd "${SCRIPT_DIR}"

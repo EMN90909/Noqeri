@@ -1,5 +1,8 @@
 #include "noqeri/websocket_frame.hpp"
 #include <array>
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <cstdint>
 #include <iostream>
