@@ -1,0 +1,9 @@
+package {
+    name: "noqeri/language"
+    version: "0.1.4"
+    edition: "2026"
+    entry: "examples/hello.noqeri"
+    profile: "compiler"
+    target: "portable"
+    license: "Apache-2.0"
+}

@@ -1,0 +1,12 @@
+[nodule]
+format = "ndl-1"
+name = "noqeri/language"
+version = "0.1.4"
+entry = "examples/hello.noqeri"
+kind = "toolchain-source"
+target = "portable"
+license = "Apache-2.0"
+description = "Noqeri compiler and runtime source distribution for the 2026 language edition."
+
+[files]
+include = ["Compiler/**/*", "Include/**/*", "Parser/**/*", "Runtime/**/*", "Grammar/**/*", "Modules/**/*.noqeri", "examples/hello.noqeri", "CMakeLists.txt", "CMakePresets.json", "README.md", "LICENSE", "LICENSES.md"]
