@@ -504,7 +504,7 @@ Reg Lowerer::lowerExpr(NirFunction&fn,const ExprPtr&expr){
             if(e->args.size()==2)length=lowerExpr(fn,e->args[1]);else{NirInstruction c;c.op=NirOp::Const;c.dest=fn.nextReg++;c.literal=static_cast<std::int64_t>(e->builtinCount);emit(fn,c);length=*c.dest;}
             NirInstruction i;i.op=NirOp::MakeSlice;i.dest=fn.nextReg++;i.args={data,length};i.width=e->builtinWidth;emit(fn,i);return*i.dest;
         }
-        auto atomic=[&](NirOp op,std::size_t firstArg=0)->Reg{NirInstruction i;i.op=op;if(op!=NirOp::AtomicStore&&op!=NirOp::AtomicFence)i.dest=fn.nextReg++;i.width=e->builtinWidth;for(std::size_t a=firstArg;a<e->args.size();++a)i.args.push_back(lowerExpr(fn,e->args[a]));emit(fn,i);if(i.dest)return*i.dest;NirInstruction z;z.op=NirOp::Const;z.dest=fn.nextReg++;z.literal=std::monostate{};emit(fn,z);return*z.dest;};
+        auto atomic=[&](NirOp op,std::size_t firstArg=0)->Reg{NirInstruction i;i.op=op;if(op!=NirOp::AtomicStore&&op!=NirOp::AtomicFence){i.dest=fn.nextReg++;if(e->builtinResultType.kind!=TypeKind::Unknown)i.type=e->builtinResultType;else i.type.kind=(e->builtinWidth==1?TypeKind::U8:e->builtinWidth==2?TypeKind::U16:e->builtinWidth==4?TypeKind::U32:TypeKind::U64);}i.width=e->builtinWidth;for(std::size_t a=firstArg;a<e->args.size();++a)i.args.push_back(lowerExpr(fn,e->args[a]));emit(fn,i);if(i.dest)return*i.dest;NirInstruction z;z.op=NirOp::Const;z.dest=fn.nextReg++;z.literal=std::monostate{};emit(fn,z);return*z.dest;};
         if(name=="atomic.load"||name=="atomicLoad")return atomic(NirOp::AtomicLoad);
         if(name=="atomic.store"||name=="atomicStore")return atomic(NirOp::AtomicStore);
         if(name=="atomic.exchange"||name=="atomicExchange")return atomic(NirOp::AtomicExchange);

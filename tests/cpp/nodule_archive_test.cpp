@@ -194,5 +194,146 @@ int main() {
         }
     }
 
+    // 8. Transitive .ndl DAG (A -> B) + both backends + offline noqeri.lock SHA-256 verification
+    {
+        const fs::path dagDir = fs::temp_directory_path() / "noqeri_ndl_dag_test";
+        fs::remove_all(dagDir);
+        fs::create_directories(dagDir / "nodules");
+
+        noqeri_nodule::NdlManifest mB;
+        mB.name = "demo/basepkg";
+        mB.version = "1.0.0";
+        mB.entry = "src/base.noqeri";
+        mB.exports = {"src/base.noqeri"};
+        const std::string bytesB = noqeri_nodule::buildNdlArchive(mB, {
+            {"src/base.noqeri", "export function baseTriple(x: int): int { return x * 3 }\n"}
+        });
+        {
+            std::ofstream out(dagDir / "nodules" / "demo-basepkg-1.0.0.ndl", std::ios::binary | std::ios::trunc);
+            out.write(bytesB.data(), static_cast<std::streamsize>(bytesB.size()));
+        }
+        noqeri_nodule::NdlArchive arcB;
+        std::string errB;
+        if (!requireCond(noqeri_nodule::loadNdlArchiveFromBytes(bytesB, arcB, errB) && arcB.archiveSha256Hex.size() == 64,
+                         "basepkg archive exposes 64-char sha256 digest"))
+            return 1;
+
+        noqeri_nodule::NdlManifest mA;
+        mA.name = "demo/toppkg";
+        mA.version = "1.2.0";
+        mA.entry = "src/top.noqeri";
+        mA.exports = {"src/top.noqeri"};
+        mA.dependencies = {{"demo/basepkg", "1.0.0", arcB.archiveSha256Hex}};
+        const std::string bytesA = noqeri_nodule::buildNdlArchive(mA, {
+            {"src/top.noqeri", "import \"demo/basepkg\"\nexport function topCalc(x: int): int { return baseTriple(x) + 11 }\n"}
+        });
+        {
+            std::ofstream out(dagDir / "nodules" / "demo-toppkg-1.2.0.ndl", std::ios::binary | std::ios::trunc);
+            out.write(bytesA.data(), static_cast<std::streamsize>(bytesA.size()));
+        }
+        noqeri_nodule::NdlArchive arcA;
+        std::string errA;
+        if (!requireCond(noqeri_nodule::loadNdlArchiveFromBytes(bytesA, arcA, errA),
+                         "toppkg archive loads with dependency metadata"))
+            return 1;
+
+        {
+            std::ofstream lf(dagDir / "noqeri.lock", std::ios::trunc);
+            lf << "noqeri-lock 3\n"
+               << "package basepkg demo/basepkg 1.0.0 sha256:" << arcB.archiveSha256Hex << " src/base.noqeri\n"
+               << "package toppkg demo/toppkg 1.2.0 sha256:" << arcA.archiveSha256Hex << " src/top.noqeri\n";
+        }
+        const fs::path appPath = dagDir / "main.noqeri";
+        {
+            std::ofstream out(appPath, std::ios::trunc);
+            out << "import \"demo/toppkg\"\nprint(topCalc(9))\n";
+        }
+
+        noe::ModuleGraph dagGraph;
+        noe::Diagnostics dagDiag;
+        if (!requireCond(dagGraph.load(appPath, dagDiag) && !dagDiag.hasErrors(),
+                         "transitive .ndl DAG loads offline with pinned noqeri.lock digests"))
+            return 1;
+        noe::CompileOptions opts;
+        opts.optimization = noe::OptimizationLevel::O3;
+        auto compiled = noe::compileProgram(dagGraph.mergedProgram(), dagDiag, opts);
+        if (!requireCond(!compiled.diagnostics.hasErrors() && !dagDiag.hasErrors(),
+                         "transitive .ndl DAG compiles cleanly to NIR"))
+            return 1;
+        const fs::path cOut = dagDir / "dag.c";
+        const fs::path sOut = dagDir / "dag.s";
+        if (!requireCond(noe::PortableCBackend{}.emitSource(compiled.nir, cOut, dagDiag) && !dagDiag.hasErrors(),
+                         "LLVM/PortableCBackend compiles transitive .ndl DAG"))
+            return 1;
+        if (!requireCond(noe::NativeBackend{}.emitAssembly(compiled.nir, sOut, dagDiag) && !dagDiag.hasErrors(),
+                         "Direct NativeBackend compiles transitive .ndl DAG"))
+            return 1;
+
+        // Corrupt lockfile SHA-256 pin -> MUST reject offline load
+        {
+            std::ofstream lf(dagDir / "noqeri.lock", std::ios::trunc);
+            lf << "noqeri-lock 3\n"
+               << "package basepkg demo/basepkg 1.0.0 sha256:" << std::string(64, '0') << " src/base.noqeri\n";
+        }
+        noe::ModuleGraph badPinGraph;
+        noe::Diagnostics badPinDiag;
+        if (!requireCond(!badPinGraph.load(appPath, badPinDiag) && badPinDiag.hasErrors(),
+                         "lockfile SHA-256 mismatch must fail ModuleGraph load"))
+            return 1;
+
+        fs::remove_all(dagDir);
+    }
+
+    // 9. Circular .ndl dependency MUST fail with diagnostic
+    {
+        noqeri_nodule::NdlManifest mX;
+        mX.name = "demo/cyclex";
+        mX.version = "1.0.0";
+        mX.entry = "src/x.noqeri";
+        mX.dependencies = {{"demo/cycley", "1.0.0", ""}};
+        noqeri_nodule::NdlManifest mY;
+        mY.name = "demo/cycley";
+        mY.version = "1.0.0";
+        mY.entry = "src/y.noqeri";
+        mY.dependencies = {{"demo/cyclex", "1.0.0", ""}};
+
+        noe::ModuleGraph cycGraph;
+        cycGraph.addNdlOverlayBuffer("virtual/demo-cyclex-1.0.0.ndl",
+            noqeri_nodule::buildNdlArchive(mX, {{"src/x.noqeri", "export function fx(): int { return 1 }\n"}}));
+        cycGraph.addNdlOverlayBuffer("virtual/demo-cycley-1.0.0.ndl",
+            noqeri_nodule::buildNdlArchive(mY, {{"src/y.noqeri", "export function fy(): int { return 2 }\n"}}));
+        noe::Diagnostics cycDiag;
+        if (!requireCond(!cycGraph.loadNdlBuffer("virtual/demo-cyclex-1.0.0.ndl",
+                noqeri_nodule::buildNdlArchive(mX, {{"src/x.noqeri", "export function fx(): int { return 1 }\n"}}),
+                cycDiag) && cycDiag.hasErrors(),
+                         "circular .ndl dependency must fail with diagnostics"))
+            return 1;
+    }
+
+    // 10. Version conflict in transitive .ndl DAG MUST fail with diagnostic
+    {
+        noqeri_nodule::NdlManifest mS1{"demo/shared", "1.0.0", "0.1.5.1", 2, "src/s.noqeri", {}, {}};
+        noqeri_nodule::NdlManifest mS2{"demo/shared", "2.0.0", "0.1.5.1", 2, "src/s.noqeri", {}, {}};
+        noqeri_nodule::NdlManifest mLeft{"demo/left", "1.0.0", "0.1.5.1", 2, "src/l.noqeri", {}, {{"demo/shared", "1.0.0", ""}}};
+        noqeri_nodule::NdlManifest mRight{"demo/right", "1.0.0", "0.1.5.1", 2, "src/r.noqeri", {}, {{"demo/shared", "2.0.0", ""}}};
+        noqeri_nodule::NdlManifest mRoot{"demo/root", "1.0.0", "0.1.5.1", 2, "src/root.noqeri", {}, {{"demo/left", "1.0.0", ""}, {"demo/right", "1.0.0", ""}}};
+
+        noe::ModuleGraph confGraph;
+        confGraph.addNdlOverlayBuffer("v/demo-shared-1.0.0.ndl",
+            noqeri_nodule::buildNdlArchive(mS1, {{"src/s.noqeri", "export function s(): int { return 1 }\n"}}));
+        confGraph.addNdlOverlayBuffer("v/demo-shared-2.0.0.ndl",
+            noqeri_nodule::buildNdlArchive(mS2, {{"src/s.noqeri", "export function s(): int { return 2 }\n"}}));
+        confGraph.addNdlOverlayBuffer("v/demo-left-1.0.0.ndl",
+            noqeri_nodule::buildNdlArchive(mLeft, {{"src/l.noqeri", "export function l(): int { return 1 }\n"}}));
+        confGraph.addNdlOverlayBuffer("v/demo-right-1.0.0.ndl",
+            noqeri_nodule::buildNdlArchive(mRight, {{"src/r.noqeri", "export function r(): int { return 2 }\n"}}));
+        noe::Diagnostics confDiag;
+        if (!requireCond(!confGraph.loadNdlBuffer("v/demo-root-1.0.0.ndl",
+                noqeri_nodule::buildNdlArchive(mRoot, {{"src/root.noqeri", "export function rootFn(): int { return 3 }\n"}}),
+                confDiag) && confDiag.hasErrors(),
+                         "conflicting .ndl versions must fail with diagnostics"))
+            return 1;
+    }
+
     return 0;
 }

@@ -162,6 +162,192 @@ void gemm_f64_avx2(const double* a, const double* b, double* c,
         }
     }
 }
+
+__attribute__((target("avx2,fma")))
+void gemm_f32_avx2(const float* a, const float* b, float* c,
+                   std::size_t M, std::size_t K, std::size_t N) {
+    constexpr std::size_t BM = 64;
+    constexpr std::size_t BK = 64;
+    constexpr std::size_t BN = 64;
+    for (std::size_t ii = 0; ii < M; ii += BM) {
+        const std::size_t i_end = std::min(ii + BM, M);
+        for (std::size_t kk = 0; kk < K; kk += BK) {
+            const std::size_t k_end = std::min(kk + BK, K);
+            for (std::size_t jj = 0; jj < N; jj += BN) {
+                const std::size_t j_end = std::min(jj + BN, N);
+                std::size_t i = ii;
+                for (; i + 3 < i_end; i += 4) {
+                    std::size_t j = jj;
+                    for (; j + 15 < j_end; j += 16) {
+                        __m256 c00 = _mm256_loadu_ps(&c[(i + 0) * N + j]);
+                        __m256 c01 = _mm256_loadu_ps(&c[(i + 0) * N + j + 8]);
+                        __m256 c10 = _mm256_loadu_ps(&c[(i + 1) * N + j]);
+                        __m256 c11 = _mm256_loadu_ps(&c[(i + 1) * N + j + 8]);
+                        __m256 c20 = _mm256_loadu_ps(&c[(i + 2) * N + j]);
+                        __m256 c21 = _mm256_loadu_ps(&c[(i + 2) * N + j + 8]);
+                        __m256 c30 = _mm256_loadu_ps(&c[(i + 3) * N + j]);
+                        __m256 c31 = _mm256_loadu_ps(&c[(i + 3) * N + j + 8]);
+                        for (std::size_t k = kk; k < k_end; ++k) {
+                            const __m256 b0 = _mm256_loadu_ps(&b[k * N + j]);
+                            const __m256 b1 = _mm256_loadu_ps(&b[k * N + j + 8]);
+                            const __m256 a0 = _mm256_set1_ps(a[(i + 0) * K + k]);
+                            const __m256 a1 = _mm256_set1_ps(a[(i + 1) * K + k]);
+                            const __m256 a2 = _mm256_set1_ps(a[(i + 2) * K + k]);
+                            const __m256 a3 = _mm256_set1_ps(a[(i + 3) * K + k]);
+                            c00 = _mm256_fmadd_ps(a0, b0, c00);
+                            c01 = _mm256_fmadd_ps(a0, b1, c01);
+                            c10 = _mm256_fmadd_ps(a1, b0, c10);
+                            c11 = _mm256_fmadd_ps(a1, b1, c11);
+                            c20 = _mm256_fmadd_ps(a2, b0, c20);
+                            c21 = _mm256_fmadd_ps(a2, b1, c21);
+                            c30 = _mm256_fmadd_ps(a3, b0, c30);
+                            c31 = _mm256_fmadd_ps(a3, b1, c31);
+                        }
+                        _mm256_storeu_ps(&c[(i + 0) * N + j], c00);
+                        _mm256_storeu_ps(&c[(i + 0) * N + j + 8], c01);
+                        _mm256_storeu_ps(&c[(i + 1) * N + j], c10);
+                        _mm256_storeu_ps(&c[(i + 1) * N + j + 8], c11);
+                        _mm256_storeu_ps(&c[(i + 2) * N + j], c20);
+                        _mm256_storeu_ps(&c[(i + 2) * N + j + 8], c21);
+                        _mm256_storeu_ps(&c[(i + 3) * N + j], c30);
+                        _mm256_storeu_ps(&c[(i + 3) * N + j + 8], c31);
+                    }
+                    for (; j + 7 < j_end; j += 8) {
+                        __m256 c0 = _mm256_loadu_ps(&c[(i + 0) * N + j]);
+                        __m256 c1 = _mm256_loadu_ps(&c[(i + 1) * N + j]);
+                        __m256 c2 = _mm256_loadu_ps(&c[(i + 2) * N + j]);
+                        __m256 c3 = _mm256_loadu_ps(&c[(i + 3) * N + j]);
+                        for (std::size_t k = kk; k < k_end; ++k) {
+                            const __m256 b0 = _mm256_loadu_ps(&b[k * N + j]);
+                            c0 = _mm256_fmadd_ps(_mm256_set1_ps(a[(i + 0) * K + k]), b0, c0);
+                            c1 = _mm256_fmadd_ps(_mm256_set1_ps(a[(i + 1) * K + k]), b0, c1);
+                            c2 = _mm256_fmadd_ps(_mm256_set1_ps(a[(i + 2) * K + k]), b0, c2);
+                            c3 = _mm256_fmadd_ps(_mm256_set1_ps(a[(i + 3) * K + k]), b0, c3);
+                        }
+                        _mm256_storeu_ps(&c[(i + 0) * N + j], c0);
+                        _mm256_storeu_ps(&c[(i + 1) * N + j], c1);
+                        _mm256_storeu_ps(&c[(i + 2) * N + j], c2);
+                        _mm256_storeu_ps(&c[(i + 3) * N + j], c3);
+                    }
+                    for (; j < j_end; ++j) {
+                        float s0 = c[(i + 0) * N + j], s1 = c[(i + 1) * N + j];
+                        float s2 = c[(i + 2) * N + j], s3 = c[(i + 3) * N + j];
+                        for (std::size_t k = kk; k < k_end; ++k) {
+                            const float bv = b[k * N + j];
+                            s0 += a[(i + 0) * K + k] * bv;
+                            s1 += a[(i + 1) * K + k] * bv;
+                            s2 += a[(i + 2) * K + k] * bv;
+                            s3 += a[(i + 3) * K + k] * bv;
+                        }
+                        c[(i + 0) * N + j] = s0; c[(i + 1) * N + j] = s1;
+                        c[(i + 2) * N + j] = s2; c[(i + 3) * N + j] = s3;
+                    }
+                }
+                for (; i < i_end; ++i) {
+                    for (std::size_t k = kk; k < k_end; ++k) {
+                        const float av = a[i * K + k];
+                        const __m256 va = _mm256_set1_ps(av);
+                        std::size_t j = jj;
+                        for (; j + 7 < j_end; j += 8) {
+                            __m256 vc = _mm256_loadu_ps(&c[i * N + j]);
+                            const __m256 vb = _mm256_loadu_ps(&b[k * N + j]);
+                            _mm256_storeu_ps(&c[i * N + j], _mm256_fmadd_ps(va, vb, vc));
+                        }
+                        for (; j < j_end; ++j)
+                            c[i * N + j] += av * b[k * N + j];
+                    }
+                }
+            }
+        }
+    }
+}
+
+__attribute__((target("avx2,fma")))
+inline double hsum_f64_avx2(const __m256d v) {
+    const __m128d lo = _mm256_castpd256_pd128(v);
+    const __m128d hi = _mm256_extractf128_pd(v, 1);
+    const __m128d s = _mm_add_pd(lo, hi);
+    const __m128d sh = _mm_unpackhi_pd(s, s);
+    return _mm_cvtsd_f64(_mm_add_sd(s, sh));
+}
+
+__attribute__((target("avx2,fma")))
+void matmul_backward_f64_avx2(const double* ap, const double* bp, const double* gp,
+                              double* da, double* db,
+                              std::size_t M, std::size_t K, std::size_t N) {
+    // Accumulate dB += A^T * G and dA += G * B^T using vectorized FMA loops.
+    for (std::size_t i = 0; i < M; ++i) {
+        const double* gi = &gp[i * N];
+        const double* ai = &ap[i * K];
+        double* dai = &da[i * K];
+        std::size_t k = 0;
+        for (; k + 3 < K; k += 4) {
+            const double* bk0 = &bp[(k + 0) * N];
+            const double* bk1 = &bp[(k + 1) * N];
+            const double* bk2 = &bp[(k + 2) * N];
+            const double* bk3 = &bp[(k + 3) * N];
+            double* dbk0 = &db[(k + 0) * N];
+            double* dbk1 = &db[(k + 1) * N];
+            double* dbk2 = &db[(k + 2) * N];
+            double* dbk3 = &db[(k + 3) * N];
+            const __m256d va0 = _mm256_set1_pd(ai[k + 0]);
+            const __m256d va1 = _mm256_set1_pd(ai[k + 1]);
+            const __m256d va2 = _mm256_set1_pd(ai[k + 2]);
+            const __m256d va3 = _mm256_set1_pd(ai[k + 3]);
+            __m256d vs0 = _mm256_setzero_pd();
+            __m256d vs1 = _mm256_setzero_pd();
+            __m256d vs2 = _mm256_setzero_pd();
+            __m256d vs3 = _mm256_setzero_pd();
+            std::size_t j = 0;
+            for (; j + 3 < N; j += 4) {
+                const __m256d vg = _mm256_loadu_pd(&gi[j]);
+                vs0 = _mm256_fmadd_pd(vg, _mm256_loadu_pd(&bk0[j]), vs0);
+                vs1 = _mm256_fmadd_pd(vg, _mm256_loadu_pd(&bk1[j]), vs1);
+                vs2 = _mm256_fmadd_pd(vg, _mm256_loadu_pd(&bk2[j]), vs2);
+                vs3 = _mm256_fmadd_pd(vg, _mm256_loadu_pd(&bk3[j]), vs3);
+                _mm256_storeu_pd(&dbk0[j], _mm256_fmadd_pd(va0, vg, _mm256_loadu_pd(&dbk0[j])));
+                _mm256_storeu_pd(&dbk1[j], _mm256_fmadd_pd(va1, vg, _mm256_loadu_pd(&dbk1[j])));
+                _mm256_storeu_pd(&dbk2[j], _mm256_fmadd_pd(va2, vg, _mm256_loadu_pd(&dbk2[j])));
+                _mm256_storeu_pd(&dbk3[j], _mm256_fmadd_pd(va3, vg, _mm256_loadu_pd(&dbk3[j])));
+            }
+            double s0 = hsum_f64_avx2(vs0), s1 = hsum_f64_avx2(vs1),
+                   s2 = hsum_f64_avx2(vs2), s3 = hsum_f64_avx2(vs3);
+            const double a0 = ai[k + 0], a1 = ai[k + 1], a2 = ai[k + 2], a3 = ai[k + 3];
+            for (; j < N; ++j) {
+                const double gij = gi[j];
+                s0 += gij * bk0[j]; dbk0[j] += gij * a0;
+                s1 += gij * bk1[j]; dbk1[j] += gij * a1;
+                s2 += gij * bk2[j]; dbk2[j] += gij * a2;
+                s3 += gij * bk3[j]; dbk3[j] += gij * a3;
+            }
+            dai[k + 0] += s0; dai[k + 1] += s1;
+            dai[k + 2] += s2; dai[k + 3] += s3;
+        }
+        for (; k < K; ++k) {
+            const double aik = ai[k];
+            const double* bk = &bp[k * N];
+            double* dbk = &db[k * N];
+            const __m256d va = _mm256_set1_pd(aik);
+            __m256d vs = _mm256_setzero_pd();
+            std::size_t j = 0;
+            for (; j + 3 < N; j += 4) {
+                const __m256d vg = _mm256_loadu_pd(&gi[j]);
+                vs = _mm256_fmadd_pd(vg, _mm256_loadu_pd(&bk[j]), vs);
+                _mm256_storeu_pd(&dbk[j], _mm256_fmadd_pd(va, vg, _mm256_loadu_pd(&dbk[j])));
+            }
+            const __m128d lo = _mm256_castpd256_pd128(vs);
+            const __m128d hi = _mm256_extractf128_pd(vs, 1);
+            const __m128d s = _mm_add_pd(lo, hi);
+            double sum = _mm_cvtsd_f64(_mm_add_sd(s, _mm_unpackhi_pd(s, s)));
+            for (; j < N; ++j) {
+                const double gij = gi[j];
+                sum += gij * bk[j];
+                dbk[j] += gij * aik;
+            }
+            dai[k] += sum;
+        }
+    }
+}
 #endif
 
 Matrix compute_gemm(const Matrix& a,const Matrix& b,Precision precision) {
@@ -183,22 +369,29 @@ Matrix compute_gemm(const Matrix& a,const Matrix& b,Precision precision) {
     }
     const std::size_t M = a.rows, K = a.cols, N = b.cols;
     std::vector<float> acc(M * N, 0.0f);
-    constexpr std::size_t block = 64;
-    for (std::size_t ii = 0; ii < M; ii += block)
-        for (std::size_t kk = 0; kk < K; kk += block)
-            for (std::size_t jj = 0; jj < N; jj += block) {
-                const std::size_t ie = std::min(ii + block, M);
-                const std::size_t ke = std::min(kk + block, K);
-                const std::size_t je = std::min(jj + block, N);
-                for (std::size_t i = ii; i < ie; ++i)
-                    for (std::size_t k = kk; k < ke; ++k) {
-                        const float av = aq[i * K + k];
-                        float* crow = &acc[i * N];
-                        const float* brow = &bq[k * N];
-                        for (std::size_t j = jj; j < je; ++j)
-                            crow[j] += av * brow[j];
-                    }
-            }
+#ifdef NQAI_X86_RUNTIME_AVX2
+    if (cpu_has_avx2_fma()) {
+        gemm_f32_avx2(aq.data(), bq.data(), acc.data(), M, K, N);
+    } else
+#endif
+    {
+        constexpr std::size_t block = 64;
+        for (std::size_t ii = 0; ii < M; ii += block)
+            for (std::size_t kk = 0; kk < K; kk += block)
+                for (std::size_t jj = 0; jj < N; jj += block) {
+                    const std::size_t ie = std::min(ii + block, M);
+                    const std::size_t ke = std::min(kk + block, K);
+                    const std::size_t je = std::min(jj + block, N);
+                    for (std::size_t i = ii; i < ie; ++i)
+                        for (std::size_t k = kk; k < ke; ++k) {
+                            const float av = aq[i * K + k];
+                            float* crow = &acc[i * N];
+                            const float* brow = &bq[k * N];
+                            for (std::size_t j = jj; j < je; ++j)
+                                crow[j] += av * brow[j];
+                        }
+                }
+    }
     Matrix out(M, N);
     for (std::size_t i = 0; i < out.values.size(); ++i)
         out.values[i] = static_cast<double>(acc[i]);
@@ -339,17 +532,22 @@ std::size_t Tape::softmax(std::size_t a,bool causal) {
     const Matrix& x=value(a);
     if(causal)require(x.rows==x.cols && x.rows<=256,"causal attention needs square bounded scores");
     Node n;n.op=Op::Softmax;n.a=a;n.causal=causal;n.value=Matrix(x.rows,x.cols);
+    const std::size_t cols=x.cols;
     for(std::size_t i=0;i<x.rows;++i) {
-        const std::size_t limit=causal?i+1:x.cols;
+        const std::size_t limit=causal?i+1:cols;
+        const double* src=&x.values[i*cols];
+        double* dst=&n.value.values[i*cols];
         double top=-std::numeric_limits<double>::infinity();
-        for(std::size_t j=0;j<limit;++j)top=std::max(top,x.at(i,j));
+        for(std::size_t j=0;j<limit;++j)top=std::max(top,src[j]);
         double denom=0;
         for(std::size_t j=0;j<limit;++j) {
-            n.value.at(i,j)=std::exp(x.at(i,j)-top);
-            denom+=n.value.at(i,j);
+            const double e=std::exp(src[j]-top);
+            dst[j]=e;
+            denom+=e;
         }
         require(std::isfinite(denom) && denom>0,"unstable tensor softmax");
-        for(std::size_t j=0;j<limit;++j)n.value.at(i,j)/=denom;
+        const double inv_denom=1.0/denom;
+        for(std::size_t j=0;j<limit;++j)dst[j]*=inv_denom;
     }
     return append(std::move(n));
 }
@@ -410,6 +608,12 @@ void Tape::backward(std::size_t loss) {
             const double* gp=n.grad.values.data();
             double* da=nodes_[n.a].grad.values.data();
             double* db=nodes_[n.b].grad.values.data();
+#ifdef NQAI_X86_RUNTIME_AVX2
+            if((backend_==Backend::Auto || backend_==Backend::Simd) && cpu_has_avx2_fma()) {
+                matmul_backward_f64_avx2(ap,bp,gp,da,db,M,K,N);
+                break;
+            }
+#endif
             for(std::size_t i=0;i<M;++i) {
                 const double* gi=&gp[i*N];
                 double* dai=&da[i*K];

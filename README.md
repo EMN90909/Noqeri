@@ -366,16 +366,16 @@ Reproduced locally with [`benchmarks/suite/rebuild_and_benchmark.sh`](benchmarks
 
 | Implementation | Modulo (10M iters) | Matrix (256x256 mul) | Sorting (2k insertion) | Image (512x512 render) |
 | --- | ---: | ---: | ---: | ---: |
-| **Noqeri (Direct Native `--backend=native -O3`)** | **0.004401 s** | 0.010073 s | 0.000850 s | 0.001389 s |
-| **Noqeri (LLVM AOT `--backend=llvm -O3`)** | 0.007266 s | 0.008265 s | **0.000666 s** | 0.001524 s |
-| **C (`gcc -O3 -march=native`)** | 0.012029 s | **0.006837 s** | 0.000816 s | 0.001370 s |
-| **C++ (`g++ -O3 -march=native`)** | 0.011751 s | 0.006908 s | 0.000932 s | 0.001453 s |
-| **Rust (`rustc -O3 -C target-cpu=native`)** | 0.011960 s | 0.009635 s | 0.000809 s | 0.001417 s |
-| **Zig (`-O ReleaseFast`)** | 0.007549 s | 0.008444 s | 0.000821 s | **0.001337 s** |
-| **Go (`go build`)** | 0.028093 s | 0.021670 s | **0.000579 s** | 0.002384 s |
-| **JavaScript (`Number`, Node v22)** | 0.047029 s | 0.064635 s | 0.009762 s | 0.014009 s |
-| **JavaScript (`BigInt`, Node v22)** | 0.694391 s | 0.094108 s | 0.017433 s | 0.045917 s |
-| **Noqeri (`VM/Interp`)** | 6.556987 s | — | — | — |
+| **Noqeri (Direct Native `--backend=native -O3`)** | **0.003454 s** | 0.008709 s | 0.000832 s | 0.001495 s |
+| **Noqeri (LLVM AOT `--backend=llvm -O3`)** | 0.006777 s | 0.007320 s | 0.000858 s | 0.001369 s |
+| **C (`gcc -O3 -march=native`)** | 0.011938 s | **0.006206 s** | 0.000837 s | 0.001392 s |
+| **C++ (`g++ -O3 -march=native`)** | 0.011244 s | 0.006258 s | 0.000817 s | 0.001452 s |
+| **Rust (`rustc -O3 -C target-cpu=native`)** | 0.010767 s | 0.008271 s | 0.000905 s | 0.001305 s |
+| **Zig (`-O ReleaseFast`)** | 0.007493 s | 0.007188 s | 0.000732 s | **0.001280 s** |
+| **Go (`go build`)** | 0.027896 s | 0.026319 s | **0.000574 s** | 0.002271 s |
+| **JavaScript (`Number`, Node v22)** | 0.044567 s | 0.062761 s | 0.011352 s | 0.013874 s |
+| **JavaScript (`BigInt`, Node v22)** | 0.678019 s | 0.092801 s | 0.012234 s | 0.048720 s |
+| **Noqeri (`VM/Interp`)** | 6.647008 s | — | — | — |
 
 ## Project status
 

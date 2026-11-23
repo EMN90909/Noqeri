@@ -137,28 +137,50 @@ Model train(const std::vector<Sample>& samples,const Options& options,TrainingRe
     model.mean.assign(dims,0.0);
     model.scale.assign(dims,1.0);
     model.weights.assign(dims,0.0);
+    std::vector<double> inv_scale(dims,1.0);
     for(std::size_t j=0;j<dims;++j) {
+        double mean=0.0;
+        const double inv_train=1.0/double(train_count);
         for(std::size_t i=0;i<train_count;++i)
-            model.mean[j]+=samples[order[i]].features[j]/double(train_count);
+            mean+=samples[order[i]].features[j];
+        mean*=inv_train;
+        model.mean[j]=mean;
         double variance=0.0;
         for(std::size_t i=0;i<train_count;++i) {
-            const auto d=samples[order[i]].features[j]-model.mean[j];
-            variance+=(d*d)/double(train_count);
+            const auto d=samples[order[i]].features[j]-mean;
+            variance+=d*d;
         }
+        variance*=inv_train;
         model.scale[j]=std::max(1e-9,std::sqrt(variance));
+        inv_scale[j]=1.0/model.scale[j];
         require(finite(model.mean[j])&&finite(model.scale[j]),"nonfinite normalization");
     }
+    std::vector<double> norm_all(train_count*dims);
+    std::vector<double> labels_all(train_count);
+    for(std::size_t i=0;i<train_count;++i) {
+        const auto& row=samples[order[i]];
+        labels_all[i]=row.label;
+        double* dst=&norm_all[i*dims];
+        for(std::size_t j=0;j<dims;++j)
+            dst[j]=(row.features[j]-model.mean[j])*inv_scale[j];
+    }
+    std::vector<std::size_t> train_perm(train_count);
+    std::iota(train_perm.begin(),train_perm.end(),0);
     for(unsigned epoch=0;epoch<options.epochs;++epoch) {
         // Training partition only. Never mix validation rows into SGD.
-        shuffle_prefix(train_count);
+        for(std::size_t k=train_count;k>1;--k)
+            std::swap(train_perm[k-1],train_perm[static_cast<std::size_t>(next_u32())%k]);
         const double decay=options.learning_rate/(1.0+double(epoch)*0.005);
+        double* __restrict__ w=model.weights.data();
         for(std::size_t i=0;i<train_count;++i) {
-            const auto& row=samples[order[i]];
-            const double error=sigmoid(normalized_dot(model,row))-row.label;
+            const std::size_t idx=train_perm[i];
+            const double* __restrict__ xrow=&norm_all[idx*dims];
+            double dot=model.bias;
+            for(std::size_t j=0;j<dims;++j) dot+=w[j]*xrow[j];
+            const double error=sigmoid(dot)-labels_all[idx];
             for(std::size_t j=0;j<dims;++j) {
-                const double x=(row.features[j]-model.mean[j])/model.scale[j];
-                const double gradient=std::max(-8.0,std::min(8.0,error*x+options.l2*model.weights[j]));
-                model.weights[j]-=decay*gradient;
+                const double gradient=std::max(-8.0,std::min(8.0,error*xrow[j]+options.l2*w[j]));
+                w[j]-=decay*gradient;
             }
             model.bias-=decay*error;
         }

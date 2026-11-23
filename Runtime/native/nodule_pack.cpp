@@ -446,17 +446,55 @@ std::string unquoteToml(std::string_view raw) {
     return s;
 }
 
+bool parseDependencySpec(std::string_view nameView, std::string_view specView, NdlDependency& dep, std::string& error) {
+    const std::string keyName = unquoteToml(nameView);
+    const std::string spec = unquoteToml(specView);
+    if (keyName.empty()) {
+        error = "empty dependency name in nodules manifest";
+        return false;
+    }
+    const auto atPos = spec.find('@');
+    std::string verAndHash;
+    if (atPos != std::string::npos && atPos > 0) {
+        dep.name = spec.substr(0, atPos);
+        verAndHash = spec.substr(atPos + 1);
+    } else {
+        dep.name = keyName;
+        verAndHash = spec;
+    }
+    const auto hashPos = verAndHash.find('#');
+    dep.version = hashPos == std::string::npos ? verAndHash : verAndHash.substr(0, hashPos);
+    dep.sha256Hex = hashPos == std::string::npos ? std::string{} : verAndHash.substr(hashPos + 1);
+    if (dep.version.empty()) {
+        error = "dependency '" + dep.name + "' missing required version";
+        return false;
+    }
+    if (!dep.sha256Hex.empty()) {
+        if (dep.sha256Hex.size() != 64 || !std::all_of(dep.sha256Hex.begin(), dep.sha256Hex.end(),
+            [](unsigned char ch) { return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'); })) {
+            error = "dependency '" + dep.name + "' has invalid sha256 pin";
+            return false;
+        }
+    }
+    return true;
+}
+
 bool parseNodulesToml(std::string_view toml, NdlManifest& out, std::string& error) {
     out = NdlManifest{};
     out.abiVersion = 0;
     out.languageVersion.clear();
+    std::string section;
     std::size_t pos = 0;
     while (pos < toml.size()) {
         std::size_t nl = toml.find('\n', pos);
         if (nl == std::string_view::npos) nl = toml.size();
         std::string line = trimView(toml.substr(pos, nl - pos));
         pos = nl + 1;
-        if (line.empty() || line[0] == '#' || line[0] == '[') continue;
+        if (line.empty() || line[0] == '#') continue;
+        if (line.front() == '[' && line.back() == ']') {
+            section = trimView(std::string_view(line.data() + 1, line.size() - 2));
+            continue;
+        }
         const std::size_t eq = line.find('=');
         if (eq == std::string::npos) {
             error = "malformed nodules.toml line: " + line;
@@ -464,6 +502,12 @@ bool parseNodulesToml(std::string_view toml, NdlManifest& out, std::string& erro
         }
         const std::string key = trimView(std::string_view(line).substr(0, eq));
         const std::string val = trimView(std::string_view(line).substr(eq + 1));
+        if (section == "dependencies") {
+            NdlDependency dep;
+            if (!parseDependencySpec(key, val, dep, error)) return false;
+            out.dependencies.push_back(std::move(dep));
+            continue;
+        }
         if (key == "name") out.name = unquoteToml(val);
         else if (key == "version") out.version = unquoteToml(val);
         else if (key == "language_version") out.languageVersion = unquoteToml(val);
@@ -522,6 +566,10 @@ bool parseNodulesToml(std::string_view toml, NdlManifest& out, std::string& erro
             return false;
         }
     }
+    std::sort(out.dependencies.begin(), out.dependencies.end(),
+              [](const NdlDependency& a, const NdlDependency& b) {
+                  return a.name < b.name;
+              });
     return true;
 }
 
@@ -538,6 +586,19 @@ std::string serializeNodulesToml(const NdlManifest& m) {
         out << "\"" << m.exports[i] << "\"";
     }
     out << "]\n";
+    if (!m.dependencies.empty()) {
+        auto deps = m.dependencies;
+        std::sort(deps.begin(), deps.end(),
+                  [](const NdlDependency& a, const NdlDependency& b) {
+                      return a.name < b.name;
+                  });
+        out << "\n[dependencies]\n";
+        for (const auto& dep : deps) {
+            out << "\"" << dep.name << "\" = \"" << dep.version;
+            if (!dep.sha256Hex.empty()) out << "#" << dep.sha256Hex;
+            out << "\"\n";
+        }
+    }
     return out.str();
 }
 
@@ -637,14 +698,470 @@ std::string buildNdlArchive(const NdlManifest& manifest,
     return out;
 }
 
+namespace {
+
+struct BitStream {
+    std::string_view src;
+    std::size_t bytePos = 0;
+    std::uint32_t bitBuf = 0;
+    int bitCount = 0;
+
+    bool readBits(int n, std::uint32_t& val) {
+        while (bitCount < n) {
+            if (bytePos >= src.size()) return false;
+            bitBuf |= static_cast<std::uint32_t>(static_cast<unsigned char>(src[bytePos++])) << bitCount;
+            bitCount += 8;
+        }
+        val = bitBuf & ((1u << n) - 1u);
+        bitBuf >>= n;
+        bitCount -= n;
+        return true;
+    }
+
+    void alignToByte() {
+        const int drop = bitCount & 7;
+        bitBuf >>= drop;
+        bitCount -= drop;
+    }
+
+    bool readBytes(std::size_t n, std::string_view& slice) {
+        alignToByte();
+        if (bitCount != 0) {
+            const std::size_t availBits = static_cast<std::size_t>(bitCount / 8);
+            if (availBits <= bytePos) bytePos -= availBits;
+            bitBuf = 0;
+            bitCount = 0;
+        }
+        if (bytePos + n > src.size()) return false;
+        slice = src.substr(bytePos, n);
+        bytePos += n;
+        return true;
+    }
+};
+
+struct HuffTable {
+    std::array<int, 16> count{};
+    std::array<int, 320> symbols{};
+    bool build(const int* lengths, int numSyms) {
+        count.fill(0);
+        symbols.fill(0);
+        for (int i = 0; i < numSyms; ++i) {
+            if (lengths[i] < 0 || lengths[i] > 15) return false;
+            if (lengths[i] > 0) count[static_cast<std::size_t>(lengths[i])]++;
+        }
+        int offs[16]{};
+        int sum = 0;
+        for (int bits = 1; bits <= 15; ++bits) {
+            offs[bits] = sum;
+            sum += count[static_cast<std::size_t>(bits)];
+        }
+        if (sum > 320) return false;
+        for (int sym = 0; sym < numSyms; ++sym) {
+            const int len = lengths[sym];
+            if (len > 0) symbols[static_cast<std::size_t>(offs[len]++)] = sym;
+        }
+        return true;
+    }
+    bool decode(BitStream& bs, int& sym) const {
+        int code = 0;
+        int first = 0;
+        int index = 0;
+        for (int len = 1; len <= 15; ++len) {
+            std::uint32_t b = 0;
+            if (!bs.readBits(1, b)) return false;
+            code |= static_cast<int>(b);
+            const int cnt = count[static_cast<std::size_t>(len)];
+            if (code - cnt < first) {
+                sym = symbols[static_cast<std::size_t>(index + (code - first))];
+                return true;
+            }
+            index += cnt;
+            first += cnt;
+            first <<= 1;
+            code <<= 1;
+        }
+        return false;
+    }
+};
+
+bool inflateDeflate(BitStream& bs, std::string& out, std::size_t maxOutBytes, std::string& error) {
+    static constexpr int kLenBase[29] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
+    static constexpr int kLenExtra[29] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
+    static constexpr int kDistBase[30] = {1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
+    static constexpr int kDistExtra[30] = {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
+    static constexpr int kClOrder[19] = {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+
+    std::uint32_t bfinal = 0;
+    do {
+        std::uint32_t btype = 0;
+        if (!bs.readBits(1, bfinal) || !bs.readBits(2, btype)) {
+            error = "truncated gzip deflate block header";
+            return false;
+        }
+        if (btype == 0) {
+            std::string_view hdr;
+            if (!bs.readBytes(4, hdr)) {
+                error = "truncated gzip stored block header";
+                return false;
+            }
+            const std::uint16_t len = static_cast<std::uint16_t>(static_cast<unsigned char>(hdr[0]) | (static_cast<unsigned char>(hdr[1]) << 8));
+            const std::uint16_t nlen = static_cast<std::uint16_t>(static_cast<unsigned char>(hdr[2]) | (static_cast<unsigned char>(hdr[3]) << 8));
+            if (static_cast<std::uint16_t>(len ^ 0xFFFFu) != nlen) {
+                error = "corrupt gzip stored block length complement";
+                return false;
+            }
+            if (out.size() + len > maxOutBytes) {
+                error = "gzip .ndl uncompressed payload exceeds limit";
+                return false;
+            }
+            std::string_view block;
+            if (!bs.readBytes(len, block)) {
+                error = "truncated gzip stored block payload";
+                return false;
+            }
+            out.append(block);
+            continue;
+        }
+        if (btype == 3) {
+            error = "invalid deflate block type 3 in .ndl";
+            return false;
+        }
+        HuffTable litLenTab, distTab;
+        if (btype == 1) {
+            int ll[288]{}, dl[32]{};
+            for (int i = 0; i <= 143; ++i) ll[i] = 8;
+            for (int i = 144; i <= 255; ++i) ll[i] = 9;
+            for (int i = 256; i <= 279; ++i) ll[i] = 7;
+            for (int i = 280; i <= 287; ++i) ll[i] = 8;
+            for (int i = 0; i < 32; ++i) dl[i] = 5;
+            if (!litLenTab.build(ll, 288) || !distTab.build(dl, 32)) return false;
+        } else {
+            std::uint32_t hlit = 0, hdist = 0, hclen = 0;
+            if (!bs.readBits(5, hlit) || !bs.readBits(5, hdist) || !bs.readBits(4, hclen)) {
+                error = "truncated dynamic deflate header";
+                return false;
+            }
+            const int nLit = static_cast<int>(hlit) + 257;
+            const int nDist = static_cast<int>(hdist) + 1;
+            const int nCl = static_cast<int>(hclen) + 4;
+            if (nLit > 286 || nDist > 30) {
+                error = "invalid dynamic deflate alphabet sizes";
+                return false;
+            }
+            int clLens[19]{};
+            for (int i = 0; i < nCl; ++i) {
+                std::uint32_t v = 0;
+                if (!bs.readBits(3, v)) return false;
+                clLens[kClOrder[i]] = static_cast<int>(v);
+            }
+            HuffTable clTab;
+            if (!clTab.build(clLens, 19)) {
+                error = "invalid deflate code-length table";
+                return false;
+            }
+            std::vector<int> lens(static_cast<std::size_t>(nLit + nDist), 0);
+            int idx = 0;
+            while (idx < nLit + nDist) {
+                int sym = 0;
+                if (!clTab.decode(bs, sym)) {
+                    error = "invalid deflate code-length symbol";
+                    return false;
+                }
+                if (sym < 16) {
+                    lens[static_cast<std::size_t>(idx++)] = sym;
+                } else {
+                    int rep = 0;
+                    int val = 0;
+                    std::uint32_t ex = 0;
+                    if (sym == 16) {
+                        if (idx == 0 || !bs.readBits(2, ex)) return false;
+                        val = lens[static_cast<std::size_t>(idx - 1)];
+                        rep = 3 + static_cast<int>(ex);
+                    } else if (sym == 17) {
+                        if (!bs.readBits(3, ex)) return false;
+                        rep = 3 + static_cast<int>(ex);
+                    } else {
+                        if (!bs.readBits(7, ex)) return false;
+                        rep = 11 + static_cast<int>(ex);
+                    }
+                    if (idx + rep > nLit + nDist) {
+                        error = "corrupt deflate repeat length";
+                        return false;
+                    }
+                    while (rep-- > 0) lens[static_cast<std::size_t>(idx++)] = val;
+                }
+            }
+            if (!litLenTab.build(lens.data(), nLit) || !distTab.build(lens.data() + nLit, nDist)) {
+                error = "invalid dynamic Huffman table in .ndl";
+                return false;
+            }
+        }
+        for (;;) {
+            int sym = 0;
+            if (!litLenTab.decode(bs, sym)) {
+                error = "corrupt Huffman stream in .ndl";
+                return false;
+            }
+            if (sym < 256) {
+                if (out.size() + 1 > maxOutBytes) {
+                    error = "gzip .ndl uncompressed payload exceeds limit";
+                    return false;
+                }
+                out.push_back(static_cast<char>(sym));
+            } else if (sym == 256) {
+                break;
+            } else {
+                const int lIdx = sym - 257;
+                if (lIdx < 0 || lIdx >= 29) {
+                    error = "invalid deflate length symbol";
+                    return false;
+                }
+                std::uint32_t lEx = 0;
+                if (kLenExtra[lIdx] > 0 && !bs.readBits(kLenExtra[lIdx], lEx)) return false;
+                const std::size_t matchLen = static_cast<std::size_t>(kLenBase[lIdx] + static_cast<int>(lEx));
+                int dSym = 0;
+                if (!distTab.decode(bs, dSym) || dSym < 0 || dSym >= 30) {
+                    error = "invalid deflate distance symbol";
+                    return false;
+                }
+                std::uint32_t dEx = 0;
+                if (kDistExtra[dSym] > 0 && !bs.readBits(kDistExtra[dSym], dEx)) return false;
+                const std::size_t dist = static_cast<std::size_t>(kDistBase[dSym] + static_cast<int>(dEx));
+                if (dist == 0 || dist > out.size() || out.size() + matchLen > maxOutBytes) {
+                    error = "corrupt deflate back-reference in .ndl";
+                    return false;
+                }
+                for (std::size_t k = 0; k < matchLen; ++k) {
+                    out.push_back(out[out.size() - dist]);
+                }
+            }
+        }
+    } while (!bfinal);
+    return true;
+}
+
+bool gunzipArchiveBytes(std::string_view gz, std::string& tarOut, std::string& error) {
+    if (gz.size() < 18 || static_cast<unsigned char>(gz[0]) != 0x1fu ||
+        static_cast<unsigned char>(gz[1]) != 0x8bu || static_cast<unsigned char>(gz[2]) != 8u) {
+        error = "invalid gzip header in .ndl";
+        return false;
+    }
+    const unsigned char flg = static_cast<unsigned char>(gz[3]);
+    std::size_t pos = 10;
+    if (flg & 0x04u) {
+        if (pos + 2 > gz.size()) { error = "truncated gzip FEXTRA"; return false; }
+        const std::size_t xlen = static_cast<unsigned char>(gz[pos]) | (static_cast<std::size_t>(static_cast<unsigned char>(gz[pos + 1])) << 8);
+        pos += 2;
+        if (pos + xlen > gz.size()) { error = "truncated gzip FEXTRA data"; return false; }
+        pos += xlen;
+    }
+    if (flg & 0x08u) {
+        while (pos < gz.size() && gz[pos] != '\0') ++pos;
+        if (pos >= gz.size()) { error = "unterminated gzip FNAME"; return false; }
+        ++pos;
+    }
+    if (flg & 0x10u) {
+        while (pos < gz.size() && gz[pos] != '\0') ++pos;
+        if (pos >= gz.size()) { error = "unterminated gzip FCOMMENT"; return false; }
+        ++pos;
+    }
+    if (flg & 0x02u) {
+        if (pos + 2 > gz.size()) { error = "truncated gzip FHCRC"; return false; }
+        pos += 2;
+    }
+    if (pos + 8 > gz.size()) { error = "truncated gzip payload/trailer"; return false; }
+    BitStream bs{gz.substr(0, gz.size() - 8), pos, 0u, 0};
+    tarOut.clear();
+    if (!inflateDeflate(bs, tarOut, 64u * 1024u * 1024u, error)) return false;
+    std::string_view trailer;
+    bs.src = gz;
+    if (!bs.readBytes(8, trailer) || bs.bytePos != gz.size()) {
+        error = "trailing bytes or invalid gzip trailer in .ndl";
+        return false;
+    }
+    const std::uint32_t expectedCrc = readU32Le(trailer, 0);
+    const std::uint32_t expectedSize = readU32Le(trailer, 4);
+    if (crc32(tarOut) != expectedCrc) {
+        error = "corrupt gzip .ndl archive: CRC32 mismatch";
+        return false;
+    }
+    if ((static_cast<std::uint32_t>(tarOut.size()) & 0xFFFFFFFFu) != expectedSize) {
+        error = "corrupt gzip .ndl archive: ISIZE mismatch";
+        return false;
+    }
+    return true;
+}
+
+bool parsePackageNoqeriManifest(std::string_view text, NdlManifest& out, std::string& error) {
+    out = NdlManifest{};
+    out.abiVersion = 2;
+    out.languageVersion = "0.1.5.1";
+    bool inDeps = false;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t nl = text.find('\n', pos);
+        if (nl == std::string_view::npos) nl = text.size();
+        std::string line = trimView(text.substr(pos, nl - pos));
+        pos = nl + 1;
+        if (line.empty() || line.rfind("//", 0) == 0 || line[0] == '#') continue;
+        if (line == "}") { inDeps = false; continue; }
+        if (line.rfind("dependencies", 0) == 0 && line.find('{') != std::string::npos) {
+            inDeps = true;
+            continue;
+        }
+        if (line.rfind("package", 0) == 0 && line.find('{') != std::string::npos) continue;
+        const std::size_t colon = line.find(':');
+        const std::size_t eq = line.find('=');
+        const std::size_t sep = (colon != std::string::npos && (eq == std::string::npos || colon < eq)) ? colon : eq;
+        if (sep == std::string::npos) continue;
+        const std::string key = trimView(std::string_view(line).substr(0, sep));
+        const std::string val = trimView(std::string_view(line).substr(sep + 1));
+        if (inDeps) {
+            NdlDependency dep;
+            if (!parseDependencySpec(key, val, dep, error)) return false;
+            out.dependencies.push_back(std::move(dep));
+            continue;
+        }
+        if (key == "name") out.name = unquoteToml(val);
+        else if (key == "version") out.version = unquoteToml(val);
+        else if (key == "entry") out.entry = unquoteToml(val);
+        else if (key == "language_version") out.languageVersion = unquoteToml(val);
+        else if (key == "abi_version") {
+            const std::string s = unquoteToml(val);
+            if (!s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) { return c >= '0' && c <= '9'; })) {
+                out.abiVersion = static_cast<std::uint32_t>(std::stoul(s));
+            }
+        }
+    }
+    if (out.name.empty() || out.version.empty() || out.entry.empty()) {
+        error = "package.noqeri in .ndl archive missing name, version, or entry";
+        return false;
+    }
+    std::sort(out.dependencies.begin(), out.dependencies.end(),
+              [](const NdlDependency& a, const NdlDependency& b) { return a.name < b.name; });
+    return true;
+}
+
+bool loadGzipUstarNdl(std::string_view bytes, NdlArchive& out, std::string& error) {
+    std::string tarBytes;
+    if (!gunzipArchiveBytes(bytes, tarBytes, error)) return false;
+    if (tarBytes.size() % 512 != 0) {
+        error = "malformed ustar payload alignment in .ndl";
+        return false;
+    }
+    std::size_t off = 0;
+    while (off + 512 <= tarBytes.size()) {
+        const std::string_view hdr(tarBytes.data() + off, 512);
+        off += 512;
+        bool allZero = true;
+        for (const char ch : hdr) {
+            if (ch != '\0') { allZero = false; break; }
+        }
+        if (allZero) break;
+
+        auto readOctal = [&](std::size_t start, std::size_t width, std::uint64_t& val) -> bool {
+            std::string_view f = hdr.substr(start, width);
+            std::size_t b = 0;
+            while (b < f.size() && (f[b] == ' ' || f[b] == '\0')) ++b;
+            std::size_t e = b;
+            while (e < f.size() && f[e] >= '0' && f[e] <= '7') ++e;
+            if (b == e) { val = 0; return true; }
+            std::uint64_t acc = 0;
+            for (std::size_t k = b; k < e; ++k) acc = (acc << 3) | static_cast<std::uint64_t>(f[k] - '0');
+            val = acc;
+            return true;
+        };
+
+        std::uint64_t expectedSum = 0;
+        readOctal(148, 8, expectedSum);
+        std::uint32_t unsignedSum = 0;
+        for (std::size_t k = 0; k < 512; ++k) {
+            unsignedSum += (k >= 148 && k < 156) ? static_cast<unsigned char>(' ') : static_cast<unsigned char>(hdr[k]);
+        }
+        if (unsignedSum != expectedSum) {
+            error = "corrupt ustar header checksum in .ndl";
+            return false;
+        }
+        const char typeFlag = hdr[156];
+        if (typeFlag == '1' || typeFlag == '2') {
+            error = "refusing symlink/hardlink entry in .ndl";
+            return false;
+        }
+        std::string name;
+        for (std::size_t k = 0; k < 100 && hdr[k] != '\0'; ++k) name.push_back(hdr[k]);
+        std::string prefix;
+        for (std::size_t k = 345; k < 500 && hdr[k] != '\0'; ++k) prefix.push_back(hdr[k]);
+        const std::string relPath = prefix.empty() ? name : (prefix + "/" + name);
+        std::uint64_t fileSize = 0;
+        readOctal(124, 12, fileSize);
+        const std::uint64_t padded = ((fileSize + 511u) / 512u) * 512u;
+        if (off + padded > tarBytes.size()) {
+            error = "truncated ustar file data in .ndl";
+            return false;
+        }
+        const std::string_view fileData(tarBytes.data() + off, static_cast<std::size_t>(fileSize));
+        off += static_cast<std::size_t>(padded);
+        if (typeFlag != '0' && typeFlag != '\0') continue;
+
+        std::string pathErr;
+        if (!isSafeArchivePath(relPath, pathErr)) {
+            error = "unsafe .ndl entry path '" + relPath + "': " + pathErr;
+            return false;
+        }
+        if (out.findEntry(relPath) != nullptr) {
+            error = "duplicate .ndl entry path: " + relPath;
+            return false;
+        }
+        if (out.entries.size() >= kNdlMaxEntries) {
+            error = "too many entries in .ndl archive";
+            return false;
+        }
+        NdlEntry entry;
+        entry.path = relPath;
+        entry.data = std::string(fileData);
+        entry.adler32 = adler32(fileData);
+        entry.sha256Hex = sha256(fileData);
+        out.entries.push_back(std::move(entry));
+    }
+    const NdlEntry* pkgEntry = out.findEntry("package.noqeri");
+    if (!pkgEntry) {
+        error = "gzip .ndl archive missing package.noqeri";
+        return false;
+    }
+    if (!parsePackageNoqeriManifest(pkgEntry->data, out.manifest, error)) return false;
+    if (out.manifest.abiVersion != 2 ||
+        (out.manifest.languageVersion != "0.1.5" && out.manifest.languageVersion != "0.1.5.1")) {
+        error = "incompatible .ndl ABI/language version";
+        return false;
+    }
+    if (out.findEntry(out.manifest.entry) == nullptr) {
+        error = ".ndl archive missing declared entry module: " + out.manifest.entry;
+        return false;
+    }
+    for (const auto& entry : out.entries) {
+        if (entry.path.size() > 7 && entry.path.substr(entry.path.size() - 7) == ".noqeri" &&
+            entry.path != "package.noqeri") {
+            out.manifest.exports.push_back(entry.path);
+        }
+    }
+    out.archiveSha256Hex = sha256(bytes);
+    return true;
+}
+
+} // namespace
+
 bool loadNdlArchiveFromBytes(std::string_view bytes, NdlArchive& out, std::string& error) {
     out = NdlArchive{};
+    if (bytes.size() >= 18 && static_cast<unsigned char>(bytes[0]) == 0x1fu &&
+        static_cast<unsigned char>(bytes[1]) == 0x8bu) {
+        return loadGzipUstarNdl(bytes, out, error);
+    }
     if (bytes.size() < kNdlHeaderSize) {
         error = "malformed .ndl archive: header shorter than 72 bytes";
         return false;
     }
     if (bytes.substr(0, 4) != std::string_view("NDL\x01", 4)) {
-        error = "invalid .ndl magic header (expected NDL\\x01)";
+        error = "invalid .ndl magic header (expected NDL\\x01 or gzip)";
         return false;
     }
     const std::uint16_t formatVersion = readU16Le(bytes, 4);
@@ -779,6 +1296,7 @@ bool loadNdlArchiveFromBytes(std::string_view bytes, NdlArchive& out, std::strin
             return false;
         }
     }
+    out.archiveSha256Hex = sha256(bytes);
     return true;
 }
 

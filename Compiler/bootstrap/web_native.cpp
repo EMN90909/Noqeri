@@ -1077,6 +1077,8 @@ void respond(int fd,int status,const std::string& mime,const std::string& data,b
         "Content-Type: "+mime+"\r\nContent-Length: "+std::to_string(data.size())+
         "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
         "X-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\n"
+        "Cross-Origin-Opener-Policy: same-origin\r\nReferrer-Policy: no-referrer\r\n"
+        "Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=()\r\n"
         "Cache-Control: no-store\r\n"
         "Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; "
         "connect-src 'self'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n\r\n";

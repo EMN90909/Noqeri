@@ -850,6 +850,8 @@ void appReply(int fd,int status,const std::string& data,const std::string& cooki
              "private, max-age=300, must-revalidate" : "no-store")+
         "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
         "X-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\n"
+        "Cross-Origin-Opener-Policy: same-origin\r\n"
+        "Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=()\r\n"
         "Referrer-Policy: same-origin\r\nContent-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:"+
         std::string(std::getenv("NOQERI_WEB_REACTIVE")&&
                     std::string(std::getenv("NOQERI_WEB_REACTIVE"))=="1"?

@@ -53,7 +53,7 @@ void NirAnalyzer::analyze(const Program&program,NirProgram&nir)const{
             case NirOp::MakeSlice:{t.kind=TypeKind::Slice;if(!in.args.empty()){auto p=regType(fn,in.args[0]);if(p.kind==TypeKind::Pointer&&p.pointee)t.element=p.pointee;}break;}
             case NirOp::SliceData:if(!in.args.empty()){auto s=regType(fn,in.args[0]);t.kind=TypeKind::Pointer;if(s.kind==TypeKind::Slice&&s.element)t.pointee=s.element;}break;
             case NirOp::SliceLen:t=simple(TypeKind::Usize);break;
-            case NirOp::AtomicLoad:case NirOp::AtomicExchange:case NirOp::AtomicCompareExchange:if(!in.args.empty()){auto p=regType(fn,in.args[0]);if(p.kind==TypeKind::Pointer&&p.pointee)t=*p.pointee;}break;
+            case NirOp::AtomicLoad:case NirOp::AtomicExchange:case NirOp::AtomicCompareExchange:if(in.type.kind!=TypeKind::Unknown)t=in.type;else if(!in.args.empty()){auto p=regType(fn,in.args[0]);if(p.kind==TypeKind::Pointer&&p.pointee)t=*p.pointee;}break;
             case NirOp::Intrinsic:if(in.text=="x86.rdtsc")t=simple(TypeKind::U64);else t=simple(TypeKind::Void);break;
             case NirOp::Try:if(!in.args.empty())t=regType(fn,in.args[0]);break;
             case NirOp::CheckNonNull:case NirOp::CheckBounds:case NirOp::AtomicStore:case NirOp::AtomicFence:case NirOp::InlineAsm:case NirOp::StoreMemory:case NirOp::Jump:case NirOp::JumpIfFalse:case NirOp::Return:case NirOp::Throw:case NirOp::Nop:t=simple(TypeKind::Void);break;

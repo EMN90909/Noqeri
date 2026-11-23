@@ -539,6 +539,20 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             [](const NirInstruction& in){return in.op==NirOp::AtomicCompareExchange;});
         bool mayUseR8 = false;
         bool mayUseRdx = false;
+        bool mayUseRcx = hasCmpXchg;
+        {
+            bool hasStackAlloc = false;
+            bool hasBackJump = false;
+            for(std::size_t idx=0;idx<fn.code.size();++idx){
+                const auto& in=fn.code[idx];
+                if(in.op==NirOp::StackAlloc)hasStackAlloc=true;
+                if((in.op==NirOp::Jump||in.op==NirOp::JumpIfFalse)&&in.target<=idx)hasBackJump=true;
+            }
+            if(hasStackAlloc&&hasBackJump){
+                mayUseR8=true;
+                mayUseRcx=true;
+            }
+        }
         for(std::size_t idx=0;idx<fn.code.size();++idx){
             const auto& in=fn.code[idx];
             if(in.op==NirOp::LoadMemory&&in.width==8&&!in.isVolatile){
@@ -573,7 +587,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
         if(!hasCalls){
             if(!mayUseRdx)pool.push_back("rdx");
             if(!mayUseR8)pool.push_back("r8");
-            if(!hasCmpXchg)pool.push_back("rcx");
+            if(!mayUseRcx)pool.push_back("rcx");
             pool.push_back("r9");
             pool.push_back("rdi");
             pool.push_back("rsi");
@@ -1480,6 +1494,175 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     ub[rC]=static_cast<std::uint64_t>(cVal);
                 }
             }
+            {
+                std::unordered_map<std::string,std::vector<std::size_t>> vStorePcs;
+                std::unordered_set<std::string> vAddrTaken;
+                for(std::size_t k=0;k<fn.code.size();++k){
+                    const auto& ci=fn.code[k];
+                    if(ci.op==NirOp::Store)vStorePcs[ci.text].push_back(k);
+                    else if(ci.op==NirOp::AddressOf)vAddrTaken.insert(ci.text);
+                }
+                for(const auto& p:fn.params)vAddrTaken.insert(p);
+                std::unordered_map<std::string,std::uint64_t> varUb;
+                for(const auto& [vName,spcs]:vStorePcs){
+                    if(spcs.empty()||vAddrTaken.count(vName))continue;
+                    std::uint64_t bound=0;
+                    bool ok=true;
+                    for(std::size_t spc:spcs){
+                        const auto& st=fn.code[spc];
+                        if(st.isVolatile||st.args.size()!=1){ok=false;break;}
+                        const Reg val=st.args[0];
+                        if(auto cit=constantValues.find(val);cit!=constantValues.end()&&cit->second>=0){
+                            bound=std::max(bound,static_cast<std::uint64_t>(cit->second));
+                            continue;
+                        }
+                        std::int64_t step=0;
+                        bool isSelfInc=false;
+                        for(std::size_t dpc=0;dpc<spc;++dpc){
+                            const auto& di=fn.code[dpc];
+                            if(di.dest&&*di.dest==val&&di.op==NirOp::Binary&&di.text=="+"&&di.args.size()==2){
+                                auto cR=constantValues.find(di.args[1]);
+                                if(cR!=constantValues.end()&&cR->second>0&&cR->second<=1024){
+                                    for(std::size_t lpc=0;lpc<=dpc;++lpc){
+                                        if(fn.code[lpc].dest&&*fn.code[lpc].dest==di.args[0]&&
+                                           fn.code[lpc].op==NirOp::Load&&fn.code[lpc].text==vName){
+                                            isSelfInc=true;step=cR->second;break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if(!isSelfInc){ok=false;break;}
+                        std::uint64_t gMax=std::numeric_limits<std::uint64_t>::max();
+                        for(std::size_t gpc=0;gpc<spc;++gpc){
+                            const auto& br=fn.code[gpc];
+                            if(br.op!=NirOp::JumpIfFalse||br.args.size()!=1||br.target<=spc)continue;
+                            for(std::size_t cpc=0;cpc<gpc;++cpc){
+                                const auto& cmp=fn.code[cpc];
+                                if(cmp.dest&&*cmp.dest==br.args[0]&&cmp.op==NirOp::Binary&&
+                                   (cmp.text=="<"||cmp.text=="<=")&&cmp.args.size()==2){
+                                    auto up=constantValues.find(cmp.args[1]);
+                                    if(up==constantValues.end()||up->second<=0)continue;
+                                    bool matches=false;
+                                    for(std::size_t lpc=0;lpc<cpc;++lpc){
+                                        if(fn.code[lpc].dest&&*fn.code[lpc].dest==cmp.args[0]&&
+                                           fn.code[lpc].op==NirOp::Load&&fn.code[lpc].text==vName){
+                                            bool written=false;
+                                            for(std::size_t xpc:spcs)if(xpc>lpc&&xpc<spc){written=true;break;}
+                                            bool jumpedIn=false;
+                                            for(std::size_t jpc=gpc+1;jpc<=spc;++jpc)if(jumpTargets.count(jpc)){jumpedIn=true;break;}
+                                            if(!written&&!jumpedIn){matches=true;break;}
+                                        }
+                                    }
+                                    if(matches){
+                                        const std::uint64_t incB=static_cast<std::uint64_t>(up->second)+static_cast<std::uint64_t>(step);
+                                        gMax=std::min(gMax,incB);
+                                    }
+                                }
+                            }
+                        }
+                        if(gMax==std::numeric_limits<std::uint64_t>::max()){ok=false;break;}
+                        bound=std::max(bound,gMax);
+                    }
+                    if(ok)varUb[vName]=bound;
+                }
+                {
+                    std::vector<std::vector<std::size_t>> regDefPcs(fn.nextReg);
+                    for(std::size_t rpk=0;rpk<fn.code.size();++rpk){
+                        if(fn.code[rpk].dest&&*fn.code[rpk].dest<regDefPcs.size())
+                            regDefPcs[*fn.code[rpk].dest].push_back(rpk);
+                    }
+                    auto unwrapCast=[&](Reg r)->Reg{
+                        for(int hop=0;hop<4;++hop){
+                            if(r>=regDefPcs.size()||regDefPcs[r].size()!=1)break;
+                            const auto& ci=fn.code[regDefPcs[r][0]];
+                            if(ci.op==NirOp::Cast&&ci.args.size()==1)r=ci.args[0];
+                            else break;
+                        }
+                        return r;
+                    };
+                    for(std::size_t oBack=0;oBack<fn.code.size();++oBack){
+                        const auto& ob=fn.code[oBack];
+                        if(ob.op!=NirOp::Jump||ob.target>=oBack)continue;
+                        const std::size_t oHdr=ob.target;
+                        if(!(oHdr<header&&oBack>=backPc))continue;
+                        std::size_t oBr=oHdr;
+                        for(std::size_t k=oHdr;k<oBack;++k){
+                            if(fn.code[k].op==NirOp::JumpIfFalse&&fn.code[k].target>oBack){oBr=k;break;}
+                            if(fn.code[k].op==NirOp::Jump||fn.code[k].op==NirOp::JumpIfFalse)break;
+                        }
+                        if(oBr<=oHdr||oBr>=header||fn.code[oBr].args.size()!=1)continue;
+                        const Reg condR=fn.code[oBr].args[0];
+                        for(std::size_t cpc=oHdr;cpc<oBr;++cpc){
+                            const auto& cmp=fn.code[cpc];
+                            if(!cmp.dest||*cmp.dest!=condR||cmp.op!=NirOp::Binary||
+                               (cmp.text!="<"&&cmp.text!="<=")||cmp.args.size()!=2)continue;
+                            auto limIt2=constantValues.find(cmp.args[1]);
+                            if(limIt2==constantValues.end()||limIt2->second<=0)continue;
+                            const Reg idxR=cmp.args[0];
+                            if(idxR>=regDefPcs.size()||regDefPcs[idxR].size()!=2)continue;
+                            const std::size_t d0=regDefPcs[idxR][0],d1=regDefPcs[idxR][1];
+                            if(d0>=oHdr||d1<=oBr||d1>=oBack)continue;
+                            bool jumpedIn=false;
+                            for(std::size_t src=0;src<fn.code.size();++src){
+                                if(src>oBr&&src<=oBack)continue;
+                                const auto& jin=fn.code[src];
+                                if((jin.op==NirOp::Jump||jin.op==NirOp::JumpIfFalse)&&
+                                   jin.target>oBr&&jin.target<=d1){jumpedIn=true;break;}
+                            }
+                            if(jumpedIn)continue;
+                            const auto& initIn=fn.code[d0];
+                            std::int64_t initVal=-1;
+                            if(auto cv=constantValues.find(idxR);cv!=constantValues.end())initVal=cv->second;
+                            else if(initIn.op==NirOp::Const){
+                                if(auto v=std::get_if<std::int64_t>(&initIn.literal))initVal=*v;
+                            }else if(initIn.op==NirOp::Cast&&initIn.args.size()==1){
+                                if(auto cv=constantValues.find(initIn.args[0]);cv!=constantValues.end())initVal=cv->second;
+                            }
+                            if(initVal<0||initVal>limIt2->second)continue;
+                            const auto& stepIn=fn.code[d1];
+                            if(stepIn.op!=NirOp::Binary||stepIn.text!="+"||stepIn.args.size()!=2)continue;
+                            auto stepIt=constantValues.find(stepIn.args[1]);
+                            if(stepIt==constantValues.end()||stepIt->second<=0||stepIt->second>1024)continue;
+                            if(unwrapCast(stepIn.args[0])!=idxR)continue;
+                            std::uint64_t oMax=static_cast<std::uint64_t>(limIt2->second);
+                            if(cmp.text=="<"&&oMax>0)--oMax;
+                            nonNeg.insert(idxR);
+                            ub[idxR]=ub.count(idxR)?std::min(ub[idxR],oMax):oMax;
+                        }
+                    }
+                }
+                for(std::size_t k=0;k<header;++k){
+                    const auto& ci=fn.code[k];
+                    if(!ci.dest||allLoopDefs.count(*ci.dest))continue;
+                    const Reg d=*ci.dest;
+                    if(ci.op==NirOp::Load&&!ci.isVolatile){
+                        if(auto it=varUb.find(ci.text);it!=varUb.end()){
+                            nonNeg.insert(d);
+                            ub[d]=ub.count(d)?std::min(ub[d],it->second):it->second;
+                        }
+                    }else if(ci.op==NirOp::Cast&&ci.args.size()==1){
+                        if(nonNeg.count(ci.args[0])||resolveNonNegLoop(ci.args[0],allLoopDefs)){
+                            nonNeg.insert(d);
+                            if(ub.count(ci.args[0]))ub[d]=ub[ci.args[0]];
+                        }
+                    }else if(ci.op==NirOp::Binary&&ci.args.size()==2){
+                        const Reg a=ci.args[0],b=ci.args[1];
+                        const bool nna=nonNeg.count(a)||resolveNonNegLoop(a,allLoopDefs);
+                        const bool nnb=nonNeg.count(b)||resolveNonNegLoop(b,allLoopDefs);
+                        if(nna&&nnb){
+                            nonNeg.insert(d);
+                            if(ub.count(a)&&ub.count(b)){
+                                if(ci.text=="+"&&ub[a]<=UINT64_MAX-ub[b])ub[d]=ub[a]+ub[b];
+                                else if(ci.text=="*"&&(ub[a]==0||ub[b]<=UINT64_MAX/ub[a]))ub[d]=ub[a]*ub[b];
+                                else if(ci.text=="%"&&ub[b]>0)ub[d]=ub[b]-1;
+                                else if(ci.text=="/"&&ub[b]>=1)ub[d]=ub[a];
+                                else if(ci.text=="&")ub[d]=std::min(ub[a],ub[b]);
+                            }
+                        }
+                    }
+                }
+            }
             if(idxNonNeg)nonNeg.insert(idxReg);
             auto limIt=constantValues.find(limitReg);
             if(limIt!=constantValues.end()&&limIt->second>=0&&idxNonNeg){
@@ -1764,7 +1947,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             // Check aliasing of dynamic pointers & count dynamic base pointers <= 2
             std::size_t dynPtrCount=0;
             for(const auto& p:plan.ptrs)if(p.invOffsetReg.has_value())++dynPtrCount;
-            if(dynPtrCount>2)continue;
+            if(dynPtrCount>3)continue;
             bool aliasOk=true;
             for(const auto& opA:bodyOps){
                 if(opA.op.kind!=Avx2BodyOp::StoreArr)continue;
@@ -1843,7 +2026,20 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
     std::vector<std::string> coldTrapLabels;
     std::vector<std::string> coldBoundsTrapLabels;
     coldTrapLabels.reserve(fn.code.size()/8+1);
+    bool hasLegacySseInFn=!loopSimdStarts.empty()||!packedEnds.empty();
+    if(!hasLegacySseInFn){
+        for(const auto& ci:fn.code){
+            if((ci.op==NirOp::Unary||ci.op==NirOp::Binary||ci.op==NirOp::Cast)&&
+               (ci.type.kind==TypeKind::Float||
+                (!ci.args.empty()&&ci.args[0]<fn.registerTypes.size()&&
+                 fn.registerTypes[ci.args[0]].kind==TypeKind::Float))){
+                hasLegacySseInFn=true;break;
+            }
+        }
+    }
+    const bool keepPerLoopVzeroupper=hasLegacySseInFn;
     for(std::size_t pc=0;pc<fn.code.size();++pc){const auto&i=fn.code[pc];
+        if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         if(skippedOffsetBinary.count(pc))continue;
         if(delayedLoads.count(pc)){
             // Materialize the address, not its value, for a later memory
@@ -1903,7 +2099,6 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             store(*i.dest,"rax");
             continue;
         }
-        if(jumpTargets.count(pc))out<<pcLabel(fn,pc)<<":\n";
         if(const auto avxIt=avx2Loops.find(pc);avxIt!=avx2Loops.end()){
             const auto& plan=avxIt->second;
             const std::string scalarLbl=pcLabel(fn,pc)+"_scalar";
@@ -1917,7 +2112,12 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                <<"    jne "<<scalarLbl<<"\n"
                <<okLbl<<":\n";
             load(plan.idxReg,"rax");
-            load(plan.limitReg,"r11");
+            if(auto lc=constantValues.find(plan.limitReg);lc!=constantValues.end()){
+                if(lc->second==0)out<<"    xor r11d, r11d\n";
+                else out<<"    mov r11, "<<lc->second<<"\n";
+            }else{
+                load(plan.limitReg,"r11");
+            }
             out<<"    cmp rax, r11\n";
             if(plan.cmpOp=="<")
                 out<<(plan.isUnsigned?"    jae ":"    jge ")<<scalarLbl<<"\n";
@@ -1936,7 +2136,12 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             out<<"    and r11, -4\n"
                <<"    add r11, rax\n";
             for(const auto& [rInv,y]:plan.invBroadcasts){
-                load(rInv,"rax");
+                if(auto cv=constantValues.find(rInv);cv!=constantValues.end()){
+                    if(cv->second==0){out<<"    vpxor xmm"<<y<<", xmm"<<y<<", xmm"<<y<<"\n";continue;}
+                    out<<"    mov rax, "<<cv->second<<"\n";
+                }else{
+                    load(rInv,"rax");
+                }
                 out<<"    vmovq xmm"<<y<<", rax\n"
                    <<"    vpbroadcastq ymm"<<y<<", xmm"<<y<<"\n";
             }
@@ -1952,7 +2157,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
             std::vector<std::size_t> ptrStorage(plan.ptrs.size(),0);
             std::vector<int> ptrDynReg(plan.ptrs.size(),-1);
             std::size_t minFixedStorage=std::numeric_limits<std::size_t>::max();
-            static const char* kDynBaseRegs[2]={"rcx","r10"};
+            static const char* kDynBaseRegs[3]={"rcx","r10","r8"};
             int dynSlot=0;
             for(std::size_t pi=0;pi<plan.ptrs.size();++pi){
                 const auto& p=plan.ptrs[pi];
@@ -1997,9 +2202,10 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     }
                 }
             }
-            const auto emitBodySlice=[&](std::size_t elemDisp){
+            const auto emitBodySlice=[&](std::size_t elemDisp,int accYmm=1,int idxYmm=0){
+                const auto mapReg=[&](int y){return (plan.usesIdxVec&&idxYmm!=0&&y==0)?idxYmm:y;};
                 for(const auto& op:plan.ops){
-                    const int d=op.dstYmm,l=op.lhsYmm,r=op.rhsYmm;
+                    const int d=op.dstYmm,l=mapReg(op.lhsYmm),r=mapReg(op.rhsYmm);
                     switch(op.kind){
                         case Avx2BodyOp::Add: out<<"    vpaddq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
                         case Avx2BodyOp::Sub: out<<"    vpsubq ymm"<<d<<", ymm"<<l<<", ymm"<<r<<"\n"; break;
@@ -2044,7 +2250,7 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                         }
                         case Avx2BodyOp::LoadArr: out<<"    vmovdqu ymm"<<d<<", "<<ptrMemAt(op.ptrIdx,elemDisp)<<"\n"; break;
                         case Avx2BodyOp::StoreArr: out<<"    vmovdqu "<<ptrMemAt(op.ptrIdx,elemDisp)<<", ymm"<<l<<"\n"; break;
-                        case Avx2BodyOp::AccAdd: out<<"    vpaddq ymm1, ymm1, ymm"<<l<<"\n"; break;
+                        case Avx2BodyOp::AccAdd: out<<"    vpaddq ymm"<<accYmm<<", ymm"<<accYmm<<", ymm"<<l<<"\n"; break;
                     }
                 }
             };
@@ -2052,18 +2258,26 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 plan.ops.size()<=8&&minFixedStorage>96;
             const bool canUnroll2=!plan.isUnsigned&&!canUnroll4&&
                 plan.ops.size()<=24&&minFixedStorage>32;
+            const bool use4Acc=canUnroll4&&plan.hasAcc&&std::none_of(
+                plan.ops.begin(),plan.ops.end(),
+                [](const Avx2BodyOp& op){return op.kind==Avx2BodyOp::Mul||op.kind==Avx2BodyOp::ModMagic32;});
+            const bool useDualIdx=canUnroll2&&plan.usesIdxVec&&hoistedMulHiSrcYmm<0&&!plan.hasAcc;
             const std::string tail4Lbl=localLabel(fn,pc,"avx2_tail4");
             const std::string doneVecLbl=localLabel(fn,pc,"avx2_done");
             if(canUnroll4){
                 const std::string loop16Lbl=localLabel(fn,pc,"avx2_loop16");
+                if(use4Acc)
+                    out<<"    vpxor xmm13, xmm13, xmm13\n"
+                       <<"    vpxor xmm14, xmm14, xmm14\n"
+                       <<"    vpxor xmm15, xmm15, xmm15\n";
                 out<<"    sub r11, 12\n"
                    <<"    cmp rax, r11\n"
                    <<"    jge "<<tail4Lbl<<"\n"
                    <<loop16Lbl<<":\n";
-                emitBodySlice(0);
-                emitBodySlice(4);
-                emitBodySlice(8);
-                emitBodySlice(12);
+                emitBodySlice(0,1);
+                emitBodySlice(4,use4Acc?13:1);
+                emitBodySlice(8,use4Acc?14:1);
+                emitBodySlice(12,use4Acc?15:1);
                 out<<"    add rax, 16\n"
                    <<"    cmp rax, r11\n"
                    <<"    jl "<<loop16Lbl<<"\n"
@@ -2073,19 +2287,29 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                    <<"    jge "<<doneVecLbl<<"\n";
             }else if(canUnroll2){
                 const std::string loop8Lbl=localLabel(fn,pc,"avx2_loop8");
+                if(useDualIdx)
+                    out<<"    vpaddq ymm13, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
                 out<<"    sub r11, 4\n"
                    <<"    cmp rax, r11\n"
                    <<"    jge "<<tail4Lbl<<"\n"
                    <<loop8Lbl<<":\n";
-                emitBodySlice(0);
-                if(plan.usesIdxVec)
-                    out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
-                out<<"    add rax, 4\n";
-                emitBodySlice(0);
-                if(plan.usesIdxVec)
-                    out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
-                out<<"    add rax, 4\n"
-                   <<"    cmp rax, r11\n"
+                if(useDualIdx){
+                    emitBodySlice(0,1,0);
+                    emitBodySlice(4,1,13);
+                    out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step8]\n"
+                       <<"    vpaddq ymm13, ymm13, YMMWORD PTR [rip + .L_noqeri_vec_step8]\n"
+                       <<"    add rax, 8\n";
+                }else{
+                    emitBodySlice(0);
+                    if(plan.usesIdxVec)
+                        out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
+                    out<<"    add rax, 4\n";
+                    emitBodySlice(0);
+                    if(plan.usesIdxVec)
+                        out<<"    vpaddq ymm0, ymm0, YMMWORD PTR [rip + .L_noqeri_vec_step4]\n";
+                    out<<"    add rax, 4\n";
+                }
+                out<<"    cmp rax, r11\n"
                    <<"    jl "<<loop8Lbl<<"\n"
                    <<tail4Lbl<<":\n"
                    <<"    add r11, 4\n"
@@ -2102,6 +2326,10 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                <<doneVecLbl<<":\n";
             store(plan.idxReg,"rax");
             if(plan.hasAcc){
+                if(use4Acc)
+                    out<<"    vpaddq ymm1, ymm1, ymm13\n"
+                       <<"    vpaddq ymm14, ymm14, ymm15\n"
+                       <<"    vpaddq ymm1, ymm1, ymm14\n";
                 out<<"    vextracti128 xmm14, ymm1, 1\n"
                    <<"    vpaddq xmm1, xmm1, xmm14\n"
                    <<"    vpsrldq xmm14, xmm1, 8\n"
@@ -2111,8 +2339,8 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                 out<<"    add rax, r11\n";
                 store(plan.accReg,"rax");
             }
-            out<<"    vzeroupper\n"
-               <<scalarLbl<<":\n";
+            if(keepPerLoopVzeroupper)out<<"    vzeroupper\n";
+            out<<scalarLbl<<":\n";
         }
         switch(i.op){
         case NirOp::Const:{
@@ -2262,12 +2490,13 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
                     if(i.width==1||i.width==2||i.width==4||i.width==8)
                         out<<"    lea "<<destReg<<", ["<<baseReg<<" + "<<indexReg<<"*"<<i.width<<"]\n";
                     else{
-                        if(destReg!=baseReg)out<<"    mov "<<destReg<<", "<<baseReg<<"\n";
-                        out<<"    imul r10, "<<i.width<<"\n";
-                        out<<"    add "<<destReg<<", r10\n";
+                        out<<"    imul r10, "<<indexReg<<", "<<i.width<<"\n";
+                        out<<"    lea "<<destReg<<", ["<<baseReg<<" + r10]\n";
                     }
                 }else if(i.target){
                     out<<"    lea "<<destReg<<", ["<<baseReg<<" + "<<i.target<<"]\n";
+                }else if(destReg!=baseReg){
+                    out<<"    mov "<<destReg<<", "<<baseReg<<"\n";
                 }
                 if(destPhys==physical.end())store(*i.dest,"rax");
             }break;
@@ -2694,10 +2923,10 @@ bool emitFunction(std::ostream&out,const NirFunction&fn,const std::unordered_map
            i.text=="/"||i.text=="%")
             normalizeIntegerResult(out,i.type.kind);
         store(*i.dest,"rax");break;}
-        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float)out<<"    call noqeri_rt_print_float\n";else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(symbols,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
+        case NirOp::Call:{if(i.text=="abi"||i.text=="host"){diagnostics.error("NQR-N5010",{},"generic named ABI dispatch is not yet lowered by native codegen");return false;}if(!avx2Loops.empty()&&!keepPerLoopVzeroupper)out<<"    vzeroupper\n";if(i.text=="textLength"){if(i.args.size()!=1){diagnostics.error("NQR-N5007",{},"native textLength accepts exactly one string");return false;}load(i.args[0],"rdi");out<<"    call noqeri_rt_text_length\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="print"){if(i.args.size()!=1){diagnostics.error("NQR-N5006",{},"native print accepts exactly one argument");return false;}Reg r=i.args[0];load(r,"rdi");auto k=r<l.regKinds.size()?l.regKinds[r]:ValueKind::Unknown;if(k==ValueKind::String)out<<"    call noqeri_rt_print_cstr\n";else if(k==ValueKind::Bool)out<<"    call noqeri_rt_print_bool\n";else if(k==ValueKind::Float)out<<"    call noqeri_rt_print_float\n";else out<<"    call noqeri_rt_print_int\n";if(i.dest){out<<"    xor eax, eax\n";store(*i.dest,"rax");}}else if(i.text=="clockMillis"){out<<"    call noqeri_rt_clock_millis\n";if(i.dest)store(*i.dest,"rax");}else if(i.text=="platform"){out<<"    call noqeri_rt_platform\n";if(i.dest)store(*i.dest,"rax");}else{if(i.args.size()>6){diagnostics.error("NQR-N5004",{},"native calls currently support at most 6 arguments");return false;}for(std::size_t a=0;a<i.args.size();++a)load(i.args[a],args[a]);out<<"    call "<<symbolForCall(symbols,i.text)<<"\n";if(i.dest)store(*i.dest,"rax");}break;}
         case NirOp::Jump:out<<"    jmp "<<pcLabel(fn,i.target)<<(avx2JumpRedirects.count(pc)?"_scalar":"")<<"\n";break;
         case NirOp::JumpIfFalse:load(i.args[0],"rax");out<<"    test rax, rax\n    jz "<<pcLabel(fn,i.target)<<"\n";break;
-        case NirOp::Return:if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
+        case NirOp::Return:if(!avx2Loops.empty()&&!keepPerLoopVzeroupper)out<<"    vzeroupper\n";if(!i.args.empty())load(i.args[0],"rax");else out<<"    xor eax, eax\n";restoreSaved();out<<"    leave\n    ret\n";break;
         case NirOp::Nop:break;
     }}
     if(!coldTrapLabels.empty()||!coldBoundsTrapLabels.empty()){
@@ -2740,7 +2969,7 @@ bool NativeBackend::emitAssembly(const NirProgram&p,const std::filesystem::path&
     for(const auto&f:p.functions)
         if(!emitFunction(out,f,returns,strings,callSymbols,diagnostics))return false;
     out<<"\n.global noqeri_entry\nnoqeri_entry:\n    mov QWORD PTR [rip + noqeri_abi_current], rdi\n    sub rsp, 8\n    call "<<internalSymbol("__entry")<<"\n    add rsp, 8\n    ret\n";
-    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n.L_noqeri_bounds_err: .asciz \"NQR-R4000: runtime error: index out of bounds\\n\"\n.L_noqeri_avx2_state: .byte 0\n.p2align 5\n.L_noqeri_vec_iota4: .quad 0, 1, 2, 3\n.L_noqeri_vec_step4: .quad 4, 4, 4, 4\n";
+    out<<"\n.data\n.L_noqeri_newline: .byte 10\n.L_noqeri_float_format: .asciz \"%.6f\"\n.L_noqeri_true: .asciz \"true\"\n.L_noqeri_false_text: .asciz \"false\"\n.L_noqeri_standalone: .asciz \"freestanding\"\n.L_noqeri_bounds_err: .asciz \"NQR-R4000: runtime error: index out of bounds\\n\"\n.L_noqeri_avx2_state: .byte 0\n.p2align 5\n.L_noqeri_vec_iota4: .quad 0, 1, 2, 3\n.L_noqeri_vec_step4: .quad 4, 4, 4, 4\n.L_noqeri_vec_step8: .quad 8, 8, 8, 8\n";
     for(const auto&[value,label]:strings){out<<label<<": .byte ";for(std::size_t i=0;i<value.size();++i){if(i)out<<", ";out<<static_cast<unsigned int>(static_cast<unsigned char>(value[i]));}if(!value.empty())out<<", ";out<<"0\n";}
 #if !defined(_WIN32)
     // ELF x86-64 native objects must not request an executable stack.

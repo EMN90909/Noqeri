@@ -9,6 +9,12 @@
 
 namespace noqeri_nodule {
 
+struct NdlDependency {
+    std::string name;
+    std::string version;
+    std::string sha256Hex;
+};
+
 struct NdlManifest {
     std::string name;
     std::string version;
@@ -16,6 +22,7 @@ struct NdlManifest {
     std::uint32_t abiVersion = 2;
     std::string entry;
     std::vector<std::string> exports;
+    std::vector<NdlDependency> dependencies;
 };
 
 struct NdlEntry {
@@ -28,6 +35,7 @@ struct NdlEntry {
 struct NdlArchive {
     NdlManifest manifest;
     std::vector<NdlEntry> entries;
+    std::string archiveSha256Hex;
     const NdlEntry* findEntry(std::string_view path) const;
 };
 

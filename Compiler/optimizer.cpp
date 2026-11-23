@@ -1460,32 +1460,36 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
             const auto stIt=storeLocations.find(vName);
             const std::int64_t maxBaseAllowed=limit->second-1-offset;
             if(stIt!=storeLocations.end()&&!stIt->second.empty()){
-                // Check if var >= 0 guard dominates check
+                // Check if var >= 0 dominates the CheckBounds directly, OR if offset >= 1
+                // and every decrement var = var - step (step <= offset) is itself guarded
+                // by var >= 0 (ensuring var >= -offset after decrement).
                 bool hasZeroLowerGuard=false;
-                for(std::size_t lowerPc=0;lowerPc<pc;++lowerPc){
-                    const auto& lb=fn.code[lowerPc];
-                    if(lb.op!=NirOp::JumpIfFalse||lb.args.size()!=1||
-                       lb.target<=pc||lowerPc+1>=fn.code.size())continue;
-                    const auto ld=g.definitions.find(lb.args[0]);
-                    if(ld==g.definitions.end()||ld->second>=lowerPc)continue;
-                    const auto& cmp=fn.code[ld->second];
-                    if(cmp.op!=NirOp::Binary||cmp.text!=">="||cmp.args.size()!=2)continue;
-                    const auto lName=loads.find(cmp.args[0]);
-                    const auto lConst=constants.find(cmp.args[1]);
-                    if(lName==loads.end()||lName->second!=vName||
-                       lConst==constants.end()||lConst->second!=0||
-                       !signedIndexType(operandType(fn,cmp.args[0]))||
-                       !g.dominates[g.owner[pc]][g.owner[lowerPc+1]]||
-                       bypassesGuard(lowerPc,pc,vName))continue;
-                    const auto lLoad=g.definitions.find(cmp.args[0]);
-                    if(lLoad==g.definitions.end()||lLoad->second>=lowerPc||
-                       fn.code[lLoad->second].op!=NirOp::Load||
-                       fn.code[lLoad->second].isVolatile)continue;
-                    if(!invalidated(vName,lLoad->second,pc)){
-                        hasZeroLowerGuard=true;break;
+                const auto guardedNonNeg=[&](std::size_t targetPc)->bool{
+                    for(std::size_t lowerPc=0;lowerPc<targetPc;++lowerPc){
+                        const auto& lb=fn.code[lowerPc];
+                        if(lb.op!=NirOp::JumpIfFalse||lb.args.size()!=1||
+                           lb.target<=targetPc||lowerPc+1>=fn.code.size())continue;
+                        const auto ld=g.definitions.find(lb.args[0]);
+                        if(ld==g.definitions.end()||ld->second>=lowerPc)continue;
+                        const auto& cmp=fn.code[ld->second];
+                        if(cmp.op!=NirOp::Binary||cmp.text!=">="||cmp.args.size()!=2)continue;
+                        const auto lName=loads.find(cmp.args[0]);
+                        const auto lConst=constants.find(cmp.args[1]);
+                        if(lName==loads.end()||lName->second!=vName||
+                           lConst==constants.end()||lConst->second!=0||
+                           !signedIndexType(operandType(fn,cmp.args[0]))||
+                           !g.dominates[g.owner[targetPc]][g.owner[lowerPc+1]]||
+                           bypassesGuard(lowerPc,targetPc,vName))continue;
+                        const auto lLoad=g.definitions.find(cmp.args[0]);
+                        if(lLoad==g.definitions.end()||lLoad->second>=lowerPc||
+                           fn.code[lLoad->second].op!=NirOp::Load||
+                           fn.code[lLoad->second].isVolatile)continue;
+                        if(!invalidated(vName,lLoad->second,targetPc))return true;
                     }
-                }
-                if(hasZeroLowerGuard){
+                    return false;
+                };
+                hasZeroLowerGuard=guardedNonNeg(pc);
+                if(hasZeroLowerGuard||offset>=1){
                     bool sawInit=false,allValid=true;
                     for(std::size_t spc:stIt->second){
                         const auto& st=fn.code[spc];
@@ -1507,11 +1511,14 @@ bool eliminateGuardedBounds(NirFunction& fn,const Graph& g){
                             allValid=false;break;
                         }
                         if(lhsLoad->second==vName){
-                            // Monotonic decrement var = var - k (safe when var >= 0 dominates or small step)
+                            if(!hasZeroLowerGuard&&(*rhsConst>offset||!guardedNonNeg(spc))){
+                                allValid=false;break;
+                            }
                             continue;
                         }
                         // Init from outer var: var = outer - d, check outer < U dominates spc
-                        bool outerBounded=isNonNegativeVar(lhsLoad->second);
+                        bool outerBounded=isNonNegativeVar(lhsLoad->second)&&
+                            (hasZeroLowerGuard||*rhsConst<=offset);
                         if(outerBounded){
                             bool outerGuard=false;
                             const auto outerKind=operandType(fn,subIn.args[0]);

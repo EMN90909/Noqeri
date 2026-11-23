@@ -71,6 +71,24 @@ double trace(const Matrix& x) {
 Matrix softmax(const Matrix& x,std::size_t axis) {
     valid(x);
     Matrix out(x.rows,x.cols);
+    if(axis==1) {
+        const std::size_t cols=x.cols;
+        for(std::size_t i=0;i<x.rows;++i) {
+            const double* src=&x.values[i*cols];
+            double* dst=&out.values[i*cols];
+            double top=-std::numeric_limits<double>::infinity();
+            for(std::size_t j=0;j<cols;++j)top=std::max(top,src[j]);
+            double denom=0.0;
+            for(std::size_t j=0;j<cols;++j) {
+                const double e=std::exp(src[j]-top);
+                dst[j]=e;
+                denom+=e;
+            }
+            const double inv=1.0/denom;
+            for(std::size_t j=0;j<cols;++j)dst[j]*=inv;
+        }
+        return checked(std::move(out));
+    }
     const std::size_t n=groups(x,axis),count=axis==0?x.rows:x.cols;
     for(std::size_t g=0;g<n;++g) {
         const auto row=log_row(x,axis,g);
@@ -136,17 +154,22 @@ Matrix layer_norm_rows(const Matrix& x,double epsilon) {
     require(std::isfinite(epsilon) && epsilon>0 && epsilon<=1,
             "invalid layer normalization epsilon");
     Matrix out(x.rows,x.cols);
+    const std::size_t cols=x.cols;
+    const long double inv_cols=1.0L/static_cast<long double>(cols);
     for(std::size_t i=0;i<x.rows;++i) {
-        long double mean=0,m2=0;
-        for(std::size_t j=0;j<x.cols;++j) {
-            const long double value=x.at(i,j);
-            const long double delta=value-mean;
-            mean+=delta/static_cast<long double>(j+1);
-            m2+=delta*(value-mean);
+        const double* src=&x.values[i*cols];
+        double* dst=&out.values[i*cols];
+        long double sum=0.0L;
+        for(std::size_t j=0;j<cols;++j)sum+=src[j];
+        const long double mean=sum*inv_cols;
+        long double m2=0.0L;
+        for(std::size_t j=0;j<cols;++j) {
+            const long double d=static_cast<long double>(src[j])-mean;
+            m2+=d*d;
         }
-        const long double divisor=std::sqrt(m2/x.cols+epsilon);
-        for(std::size_t j=0;j<x.cols;++j)
-            out.at(i,j)=static_cast<double>((x.at(i,j)-mean)/divisor);
+        const double inv_std=static_cast<double>(1.0L/std::sqrt(m2*inv_cols+epsilon));
+        const double dmean=static_cast<double>(mean);
+        for(std::size_t j=0;j<cols;++j)dst[j]=(src[j]-dmean)*inv_std;
     }
     return checked(std::move(out));
 }
